@@ -1,5 +1,8 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
+"""modelfactors.py Generates performance metrics from a set of Paraver traces."""
+
+from __future__ import print_function, division
 import os
 import sys
 import subprocess
@@ -11,8 +14,9 @@ import time
 from collections import OrderedDict
 
 
-#Basic debug switch to enable more verbose output
-debug = False
+__author__ = "Michael Wagner"
+__copyright__ = "Copyright 2017, Barcelona Supercomputing Center (BSC)"
+__version__ = "0.1.2"
 
 
 #Contains all raw data entries with a printable name.
@@ -50,12 +54,24 @@ def parse_arguments():
     traces that are processed. This can be a regex and only valid trace files
     are kept at the end.
     """
-    parser = argparse.ArgumentParser(description='Generates performance metrics from a set of paraver traces.')
-    parser.add_argument('trace_list', nargs='+', help='List of traces to process. Accepts wild cards and automatically filters for valid traces.')
+    parser = argparse.ArgumentParser(description='Generates performance metrics from a set of Paraver traces.')
+    parser.add_argument('trace_list', nargs='+', help='list of traces to process. Accepts wild cards and automatically filters for valid traces')
+    parser.add_argument("--version", action='version', version='%(prog)s {version}'.format(version=__version__))
+    parser.add_argument("-v", "--verbose", help="increase output verbosity", action="store_true")
+    parser.add_argument("-d", "--debug", help="increase output verbosity to debug level", action="store_true")
+    parser.add_argument("-s", "--scaling", help="define whether the measurements are weak or strong scaling (default: auto)",
+                        choices=['weak','strong','auto'], default='auto')
+
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
+
     cmdl_args = parser.parse_args()
+
+    if cmdl_args.debug:
+        print('==DEBUG== Running in debug mode.')
+        cmdl_args.verbose = True
+
     return cmdl_args
 
 
@@ -67,6 +83,11 @@ def get_traces_from_args(cmdl_args):
     """
     prv_files = [x for x in cmdl_args.trace_list if fnmatch.fnmatch(x, '*.prv') if not fnmatch.fnmatch(x, '*.sim.prv')]
     prv_files = sorted(prv_files, key=get_num_processes)
+
+    if not prv_files:
+        print('==Error== could not find any traces matching "' + ' '.join(cmdl_args.trace_list) + ' ')
+        sys.exit(1)
+
     print_overview(prv_files)
     return prv_files
 
@@ -94,14 +115,45 @@ def human_readable(size, precision=1):
 
 def print_overview(trace_list):
     """Prints an overview of the traces that will be processed."""
-    print 'Running modelfactors.py for the following traces:'
+    print('Running', os.path.basename(__file__), 'for the following traces:')
 
     for trace in trace_list:
         line = trace
         line += ', ' + str(get_num_processes(trace)) + ' processes'
-        line += ', ' + human_readable( os.path.getsize( trace ) )
-        print line
-    print
+        line += ', ' + human_readable(os.path.getsize(trace))
+        print(line)
+    print('')
+
+
+def which(cmd):
+    """Returns path to cmd in path or None if not available."""
+    for path in os.environ["PATH"].split(os.pathsep):
+        path = path.strip('"')
+        cmd_path = os.path.join(path, cmd)
+        if os.path.isfile(cmd_path) and os.access(cmd_path, os.X_OK):
+            return cmd_path
+
+    return None
+
+
+def check_executables(cmdl_args):
+    """Check if Dimemas and paramedir are in the path."""
+
+    if not which('Dimemas'):
+        print('Could not find Dimemas. Please make sure Dimemas is correctly installed and in the path.')
+        sys.exit(1)
+    if not which('paramedir'):
+        print('Could not find paramedir. Please make sure Paraver is correctly installed and in the path.')
+        sys.exit(1)
+
+    if cmdl_args.debug:
+        print('==DEBUG== Using', __file__, __version__)
+        print('==DEBUG== Using', sys.executable, ".".join(map(str, sys.version_info[:3])))
+        print('==DEBUG== Using', which('Dimemas'))
+        print('==DEBUG== Using', which('paramedir'))
+        print('')
+
+    return
 
 
 def run_command(cmd):
@@ -110,16 +162,15 @@ def run_command(cmd):
                                       dir='./', delete=False)
     err = tempfile.NamedTemporaryFile(suffix='.err', prefix=cmd[0]+'_',
                                       dir='./', delete=False)
-    if (debug):
-        print 'Executing:'
-        print ' '.join(cmd)
+    if cmdl_args.debug:
+        print('==DEBUG== Executing:', ' '.join(cmd))
 
     return_value = subprocess.call(cmd, stdout=out, stderr=err)
     if return_value == 0:
         os.remove(out.name)
         os.remove(err.name)
     else:
-        print ' '.join(cmd) + ' failed with return value ' + str(return_value) + '!'
+        print(' '.join(cmd) + ' failed with return value ' + str(return_value) + '!')
 
     return return_value
 
@@ -159,28 +210,32 @@ def print_raw_data_table(raw_data, trace_list):
     """Prints the raw data table in human readable form on stdout."""
     global raw_data_doc
 
+    print('Overview of the collected raw data:')
+
     longest_name = len(sorted(raw_data_doc.values(), key=len)[-1])
 
     line = ''.rjust(longest_name)
     for trace in trace_list:
         line += ' | '
         line += str(get_num_processes(trace)).rjust(15)
-    print line
+    print(line)
 
-    print ''.ljust(len(line),'=')
+    print(''.ljust(len(line),'='))
 
     for data_key in raw_data_doc:
         line = raw_data_doc[data_key].ljust(longest_name)
         for trace in trace_list:
             line += ' | '
             line += str(raw_data[data_key][trace]).rjust(15)
-        print line
-    print
+        print(line)
+    print('')
 
 
 def print_mod_factors_table(mod_factors, trace_list):
     """Prints the model factors table in human readable form on stdout."""
     global mod_factors_doc
+
+    print('Overview of the computed model factors:')
 
     longest_name = len(sorted(mod_factors_doc.values(), key=len)[-1])
 
@@ -188,25 +243,24 @@ def print_mod_factors_table(mod_factors, trace_list):
     for trace in trace_list:
         line += ' | '
         line += str(get_num_processes(trace)).rjust(10)
-    print line
+    print(line)
 
-    print ''.ljust(len(line),'=')
+    print(''.ljust(len(line),'='))
 
     for mod_key in mod_factors_doc:
         line = mod_factors_doc[mod_key].ljust(longest_name)
         for trace in trace_list:
             line += ' | '
-            line += ('{:.2f}'.format(mod_factors[mod_key][trace])).rjust(10)
-        print line
+            line += ('{0:.2f}%'.format(mod_factors[mod_key][trace])).rjust(10)
+        print(line)
         #Print empty line to separate values
         if mod_key == 'global_eff' or mod_key == 'inst_scale':
             line = ''.ljust(longest_name)
             for trace in trace_list:
                 line += ' | '
                 line += ''.rjust(10)
-            print line
-
-    print
+            print(line)
+    print('')
 
 
 def print_mod_factors_csv(mod_factors, trace_list):
@@ -228,13 +282,13 @@ def print_mod_factors_csv(mod_factors, trace_list):
             line = mod_factors_doc[mod_key].replace('  ', '', 2)
             for trace in trace_list:
                 line += delimiter
-                line += '{:.2f}'.format(mod_factors[mod_key][trace])
+                line += '{0:.2f}'.format(mod_factors[mod_key][trace])
             output.write(line + '\n')
 
-    print 'Output written to ' + file_path
+    print('Output written to ' + file_path)
 
 
-def gather_raw_data(trace_list):
+def gather_raw_data(trace_list, cmdl_args):
     """Gathers all raw data needed to generate the model factors. Return raw
     data in a 2D dictionary <data type><list of values for each trace>"""
     raw_data = create_raw_data(trace_list)
@@ -254,13 +308,13 @@ def gather_raw_data(trace_list):
         line = 'Analyzing ' + os.path.basename(trace)
         line += ' (' + str(get_num_processes(trace)) + ' processes'
         line += ', ' + human_readable( os.path.getsize( trace ) ) + ')'
-        print line
+        print(line)
 
         #Create simulated ideal trace with Dimemas
         time_dim = time.time()
-        trace_sim = create_ideal_trace(trace)
+        trace_sim = create_ideal_trace(trace, cmdl_args)
         time_dim = time.time() - time_dim
-        print 'Successfully created simulated trace with Dimemas in {:.1f} seconds.'.format(time_dim)
+        print('Successfully created simulated trace with Dimemas in {0:.1f} seconds.'.format(time_dim))
 
         #Run paramedir for the original and simulated trace
         time_pmd = time.time()
@@ -278,7 +332,7 @@ def gather_raw_data(trace_list):
         run_command(cmd_ideal)
 
         time_pmd = time.time() - time_pmd
-        print 'Successfully analyzed trace with paramedir in {:.1f} seconds.'.format(time_pmd)
+        print('Successfully analyzed trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
 
 
         #Parse the paramedir output files
@@ -356,16 +410,15 @@ def gather_raw_data(trace_list):
         os.remove(trace_sim[:-4] + '.timings.stats')
         os.remove(trace_sim[:-4] + '.runtime.stats')
         time_prs = time.time() - time_prs
-        #print 'Successfully parsed data in {:.1f} seconds.'.format(time_prs)
 
         time_tot = time.time() - time_tot
-        print 'Finished successfully in {:.1f} seconds.'.format(time_tot)
-        print
+        print('Finished successfully in {0:.1f} seconds.'.format(time_tot))
+        print('')
 
     return raw_data
 
 
-def get_scaling_type(raw_data, trace_list):
+def get_scaling_type(raw_data, trace_list, cmdl_args):
     """Guess the scaling type (weak/strong) based on the useful instructions.
     Computes the normalized instruction ratio for all measurements, whereas the
     normalized instruction ratio is (instructions ratio / process ratio) with
@@ -386,18 +439,41 @@ def get_scaling_type(raw_data, trace_list):
     #Get the average inst increase. Ignore ratio of first trace 1.0)
     normalized_inst_ratio = (normalized_inst_ratio - 1) / (len(trace_list) - 1)
 
+    scaling_computed = ''
+
     if normalized_inst_ratio > eps:
-        return 'weak'
+        scaling_computed = 'weak'
     else:
+        scaling_computed = 'strong'
+
+    if cmdl_args.scaling == 'auto':
+        if cmdl_args.verbose:
+            print('==Info== Detected ' + scaling_computed + ' scaling.')
+            print('')
+        return scaling_computed
+
+    if cmdl_args.scaling == 'weak':
+        if scaling_computed == 'strong':
+            print('==Warning== Scaling set to weak scaling but detected strong scaling.')
+            print('')
+        return 'weak'
+
+    if cmdl_args.scaling == 'strong':
+        if scaling_computed == 'weak':
+            print('==Warning== Scaling set to strong scaling but detected weak scaling.')
+            print('')
         return 'strong'
 
+    print('==Error== reached undefined control flow state.')
+    sys.exit(1)
 
-def compute_model_factors(raw_data, trace_list):
+
+def compute_model_factors(raw_data, trace_list, cmdl_args):
     """Computes the model factors from the gathered raw data and returns the
     according dictionary of model factors."""
     mod_factors = create_mod_factors(trace_list)
     #Guess the weak or strong scaling
-    scaling = get_scaling_type(raw_data, trace_list)
+    scaling = get_scaling_type(raw_data, trace_list, cmdl_args)
 
     #Loop over all traces
     for trace in trace_list:
@@ -413,7 +489,7 @@ def compute_model_factors(raw_data, trace_list):
         if scaling == 'strong':
             mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] / raw_data['useful_tot'][trace] * 100.0
         else:
-            mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] / raw_data['useful_tot'][trace] / proc_ratio * 100.0
+            mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] / raw_data['useful_tot'][trace] * proc_ratio * 100.0
 
         mod_factors['global_eff'][trace] = mod_factors['parallel_eff'][trace] * mod_factors['comp_scale'][trace] / 100.0
 
@@ -424,14 +500,17 @@ def compute_model_factors(raw_data, trace_list):
         if scaling == 'strong':
             mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) / float(raw_data['useful_ins'][trace]) * 100.0
         else:
-            mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) / float(raw_data['useful_ins'][trace]) / proc_ration * 100.0
+            mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) / float(raw_data['useful_ins'][trace]) * proc_ratio * 100.0
 
-        mod_factors['speedup'][trace] = raw_data['runtime'][trace_list[0]] / raw_data['runtime'][trace]
+        if scaling == 'strong':
+            mod_factors['speedup'][trace] = raw_data['runtime'][trace_list[0]] / raw_data['runtime'][trace]
+        else:
+            mod_factors['speedup'][trace] = raw_data['runtime'][trace_list[0]] / raw_data['runtime'][trace] * proc_ratio
 
     return mod_factors
 
 
-def create_ideal_trace(trace):
+def create_ideal_trace(trace, cmdl_args):
     """Runs prv2dim and dimemas with ideal configuration for given trace."""
     trace_dim = trace[:-4] + '.dim'
     trace_sim = trace[:-4] + '.sim.prv'
@@ -439,10 +518,10 @@ def create_ideal_trace(trace):
     run_command(cmd)
 
     if os.path.isfile(trace_dim):
-        if (debug):
-            print 'Created file ' + trace_dim
+        if cmdl_args.debug:
+            print('==DEBUG== Created file ' + trace_dim)
     else:
-        print 'Error: ' + trace_dim + 'could not be creaeted.'
+        print('==Error== ' + trace_dim + 'could not be creaeted.')
         return
 
     num_processes = str(get_num_processes(trace))
@@ -464,10 +543,10 @@ def create_ideal_trace(trace):
     run_command(cmd)
 
     if os.path.isfile(trace_sim):
-        if (debug):
-            print 'Created file ' + trace_sim
+        if cmdl_args.debug:
+            print('==DEBUG== Created file ' + trace_sim)
     else:
-        print 'Error: ' + trace_sim + 'could not be creaeted.'
+        print('==Error== ' + trace_sim + 'could not be creaeted.')
 
     os.remove(trace_dim)
     os.remove(trace[:-4]+'.dimemas_ideal.cfg')
@@ -484,16 +563,19 @@ if __name__ == "__main__":
     #Parse command line arguments
     cmdl_args = parse_arguments()
 
+    #Check if paramedir and Dimemas are in the path
+    check_executables(cmdl_args)
+
     #Filters all traces (i.e. *.prv) and sorts them by the number of processes
     trace_list = get_traces_from_args(cmdl_args)
 
     #Analyse the traces and gathers the raw input data
-    raw_data = gather_raw_data(trace_list)
-    if (debug):
+    raw_data = gather_raw_data(trace_list, cmdl_args)
+    if cmdl_args.verbose:
         print_raw_data_table(raw_data, trace_list)
 
     #Compute the model factors and print them
-    mod_factors = compute_model_factors(raw_data, trace_list)
+    mod_factors = compute_model_factors(raw_data, trace_list, cmdl_args)
     print_mod_factors_table(mod_factors, trace_list)
     print_mod_factors_csv(mod_factors, trace_list)
 

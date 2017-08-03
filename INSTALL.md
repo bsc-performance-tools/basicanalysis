@@ -1,7 +1,7 @@
 # Installation Instructions
 
 There is no installation required. Just copy the content of this folder to your
-preferred location and add it the directory to the PATH environment variable.
+preferred location and add the directory to the PATH environment variable.
 
 ## Prerequisites
 
