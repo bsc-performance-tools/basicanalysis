@@ -13,6 +13,16 @@ import re
 import time
 from collections import OrderedDict
 
+try:
+    import scipy.optimize
+except ImportError:
+    print('==ERROR== Could not import SciPy. Please make sure to install a current version.')
+
+try:
+    import numpy
+except ImportError:
+    print('==ERROR== Could not import NumPy. Please make sure to install a current version.')
+
 
 __author__ = "Michael Wagner"
 __copyright__ = "Copyright 2017, Barcelona Supercomputing Center (BSC)"
@@ -44,8 +54,10 @@ mod_factors_doc = OrderedDict([('parallel_eff', 'Parallel efficiency'),
                                ('global_eff',   'Global efficiency'),
                                ('ipc_scale',    'IPC scalability'),
                                ('inst_scale',   'Instruction scalability'),
+                               ('freq_scale',   'Frequency scalability'),
                                ('speedup',      'Speedup'),
-                               ('ipc',          'Average IPC')])
+                               ('ipc',          'Average IPC'),
+                               ('freq',         'Average frequency (GHz)')])
 
 
 def parse_arguments():
@@ -55,12 +67,20 @@ def parse_arguments():
     are kept at the end.
     """
     parser = argparse.ArgumentParser(description='Generates performance metrics from a set of Paraver traces.')
-    parser.add_argument('trace_list', nargs='+', help='list of traces to process. Accepts wild cards and automatically filters for valid traces')
+    parser.add_argument('trace_list', nargs='*', help='list of traces to process. Accepts wild cards and automatically filters for valid traces')
     parser.add_argument("--version", action='version', version='%(prog)s {version}'.format(version=__version__))
     parser.add_argument("-v", "--verbose", help="increase output verbosity", action="store_true")
     parser.add_argument("-d", "--debug", help="increase output verbosity to debug level", action="store_true")
     parser.add_argument("-s", "--scaling", help="define whether the measurements are weak or strong scaling (default: auto)",
                         choices=['weak','strong','auto'], default='auto')
+    parser.add_argument("-p", "--project", metavar='<path-to-modelfactors.csv>', help="run only the projection for the given modelfactors.csv (default: false)")
+    parser.add_argument('--limit', help='limit number of cores for the projection (default: 10000)')
+    parser.add_argument('--model', choices=['amdahl','pipe','linear'], default='amdahl',
+                        help='select model for prediction (default: amdahl)')
+    parser.add_argument('--bounds', choices=['yes','no'], default='yes',
+                        help='set bounds for the prediction (default: yes)')
+    parser.add_argument('--sigma', choices=['first','equal','decrease'], default='first',
+                        help='set error restrains for prediction (default: first). first: prioritize smallest run; equal: no priority; decrease: decreasing priority for larger runs')
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -80,16 +100,22 @@ def get_traces_from_args(cmdl_args):
     the traces in ascending order based on the number of processes in the trace.
     Excludes all files other than *.prv and ignores also simulated traces from
     this script, i.e. *.sim.prv
+    Returns list of trace paths and dictionary with the number of processes.
     """
-    prv_files = [x for x in cmdl_args.trace_list if fnmatch.fnmatch(x, '*.prv') if not fnmatch.fnmatch(x, '*.sim.prv')]
-    prv_files = sorted(prv_files, key=get_num_processes)
+    trace_list = [x for x in cmdl_args.trace_list if fnmatch.fnmatch(x, '*.prv') if not fnmatch.fnmatch(x, '*.sim.prv')]
+    trace_list = sorted(trace_list, key=get_num_processes)
 
-    if not prv_files:
+    if not trace_list:
         print('==Error== could not find any traces matching "' + ' '.join(cmdl_args.trace_list) + ' ')
         sys.exit(1)
 
-    print_overview(prv_files)
-    return prv_files
+    trace_processes = dict()
+
+    for trace in trace_list:
+        trace_processes[trace] = get_num_processes(trace)
+
+    print_overview(trace_list, trace_processes)
+    return trace_list, trace_processes
 
 
 def get_num_processes(prv_file):
@@ -113,13 +139,13 @@ def human_readable(size, precision=1):
     return "%.*f%s"%(precision,size,suffixes[suffixIndex])
 
 
-def print_overview(trace_list):
+def print_overview(trace_list, trace_processes):
     """Prints an overview of the traces that will be processed."""
     print('Running', os.path.basename(__file__), 'for the following traces:')
 
     for trace in trace_list:
         line = trace
-        line += ', ' + str(get_num_processes(trace)) + ' processes'
+        line += ', ' + str(trace_processes[trace]) + ' processes'
         line += ', ' + human_readable(os.path.getsize(trace))
         print(line)
     print('')
@@ -136,7 +162,7 @@ def which(cmd):
     return None
 
 
-def check_executables(cmdl_args):
+def check_installation(cmdl_args):
     """Check if Dimemas and paramedir are in the path."""
 
     if not which('Dimemas'):
@@ -149,6 +175,17 @@ def check_executables(cmdl_args):
     if cmdl_args.debug:
         print('==DEBUG== Using', __file__, __version__)
         print('==DEBUG== Using', sys.executable, ".".join(map(str, sys.version_info[:3])))
+
+        try:
+            print('==DEBUG== Using', 'SciPy', scipy.__version__)
+        except NameError:
+            print('==DEBUG== SciPy not installed.')
+
+        try:
+            print('==DEBUG== Using', 'NumPy', numpy.__version__)
+        except NameError:
+            print('==DEBUG== NumPy not installed.')
+
         print('==DEBUG== Using', which('Dimemas'))
         print('==DEBUG== Using', which('paramedir'))
         print('')
@@ -200,13 +237,13 @@ def create_mod_factors(trace_list):
     for key in mod_factors_doc:
         trace_dict = {}
         for trace_name in trace_list:
-            trace_dict[trace_name] = ''
+            trace_dict[trace_name] = 0.0
         mod_factors[key] = trace_dict
 
     return mod_factors
 
 
-def print_raw_data_table(raw_data, trace_list):
+def print_raw_data_table(raw_data, trace_list, trace_processes):
     """Prints the raw data table in human readable form on stdout."""
     global raw_data_doc
 
@@ -217,7 +254,7 @@ def print_raw_data_table(raw_data, trace_list):
     line = ''.rjust(longest_name)
     for trace in trace_list:
         line += ' | '
-        line += str(get_num_processes(trace)).rjust(15)
+        line += str(trace_processes[trace]).rjust(15)
     print(line)
 
     print(''.ljust(len(line),'='))
@@ -231,7 +268,7 @@ def print_raw_data_table(raw_data, trace_list):
     print('')
 
 
-def print_mod_factors_table(mod_factors, trace_list):
+def print_mod_factors_table(mod_factors, trace_list, trace_processes):
     """Prints the model factors table in human readable form on stdout."""
     global mod_factors_doc
 
@@ -242,19 +279,24 @@ def print_mod_factors_table(mod_factors, trace_list):
     line = ''.rjust(longest_name)
     for trace in trace_list:
         line += ' | '
-        line += str(get_num_processes(trace)).rjust(10)
+        line += str(trace_processes[trace]).rjust(10)
     print(line)
 
     print(''.ljust(len(line),'='))
 
     for mod_key in mod_factors_doc:
         line = mod_factors_doc[mod_key].ljust(longest_name)
-        for trace in trace_list:
-            line += ' | '
-            line += ('{0:.2f}%'.format(mod_factors[mod_key][trace])).rjust(10)
+        if mod_key in ['speedup','ipc','freq']:
+            for trace in trace_list:
+                line += ' | '
+                line += ('{0:.2f}'.format(mod_factors[mod_key][trace])).rjust(10)
+        else:
+            for trace in trace_list:
+                line += ' | '
+                line += ('{0:.2f}%'.format(mod_factors[mod_key][trace])).rjust(10)
         print(line)
         #Print empty line to separate values
-        if mod_key == 'global_eff' or mod_key == 'inst_scale':
+        if mod_key in ['global_eff','freq_scale']:
             line = ''.ljust(longest_name)
             for trace in trace_list:
                 line += ' | '
@@ -263,32 +305,82 @@ def print_mod_factors_table(mod_factors, trace_list):
     print('')
 
 
-def print_mod_factors_csv(mod_factors, trace_list):
+def print_mod_factors_csv(mod_factors, trace_list, trace_processes):
     """Prints the model factors table in a csv file."""
     global mod_factors_doc
 
     delimiter = ';'
     #File is stored in the trace directory
-    file_path = os.path.join(os.path.dirname(os.path.realpath(trace_list[0])), 'modelfactors.csv')
+    #file_path = os.path.join(os.path.dirname(os.path.realpath(trace_list[0])), 'modelfactors.csv')
+    #File is stored in the execution directory
+    file_path = os.path.join(os.getcwd(), 'modelfactors.csv')
 
     with open(file_path, 'w') as output:
         line = 'Number of processes'
         for trace in trace_list:
             line += delimiter
-            line += str(get_num_processes(trace))
+            line += str(trace_processes[trace])
         output.write(line + '\n')
 
         for mod_key in mod_factors_doc:
             line = mod_factors_doc[mod_key].replace('  ', '', 2)
             for trace in trace_list:
                 line += delimiter
-                line += '{0:.2f}'.format(mod_factors[mod_key][trace])
+                line += '{0:.6f}'.format(mod_factors[mod_key][trace])
             output.write(line + '\n')
 
-    print('Output written to ' + file_path)
+    print('Model factors written to ' + file_path)
 
 
-def gather_raw_data(trace_list, cmdl_args):
+def read_mod_factors_csv(cmdl_args):
+    """Reads the model factors table from a csv file."""
+    global mod_factors_doc
+
+    delimiter = ';'
+    file_path = cmdl_args.project
+
+    #Read csv to list of lines
+    if os.path.isfile(file_path) and file_path[-4:] == '.csv':
+        with open(file_path, 'r') as f:
+            lines = f.readlines()
+        lines = [line.rstrip('\n') for line in lines]
+    else:
+        print('==ERROR==', file_path, 'is not a valid csv file.')
+        sys.exit(1)
+
+    #Get the number of processes of the traces
+    processes = lines[0].split(delimiter)
+    processes.pop(0)
+
+    #Create artificial trace_list and trace_processes
+    trace_list = []
+    trace_processes = dict()
+    for process in processes:
+        trace_list.append(process)
+        trace_processes[process] = int(process)
+
+    #Create empty mod_factors handle
+    mod_factors = create_mod_factors(trace_list)
+
+    #Get mod_factor_doc keys
+    mod_factors_keys = list(mod_factors_doc.items())
+
+    #Iterate over the data lines
+    for index, line in enumerate(lines[1:]):
+        key = mod_factors_keys[index][0]
+        line = line.split(delimiter)
+        for index, trace in enumerate(trace_list):
+            mod_factors[key][trace] = float(line[index+1])
+
+    if cmdl_args.verbose:
+        print_mod_factors_table(mod_factors, trace_list, trace_processes)
+
+    return mod_factors, trace_list, trace_processes
+
+
+
+
+def gather_raw_data(trace_list, trace_processes, cmdl_args):
     """Gathers all raw data needed to generate the model factors. Return raw
     data in a 2D dictionary <data type><list of values for each trace>"""
     raw_data = create_raw_data(trace_list)
@@ -306,13 +398,13 @@ def gather_raw_data(trace_list, cmdl_args):
         time_tot = time.time()
 
         line = 'Analyzing ' + os.path.basename(trace)
-        line += ' (' + str(get_num_processes(trace)) + ' processes'
+        line += ' (' + str(trace_processes[trace]) + ' processes'
         line += ', ' + human_readable( os.path.getsize( trace ) ) + ')'
         print(line)
 
         #Create simulated ideal trace with Dimemas
         time_dim = time.time()
-        trace_sim = create_ideal_trace(trace, cmdl_args)
+        trace_sim = create_ideal_trace(trace, trace_processes[trace], cmdl_args)
         time_dim = time.time() - time_dim
         print('Successfully created simulated trace with Dimemas in {0:.1f} seconds.'.format(time_dim))
 
@@ -418,7 +510,7 @@ def gather_raw_data(trace_list, cmdl_args):
     return raw_data
 
 
-def get_scaling_type(raw_data, trace_list, cmdl_args):
+def get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args):
     """Guess the scaling type (weak/strong) based on the useful instructions.
     Computes the normalized instruction ratio for all measurements, whereas the
     normalized instruction ratio is (instructions ratio / process ratio) with
@@ -433,7 +525,7 @@ def get_scaling_type(raw_data, trace_list, cmdl_args):
 
     for trace in trace_list:
         inst_ratio = float(raw_data['useful_ins'][trace]) / float(raw_data['useful_ins'][trace_list[0]])
-        proc_ratio = float(get_num_processes(trace)) / float(get_num_processes(trace_list[0]))
+        proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
         normalized_inst_ratio += inst_ratio / proc_ratio
 
     #Get the average inst increase. Ignore ratio of first trace 1.0)
@@ -468,16 +560,16 @@ def get_scaling_type(raw_data, trace_list, cmdl_args):
     sys.exit(1)
 
 
-def compute_model_factors(raw_data, trace_list, cmdl_args):
+def compute_model_factors(raw_data, trace_list, trace_processes, cmdl_args):
     """Computes the model factors from the gathered raw data and returns the
     according dictionary of model factors."""
     mod_factors = create_mod_factors(trace_list)
     #Guess the weak or strong scaling
-    scaling = get_scaling_type(raw_data, trace_list, cmdl_args)
+    scaling = get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args)
 
     #Loop over all traces
     for trace in trace_list:
-        proc_ratio = float(get_num_processes(trace)) / float(get_num_processes(trace_list[0]))
+        proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
 
         #Basic efficiency factors
         mod_factors['load_balance'][trace] = raw_data['useful_avg'][trace] / raw_data['useful_max'][trace] * 100.0
@@ -497,6 +589,9 @@ def compute_model_factors(raw_data, trace_list, cmdl_args):
         mod_factors['ipc'][trace] = float(raw_data['useful_ins'][trace]) / float(raw_data['useful_cyc'][trace])
         mod_factors['ipc_scale'][trace] = mod_factors['ipc'][trace] / mod_factors['ipc'][trace_list[0]] * 100.0
 
+        mod_factors['freq'][trace] = float(raw_data['useful_cyc'][trace]) / float(raw_data['useful_tot'][trace]) / 1000
+        mod_factors['freq_scale'][trace] = mod_factors['freq'][trace] / mod_factors['freq'][trace_list[0]] * 100.0
+
         if scaling == 'strong':
             mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) / float(raw_data['useful_ins'][trace]) * 100.0
         else:
@@ -510,7 +605,7 @@ def compute_model_factors(raw_data, trace_list, cmdl_args):
     return mod_factors
 
 
-def create_ideal_trace(trace, cmdl_args):
+def create_ideal_trace(trace, processes, cmdl_args):
     """Runs prv2dim and dimemas with ideal configuration for given trace."""
     trace_dim = trace[:-4] + '.dim'
     trace_sim = trace[:-4] + '.sim.prv'
@@ -524,8 +619,6 @@ def create_ideal_trace(trace, cmdl_args):
         print('==Error== ' + trace_dim + 'could not be creaeted.')
         return
 
-    num_processes = str(get_num_processes(trace))
-
     #Create Dimemas configuration
     cfg_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs')
 
@@ -533,7 +626,7 @@ def create_ideal_trace(trace, cmdl_args):
     with open(os.path.join(cfg_dir, 'dimemas_ideal.cfg')) as f:
         content = f.readlines()
 
-    content = [line.replace('REPLACE_BY_NTASKS', num_processes ) for line in content]
+    content = [line.replace('REPLACE_BY_NTASKS', str(processes) ) for line in content]
     content = [line.replace('REPLACE_BY_COLLECTIVES_PATH', os.path.join(cfg_dir, 'dimemas.collectives')) for line in content]
 
     with open(trace[:-4]+'.dimemas_ideal.cfg', 'w') as f:
@@ -554,6 +647,178 @@ def create_ideal_trace(trace, cmdl_args):
     return trace_sim
 
 
+def compute_projection(mod_factors, trace_list, trace_processes, cmdl_args):
+    """Computes the projection from the gathered model factors and returns the
+    according dictionary of fitted prediction functions."""
+
+    if cmdl_args.verbose:
+        print('')
+        print('Computing projection of model factors.')
+
+    number_traces = len(trace_list)
+    x_proc = numpy.zeros(number_traces)
+    y_para = numpy.zeros(number_traces)
+    y_load = numpy.zeros(number_traces)
+    y_comm = numpy.zeros(number_traces)
+    y_comp = numpy.zeros(number_traces)
+    y_glob = numpy.zeros(number_traces)
+
+    #Convert dictionaries to NumPy arrays
+    for index, trace in enumerate(trace_list):
+        x_proc[index] = trace_processes[trace]
+        y_para[index] = mod_factors['parallel_eff'][trace]
+        y_load[index] = mod_factors['load_balance'][trace]
+        y_comm[index] = mod_factors['comm_eff'][trace]
+        y_comp[index] = mod_factors['comp_scale'][trace]
+        y_glob[index] = mod_factors['global_eff'][trace]
+
+    if cmdl_args.debug:
+        print(x_proc)
+        print(y_para)
+        print(y_load)
+        print(y_comm)
+        print(y_comp)
+        print(y_glob)
+
+    #Projection function based on amdahl; 2 degrees of freedom: x0, f
+    def amdahl(x, x0, f):
+        return x0 / (f + (1 - f) * x)
+
+    #Projection function based on pipeline; 2 degrees of freedom: x0, f
+    def pipe(x, x0, f):
+        return x0 * x / ((1 - f) + f * (2 * x - 1) )
+
+    #Projection function linear; 2 degrees of freedom: x0, a
+    def linear(x, x0, f):
+        return x0 + f * x
+
+    #Select model function
+    if cmdl_args.model == 'amdahl':
+        model = amdahl
+    elif cmdl_args.model == 'pipe':
+        model = pipe
+    elif cmdl_args.model == 'linear':
+        model = linear
+
+    #Set limit for projection
+    if cmdl_args.limit:
+        limit = cmdl_args.limit
+    else:
+        limit = '10000'
+
+    #Set boundary for curve fitting parameters: ([x0_min,f_min],[x0_max,f_max])
+    if cmdl_args.bounds == 'yes':
+        bounds = ([-numpy.inf,0],[numpy.inf,1])
+    else:
+        bounds = ([-numpy.inf,-numpy.inf],[numpy.inf,numpy.inf])
+
+    #Set data uncertainty, give priority to smaller runs or equal
+    if cmdl_args.sigma == 'first':
+        sigma = numpy.ones(number_traces)
+        sigma[0] = 0.1
+    elif cmdl_args.sigma == 'equal':
+        sigma = numpy.ones(number_traces)
+    elif cmdl_args.sigma == 'decrease':
+        sigma = numpy.linspace(1, 2, number_traces)
+
+    #Execute curve fitting, returns optimal parameters array and covariance matrix
+    #Uses a Levenberg-Marquardt algorithm, i.e. damped least-squares, if no
+    #bounds are provide; otherwise a Trust Region Reflective algorithm.
+    #Please note: Both are not true least squares.
+    #They are greedy methoda and simply run into the nearest local minimum.
+    #However, this should work fine for this simple 1D optimization.
+    para_opt, para_cov = scipy.optimize.curve_fit(model, x_proc, y_para, sigma=sigma, bounds=bounds)
+    load_opt, load_cov = scipy.optimize.curve_fit(model, x_proc, y_load, sigma=sigma, bounds=bounds)
+    comm_opt, comm_cov = scipy.optimize.curve_fit(model, x_proc, y_comm, sigma=sigma, bounds=bounds)
+    comp_opt, comp_cov = scipy.optimize.curve_fit(model, x_proc, y_comp, sigma=sigma, bounds=bounds)
+    glob_opt, glob_cov = scipy.optimize.curve_fit(model, x_proc, y_glob, sigma=sigma, bounds=bounds)
+
+    #Create the fitting functions for gnuplot; 2 degrees of freedom: x0, f
+    if model == amdahl:
+        #Select whether para and glob are fitted or multiplied according to model
+        #para_fit = ' '.join(['para( x ) = ( x >',str(x_proc[0]),') ?',str(para_opt[0]),'/ (',str(para_opt[1]),'+ ( 1 -',str(para_opt[1]),') * x ) : 1/0'])
+        para_fit = ' '.join(['para( x ) = load( x ) * comm( x ) / 100'])
+        load_fit = ' '.join(['load( x ) = ( x >',str(x_proc[0]),') ?',str(load_opt[0]),'/ (',str(load_opt[1]),'+ ( 1 -',str(load_opt[1]),') * x ) : 1/0'])
+        comm_fit = ' '.join(['comm( x ) = ( x >',str(x_proc[0]),') ?',str(comm_opt[0]),'/ (',str(comm_opt[1]),'+ ( 1 -',str(comm_opt[1]),') * x ) : 1/0'])
+        comp_fit = ' '.join(['comp( x ) = ( x >',str(x_proc[0]),') ?',str(comp_opt[0]),'/ (',str(comp_opt[1]),'+ ( 1 -',str(comp_opt[1]),') * x ) : 1/0'])
+        #glob_fit = ' '.join(['glob( x ) = ( x >',str(x_proc[0]),') ?',str(glob_opt[0]),'/ (',str(glob_opt[1]),'+ ( 1 -',str(glob_opt[1]),') * x ) : 1/0'])
+        glob_fit = ' '.join(['glob( x ) = para( x ) * comp( x ) / 100'])
+
+    elif model == pipe:
+        #Select whether para and glob are fitted or multiplied according to model
+        #para_fit = ' '.join(['para( x ) = ( x >',str(x_proc[0]),') ?',str(para_opt[0]),'* x / ( ( 1 -',str(para_opt[1]),') +',str(para_opt[1]),'* ( 2 * x - 1 ) ) : 1/0'])
+        para_fit = ' '.join(['para( x ) = load( x ) * comm( x ) / 100'])
+        load_fit = ' '.join(['load( x ) = ( x >',str(x_proc[0]),') ?',str(load_opt[0]),'* x / ( ( 1 -',str(load_opt[1]),') +',str(load_opt[1]),'* ( 2 * x - 1 ) ) : 1/0'])
+        comm_fit = ' '.join(['comm( x ) = ( x >',str(x_proc[0]),') ?',str(comm_opt[0]),'* x / ( ( 1 -',str(comm_opt[1]),') +',str(comm_opt[1]),'* ( 2 * x - 1 ) ) : 1/0'])
+        comp_fit = ' '.join(['comp( x ) = ( x >',str(x_proc[0]),') ?',str(comp_opt[0]),'* x / ( ( 1 -',str(comp_opt[1]),') +',str(comp_opt[1]),'* ( 2 * x - 1 ) ) : 1/0'])
+        #glob_fit = ' '.join(['glob( x ) = ( x >',str(x_proc[0]),') ?',str(glob_opt[0]),'* x / ( ( 1 -',str(glob_opt[1]),') +',str(glob_opt[1]),'* ( 2 * x - 1 ) ) : 1/0'])
+        glob_fit = ' '.join(['glob( x ) = para( x ) * comp( x ) / 100'])
+
+    elif model == linear:
+        #Select whether para and glob are fitted or multiplied according to model
+        #para_fit = ' '.join(['para( x ) = ( x >',str(x_proc[0]),') ?',str(para_opt[0]),'+ x *',str(para_opt[1]),': 1/0'])
+        para_fit = ' '.join(['para( x ) = load( x ) * comm( x ) / 100'])
+        load_fit = ' '.join(['load( x ) = ( x >',str(x_proc[0]),') ?',str(load_opt[0]),'+ x *',str(load_opt[1]),': 1/0'])
+        comm_fit = ' '.join(['comm( x ) = ( x >',str(x_proc[0]),') ?',str(comm_opt[0]),'+ x *',str(comm_opt[1]),': 1/0'])
+        comp_fit = ' '.join(['comp( x ) = ( x >',str(x_proc[0]),') ?',str(comp_opt[0]),'+ x *',str(comp_opt[1]),': 1/0'])
+        #glob_fit = ' '.join(['glob( x ) = ( x >',str(x_proc[0]),') ?',str(glob_opt[0]),'+ x *',str(glob_opt[1]),': 1/0'])
+        glob_fit = ' '.join(['glob( x ) = para( x ) * comp( x ) / 100'])
+
+    #Create Gnuplot file
+    gp_template = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', 'modelfactors.gp')
+    content = []
+    with open(gp_template) as f:
+        content = f.readlines()
+
+    #Replace xrange
+    content = [line.replace('#REPLACE_BY_XRANGE', ''.join(['set xrange [1:',limit,']']) ) for line in content]
+
+    #Replace projection functions
+    content = [line.replace('#REPLACE_BY_PARA_FUNCTION', para_fit ) for line in content]
+    content = [line.replace('#REPLACE_BY_LOAD_FUNCTION', load_fit ) for line in content]
+    content = [line.replace('#REPLACE_BY_COMM_FUNCTION', comm_fit ) for line in content]
+    content = [line.replace('#REPLACE_BY_COMP_FUNCTION', comp_fit ) for line in content]
+    content = [line.replace('#REPLACE_BY_GLOB_FUNCTION', glob_fit ) for line in content]
+
+    file_path = os.path.join(os.getcwd(), 'modelfactors.gp')
+    with open(file_path, 'w') as f:
+        f.writelines(content)
+
+    #Add data points to gnuplot file
+    with open(file_path, 'a') as f:
+        for index in range(0, number_traces):
+            line = ' '.join([str(x_proc[index]), str(y_para[index]), '\n'])
+            f.write(line)
+        f.write('e\n')
+
+        for index in range(0, number_traces):
+            line = ' '.join([str(x_proc[index]), str(y_load[index]), '\n'])
+            f.write(line)
+        f.write('e\n')
+
+        for index in range(0, number_traces):
+            line = ' '.join([str(x_proc[index]), str(y_comm[index]), '\n'])
+            f.write(line)
+        f.write('e\n')
+
+        for index in range(0, number_traces):
+            line = ' '.join([str(x_proc[index]), str(y_comp[index]), '\n'])
+            f.write(line)
+        f.write('e\n')
+
+        for index in range(0, number_traces):
+            line = ' '.join([str(x_proc[index]), str(y_glob[index]), '\n'])
+            f.write(line)
+        f.write('e\n')
+
+        f.write('\n')
+        f.write('pause -1\n')
+
+    print('Projection written to ' + file_path)
+
+    return
+
+
 if __name__ == "__main__":
     """Main control flow.
     Currently the script only accepts one parameter, which is a list of traces
@@ -564,20 +829,33 @@ if __name__ == "__main__":
     cmdl_args = parse_arguments()
 
     #Check if paramedir and Dimemas are in the path
-    check_executables(cmdl_args)
+    check_installation(cmdl_args)
 
-    #Filters all traces (i.e. *.prv) and sorts them by the number of processes
-    trace_list = get_traces_from_args(cmdl_args)
+    #Check if projection-only mode is selected
+    #If not: compute everything
+    #Else: read the passed modelfactors.csv
+    if not cmdl_args.project:
+        trace_list, trace_processes = get_traces_from_args(cmdl_args)
 
-    #Analyse the traces and gathers the raw input data
-    raw_data = gather_raw_data(trace_list, cmdl_args)
-    if cmdl_args.verbose:
-        print_raw_data_table(raw_data, trace_list)
+        #Analyze the traces and gather the raw input data
+        raw_data = gather_raw_data(trace_list, trace_processes, cmdl_args)
+        if cmdl_args.verbose:
+            print_raw_data_table(raw_data, trace_list, trace_processes)
 
-    #Compute the model factors and print them
-    mod_factors = compute_model_factors(raw_data, trace_list, cmdl_args)
-    print_mod_factors_table(mod_factors, trace_list)
-    print_mod_factors_csv(mod_factors, trace_list)
+        #Compute the model factors and print them
+        mod_factors = compute_model_factors(raw_data, trace_list, trace_processes, cmdl_args)
+        print_mod_factors_table(mod_factors, trace_list, trace_processes)
+        print_mod_factors_csv(mod_factors, trace_list, trace_processes)
+    else:
+        #Read the model factors from the csv file
+        mod_factors, trace_list, trace_processes = read_mod_factors_csv(cmdl_args)
 
+    #Compute projection if SciPy and NumPy are installed.
+    try:
+        numpy.__version__
+        scipy.__version__
+    except NameError:
+        print('Scipy or NumPy module not available. Skipping projection.')
+        sys.exit(1)
 
-
+    compute_projection(mod_factors, trace_list, trace_processes, cmdl_args)
