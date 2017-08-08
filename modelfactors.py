@@ -26,12 +26,12 @@ except ImportError:
 
 __author__ = "Michael Wagner"
 __copyright__ = "Copyright 2017, Barcelona Supercomputing Center (BSC)"
-__version__ = "0.1.2"
+__version__ = "0.2.0-alpha"
 
 
 #Contains all raw data entries with a printable name.
-#This is used to generate and print all raw data, so, if you need to add an
-#entry, it should be added here, too.
+#This is used to generate and print all raw data, so, if an entry is added, it
+#should be added here, too.
 raw_data_doc = OrderedDict([('runtime',     'Runtime'),
                             ('runtime_dim', 'Runtime (ideal)'),
                             ('useful_avg',  'Useful duration (average)'),
@@ -43,8 +43,8 @@ raw_data_doc = OrderedDict([('runtime',     'Runtime'),
 
 
 #Contains all model factor entries with a printable name.
-#This is used to generate and print all model factors, so, if you need to add an
-#entry, it should be added here, too.
+#This is used to generate and print all model factors, so, if an entry is added,
+#it should be added here, too.
 mod_factors_doc = OrderedDict([('parallel_eff', 'Parallel efficiency'),
                                ('load_balance', '  Load balance'),
                                ('comm_eff',     '  Communication efficiency'),
@@ -106,7 +106,7 @@ def get_traces_from_args(cmdl_args):
     trace_list = sorted(trace_list, key=get_num_processes)
 
     if not trace_list:
-        print('==Error== could not find any traces matching "' + ' '.join(cmdl_args.trace_list) + ' ')
+        print('==Error== could not find any traces matching "', ' '.join(cmdl_args.trace_list))
         sys.exit(1)
 
     trace_processes = dict()
@@ -652,7 +652,6 @@ def compute_projection(mod_factors, trace_list, trace_processes, cmdl_args):
     according dictionary of fitted prediction functions."""
 
     if cmdl_args.verbose:
-        print('')
         print('Computing projection of model factors.')
 
     number_traces = len(trace_list)
@@ -680,16 +679,16 @@ def compute_projection(mod_factors, trace_list, trace_processes, cmdl_args):
         print(y_comp)
         print(y_glob)
 
-    #Projection function based on amdahl; 2 degrees of freedom: x0, f
     def amdahl(x, x0, f):
+        """#Projection function based on amdahl; 2 degrees of freedom: x0, f"""
         return x0 / (f + (1 - f) * x)
 
-    #Projection function based on pipeline; 2 degrees of freedom: x0, f
     def pipe(x, x0, f):
+        """Projection function based on pipeline; 2 degrees of freedom: x0, f"""
         return x0 * x / ((1 - f) + f * (2 * x - 1) )
 
-    #Projection function linear; 2 degrees of freedom: x0, a
     def linear(x, x0, f):
+        """Projection function linear; 2 degrees of freedom: x0, a"""
         return x0 + f * x
 
     #Select model function
@@ -707,12 +706,15 @@ def compute_projection(mod_factors, trace_list, trace_processes, cmdl_args):
         limit = '10000'
 
     #Set boundary for curve fitting parameters: ([x0_min,f_min],[x0_max,f_max])
+    #For amdahl and pipe f is in [0,1]
     if cmdl_args.bounds == 'yes':
         bounds = ([-numpy.inf,0],[numpy.inf,1])
     else:
         bounds = ([-numpy.inf,-numpy.inf],[numpy.inf,numpy.inf])
 
-    #Set data uncertainty, give priority to smaller runs or equal
+    #Set data uncertainty for vector with y-values.
+    #Smaller values mean higher priority for these y-values.
+    #Values are compared relatively, not absolute.
     if cmdl_args.sigma == 'first':
         sigma = numpy.ones(number_traces)
         sigma[0] = 0.1
