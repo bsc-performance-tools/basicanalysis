@@ -406,7 +406,10 @@ def gather_raw_data(trace_list, trace_processes, cmdl_args):
         time_dim = time.time()
         trace_sim = create_ideal_trace(trace, trace_processes[trace], cmdl_args)
         time_dim = time.time() - time_dim
-        print('Successfully created simulated trace with Dimemas in {0:.1f} seconds.'.format(time_dim))
+        if not trace_sim == '':
+            print('Successfully created simulated trace with Dimemas in {0:.1f} seconds.'.format(time_dim))
+        else:
+            print('Failed to create simulated trace with Dimemas.')
 
         #Run paramedir for the original and simulated trace
         time_pmd = time.time()
@@ -421,7 +424,8 @@ def gather_raw_data(trace_list, trace_processes, cmdl_args):
         cmd_ideal.extend([cfgs['runtime'],       trace_sim[:-4] + '.runtime.stats'])
 
         run_command(cmd_normal)
-        run_command(cmd_ideal)
+        if not trace_sim == '':
+            run_command(cmd_ideal)
 
         time_pmd = time.time() - time_pmd
         print('Successfully analyzed trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
@@ -475,32 +479,41 @@ def gather_raw_data(trace_list, trace_processes, cmdl_args):
                     raw_data['useful_ins'][trace] = int(float(line.split()[1]))
 
         #Get maximum useful duration for simulated trace
-        content = []
-        with open(trace_sim[:-4] + '.timings.stats') as f:
-            content = f.readlines()
+        #If Dimemas failed, use normal trace.
+        if not trace_sim == '':
+            content = []
+            with open(trace_sim[:-4] + '.timings.stats') as f:
+                content = f.readlines()
 
-        for line in content:
-            if line.split():
-                if line.split()[0] == 'Maximum':
-                    raw_data['useful_dim'][trace] = float(line.split()[1])
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Maximum':
+                        raw_data['useful_dim'][trace] = float(line.split()[1])
+        else:
+            raw_data['useful_dim'][trace] = raw_data['useful_max'][trace]
 
         #Get runtime for simulated trace
-        content = []
-        with open(trace_sim[:-4] + '.runtime.stats') as f:
-            content = f.readlines()
+        #If Dimemas failed, use normal trace.
+        if not trace_sim == '':
+            content = []
+            with open(trace_sim[:-4] + '.runtime.stats') as f:
+                content = f.readlines()
 
-        for line in content:
-            if line.split():
-                if line.split()[0] == 'Average':
-                    raw_data['runtime_dim'][trace] = float(line.split()[1])
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Average':
+                        raw_data['runtime_dim'][trace] = float(line.split()[1])
+        else:
+            raw_data['runtime_dim'][trace] = raw_data['useful_max'][trace]
 
         #Remove paramedir output files
         os.remove(trace[:-4] + '.timings.stats')
         os.remove(trace[:-4] + '.runtime.stats')
         os.remove(trace[:-4] + '.cycles.stats')
         os.remove(trace[:-4] + '.instructions.stats')
-        os.remove(trace_sim[:-4] + '.timings.stats')
-        os.remove(trace_sim[:-4] + '.runtime.stats')
+        if not trace_sim == '':
+            os.remove(trace_sim[:-4] + '.timings.stats')
+            os.remove(trace_sim[:-4] + '.runtime.stats')
         time_prs = time.time() - time_prs
 
         time_tot = time.time() - time_tot
@@ -635,16 +648,16 @@ def create_ideal_trace(trace, processes, cmdl_args):
     cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace[:-4]+'.dimemas_ideal.cfg']
     run_command(cmd)
 
-    if os.path.isfile(trace_sim):
-        if cmdl_args.debug:
-            print('==DEBUG== Created file ' + trace_sim)
-    else:
-        print('==Error== ' + trace_sim + 'could not be creaeted.')
-
     os.remove(trace_dim)
     os.remove(trace[:-4]+'.dimemas_ideal.cfg')
 
-    return trace_sim
+    if os.path.isfile(trace_sim):
+        if cmdl_args.debug:
+            print('==DEBUG== Created file ' + trace_sim)
+        return trace_sim
+    else:
+        print('==Error== ' + trace_sim + 'could not be creaeted.')
+        return ''
 
 
 def compute_projection(mod_factors, trace_list, trace_processes, cmdl_args):
@@ -841,8 +854,7 @@ if __name__ == "__main__":
 
         #Analyze the traces and gather the raw input data
         raw_data = gather_raw_data(trace_list, trace_processes, cmdl_args)
-        if cmdl_args.verbose:
-            print_raw_data_table(raw_data, trace_list, trace_processes)
+        print_raw_data_table(raw_data, trace_list, trace_processes)
 
         #Compute the model factors and print them
         mod_factors = compute_model_factors(raw_data, trace_list, trace_processes, cmdl_args)
