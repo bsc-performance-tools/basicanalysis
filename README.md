@@ -27,8 +27,8 @@ export DIMEMAS_HOME=<dimemas-install-dir>
 ```
 
 The projection of the model factors additionally relies on the according SciPy
-and NumPy modules for Python2/3. Furthermore, the gnuplot output requires
-gnuplot version 5.0 or higher.
+(>= 0.17.0) and NumPy modules for Python2/3. Furthermore, the gnuplot output
+requires gnuplot version 5.0 or higher.
 
 ## Usage example
 

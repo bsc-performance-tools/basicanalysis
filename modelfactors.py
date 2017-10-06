@@ -26,7 +26,7 @@ except ImportError:
 
 __author__ = "Michael Wagner"
 __copyright__ = "Copyright 2017, Barcelona Supercomputing Center (BSC)"
-__version__ = "0.2.0-alpha"
+__version__ = "0.2.1-alpha"
 
 
 #Contains all raw data entries with a printable name.
@@ -742,11 +742,16 @@ def compute_projection(mod_factors, trace_list, trace_processes, cmdl_args):
     #Please note: Both are not true least squares.
     #They are greedy methoda and simply run into the nearest local minimum.
     #However, this should work fine for this simple 1D optimization.
-    para_opt, para_cov = scipy.optimize.curve_fit(model, x_proc, y_para, sigma=sigma, bounds=bounds)
-    load_opt, load_cov = scipy.optimize.curve_fit(model, x_proc, y_load, sigma=sigma, bounds=bounds)
-    comm_opt, comm_cov = scipy.optimize.curve_fit(model, x_proc, y_comm, sigma=sigma, bounds=bounds)
-    comp_opt, comp_cov = scipy.optimize.curve_fit(model, x_proc, y_comp, sigma=sigma, bounds=bounds)
-    glob_opt, glob_cov = scipy.optimize.curve_fit(model, x_proc, y_glob, sigma=sigma, bounds=bounds)
+    #Use try to check for SciPy version.
+    try:
+        para_opt, para_cov = scipy.optimize.curve_fit(model, x_proc, y_para, sigma=sigma, bounds=bounds)
+        load_opt, load_cov = scipy.optimize.curve_fit(model, x_proc, y_load, sigma=sigma, bounds=bounds)
+        comm_opt, comm_cov = scipy.optimize.curve_fit(model, x_proc, y_comm, sigma=sigma, bounds=bounds)
+        comp_opt, comp_cov = scipy.optimize.curve_fit(model, x_proc, y_comp, sigma=sigma, bounds=bounds)
+        glob_opt, glob_cov = scipy.optimize.curve_fit(model, x_proc, y_glob, sigma=sigma, bounds=bounds)
+    except TypeError:
+        print('==Error== Projection failed! The script requires SciPy 0.17.0 or newer.')
+        return
 
     #Create the fitting functions for gnuplot; 2 degrees of freedom: x0, f
     if model == amdahl:
