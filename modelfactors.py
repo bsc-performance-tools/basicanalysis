@@ -11,6 +11,7 @@ import argparse
 import fnmatch
 import re
 import time
+import resource
 from collections import OrderedDict
 
 try:
@@ -26,7 +27,7 @@ except ImportError:
 
 __author__ = "Michael Wagner"
 __copyright__ = "Copyright 2017, Barcelona Supercomputing Center (BSC)"
-__version__ = "0.2.1-alpha"
+__version__ = "0.3.0-alpha3"
 
 
 #Contains all raw data entries with a printable name.
@@ -202,12 +203,28 @@ def run_command(cmd):
     if cmdl_args.debug:
         print('==DEBUG== Executing:', ' '.join(cmd))
 
-    return_value = subprocess.call(cmd, stdout=out, stderr=err)
+    #Copy the environment of the script to the environment of the command.
+    #Set the ulimit of the script to the ulimit of the command. This is a
+    #workaround for prv2dim with too many trace files (>1024).
+    def set_ulimits():
+        ulimit_n_soft = int(os.environ["ulimit_n_soft"])
+        ulimit_n_hard = int(os.environ["ulimit_n_hard"])
+        resource.setrlimit(resource.RLIMIT_NOFILE,(ulimit_n_soft,ulimit_n_hard))
+
+    environment = os.environ
+    environment["ulimit_n_soft"] = str(resource.getrlimit(resource.RLIMIT_NOFILE)[0])
+    environment["ulimit_n_hard"] = str(resource.getrlimit(resource.RLIMIT_NOFILE)[1])
+
+    #Switch between command with and without original environment
+    #return_value = subprocess.call(cmd, stdout=out, stderr=err)
+    return_value = subprocess.call(cmd, stdout=out, stderr=err, preexec_fn=set_ulimits, env=environment)
+
     if return_value == 0:
         os.remove(out.name)
         os.remove(err.name)
     else:
-        print(' '.join(cmd) + ' failed with return value ' + str(return_value) + '!')
+        print('==ERROR== ' + ' '.join(cmd) + ' failed with return value ' + str(return_value) + '!')
+        print('See ' + out.name + ' and ' + err.name + ' for more details.')
 
     return return_value
 
@@ -536,6 +553,10 @@ def get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args):
     eps = 0.9
     normalized_inst_ratio = 0
 
+    #Check if there is only one trace.
+    if len(trace_list) == 1:
+        return 'strong'
+
     for trace in trace_list:
         inst_ratio = float(raw_data['useful_ins'][trace]) / float(raw_data['useful_ins'][trace_list[0]])
         proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
@@ -656,7 +677,7 @@ def create_ideal_trace(trace, processes, cmdl_args):
             print('==DEBUG== Created file ' + trace_sim)
         return trace_sim
     else:
-        print('==Error== ' + trace_sim + 'could not be creaeted.')
+        print('==Error== ' + trace_sim + ' could not be creaeted.')
         return ''
 
 
