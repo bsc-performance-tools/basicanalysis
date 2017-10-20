@@ -203,21 +203,7 @@ def run_command(cmd):
     if cmdl_args.debug:
         print('==DEBUG== Executing:', ' '.join(cmd))
 
-    #Copy the environment of the script to the environment of the command.
-    #Set the ulimit of the script to the ulimit of the command. This is a
-    #workaround for prv2dim with too many trace files (>1024).
-    def set_ulimits():
-        ulimit_n_soft = int(os.environ["ulimit_n_soft"])
-        ulimit_n_hard = int(os.environ["ulimit_n_hard"])
-        resource.setrlimit(resource.RLIMIT_NOFILE,(ulimit_n_soft,ulimit_n_hard))
-
-    environment = os.environ
-    environment["ulimit_n_soft"] = str(resource.getrlimit(resource.RLIMIT_NOFILE)[0])
-    environment["ulimit_n_hard"] = str(resource.getrlimit(resource.RLIMIT_NOFILE)[1])
-
-    #Switch between command with and without original environment
-    #return_value = subprocess.call(cmd, stdout=out, stderr=err)
-    return_value = subprocess.call(cmd, stdout=out, stderr=err, preexec_fn=set_ulimits, env=environment)
+    return_value = subprocess.call(cmd, stdout=out, stderr=err)
 
     if return_value == 0:
         os.remove(out.name)
