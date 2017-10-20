@@ -27,7 +27,7 @@ except ImportError:
 
 __author__ = "Michael Wagner"
 __copyright__ = "Copyright 2017, Barcelona Supercomputing Center (BSC)"
-__version__ = "0.3.0-alpha3"
+__version__ = "0.3.0"
 
 
 #Contains all raw data entries with a printable name.
@@ -70,7 +70,6 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Generates performance metrics from a set of Paraver traces.')
     parser.add_argument('trace_list', nargs='*', help='list of traces to process. Accepts wild cards and automatically filters for valid traces')
     parser.add_argument("--version", action='version', version='%(prog)s {version}'.format(version=__version__))
-    parser.add_argument("-v", "--verbose", help="increase output verbosity", action="store_true")
     parser.add_argument("-d", "--debug", help="increase output verbosity to debug level", action="store_true")
     parser.add_argument("-s", "--scaling", help="define whether the measurements are weak or strong scaling (default: auto)",
                         choices=['weak','strong','auto'], default='auto')
@@ -91,7 +90,6 @@ def parse_arguments():
 
     if cmdl_args.debug:
         print('==DEBUG== Running in debug mode.')
-        cmdl_args.verbose = True
 
     return cmdl_args
 
@@ -375,7 +373,7 @@ def read_mod_factors_csv(cmdl_args):
         for index, trace in enumerate(trace_list):
             mod_factors[key][trace] = float(line[index+1])
 
-    if cmdl_args.verbose:
+    if cmdl_args.debug:
         print_mod_factors_table(mod_factors, trace_list, trace_processes)
 
     return mod_factors, trace_list, trace_processes
@@ -559,8 +557,8 @@ def get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args):
         scaling_computed = 'strong'
 
     if cmdl_args.scaling == 'auto':
-        if cmdl_args.verbose:
-            print('==Info== Detected ' + scaling_computed + ' scaling.')
+        if cmdl_args.debug:
+            print('==DEBUG== Detected ' + scaling_computed + ' scaling.')
             print('')
         return scaling_computed
 
@@ -671,8 +669,8 @@ def compute_projection(mod_factors, trace_list, trace_processes, cmdl_args):
     """Computes the projection from the gathered model factors and returns the
     according dictionary of fitted prediction functions."""
 
-    if cmdl_args.verbose:
-        print('Computing projection of model factors.')
+    if cmdl_args.debug:
+        print('==DEBUG== Computing projection of model factors.')
 
     number_traces = len(trace_list)
     x_proc = numpy.zeros(number_traces)
@@ -690,14 +688,6 @@ def compute_projection(mod_factors, trace_list, trace_processes, cmdl_args):
         y_comm[index] = mod_factors['comm_eff'][trace]
         y_comp[index] = mod_factors['comp_scale'][trace]
         y_glob[index] = mod_factors['global_eff'][trace]
-
-    if cmdl_args.debug:
-        print(x_proc)
-        print(y_para)
-        print(y_load)
-        print(y_comm)
-        print(y_comp)
-        print(y_glob)
 
     def amdahl(x, x0, f):
         """#Projection function based on amdahl; 2 degrees of freedom: x0, f"""
