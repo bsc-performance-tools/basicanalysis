@@ -194,18 +194,26 @@ def check_installation(cmdl_args):
 
 def run_command(cmd):
     """Runs a command and forwards the return value."""
-    out = tempfile.NamedTemporaryFile(suffix='.out', prefix=cmd[0]+'_',
-                                      dir='./', delete=False)
-    err = tempfile.NamedTemporaryFile(suffix='.err', prefix=cmd[0]+'_',
-                                      dir='./', delete=False)
     if cmdl_args.debug:
         print('==DEBUG== Executing:', ' '.join(cmd))
 
+    #In debug mode, keep the output. Otherwise, redirect it to devnull.
+    if cmdl_args.debug:
+        out = tempfile.NamedTemporaryFile(suffix='.out', prefix=cmd[0]+'_', dir='./', delete=False)
+        err = tempfile.NamedTemporaryFile(suffix='.err', prefix=cmd[0]+'_', dir='./', delete=False)
+    else:
+        out = open(os.devnull, 'w')
+        err = open(os.devnull, 'w')
+
     return_value = subprocess.call(cmd, stdout=out, stderr=err)
 
+    out.close
+    err.close
+
     if return_value == 0:
-        os.remove(out.name)
-        os.remove(err.name)
+        if cmdl_args.debug:
+            os.remove(out.name)
+            os.remove(err.name)
     else:
         print('==ERROR== ' + ' '.join(cmd) + ' failed with return value ' + str(return_value) + '!')
         print('See ' + out.name + ' and ' + err.name + ' for more details.')
