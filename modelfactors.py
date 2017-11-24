@@ -27,13 +27,13 @@ except ImportError:
 
 __author__ = "Michael Wagner"
 __copyright__ = "Copyright 2017, Barcelona Supercomputing Center (BSC)"
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 
 #Contains all raw data entries with a printable name.
 #This is used to generate and print all raw data, so, if an entry is added, it
 #should be added here, too.
-raw_data_doc = OrderedDict([('runtime',     'Runtime'),
+raw_data_doc = OrderedDict([('runtime',     'Runtime (us)'),
                             ('runtime_dim', 'Runtime (ideal)'),
                             ('useful_avg',  'Useful duration (average)'),
                             ('useful_max',  'Useful duration (maximum)'),
@@ -69,7 +69,7 @@ def parse_arguments():
     """
     parser = argparse.ArgumentParser(description='Generates performance metrics from a set of Paraver traces.')
     parser.add_argument('trace_list', nargs='*', help='list of traces to process. Accepts wild cards and automatically filters for valid traces')
-    parser.add_argument("--version", action='version', version='%(prog)s {version}'.format(version=__version__))
+    parser.add_argument("-v", "--version", action='version', version='%(prog)s {version}'.format(version=__version__))
     parser.add_argument("-d", "--debug", help="increase output verbosity to debug level", action="store_true")
     parser.add_argument("-s", "--scaling", help="define whether the measurements are weak or strong scaling (default: auto)",
                         choices=['weak','strong','auto'], default='auto')
@@ -221,6 +221,15 @@ def run_command(cmd):
     return return_value
 
 
+def save_remove(path):
+    """Wraps os.remove with a try clause."""
+    try:
+        os.remove(path)
+    except:
+        if cmdl_args.debug:
+            print('==DEBUG== Failed to remove ' + path + '!')
+
+
 def create_raw_data(trace_list):
     """Creates 2D dictionary of the raw input data and initializes with zero.
     The raw_data dictionary has the format: [raw data key][trace].
@@ -298,11 +307,17 @@ def print_mod_factors_table(mod_factors, trace_list, trace_processes):
         if mod_key in ['speedup','ipc','freq']:
             for trace in trace_list:
                 line += ' | '
-                line += ('{0:.2f}'.format(mod_factors[mod_key][trace])).rjust(10)
+                try: #except NaN
+                    line += ('{0:.2f}'.format(mod_factors[mod_key][trace])).rjust(10)
+                except ValueError:
+                    line += ('{}'.format(mod_factors[mod_key][trace])).rjust(10)
         else:
             for trace in trace_list:
                 line += ' | '
-                line += ('{0:.2f}%'.format(mod_factors[mod_key][trace])).rjust(10)
+                try: #except NaN
+                    line += ('{0:.2f}%'.format(mod_factors[mod_key][trace])).rjust(10)
+                except ValueError:
+                    line += ('{}'.format(mod_factors[mod_key][trace])).rjust(10)
         print(line)
         #Print empty line to separate values
         if mod_key in ['global_eff','freq_scale']:
@@ -335,7 +350,22 @@ def print_mod_factors_csv(mod_factors, trace_list, trace_processes):
             line = mod_factors_doc[mod_key].replace('  ', '', 2)
             for trace in trace_list:
                 line += delimiter
-                line += '{0:.6f}'.format(mod_factors[mod_key][trace])
+                try: #except NaN
+                    line += '{0:.6f}'.format(mod_factors[mod_key][trace])
+                except ValueError:
+                    line += '{}'.format(mod_factors[mod_key][trace])
+            output.write(line + '\n')
+
+        output.write('#\n')
+
+        for raw_key in raw_data_doc:
+            line = '#' + raw_data_doc[raw_key]
+            for trace in trace_list:
+                line += delimiter
+                try: #except NaN
+                    line += '{0:.2f}'.format(raw_data[raw_key][trace])
+                except ValueError:
+                    line += '{}'.format(raw_data[raw_key][trace])
             output.write(line + '\n')
 
     print('Model factors written to ' + file_path)
@@ -437,59 +467,97 @@ def gather_raw_data(trace_list, trace_processes, cmdl_args):
             run_command(cmd_ideal)
 
         time_pmd = time.time() - time_pmd
-        print('Successfully analyzed trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
+
+        error_timing = 0;
+        error_counters = 0;
+        error_ideal = 0;
+
+        #Check if all files are created
+        if not os.path.exists(trace[:-4] + '.timings.stats') or \
+           not os.path.exists(trace[:-4] + '.runtime.stats'):
+            print('==ERROR== Failed to compute timing information with paramedir.')
+            error_timing = 1
+
+        if not os.path.exists(trace[:-4] + '.cycles.stats') or \
+           not os.path.exists(trace[:-4] + '.instructions.stats'):
+            print('==ERROR== Failed to compute counter information with paramedir.')
+            error_counters = 1
+
+        if not os.path.exists(trace_sim[:-4] + '.timings.stats') or \
+           not os.path.exists(trace_sim[:-4] + '.runtime.stats'):
+            print('==ERROR== Failed to compute timing information with paramedir.')
+            error_ideal = 1
+            trace_sim = ''
+
+        if error_timing or error_counters or error_ideal:
+            print('Failed to analyze trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
+        else:
+            print('Successfully analyzed trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
 
 
         #Parse the paramedir output files
         time_prs = time.time()
 
         #Get total, average, and maximum useful duration
-        content = []
-        with open(trace[:-4] + '.timings.stats') as f:
-            content = f.readlines()
+        if os.path.exists(trace[:-4] + '.timings.stats'):
+            content = []
+            with open(trace[:-4] + '.timings.stats') as f:
+                content = f.readlines()
 
-        for line in content:
-            if line.split():
-                if line.split()[0] == 'Total':
-                    raw_data['useful_tot'][trace] = float(line.split()[1])
-                if line.split()[0] == 'Average':
-                    raw_data['useful_avg'][trace] = float(line.split()[1])
-                if line.split()[0] == 'Maximum':
-                    raw_data['useful_max'][trace] = float(line.split()[1])
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Total':
+                        raw_data['useful_tot'][trace] = float(line.split()[1])
+                    if line.split()[0] == 'Average':
+                        raw_data['useful_avg'][trace] = float(line.split()[1])
+                    if line.split()[0] == 'Maximum':
+                        raw_data['useful_max'][trace] = float(line.split()[1])
+        else:
+            raw_data['useful_tot'][trace] = 'NaN'
+            raw_data['useful_avg'][trace] = 'NaN'
+            raw_data['useful_max'][trace] = 'NaN'
 
         #Get runtime
-        content = []
-        with open(trace[:-4] + '.runtime.stats') as f:
-            content = f.readlines()
+        if os.path.exists(trace[:-4] + '.runtime.stats'):
+            content = []
+            with open(trace[:-4] + '.runtime.stats') as f:
+                content = f.readlines()
 
-        for line in content:
-            if line.split():
-                if line.split()[0] == 'Average':
-                    raw_data['runtime'][trace] = float(line.split()[1])
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Average':
+                        raw_data['runtime'][trace] = float(line.split()[1])
+        else:
+            raw_data['runtime'][trace] = 'NaN'
 
         #Get useful cycles
-        content = []
-        with open(trace[:-4] + '.cycles.stats') as f:
-            content = f.readlines()
+        if os.path.exists(trace[:-4] + '.cycles.stats'):
+            content = []
+            with open(trace[:-4] + '.cycles.stats') as f:
+                content = f.readlines()
 
-        for line in content:
-            if line.split():
-                if line.split()[0] == 'Total':
-                    raw_data['useful_cyc'][trace] = int(float(line.split()[1]))
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Total':
+                        raw_data['useful_cyc'][trace] = int(float(line.split()[1]))
+        else:
+            raw_data['useful_cyc'][trace] = 'NaN'
 
         #Get useful instructions
-        content = []
-        with open(trace[:-4] + '.instructions.stats') as f:
-            content = f.readlines()
+        if os.path.exists(trace[:-4] + '.instructions.stats'):
+            content = []
+            with open(trace[:-4] + '.instructions.stats') as f:
+                content = f.readlines()
 
-        for line in content:
-            if line.split():
-                if line.split()[0] == 'Total':
-                    raw_data['useful_ins'][trace] = int(float(line.split()[1]))
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Total':
+                        raw_data['useful_ins'][trace] = int(float(line.split()[1]))
+        else:
+            raw_data['useful_ins'][trace] ='NaN'
 
         #Get maximum useful duration for simulated trace
-        #If Dimemas failed, use normal trace.
-        if not trace_sim == '':
+        if os.path.exists(trace_sim[:-4] + '.timings.stats'):
             content = []
             with open(trace_sim[:-4] + '.timings.stats') as f:
                 content = f.readlines()
@@ -499,11 +567,10 @@ def gather_raw_data(trace_list, trace_processes, cmdl_args):
                     if line.split()[0] == 'Maximum':
                         raw_data['useful_dim'][trace] = float(line.split()[1])
         else:
-            raw_data['useful_dim'][trace] = raw_data['useful_max'][trace]
+            raw_data['useful_dim'][trace] = 'NaN'
 
         #Get runtime for simulated trace
-        #If Dimemas failed, use normal trace.
-        if not trace_sim == '':
+        if os.path.exists(trace_sim[:-4] + '.runtime.stats'):
             content = []
             with open(trace_sim[:-4] + '.runtime.stats') as f:
                 content = f.readlines()
@@ -513,16 +580,15 @@ def gather_raw_data(trace_list, trace_processes, cmdl_args):
                     if line.split()[0] == 'Average':
                         raw_data['runtime_dim'][trace] = float(line.split()[1])
         else:
-            raw_data['runtime_dim'][trace] = raw_data['useful_max'][trace]
+            raw_data['runtime_dim'][trace] = 'NaN'
 
         #Remove paramedir output files
-        os.remove(trace[:-4] + '.timings.stats')
-        os.remove(trace[:-4] + '.runtime.stats')
-        os.remove(trace[:-4] + '.cycles.stats')
-        os.remove(trace[:-4] + '.instructions.stats')
-        if not trace_sim == '':
-            os.remove(trace_sim[:-4] + '.timings.stats')
-            os.remove(trace_sim[:-4] + '.runtime.stats')
+        save_remove(trace[:-4] + '.timings.stats')
+        save_remove(trace[:-4] + '.runtime.stats')
+        save_remove(trace[:-4] + '.cycles.stats')
+        save_remove(trace[:-4] + '.instructions.stats')
+        save_remove(trace_sim[:-4] + '.timings.stats')
+        save_remove(trace_sim[:-4] + '.runtime.stats')
         time_prs = time.time() - time_prs
 
         time_tot = time.time() - time_tot
@@ -598,35 +664,75 @@ def compute_model_factors(raw_data, trace_list, trace_processes, cmdl_args):
         proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
 
         #Basic efficiency factors
-        mod_factors['load_balance'][trace] = raw_data['useful_avg'][trace] / raw_data['useful_max'][trace] * 100.0
-        mod_factors['comm_eff'][trace] =     raw_data['useful_max'][trace] / raw_data['runtime'][trace] * 100.0
-        mod_factors['serial_eff'][trace] =   raw_data['useful_dim'][trace] / raw_data['runtime_dim'][trace] * 100.0
-        mod_factors['transfer_eff'][trace] = mod_factors['comm_eff'][trace] / mod_factors['serial_eff'][trace] * 100.0
-        mod_factors['parallel_eff'][trace] = mod_factors['load_balance'][trace] * mod_factors['comm_eff'][trace] / 100.0
+        try: #except NaN
+            mod_factors['load_balance'][trace] = raw_data['useful_avg'][trace] / raw_data['useful_max'][trace] * 100.0
+        except:
+            mod_factors['load_balance'][trace] = 'NaN'
 
-        if scaling == 'strong':
-            mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] / raw_data['useful_tot'][trace] * 100.0
-        else:
-            mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] / raw_data['useful_tot'][trace] * proc_ratio * 100.0
+        try: #except NaN
+            mod_factors['comm_eff'][trace] = raw_data['useful_max'][trace] / raw_data['runtime'][trace] * 100.0
+        except:
+            mod_factors['comm_eff'][trace] = 'NaN'
 
-        mod_factors['global_eff'][trace] = mod_factors['parallel_eff'][trace] * mod_factors['comp_scale'][trace] / 100.0
+        try: #except NaN
+            mod_factors['serial_eff'][trace] = raw_data['useful_dim'][trace] / raw_data['runtime_dim'][trace] * 100.0
+        except:
+            mod_factors['serial_eff'][trace] = 'NaN'
+
+        try: #except NaN
+            mod_factors['transfer_eff'][trace] = mod_factors['comm_eff'][trace] / mod_factors['serial_eff'][trace] * 100.0
+        except:
+            mod_factors['transfer_eff'][trace] = 'NaN'
+
+        try: #except NaN
+            mod_factors['parallel_eff'][trace] = mod_factors['load_balance'][trace] * mod_factors['comm_eff'][trace] / 100.0
+        except:
+            mod_factors['parallel_eff'][trace] = 'NaN'
+
+        try: #except NaN
+            if scaling == 'strong':
+                mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] / raw_data['useful_tot'][trace] * 100.0
+            else:
+                mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] / raw_data['useful_tot'][trace] * proc_ratio * 100.0
+        except:
+            mod_factors['comp_scale'][trace] = 'NaN'
+
+        try: #except NaN
+            mod_factors['global_eff'][trace] = mod_factors['parallel_eff'][trace] * mod_factors['comp_scale'][trace] / 100.0
+        except:
+            mod_factors['global_eff'][trace] = 'NaN'
 
         #Basic scalability factors
-        mod_factors['ipc'][trace] = float(raw_data['useful_ins'][trace]) / float(raw_data['useful_cyc'][trace])
-        mod_factors['ipc_scale'][trace] = mod_factors['ipc'][trace] / mod_factors['ipc'][trace_list[0]] * 100.0
-
-        mod_factors['freq'][trace] = float(raw_data['useful_cyc'][trace]) / float(raw_data['useful_tot'][trace]) / 1000
-        mod_factors['freq_scale'][trace] = mod_factors['freq'][trace] / mod_factors['freq'][trace_list[0]] * 100.0
-
-        if scaling == 'strong':
-            mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) / float(raw_data['useful_ins'][trace]) * 100.0
-        else:
-            mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) / float(raw_data['useful_ins'][trace]) * proc_ratio * 100.0
-
-        if scaling == 'strong':
-            mod_factors['speedup'][trace] = raw_data['runtime'][trace_list[0]] / raw_data['runtime'][trace]
-        else:
-            mod_factors['speedup'][trace] = raw_data['runtime'][trace_list[0]] / raw_data['runtime'][trace] * proc_ratio
+        try: #except NaN
+            mod_factors['ipc'][trace] = float(raw_data['useful_ins'][trace]) / float(raw_data['useful_cyc'][trace])
+        except:
+            mod_factors['ipc'][trace] = 'NaN'
+        try: #except NaN
+            mod_factors['ipc_scale'][trace] = mod_factors['ipc'][trace] / mod_factors['ipc'][trace_list[0]] * 100.0
+        except:
+            mod_factors['ipc_scale'][trace] = 'NaN'
+        try: #except NaN
+            mod_factors['freq'][trace] = float(raw_data['useful_cyc'][trace]) / float(raw_data['useful_tot'][trace]) / 1000
+        except:
+            mod_factors['freq'][trace] = 'NaN'
+        try: #except NaN
+            mod_factors['freq_scale'][trace] = mod_factors['freq'][trace] / mod_factors['freq'][trace_list[0]] * 100.0
+        except:
+            mod_factors['freq_scale'][trace] = 'NaN'
+        try: #except NaN
+            if scaling == 'strong':
+                mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) / float(raw_data['useful_ins'][trace]) * 100.0
+            else:
+                mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) / float(raw_data['useful_ins'][trace]) * proc_ratio * 100.0
+        except:
+            mod_factors['inst_scale'][trace] = 'NaN'
+        try: #except NaN
+            if scaling == 'strong':
+                mod_factors['speedup'][trace] = raw_data['runtime'][trace_list[0]] / raw_data['runtime'][trace]
+            else:
+                mod_factors['speedup'][trace] = raw_data['runtime'][trace_list[0]] / raw_data['runtime'][trace] * proc_ratio
+        except:
+            mod_factors['speedup'][trace] = 'NaN'
 
     return mod_factors
 
