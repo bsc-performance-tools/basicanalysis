@@ -27,7 +27,10 @@ except ImportError:
 
 __author__ = "Michael Wagner"
 __copyright__ = "Copyright 2017, Barcelona Supercomputing Center (BSC)"
-__version__ = "0.3.2"
+__version_major__ = 0
+__version_minor__ = 3
+__version_micro__ = 2
+__version__ = str(__version_major__) + "." + str(__version_minor__) + "." + str(__version_micro__)
 
 
 #Contains all raw data entries with a printable name.
