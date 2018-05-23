@@ -405,7 +405,7 @@ def read_mod_factors_csv(cmdl_args):
     mod_factors_keys = list(mod_factors_doc.items())
 
     #Iterate over the data lines
-    for index, line in enumerate(lines[1:]):
+    for index, line in enumerate(lines[1:len(mod_factors_keys)+1]):
         key = mod_factors_keys[index][0]
         line = line.split(delimiter)
         for index, trace in enumerate(trace_list):
