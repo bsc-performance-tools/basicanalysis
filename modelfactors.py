@@ -29,7 +29,7 @@ __author__ = "Michael Wagner"
 __copyright__ = "Copyright 2017, Barcelona Supercomputing Center (BSC)"
 __version_major__ = 0
 __version_minor__ = 3
-__version_micro__ = 3
+__version_micro__ = 4
 __version__ = str(__version_major__) + "." + str(__version_minor__) + "." + str(__version_micro__)
 
 
