@@ -32,10 +32,14 @@ requires gnuplot version 5.0 or higher.
 
 ## Usage example
 
-Usage: modelfactors.py <list-of-traces> --metrics <metric-type>
+Usage: 
+```
+modelfactors.py <list-of-traces> --metrics <metric-type>
 
-The <list-of-traces> accepts any list of files including wild cards and
+```
+
+The \<list-of-traces\> accepts any list of files including wild cards and
 automatically filters for valid Paraver traces.
 
-The <metrics-type> accepts simple or hybrid, default is simple.
+The \<metrics-type\> accepts simple or hybrid, default is simple.
 
