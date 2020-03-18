@@ -18,7 +18,8 @@ other_metrics_doc = OrderedDict([('speedup', 'Speedup'),
                                ('freq', 'Average frequency (GHz)'),
                                ('flushing', 'Flushing'),
                                ('io_mpiio', 'MPI I/O'),
-                               ('io_posix', 'Other File I/O')])
+                               ('io_posix', 'Other File I/O'),
+                               ('io_eff', 'I/O Efficiency')])
 
 mod_factors_doc = OrderedDict([('global_eff', 'Global efficiency'),
                                ('parallel_eff', '-- Parallel efficiency'),
@@ -80,8 +81,15 @@ def get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args):
         return 'strong'
 
     for trace in trace_list:
-        inst_ratio = float(raw_data['useful_ins'][trace]) / float(raw_data['useful_ins'][trace_list[0]])
-        proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
+        try:  # except NaN
+            inst_ratio = float(raw_data['useful_ins'][trace]) / float(raw_data['useful_ins'][trace_list[0]])
+        except:
+            inst_ratio = 0.0
+        try:  # except NaN
+            proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
+        except:
+            proc_ratio = 'NaN'
+           
         normalized_inst_ratio += inst_ratio / proc_ratio
 
     # Get the average inst increase. Ignore ratio of first trace 1.0)
@@ -128,6 +136,31 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     for trace in trace_list:
         proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
 
+        # Flushing measurements
+        try:  # except NaN
+            other_metrics['flushing'][trace] = raw_data['flushing_tot'][trace] \
+                                                 / (raw_data['runtime'][trace] * trace_processes[trace]) * 100.0
+        except:
+            other_metrics['flushing'][trace] = 0.0
+
+        # I/O measurements
+        try:  # except NaN
+            other_metrics['io_mpiio'][trace] = (raw_data['mpiio_avg'][trace] + raw_data['mpiio_std'][trace])\
+                                             / raw_data['runtime'][trace] * 100.0
+        except:
+            other_metrics['io_mpiio'][trace] = 0.0
+
+        try:  # except NaN
+            other_metrics['io_posix'][trace] = (raw_data['io_avg'][trace] + raw_data['io_std'][trace]) \
+                                               / raw_data['runtime'][trace] * 100.0
+        except:
+            other_metrics['io_posix'][trace] = 0.0
+        try:  # except NaN
+            io_total = raw_data['mpiio_tot'][trace] + raw_data['flushing_tot'][trace] + raw_data['io_tot'][trace]
+            other_metrics['io_eff'][trace] = (1 - io_total / (raw_data['useful_tot'][trace] + io_total)) * 100
+        except:
+            other_metrics['io_eff'][trace] = 0.0
+
         # Basic efficiency factors
         try:  # except NaN
             mod_factors['load_balance'][trace] = raw_data['useful_avg'][trace] \
@@ -142,7 +175,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             mod_factors['comm_eff'][trace] = 'NaN'
 
         try:  # except NaN
-            mod_factors['serial_eff'][trace] = raw_data['useful_dim'][trace] \
+            mod_factors['serial_eff'][trace] = raw_data['outsidempi_dim'][trace] \
                                                / raw_data['runtime_dim'][trace] * 100.0
         except:
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
@@ -151,16 +184,18 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 mod_factors['serial_eff'][trace] = 'Non-Avail'
 
         try:  # except NaN
-            mod_factors['transfer_eff'][trace] = mod_factors['comm_eff'][trace] / mod_factors['serial_eff'][trace] * 100.0
-
+            mod_factors['transfer_eff'][trace] = mod_factors['comm_eff'][trace] \
+                                                 / mod_factors['serial_eff'][trace] * 100.0
         except:
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
               mod_factors['transfer_eff'][trace] = 'NaN'
             else:
               mod_factors['transfer_eff'][trace] = 'Non-Avail'
+
+        # Parallel Efficiency
         try:  # except NaN
             mod_factors['parallel_eff'][trace] = mod_factors['load_balance'][trace] \
-                                                 * mod_factors['comm_eff'][trace] / 100.0
+                                                     * mod_factors['comm_eff'][trace] / 100.0
         except:
             mod_factors['parallel_eff'][trace] = 'NaN'
 
@@ -220,25 +255,6 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             other_metrics['speedup'][trace] = 'NaN'
 
-        # Flushing measurements
-        try:  # except NaN
-            other_metrics['flushing'][trace] = raw_data['flushing_tot'][trace] \
-                                                 / (raw_data['runtime'][trace] * trace_processes[trace]) * 100.0
-        except:
-            other_metrics['flushing'][trace] = 0.0
-
-        # I/O measurements
-        try:  # except NaN
-            other_metrics['io_mpiio'][trace] = raw_data['mpiio_tot'][trace]\
-                                             / (raw_data['runtime'][trace] * trace_processes[trace]) * 100.0
-        except:
-            other_metrics['io_mpiio'][trace] = 0.0
-
-        try:  # except NaN
-            other_metrics['io_posix'][trace] = (raw_data['io_tot'][trace] - raw_data['mpiio_tot'][trace])\
-                                             /(raw_data['runtime'][trace] * trace_processes[trace]) * 100.0
-        except:
-            other_metrics['io_posix'][trace] = 0.0
     return mod_factors, other_metrics
 
 
@@ -297,9 +313,9 @@ def print_mod_factors_table(mod_factors, trace_list, trace_processes):
     longest_name = len(sorted(mod_factors_doc.values(), key=len)[-1])
 
     line = ''.rjust(longest_name)
-    for trace in trace_list:
+    for index, trace in enumerate(trace_list):
         line += ' | '
-        line += str(trace_processes[trace]).rjust(10)
+        line += (str(trace_processes[trace]) + '(' + str(index+1) + ')').rjust(10)
     print(''.ljust(len(line), '='))
     print(line)
     line_procs_factors = line
@@ -328,13 +344,12 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
     longest_name = len(sorted(other_metrics_doc.values(), key=len)[-1])
 
     line = ''.rjust(longest_name)
-    for trace in trace_list:
+    for index, trace in enumerate(trace_list):
         line += ' | '
-        line += str(trace_processes[trace]).rjust(10)
+        line += (str(trace_processes[trace]) + '(' + str(index+1) + ')').rjust(10)
     print(''.ljust(len(line), '-'))
     print(line)
-    line_procs_factors = line
-
+    line_head = line
     print(''.ljust(len(line), '-'))
 
     for mod_key in other_metrics_doc:
@@ -346,55 +361,62 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
                     line += ('{0:.2f}'.format(other_metrics[mod_key][trace])).rjust(10)
                 except ValueError:
                     line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
-        elif mod_key in ['flushing']:
-            for trace in trace_list:
-                line += ' | '
-                try:  # except NaN
-                    line += ('{0:.2f}%'.format(other_metrics[mod_key][trace])).rjust(10)
-                except ValueError:
-                    line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
-        else:
-            for trace in trace_list:
-                line += ' | '
-                try:  # except NaN
-                    line += ('{0:.2f}%'.format(other_metrics[mod_key][trace])).rjust(10)
-                except ValueError:
-                    line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
-        print(line)
-        # Print empty line to separate values
-        if mod_key in ['freq']:
-            print(''.ljust(len(line), '-'))
-            print(''.ljust(len(line), ' '))
-            print("Overview of tracer\'s flushing weight:")
-            print(''.ljust(len(line), '-'))
+            print(line)
+    print(''.ljust(len(line_head), '-'))
+    print('')
 
+    warning_io = []
+    warning_flush = []
+    for trace in trace_list:
+        if other_metrics['flushing'][trace] >= 5.0:
+            warning_flush.append(1)
+        if (other_metrics['io_mpiio'][trace] + other_metrics['io_posix'][trace]) >= 5.0:
+            warning_io.append(1)
+    if len(warning_flush) > 0:
+        message_warning_flush = "WARNING!!! --> Flushing > 5%.  "
+    else:
+        message_warning_flush = ""
+    if len(warning_io) > 0:
+        message_warning_io = "WARNING!!! --> File I/O > 5%."
+    else:
+        message_warning_io = ""
+    print(message_warning_flush+message_warning_io)
+
+    for mod_key in other_metrics_doc:
+        line = other_metrics_doc[mod_key].ljust(longest_name)
+        # Print empty line to separate values
+        if mod_key in ['freq'] and len(warning_flush) > 0:
+            print("Overview of tracer\'s flushing weight:")
+            print(''.ljust(len(line_head), '-'))
+
+        if mod_key not in ['speedup', 'ipc', 'freq']:
+            if mod_key in ['flushing']:
+                for trace in trace_list:
+                    line += ' | '
+                    try:  # except NaN
+                        line += ('{0:.2f}%'.format(other_metrics[mod_key][trace])).rjust(10)
+                    except ValueError:
+                        line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
+                if len(warning_flush) > 0:
+                    print(line)
+                    print(''.ljust(len(line_head), '-'))
+            elif mod_key in ['io_mpiio','io_posix', 'io_eff']:
+                for trace in trace_list:
+                    line += ' | '
+                    try:  # except NaN
+                        line += ('{0:.2f}%'.format(other_metrics[mod_key][trace])).rjust(10)
+                    except ValueError:
+                        line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
+                if len(warning_io) > 0:
+                    print(line)
         # Print headers I/O
-        if mod_key in ['flushing']:
-            print(''.ljust(len(line), '-'))
+        if mod_key in ['flushing'] and len(warning_io) > 0:
             print(''.ljust(len(line), ' '))
             print('Overview of File I/O weight:')
             print(''.ljust(len(line), '-'))
-        # Print headers model factors
-        if mod_key in ['io_posix']:
+        if mod_key in ['io_eff'] and len(warning_io) > 0:
             print(''.ljust(len(line), '-'))
-            #print(''.ljust(len(line), ' '))
-            warning_io = []
-            warning_flush = []
-            for trace in trace_list:
-                if other_metrics['flushing'][trace] >= 5.0:
-                    warning_flush.append(1)
-                if (other_metrics['io_mpiio'][trace] + other_metrics['io_posix'][trace]) >= 10.0:
-                    warning_io.append(1)
-            if len(warning_flush) > 0:
-                message_warning_flush = "WARNING!!! --> Flushing > 5%.  "
-            else:
-                message_warning_flush = ""
-            if len(warning_io) > 0:
-                message_warning_io = "WARNING!!! --> File I/O > 10%."
-            else:
-                message_warning_io = ""
-
-            print(message_warning_flush+message_warning_io)
+            print('')
 
 
 def print_efficiency_table(mod_factors, trace_list, trace_processes):
@@ -406,9 +428,9 @@ def print_efficiency_table(mod_factors, trace_list, trace_processes):
     file_path = os.path.join(os.getcwd(), 'efficiency_table.csv')
     with open(file_path, 'w') as output:
         line = '\"Number of processes\" '
-        for trace in trace_list:
+        for index, trace in enumerate(trace_list):
             line += delimiter
-            line += str(trace_processes[trace])
+            line += str(trace_processes[trace]) + '(' + str(index+1) + ')'
         output.write(line + '\n')
 
         for mod_key in mod_factors_doc:
@@ -416,9 +438,9 @@ def print_efficiency_table(mod_factors, trace_list, trace_processes):
                 if mod_key in ['parallel_eff', 'comp_scale']:
                     line = "\"" + mod_factors_doc[mod_key].replace('  ', '', 2) + "\""
                 elif mod_key in ['load_balance', 'comm_eff','ipc_scale', 'inst_scale','freq_scale']:
-                    line = "\"" + mod_factors_doc[mod_key].replace('  ', '', 2) + "\""
+                    line = "\"" + mod_factors_doc[mod_key].replace('  ', '  ', 2) + "\""
                 elif mod_key in ['serial_eff', 'transfer_eff']:
-                    line = "\"    " + mod_factors_doc[mod_key].replace('  ', '', 4) + "\""
+                    line = "\"    " + mod_factors_doc[mod_key].replace('  ', ' ', 4) + "\""
                 else:
                     line = "\"" + mod_factors_doc[mod_key] + "\""
                 for trace in trace_list:
@@ -431,13 +453,30 @@ def print_efficiency_table(mod_factors, trace_list, trace_processes):
                     except ValueError:
                         line += '{}'.format(mod_factors[mod_key][trace])
                 output.write(line + '\n')
-        print('')
-        print('======== Plot (gnuplot File): EFFICIENCY Table ========')
-        shutil.copyfile(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', \
-                                     'efficiency_table.gp'),
-                        os.path.join(os.getcwd(), 'efficiency_table.gp'))
-        print('Efficiency Table written to ' + file_path[:len(file_path) - 4] + '.gp')
-        print('')
+        # print('')
+
+        # Create Gnuplot file for efficiency plot
+        gp_template = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', 'efficiency_table.gp')
+        content = []
+
+        with open(gp_template) as f:
+            content = f.readlines()
+
+        limit_procs = 500 + len(trace_list) * 60
+
+        # Replace xrange
+        content = [line.replace('#REPLACE_BY_SIZE', ''.join(['set terminal pngcairo enhanced dashed crop size ',
+                                                             str(limit_procs), ',460 font "Latin Modern Roman,14"']))
+                   for line in content]
+
+        file_path = os.path.join(os.getcwd(), 'efficiency_table.gp')
+        with open(file_path, 'w') as f:
+            f.writelines(content)
+
+        # print('======== Plot (gnuplot File): EFFICIENCY Table ========')
+        print('Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.png')
+        # print('')
+
 
 def print_mod_factors_csv(mod_factors, trace_list, trace_processes):
     """Prints the model factors table in a csv file."""
@@ -468,7 +507,7 @@ def print_mod_factors_csv(mod_factors, trace_list, trace_processes):
 
         output.write('#\n')
 
-    print('======== CSV File: EFFICIENCY METRICS ========')
+    print('======== Output Files: Metrics and Plots ========')
     print('Model factors written to ' + file_path)
 
 
@@ -501,7 +540,7 @@ def print_other_metrics_csv(other_metrics, trace_list, trace_processes):
 
         output.write('#\n')
 
-    print('======== CSV File: Other METRICS ========')
+    print('======== Output File: Other Metrics ========')
     print('Speedup, IPC, Frequency, I/O and Flushing written to ' + file_path)
     print('')
-    print('')
+    # print('')

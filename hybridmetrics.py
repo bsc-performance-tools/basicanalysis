@@ -4,10 +4,13 @@
 
 from __future__ import print_function, division
 import sys
-import shutil
+import subprocess
+from os import system
+
 from rawdata import *
 from tracemetadata import get_trace_mode
 from collections import OrderedDict
+from utils import run_command
 
 # Contains all model factor entries with a printable name.
 # This is used to generate and print all model factors, so, if an entry is added,
@@ -18,25 +21,28 @@ other_metrics_doc = OrderedDict([('speedup', 'Speedup'),
                                ('freq', 'Average frequency (GHz)'),
                                ('flushing', 'Flushing'),
                                ('io_mpiio', 'MPI I/O'),
-                               ('io_posix', 'Other File I/O')])
+                               ('io_posix', 'Other File I/O'),
+                               ('io_eff', 'I/O Efficiency')])
 
-mod_factors_doc = OrderedDict([
-                               ('global_eff', 'Global efficiency'),
-                               ('parallel_eff', '-- Hybrid Parallel efficiency'),
-                               ('load_balance', '   -- Hybrid Load balance'),
-                               ('comm_eff', '   -- Hybrid Communication efficiency'),
-                               ('serial_eff', '      -- Serialization efficiency'),
-                               ('transfer_eff', '      -- Transfer efficiency'),
-                               ('mpi_parallel_eff', '-- MPI Parallel efficiency'),
-                               ('mpi_load_balance', '   -- MPI Load balance'),
-                               ('mpi_comm_eff', '   -- MPI Communication efficiency'),
-                               ('omp_parallel_eff', '-- OMP Parallel efficiency'),
-                               ('omp_load_balance', '   -- OMP Load balance'),
-                               ('omp_comm_eff', '   -- OMP Communication efficiency'),
+mod_factors_doc = OrderedDict([('global_eff', 'Global efficiency'),
+                               ('parallel_eff', '-- Parallel efficiency'),
+                               ('load_balance', '   -- Load balance'),
+                               ('comm_eff', '   -- Communication efficiency'),
                                ('comp_scale', '-- Computation scalability'),
                                ('ipc_scale', '   -- IPC scalability'),
                                ('inst_scale', '   -- Instruction scalability'),
                                ('freq_scale', '   -- Frequency scalability')])
+
+mod_hybrid_factors_doc = OrderedDict([
+                               ('hybrid_eff', '-- Hybrid Parallel efficiency'),
+                               ('mpi_parallel_eff', '   -- MPI Parallel efficiency'),
+                               ('mpi_load_balance', '      -- MPI Load balance'),
+                               ('mpi_comm_eff', '      -- MPI Communication efficiency'),
+                               ('serial_eff', '         -- Serialization efficiency'),
+                               ('transfer_eff', '         -- Transfer efficiency'),
+                               ('omp_parallel_eff', '   -- OMP Parallel efficiency'),
+                               ('omp_load_balance', '      -- OMP Load balance'),
+                               ('omp_comm_eff', '      -- OMP Communication efficiency')])
 
 
 def create_mod_factors(trace_list):
@@ -54,9 +60,24 @@ def create_mod_factors(trace_list):
     return mod_factors
 
 
+def create_hybrid_mod_factors(trace_list):
+    """Creates 2D dictionary of the hybrid model factors and initializes with an empty
+    string. The hybrid_factors dictionary has the format: [mod factor key][trace].
+    """
+    global mod_hybrid_factors_doc
+    hybrid_factors = {}
+    for key in mod_hybrid_factors_doc:
+        trace_dict = {}
+        for trace_name in trace_list:
+            trace_dict[trace_name] = 0.0
+        hybrid_factors[key] = trace_dict
+
+    return hybrid_factors
+
+
 def create_other_metrics(trace_list):
-    """Creates 2D dictionary of the model factors and initializes with an empty
-    string. The mod_factors dictionary has the format: [mod factor key][trace].
+    """Creates 2D dictionary of the other metrics and initializes with an empty
+    string. The other_metrics dictionary has the format: [mod factor key][trace].
     """
     global other_metrics_doc
     other_metrics = {}
@@ -87,8 +108,15 @@ def get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args):
         return 'strong'
 
     for trace in trace_list:
-        inst_ratio = float(raw_data['useful_ins'][trace]) / float(raw_data['useful_ins'][trace_list[0]])
-        proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
+        try:  # except NaN
+            inst_ratio = float(raw_data['useful_ins'][trace]) / float(raw_data['useful_ins'][trace_list[0]])
+        except:
+            inst_ratio = 0.0
+        try:  # except NaN
+            proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
+        except:
+            proc_ratio = 'NaN'
+
         normalized_inst_ratio += inst_ratio / proc_ratio
 
     # Get the average inst increase. Ignore ratio of first trace 1.0)
@@ -127,6 +155,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode,list
     """Computes the model factors from the gathered raw data and returns the
     according dictionary of model factors."""
     mod_factors = create_mod_factors(trace_list)
+    hybrid_factors = create_hybrid_mod_factors(trace_list)
     other_metrics = create_other_metrics(trace_list)
     # Guess the weak or strong scaling
     scaling = get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args)
@@ -134,6 +163,32 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode,list
     # Loop over all traces
     for trace in trace_list:
         proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
+
+        # Flushing measurements
+        try:  # except NaN
+            other_metrics['flushing'][trace] = raw_data['flushing_tot'][trace] \
+                                                 / (raw_data['runtime'][trace] * trace_processes[trace]) * 100.0
+        except:
+            other_metrics['flushing'][trace] = 0.0
+
+        # I/O measurements
+        try:  # except NaN
+            other_metrics['io_mpiio'][trace] = (raw_data['mpiio_avg'][trace] + raw_data['mpiio_std'][trace])\
+                                             / raw_data['runtime'][trace] * 100.0
+        except:
+            other_metrics['io_mpiio'][trace] = 0.0
+
+        try:  # except NaN
+            other_metrics['io_posix'][trace] = (raw_data['io_avg'][trace] + raw_data['io_std'][trace]) \
+                                               / raw_data['runtime'][trace] * 100.0
+        except:
+            other_metrics['io_posix'][trace] = 0.0
+
+        try:  # except NaN
+            io_total = raw_data['mpiio_tot'][trace] + raw_data['flushing_tot'][trace] + raw_data['io_tot'][trace]
+            other_metrics['io_eff'][trace] = (1 - io_total / (raw_data['useful_tot'][trace] + io_total)) * 100
+        except:
+            other_metrics['io_eff'][trace] = 0.0
 
         # Basic efficiency factors
         try:  # except NaN
@@ -143,70 +198,22 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode,list
             mod_factors['load_balance'][trace] = 'NaN'
 
         try:  # except NaN
-            mod_factors['mpi_load_balance'][trace] = raw_data['outsidempi_avg'][trace] \
-                                                 / raw_data['outsidempi_max'][trace] * 100.0
-        except:
-            mod_factors['mpi_load_balance'][trace] = 'NaN'
-
-        try:  # except NaN
-            mod_factors['omp_load_balance'][trace] = mod_factors['load_balance'][trace] \
-                                                 / mod_factors['mpi_load_balance'][trace] * 100.0
-        except:
-            mod_factors['omp_load_balance'][trace] = 'NaN'
-
-        try:  # except NaN
+            # io_weight = other_metrics['io_mpiio'][trace] + other_metrics['io_posix'][trace]\
+            #            + other_metrics['flushing'][trace]
+            #if io_weight >= 10.0:
+            #    mod_factors['comm_eff'][trace] = raw_data['useful_plus_io_max'][trace]\
+            #                                      / raw_data['runtime'][trace] * 100.0
+            #else:
             mod_factors['comm_eff'][trace] = raw_data['useful_max'][trace] \
                                                      / raw_data['runtime'][trace] * 100.0
         except:
             mod_factors['comm_eff'][trace] = 'NaN'
 
         try:  # except NaN
-            mod_factors['mpi_comm_eff'][trace] = raw_data['outsidempi_max'][trace] \
-                                                     / raw_data['runtime'][trace] * 100.0
-        except:
-            mod_factors['mpi_comm_eff'][trace] = 'NaN'
-
-        try:  # except NaN
-            mod_factors['omp_comm_eff'][trace] = mod_factors['comm_eff'][trace] \
-                                                     / mod_factors['mpi_comm_eff'][trace] * 100.0
-        except:
-            mod_factors['omp_comm_eff'][trace] = 'NaN'
-
-        try:  # except NaN
-            mod_factors['serial_eff'][trace] = raw_data['useful_dim'][trace] \
-                                               / raw_data['runtime_dim'][trace] * 100.0
-        except:
-            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-                mod_factors['serial_eff'][trace] = 'NaN'
-            else:
-                mod_factors['serial_eff'][trace] = 'Non-Avail'
-
-        try:  # except NaN
-            mod_factors['transfer_eff'][trace] = mod_factors['comm_eff'][trace] / mod_factors['serial_eff'][trace] * 100.0
-
-        except:
-            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-              mod_factors['transfer_eff'][trace] = 'NaN'
-            else:
-              mod_factors['transfer_eff'][trace] = 'Non-Avail'
-        try:  # except NaN
             mod_factors['parallel_eff'][trace] = mod_factors['load_balance'][trace] \
                                                  * mod_factors['comm_eff'][trace] / 100.0
         except:
             mod_factors['parallel_eff'][trace] = 'NaN'
-
-        try:  # except NaN
-            mod_factors['mpi_parallel_eff'][trace] = raw_data['outsidempi_tot'][trace] \
-                                                    / (raw_data['runtime'][trace] * list_mpi_procs_count[trace]) * 100.0
-        except:
-            mod_factors['mpi_parallel_eff'][trace] = 'NaN'
-
-        try:  # except NaN
-            mod_factors['omp_parallel_eff'][trace] = mod_factors['parallel_eff'][trace] \
-                                                     / mod_factors['mpi_parallel_eff'][trace] * 100.0
-        except:
-            mod_factors['omp_parallel_eff'][trace] = 'NaN'
-
 
         try:  # except NaN
             if scaling == 'strong':
@@ -223,6 +230,76 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode,list
                                                * mod_factors['comp_scale'][trace] / 100.0
         except:
             mod_factors['global_eff'][trace] = 'NaN'
+
+        # Hybrid metrics calculation
+        # ------->  MPI metrics
+        try:  # except NaN
+            hybrid_factors['mpi_load_balance'][trace] = raw_data['outsidempi_avg'][trace] \
+                                                 / raw_data['outsidempi_max'][trace] * 100.0
+        except:
+            hybrid_factors['mpi_load_balance'][trace] = 'NaN'
+
+        try:  # except NaN
+            hybrid_factors['mpi_comm_eff'][trace] = raw_data['outsidempi_max'][trace] \
+                                                     / raw_data['runtime'][trace] * 100.0
+        except:
+            hybrid_factors['mpi_comm_eff'][trace] = 'NaN'
+
+        # ------------> BEGIN MPI communication sub-metrics
+        try:  # except NaN
+            hybrid_factors['serial_eff'][trace] = raw_data['outsidempi_dim'][trace] \
+                                               / raw_data['runtime_dim'][trace] * 100.0
+        except:
+            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+                hybrid_factors['serial_eff'][trace] = 'NaN'
+            else:
+                hybrid_factors['serial_eff'][trace] = 'Non-Avail'
+
+        try:  # except NaN
+            hybrid_factors['transfer_eff'][trace] = hybrid_factors['mpi_comm_eff'][trace] \
+                                                    / hybrid_factors['serial_eff'][trace] * 100.0
+
+        except:
+            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+                hybrid_factors['transfer_eff'][trace] = 'NaN'
+            else:
+                hybrid_factors['transfer_eff'][trace] = 'Non-Avail'
+        # --------------> END MPI communication sub-metrics
+        try:  # except NaN
+            if raw_data['outsidempi_tot'][trace] == raw_data['outsidempi_tot_diff'][trace]:
+                hybrid_factors['mpi_parallel_eff'][trace] = raw_data['outsidempi_tot'][trace] \
+                                                    / (raw_data['runtime'][trace] * list_mpi_procs_count[trace]) * 100.0
+            else:
+                hybrid_factors['mpi_parallel_eff'][trace] = raw_data['outsidempi_tot_diff'][trace] \
+                                                          / (raw_data['runtime'][trace] * trace_processes[trace] ) * 100.0
+        except:
+            hybrid_factors['mpi_parallel_eff'][trace] = 'NaN'
+
+        # ------->  Metrics for the second parallel paradigm
+        try:  # except NaN
+            hybrid_factors['omp_comm_eff'][trace] = mod_factors['comm_eff'][trace] \
+                                                     / hybrid_factors['mpi_comm_eff'][trace] * 100.0
+        except:
+            hybrid_factors['omp_comm_eff'][trace] = 'NaN'
+
+        try:  # except NaN
+            hybrid_factors['omp_load_balance'][trace] = mod_factors['load_balance'][trace] \
+                                                 / hybrid_factors['mpi_load_balance'][trace] * 100.0
+        except:
+            hybrid_factors['omp_load_balance'][trace] = 'NaN'
+
+        try:  # except NaN
+            hybrid_factors['omp_parallel_eff'][trace] = mod_factors['parallel_eff'][trace] \
+                                                     / hybrid_factors['mpi_parallel_eff'][trace] * 100.0
+        except:
+            hybrid_factors['omp_parallel_eff'][trace] = 'NaN'
+
+        # ------->  Global Hybrid Metric
+        try:  # except NaN
+            hybrid_factors['hybrid_eff'][trace] = hybrid_factors['mpi_parallel_eff'][trace] \
+                                               * hybrid_factors['omp_parallel_eff'][trace] / 100.0
+        except:
+            hybrid_factors['hybrid_eff'][trace] = 'NaN'
 
         # Basic scalability factors
         try:  # except NaN
@@ -264,94 +341,32 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode,list
         except:
             other_metrics['speedup'][trace] = 'NaN'
 
-        # Flushing measurements
-        try:  # except NaN
-            other_metrics['flushing'][trace] = raw_data['flushing_tot'][trace] \
-                                                 / (raw_data['runtime'][trace] * trace_processes[trace]) * 100.0
-        except:
-            other_metrics['flushing'][trace] = 0.0
-
-        # I/O measurements
-        try:  # except NaN
-            other_metrics['io_mpiio'][trace] = raw_data['mpiio_tot'][trace]\
-                                             / (raw_data['runtime'][trace] * trace_processes[trace]) * 100.0
-        except:
-            other_metrics['io_mpiio'][trace] = 0.0
-
-        try:  # except NaN
-            other_metrics['io_posix'][trace] = (raw_data['io_tot'][trace] - raw_data['mpiio_tot'][trace])\
-                                             /(raw_data['runtime'][trace] * trace_processes[trace]) * 100.0
-        except:
-            other_metrics['io_posix'][trace] = 0.0
-    return mod_factors, other_metrics
+    return mod_factors, hybrid_factors, other_metrics
 
 
-def read_mod_factors_csv(cmdl_args):
-    """Reads the model factors table from a csv file."""
-    global mod_factors_doc
-
-    delimiter = ';'
-    file_path = cmdl_args.project
-
-    # Read csv to list of lines
-    if os.path.isfile(file_path) and file_path[-4:] == '.csv':
-        with open(file_path, 'r') as f:
-            lines = f.readlines()
-        lines = [line.rstrip('\n') for line in lines]
-    else:
-        print('==ERROR==', file_path, 'is not a valid csv file.')
-        sys.exit(1)
-
-    # Get the number of processes of the traces
-    processes = lines[0].split(delimiter)
-    processes.pop(0)
-
-    # Create artificial trace_list and trace_processes
-    trace_list = []
-    trace_processes = dict()
-    for process in processes:
-        trace_list.append(process)
-        trace_processes[process] = int(process)
-
-    # Create empty mod_factors handle
-    mod_factors = create_mod_factors(trace_list)
-
-    # Get mod_factor_doc keys
-    mod_factors_keys = list(mod_factors_doc.items())
-
-    # Iterate over the data lines
-    for index, line in enumerate(lines[1:len(mod_factors_keys) + 1]):
-        key = mod_factors_keys[index][0]
-        line = line.split(delimiter)
-        for index, trace in enumerate(trace_list):
-            mod_factors[key][trace] = float(line[index + 1])
-
-    if cmdl_args.debug:
-        print_mod_factors_table(mod_factors, trace_list, trace_processes)
-
-    return mod_factors, trace_list, trace_processes
-
-
-def print_mod_factors_table(mod_factors, trace_list, trace_processes):
+def print_mod_factors_table(mod_factors, hybrid_factors, trace_list, trace_processes):
     """Prints the model factors table in human readable form on stdout."""
-    global mod_factors_doc
+    global mod_factors_doc, mod_hybrid_factors_doc
 
     # Update the hybrid parallelism mode
     trace_mode_doc = get_trace_mode(trace_list[0])
     if trace_mode_doc[0:len("Detailed+MPI+")] == "Detailed+MPI+":
-        mod_factors_doc['omp_parallel_eff'] = "-- " + trace_mode_doc[len("Detailed+MPI+"):] + " Parallel efficiency"
-        mod_factors_doc['omp_load_balance'] = "  -- " + trace_mode_doc[len("Detailed+MPI+"):] + " Load Balance"
-        mod_factors_doc['omp_comm_eff'] = "  -- " + trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
+        mod_hybrid_factors_doc['omp_parallel_eff'] = "   -- " + \
+                                                     trace_mode_doc[len("Detailed+MPI+"):] + " Parallel efficiency"
+        mod_hybrid_factors_doc['omp_load_balance'] = "      -- " + \
+                                                     trace_mode_doc[len("Detailed+MPI+"):] + " Load Balance"
+        mod_hybrid_factors_doc['omp_comm_eff'] = "      -- " + \
+                                                 trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
     
     print('')
     print('Overview of the Efficiency metrics:')
 
-    longest_name = len(sorted(mod_factors_doc.values(), key=len)[-1])
+    longest_name = len(sorted(mod_hybrid_factors_doc.values(), key=len)[-1])
 
     line = ''.rjust(longest_name)
-    for trace in trace_list:
+    for index, trace in enumerate(trace_list):
         line += ' | '
-        line += str(trace_processes[trace]).rjust(10)
+        line += (str(trace_processes[trace]) + '(' + str(index+1) + ')').rjust(10)
     print(''.ljust(len(line), '='))
     print(line)
     line_procs_factors = line
@@ -367,12 +382,24 @@ def print_mod_factors_table(mod_factors, trace_list, trace_processes):
             except ValueError:
                 line += ('{}'.format(mod_factors[mod_key][trace])).rjust(10)
         print(line)
+
+    print(''.ljust(len(line_procs_factors), '-'))
+    for mod_key in mod_hybrid_factors_doc:
+        line = mod_hybrid_factors_doc[mod_key].ljust(longest_name)
+        for trace in trace_list:
+            line += ' | '
+            try:  # except NaN
+                line += ('{0:.2f}%'.format(hybrid_factors[mod_key][trace])).rjust(10)
+            except ValueError:
+                line += ('{}'.format(hybrid_factors[mod_key][trace])).rjust(10)
+        print(line)
+
     print(''.ljust(len(line_procs_factors), '='))
     print('')
 
 
 def print_other_metrics_table(other_metrics, trace_list, trace_processes):
-    """Prints the model factors table in human readable form on stdout."""
+    """Prints the other metrics table in human readable form on stdout."""
     global other_metrics_doc
 
     print('Overview of the Speedup, IPC and Frequency:')
@@ -380,13 +407,12 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
     longest_name = len(sorted(other_metrics_doc.values(), key=len)[-1])
 
     line = ''.rjust(longest_name)
-    for trace in trace_list:
+    for index, trace in enumerate(trace_list):
         line += ' | '
-        line += str(trace_processes[trace]).rjust(10)
+        line += (str(trace_processes[trace]) + '(' + str(index+1) + ')').rjust(10)
     print(''.ljust(len(line), '-'))
     print(line)
-    line_procs_factors = line
-
+    line_head = line
     print(''.ljust(len(line), '-'))
 
     for mod_key in other_metrics_doc:
@@ -398,72 +424,75 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
                     line += ('{0:.2f}'.format(other_metrics[mod_key][trace])).rjust(10)
                 except ValueError:
                     line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
-        elif mod_key in ['flushing']:
-            for trace in trace_list:
-                line += ' | '
-                try:  # except NaN
-                    line += ('{0:.2f}%'.format(other_metrics[mod_key][trace])).rjust(10)
-                except ValueError:
-                    line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
-        else:
-            for trace in trace_list:
-                line += ' | '
-                try:  # except NaN
-                    line += ('{0:.2f}%'.format(other_metrics[mod_key][trace])).rjust(10)
-                except ValueError:
-                    line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
-        print(line)
-        # Print empty line to separate values
-        if mod_key in ['freq']:
-            print(''.ljust(len(line), '-'))
-            print(''.ljust(len(line), ' '))
-            print("Overview of tracer\'s flushing weight:")
-            print(''.ljust(len(line), '-'))
+            print(line)
+    print(''.ljust(len(line_head), '-'))
+    print('')
 
+    warning_io = []
+    warning_flush = []
+    for trace in trace_list:
+        if other_metrics['flushing'][trace] >= 5.0:
+            warning_flush.append(1)
+        if (other_metrics['io_mpiio'][trace] + other_metrics['io_posix'][trace]) >= 5.0:
+            warning_io.append(1)
+    if len(warning_flush) > 0:
+        message_warning_flush = "WARNING!!! --> Flushing > 5%.  "
+    else:
+        message_warning_flush = ""
+    if len(warning_io) > 0:
+        message_warning_io = "WARNING!!! --> File I/O > 5%."
+    else:
+        message_warning_io = ""
+    print(message_warning_flush+message_warning_io)
+
+    for mod_key in other_metrics_doc:
+        line = other_metrics_doc[mod_key].ljust(longest_name)
+        # Print empty line to separate values
+        if mod_key in ['freq'] and len(warning_flush) > 0:
+            print("Overview of tracer\'s flushing weight:")
+            print(''.ljust(len(line_head), '-'))
+
+        if mod_key not in ['speedup', 'ipc', 'freq']:
+            if mod_key in ['flushing']:
+                for trace in trace_list:
+                    line += ' | '
+                    try:  # except NaN
+                        line += ('{0:.2f}%'.format(other_metrics[mod_key][trace])).rjust(10)
+                    except ValueError:
+                        line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
+                if len(warning_flush) > 0:
+                    print(line)
+                    print(''.ljust(len(line_head), '-'))
+            elif mod_key in ['io_mpiio','io_posix', 'io_eff']:
+                for trace in trace_list:
+                    line += ' | '
+                    try:  # except NaN
+                        line += ('{0:.2f}%'.format(other_metrics[mod_key][trace])).rjust(10)
+                    except ValueError:
+                        line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
+                if len(warning_io) > 0:
+                    print(line)
         # Print headers I/O
-        if mod_key in ['flushing']:
-            print(''.ljust(len(line), '-'))
+        if mod_key in ['flushing'] and len(warning_io) > 0:
             print(''.ljust(len(line), ' '))
             print('Overview of File I/O weight:')
             print(''.ljust(len(line), '-'))
-        # Print headers model factors
-        if mod_key in ['io_posix']:
+        if mod_key in ['io_posix'] and len(warning_io) > 0:
             print(''.ljust(len(line), '-'))
-            #print(''.ljust(len(line), ' '))
-            warning_io = []
-            warning_flush = []
-            for trace in trace_list:
-                if other_metrics['flushing'][trace] >= 5.0:
-                    warning_flush.append(1)
-                if (other_metrics['io_mpiio'][trace] + other_metrics['io_posix'][trace]) >= 10.0:
-                    warning_io.append(1)
-            if len(warning_flush) > 0:
-                message_warning_flush = "WARNING!!! --> Flushing > 5%.  "
-            else:
-                message_warning_flush = ""
-            if len(warning_io) > 0:
-                message_warning_io = "WARNING!!! --> File I/O > 10%."
-            else:
-                message_warning_io = ""
-
-            print(message_warning_flush+message_warning_io)
-    #print('')
+            print('')
 
 
-def print_efficiency_table(mod_factors, trace_list, trace_processes):
+def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_processes):
     """Prints the model factors table in human readable form on stdout."""
-    global mod_factors_doc
+    global mod_factors_doc, mod_hybrid_factors_doc
 
-    ### print('Overview of the computed model factors:')
-
-    longest_name = len(sorted(mod_factors_doc.values(), key=len)[-1])
     delimiter = ','
-    file_path = os.path.join(os.getcwd(), 'efficiency_table.csv')
+    file_path = os.path.join(os.getcwd(), 'efficiency_table-global.csv')
     with open(file_path, 'w') as output:
-        line = '\"Number of processes\" '
-        for trace in trace_list:
+        line = '\"Number of processes\"'
+        for index, trace in enumerate(trace_list):
             line += delimiter
-            line += str(trace_processes[trace])
+            line += str(trace_processes[trace]) + '(' + str(index+1) + ')'
         output.write(line + '\n')
 
         for mod_key in mod_factors_doc:
@@ -471,9 +500,7 @@ def print_efficiency_table(mod_factors, trace_list, trace_processes):
                 if mod_key in ['parallel_eff', 'comp_scale']:
                     line = "\"" + mod_factors_doc[mod_key].replace('  ', '', 2) + "\""
                 elif mod_key in ['load_balance', 'comm_eff','ipc_scale', 'inst_scale','freq_scale']:
-                    line = "\"" + mod_factors_doc[mod_key].replace('  ', '', 2) + "\""
-                elif mod_key in ['serial_eff', 'transfer_eff']:
-                    line = "\"    " + mod_factors_doc[mod_key].replace('  ', '', 4) + "\""
+                    line = "\"" + mod_factors_doc[mod_key].replace('     ', '', 2) + "\""
                 else:
                     line = "\"" + mod_factors_doc[mod_key] + "\""
                 for trace in trace_list:
@@ -486,18 +513,83 @@ def print_efficiency_table(mod_factors, trace_list, trace_processes):
                     except ValueError:
                         line += '{}'.format(mod_factors[mod_key][trace])
                 output.write(line + '\n')
-        print('')
-        print('======== Plot (gnuplot File): EFFICIENCY Table ========')
-        print('Efficiency Table written to ' + file_path[:len(file_path) - 4] + '.gp')
-        shutil.copyfile(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', \
-                                     'efficiency_table-hybrid.gp'),
-                        os.path.join(os.getcwd(), 'efficiency_table.gp'))
-        print('')
+
+        # Create Gnuplot file for efficiency plot
+        gp_template = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', 'efficiency_table-global.gp')
+        content = []
+
+        with open(gp_template) as f:
+            content = f.readlines()
+
+        limit_procs = 500 + len(trace_list) * 60
+        ## print(limit_procs)
+
+        # Replace xrange
+        content = [line.replace('#REPLACE_BY_SIZE', ''.join(['set terminal pngcairo enhanced dashed crop size ',
+                                                             str(limit_procs), ',460 font "Latin Modern Roman,14"']))
+                   for line in content]
+
+        file_path = os.path.join(os.getcwd(), 'efficiency_table_global.gp')
+        with open(file_path, 'w') as f:
+            f.writelines(content)
+        # print('======== Plot (gnuplot File): EFFICIENCY Table ========')
+        print('Global Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.png')
+        # print('')
+
+    delimiter = ','
+    file_path = os.path.join(os.getcwd(), 'efficiency_table-hybrid.csv')
+    with open(file_path, 'w') as output:
+        line = '\"Number of processes\"'
+        for index, trace in enumerate(trace_list):
+            line += delimiter
+            line += str(trace_processes[trace])  + '(' + str(index+1) + ')'
+        output.write(line + '\n')
+
+        for mod_key in mod_hybrid_factors_doc:
+            if mod_key in ['mpi_parallel_eff', 'omp_parallel_eff']:
+                line = "\"" + mod_hybrid_factors_doc[mod_key].replace('     ', '', 2) + "\""
+            elif mod_key in ['mpi_load_balance', 'mpi_comm_eff','omp_load_balance', 'omp_comm_eff']:
+                line = "\"" + mod_hybrid_factors_doc[mod_key].replace('       ', '', 2) + "\""
+            elif mod_key in ['serial_eff', 'transfer_eff']:
+                line = "\"" + mod_hybrid_factors_doc[mod_key].replace('         ', '          ', 2) + "\""
+            else:
+                line = "\"" + mod_hybrid_factors_doc[mod_key] + "\""
+            for trace in trace_list:
+                line += delimiter
+                try:  # except NaN
+                    if hybrid_factors[mod_key][trace] == "Non-Avail":
+                        line += '0.00'
+                    else:
+                        line += '{0:.2f}'.format(hybrid_factors[mod_key][trace])
+                except ValueError:
+                    line += '{}'.format(hybrid_factors[mod_key][trace])
+            output.write(line + '\n')
+
+        # Create Gnuplot file for efficiency plot
+        gp_template = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', 'efficiency_table-hybrid.gp')
+        content = []
+
+        with open(gp_template) as f:
+            content = f.readlines()
+
+        limit_procs = 510 + len(trace_list) * 60
+
+        # Replace xrange
+        content = [line.replace('#REPLACE_BY_SIZE', ''.join(['set terminal pngcairo enhanced dashed crop size ',
+                                                             str(limit_procs), ',460 font "Latin Modern Roman,14"']))
+                   for line in content]
+
+        file_path = os.path.join(os.getcwd(), 'efficiency_table-hybrid.gp')
+        with open(file_path, 'w') as f:
+            f.writelines(content)
+        # print('======== Plot (gnuplot File): EFFICIENCY Table ========')
+        print('Hybrid Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.png')
+        #print('')
 
 
-def print_mod_factors_csv(mod_factors, trace_list, trace_processes):
+def print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes):
     """Prints the model factors table in a csv file."""
-    global mod_factors_doc
+    global mod_factors_doc, mod_hybrid_factors_doc
 
     delimiter = ';'
     # File is stored in the trace directory
@@ -522,9 +614,19 @@ def print_mod_factors_csv(mod_factors, trace_list, trace_processes):
                     line += '{}'.format(mod_factors[mod_key][trace])
             output.write(line + '\n')
 
+        for mod_key in mod_hybrid_factors_doc:
+            line = mod_hybrid_factors_doc[mod_key].replace('  ', '', 2)
+            for trace in trace_list:
+                line += delimiter
+                try:  # except NaN
+                    line += '{0:.6f}'.format(hybrid_factors[mod_key][trace])
+                except ValueError:
+                    line += '{}'.format(hybrid_factors[mod_key][trace])
+            output.write(line + '\n')
+
         output.write('#\n')
 
-    print('======== CSV File: EFFICIENCY METRICS ========')
+    print('======== Output Files: Metrics and Plots  ========')
     print('Model factors written to ' + file_path)
 
 
@@ -557,6 +659,6 @@ def print_other_metrics_csv(other_metrics, trace_list, trace_processes):
 
         output.write('#\n')
 
-    print('======== CSV File: Other METRICS ========')
+    print('======== Output File: Other Metrics ========')
     print('Speedup, IPC, Frequency, I/O and Flushing written to ' + file_path)
     print('')

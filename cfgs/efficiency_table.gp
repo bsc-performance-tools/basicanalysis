@@ -1,7 +1,9 @@
 #!/bin/gnuplot 
 set output "./efficiency_table.png"
 
-set terminal pngcairo enhanced dashed crop size 1100,390 font "Latin Modern Roman,18"
+#Prepare the plot size
+
+#REPLACE_BY_SIZE
 
 set datafile separator ","
 
@@ -18,8 +20,8 @@ set cbtics ('<50%%' 50, '60%%' 60, '70%%' 70, '80%%' 80, "90%%" 90, "100%%" 100)
 set palette defined (0.00 "#000000", 0.01 "#FF0000", 0.60 "#E67C73", 0.75 "#F9950A", 0.85 "#AADC32", 0.90 "#5CC863", 1.00 "#57BB8A")  
 
 
-set xtics offset 0,9.8
-set ytics offset -26,0 left
+set xtics offset 0,15
+set ytics offset -27,0 left
 set yrange [] reverse
 
 plot \

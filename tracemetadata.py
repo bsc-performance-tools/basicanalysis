@@ -9,6 +9,7 @@ import math
 import fnmatch
 import re
 import mmap
+import gzip
 
 
 def get_traces_from_args(cmdl_args):
@@ -100,6 +101,7 @@ def get_tasks_threads(prv_file):
     threads = tasks_found[2]
     return int(app), int(tasks), int(threads)
 
+
 def get_trace_mode(prv_file):
     """Gets the trace mode by detecting the event 40000018:2 in .prv file
     to detect the Burst mode trace in another case is Detailed mode.
@@ -107,43 +109,56 @@ def get_trace_mode(prv_file):
     """
     mode_trace = ''
     burst = 0
-    tracefile = open(prv_file)
-    for line in tracefile:
-        if "40000018:2" in line:
-            burst = 1
-            break
-    tracefile.close()
+
+    if prv_file[-4:] == ".prv":
+        file_pcf = prv_file[:-4] + '.pcf'
+        tracefile = open(prv_file)
+        for line in tracefile:
+            if "40000018:2" in line:
+                burst = 1
+                break
+        tracefile.close()
+
+    if prv_file[-7:] == ".prv.gz":
+        file_pcf = prv_file[:-7] + '.pcf'
+        with gzip.open(prv_file, 'rt') as f:
+            for line in f:
+                if "40000018:2" in line:
+                    burst = 1
+                    break
+        f.close()
+
     if burst == 1:
         mode_trace = 'Burst'
     else:
         mode_trace = 'Detailed'
 
-    with open(prv_file[:-4] + '.pcf', 'rb', 0) as file, \
+    with open(file_pcf, 'rb', 0) as file, \
         mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as s:
         if s.find(b'500000') != -1:
-             mode_trace += '+MPI'
-             if s.find(b'600000') != -1:
+            mode_trace += '+MPI'
+            if s.find(b'600000') != -1:
                 mode_trace += '+OpenMP'
-             if s.find(b'610000') != -1:
+            if s.find(b'610000') != -1:
                 mode_trace += '+Pthreads'
-             if  s.find(b'630000') != -1 or s.find(b'631000') != -1 or s.find(b'632000') != -1:
+            if s.find(b'630000') != -1 or s.find(b'631000') != -1 or s.find(b'632000') != -1:
                 mode_trace += '+CUDA'
-             if s.find(b'9200001') != -1:
+            if s.find(b'9200001') != -1:
                 mode_trace += '+OmpSs'
-             if s.find(b'642000') != -1 or s.find(b'6400001') != -1 or s.find(b'641000') != -1:
-                 mode_trace += '+OpenCL'
+            if s.find(b'642000') != -1 or s.find(b'6400001') != -1 or s.find(b'641000') != -1:
+                mode_trace += '+OpenCL'
         else:
-             mode_trace += '+non-MPI'
-             if s.find(b'600000') != -1:
+            mode_trace += '+non-MPI'
+            if s.find(b'600000') != -1:
                 mode_trace += '+OpenMP'
-             if s.find(b'610000') != -1:
+            if s.find(b'610000') != -1:
                 mode_trace += '+Pthreads'
-             if  s.find(b'630000') != -1 or s.find(b'631000') != -1 or s.find(b'632000') != -1:
+            if s.find(b'630000') != -1 or s.find(b'631000') != -1 or s.find(b'632000') != -1:
                 mode_trace += '+CUDA'
-             if s.find(b'9200001') != -1:
+            if s.find(b'9200001') != -1:
                 mode_trace += '+OmpSs'
-             if s.find(b'642000') != -1 or s.find(b'640000') != -1 or s.find(b'641000') != -1:
-                 mode_trace += '+OpenCL'
+            if s.find(b'642000') != -1 or s.find(b'640000') != -1 or s.find(b'641000') != -1:
+                mode_trace += '+OpenCL'
     file.close()
 
     return (mode_trace)
@@ -161,10 +176,11 @@ def human_readable(size, precision=1):
 
 def print_overview(trace_list, trace_processes, trace_mode, trace_task_per_node):
     """Prints an overview of the traces that will be processed."""
-    print('Running', os.path.basename(__file__), 'for the following traces:')
+    print('Running modelfactors.py for the following traces:')
+    # print('Running', os.path.basename(__file__), 'for the following traces:')
 
-    for trace in trace_list:
-        line = trace
+    for index, trace in enumerate(trace_list):
+        line = '(' + str(index+1) + ') ' + trace
         line += ', ' + str(trace_processes[trace]) + ' processes'
         line += ', ' + str(trace_task_per_node[trace]) + ' tasks per node'
         line += ', ' + human_readable(os.path.getsize(trace))

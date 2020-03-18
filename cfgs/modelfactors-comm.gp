@@ -1,10 +1,11 @@
 
 #Gnuplot template for the projection functions
 
-#Prepare the axes
+#REPLACE_BY_TRACE_NAMES
 #REPLACE_BY_XRANGE
 set xlabel "Number of Processes"
-set logscale x
+#REPLACE_BY_XTICS_LABEL
+## set logscale x
 set yrange [0:110]
 set ylabel "Efficiency"
 set ytics ( 0, "10%%" 10, "20%%" 20, "30%%" 30, "40%%" 40, "50%%" 50, "60%%" 60, "70%%" 70, "80%%" 80, "90%%" 90, "100%%" 100 )

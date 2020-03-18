@@ -8,6 +8,7 @@ import sys
 import subprocess
 import tempfile
 import argparse
+import shutil
 
 
 try:
@@ -34,7 +35,6 @@ __version_micro__ = 7
 __version__ = str(__version_major__) + "." + str(__version_minor__) + "." + str(__version_micro__)
 
 
-
 def parse_arguments():
     """Parses the command line arguments.
     Currently the script only accepts one parameter list, which is the list of
@@ -45,7 +45,7 @@ def parse_arguments():
     parser.add_argument('trace_list', nargs='*',
                         help='list of traces to process. Accepts wild cards and automatically filters for '
                              'valid traces'),
-    parser.add_argument('--metrics', choices=['simple', 'hybrid'], default='simple',
+    parser.add_argument('--metrics', choices=['simple', 'hybrid'], default='hybrid',
                         help='select the kind of efficiency metrics (single parallelism or hybrid, default: simple)')
     parser.add_argument("-v", "--version", action='version', version='%(prog)s {version}'.format(version=__version__))
     parser.add_argument("-d", "--debug", help="increase output verbosity to debug level", action="store_true")
@@ -54,14 +54,9 @@ def parse_arguments():
                         choices=['weak', 'strong', 'auto'], default='auto')
     parser.add_argument("-p", "--project", metavar='<path-to-modelfactors.csv>',
                         help="run only the projection for the given modelfactors.csv (default: false)")
-    parser.add_argument('--limit', help='limit number of cores for the projection (default: 10000)')
-    parser.add_argument('--model', choices=['amdahl', 'pipe', 'linear'], default='amdahl',
-                        help='select model for prediction (default: amdahl)')
-    parser.add_argument('--bounds', choices=['yes', 'no'], default='yes',
-                        help='set bounds for the prediction (default: yes)')
-    parser.add_argument('--sigma', choices=['first', 'equal', 'decrease'], default='first',
-                        help='set error restrains for prediction (default: first). first: prioritize smallest run; '
-                             'equal: no priority; decrease: decreasing priority for larger runs')
+    parser.add_argument('--limit', help='limit number of cores for the plots '
+                                        '(default: max processes of the trace list )')
+
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -84,6 +79,7 @@ def which(cmd):
             return cmd_path
 
     return None
+
 
 def check_installation(cmdl_args):
     """Check if Dimemas and paramedir are in the path."""
@@ -115,6 +111,7 @@ def check_installation(cmdl_args):
 
     return
 
+
 def run_command(cmd, cmdl_args):
     """Runs a command and forwards the return value."""
     if cmdl_args.debug:
@@ -144,11 +141,27 @@ def run_command(cmd, cmdl_args):
     return return_value
 
 
-def save_remove(path,cmdl_args):
+def create_temp_folder(folder_name, cmdl_args):
+    path_output_aux = os.getcwd() + '/' + folder_name
+
+    if os.path.exists(path_output_aux):
+        shutil.rmtree(path_output_aux)
+    os.makedirs(path_output_aux)
+    return (path_output_aux)
+
+
+def move_files(path_source, path_dest, cmdl_args):
+    """Wraps os.remove with a try clause."""
+    try:
+        shutil.move(path_source, path_dest)
+    except:
+        if cmdl_args.debug:
+            print('==DEBUG== Failed to move ' + path_source + '!')
+
+def remove_files(path,cmdl_args):
     """Wraps os.remove with a try clause."""
     try:
         os.remove(path)
     except:
         if cmdl_args.debug:
             print('==DEBUG== Failed to remove ' + path + '!')
-

@@ -4,13 +4,14 @@
 
 from __future__ import print_function, division
 import sys
-from collections import OrderedDict
+import subprocess
+import plots
 from utils import parse_arguments, check_installation
 from tracemetadata import get_traces_from_args
 from rawdata import gather_raw_data, print_raw_data_table, print_raw_data_csv
 from simplemetrics import compute_model_factors, print_mod_factors_csv, print_efficiency_table, \
     print_mod_factors_table, read_mod_factors_csv, print_other_metrics_table,print_other_metrics_csv
-from plots import compute_projection
+
 import hybridmetrics
 
 
@@ -59,7 +60,7 @@ if __name__ == "__main__":
         # Analyze the traces and gather the raw input data
         raw_data, list_mpi_procs_count = gather_raw_data(trace_list, trace_processes, trace_task_per_node,
                                                          trace_mode, cmdl_args)
-        print_raw_data_table(raw_data, trace_list, trace_processes)
+        # print_raw_data_table(raw_data, trace_list, trace_processes)
         print_raw_data_csv(raw_data, trace_list, trace_processes)
 
         # Compute the model factors and print them
@@ -72,25 +73,34 @@ if __name__ == "__main__":
             print_mod_factors_table(mod_factors, trace_list, trace_processes)
             print_mod_factors_csv(mod_factors, trace_list, trace_processes)
             print_efficiency_table(mod_factors, trace_list, trace_processes)
+            subprocess.run(["gnuplot", "efficiency_table.gp"])
+            # Plottin if SciPy and NumPy are installed.
+            try:
+                numpy.__version__
+                scipy.__version__
+            except NameError:
+                print('Scipy or NumPy module not available. Skipping projection.')
+                sys.exit(1)
+
+            plots.plot_simple_metrics(mod_factors, trace_list, trace_processes, cmdl_args)
         elif cmdl_args.metrics == 'hybrid':
-            mod_factors, other_metrics = hybridmetrics.compute_model_factors(raw_data, trace_list,
-                                                                             trace_processes, trace_mode,
-                                                                             list_mpi_procs_count, cmdl_args)
+            mod_factors, hybrid_factors, other_metrics = hybridmetrics.compute_model_factors(raw_data, trace_list, \
+                                                    trace_processes, trace_mode, list_mpi_procs_count, cmdl_args)
             hybridmetrics.print_other_metrics_table(other_metrics, trace_list, trace_processes)
             hybridmetrics.print_other_metrics_csv(other_metrics, trace_list, trace_processes)
-            hybridmetrics.print_mod_factors_table(mod_factors, trace_list, trace_processes)
-            hybridmetrics.print_mod_factors_csv(mod_factors, trace_list, trace_processes)
-            hybridmetrics.print_efficiency_table(mod_factors, trace_list, trace_processes)
+            hybridmetrics.print_mod_factors_table(mod_factors, hybrid_factors, trace_list, trace_processes)
+            hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
+            hybridmetrics.print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_processes)
+            subprocess.run(["gnuplot", "efficiency_table_global.gp"])
+            subprocess.run(["gnuplot", "efficiency_table-hybrid.gp"])
+            # Plottin if SciPy and NumPy are installed.
+            try:
+                numpy.__version__
+                scipy.__version__
+            except NameError:
+                print('Scipy or NumPy module not available. Skipping projection.')
+                sys.exit(1)
+            plots.plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes, cmdl_args)
     else:
         # Read the model factors from the csv file
         mod_factors, trace_list, trace_processes = read_mod_factors_csv(cmdl_args)
-
-    # Compute projection if SciPy and NumPy are installed.
-    try:
-        numpy.__version__
-        scipy.__version__
-    except NameError:
-        print('Scipy or NumPy module not available. Skipping projection.')
-        sys.exit(1)
-
-    compute_projection(mod_factors, trace_list, trace_processes, cmdl_args)

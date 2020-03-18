@@ -5,10 +5,12 @@
 from __future__ import print_function, division
 import os
 import time
+import math
+import gzip
+import shutil
 from collections import OrderedDict
-
 from tracemetadata import human_readable
-from utils import run_command, save_remove
+from utils import run_command, move_files,remove_files, create_temp_folder
 
 
 # Contains all raw data entries with a printable name.
@@ -24,16 +26,26 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_cyc', 'Useful cycles (total)'),
                             ('outsidempi_avg', 'Outside MPI duration (average)'),
                             ('outsidempi_max', 'Outside MPI duration (maximum)'),
+                            ('outsidempi_dim', 'Outside MPI duration (ideal,maximum)'),
                             ('outsidempi_tot', 'Outside MPI duration (total)'),
+                            ('outsidempi_tot_diff', 'Outside MPI duration rescaled (total*threads)'),
                             ('flushing_avg', 'Flushing duration (average)'),
                             ('flushing_max', 'Flushing duration (maximum)'),
                             ('flushing_tot', 'Flushing duration (total)'),
                             ('io_tot', 'I/O duration (total)'),
                             ('io_max', 'I/O duration (maximum)'),
                             ('io_avg', 'I/O duration (avg)'),
+                            ('io_std', 'I/O duration (std)'),
+                            ('useful_plus_io_avg', 'I/O plus useful duration (avg)'),
+                            ('useful_plus_io_max', 'I/O plus useful duration (max)'),
+                            ('io_state_tot', 'state I/O duration (total)'),
+                            ('io_state_avg', 'state I/O duration (avg)'),
+                            ('io_state_max', 'state I/O duration (maximum)'),
                             ('mpiio_tot', 'MPI I/O duration (total)'),
                             ('mpiio_max', 'MPI I/O duration (maximum)'),
-                            ('mpiio_avg', 'MPI I/O duration (avg)')])
+                            ('mpiio_avg', 'MPI I/O duration (avg)'),
+                            ('mpiio_std', 'MPI I/O duration (std)')])
+
 
 def create_raw_data(trace_list):
     """Creates 2D dictionary of the raw input data and initializes with zero.
@@ -49,6 +61,535 @@ def create_raw_data(trace_list):
         raw_data[key] = trace_dict
 
     return raw_data
+
+
+def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode, cmdl_args):
+    """Gathers all raw data needed to generate the model factors. Return raw
+    data in a 2D dictionary <data type><list of values for each trace>"""
+    raw_data = create_raw_data(trace_list)
+    global list_mpi_procs_count
+    list_mpi_procs_count = dict()
+
+    cfgs = {}
+    cfgs['root_dir'] = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs')
+    cfgs['timings'] = os.path.join(cfgs['root_dir'], 'timings.cfg')
+    cfgs['runtime'] = os.path.join(cfgs['root_dir'], 'runtime_app.cfg')
+    cfgs['cycles'] = os.path.join(cfgs['root_dir'], 'cycles.cfg')
+    cfgs['instructions'] = os.path.join(cfgs['root_dir'], 'instructions.cfg')
+    cfgs['flushing'] = os.path.join(cfgs['root_dir'], 'flushing.cfg')
+    cfgs['mpi_io'] = os.path.join(cfgs['root_dir'], 'mpi-io-reverse.cfg')
+    cfgs['outside_mpi'] = os.path.join(cfgs['root_dir'], 'mpi-call-outside.cfg')
+    cfgs['io_call'] = os.path.join(cfgs['root_dir'], 'io-call-reverse.cfg')
+
+    # Main loop over all traces
+    # This can be parallelized: the loop iterations have no dependencies
+    path_dest = create_temp_folder('scratch_out_basicanalysis', cmdl_args)
+    # path_dest_simul = create_temp_folder('output_simul_files', cmdl_args)
+
+    for trace in trace_list:
+        time_tot = time.time()
+        if trace[-7:] == ".prv.gz":
+            trace_name = trace[:-7] + '_' + str(trace_processes[trace]) + 'P'
+        elif trace[-4:] == ".prv":
+            trace_name = trace[:-4] + '_' + str(trace_processes[trace]) + 'P'
+
+        line = 'Analyzing ' + os.path.basename(trace)
+        line += ' (' + str(trace_processes[trace]) + ' processes'
+        line += ', ' + str(trace_task_per_node[trace]) + ' tasks per node'
+        line += ', ' + str(trace_mode[trace]) + ' mode'
+        line += ', ' + human_readable(os.path.getsize(trace)) + ')'
+        print(line)
+
+        # Create simulated ideal trace with Dimemas
+        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+            time_dim = time.time()
+            trace_sim = create_ideal_trace(trace, trace_processes[trace], trace_task_per_node[trace], cmdl_args)
+            trace_name_sim = trace_sim[:-4]
+            # print(trace_sim)
+            time_dim = time.time() - time_dim
+            if not trace_sim == '':
+                print('Successfully created simulated trace with Dimemas in {0:.1f} seconds.'.format(time_dim))
+            else:
+                print('Failed to create simulated trace with Dimemas.')
+
+        # Run paramedir for the original and simulated trace
+        time_pmd = time.time()
+        cmd_normal = ['paramedir', trace]
+
+        cmd_normal.extend([cfgs['timings'], trace_name + '.timings.stats'])
+        cmd_normal.extend([cfgs['runtime'], trace_name + '.runtime.stats'])
+        cmd_normal.extend([cfgs['cycles'], trace_name + '.cycles.stats'])
+        cmd_normal.extend([cfgs['instructions'], trace_name + '.instructions.stats'])
+        cmd_normal.extend([cfgs['flushing'], trace_name + '.flushing.stats'])
+        cmd_normal.extend([cfgs['mpi_io'], trace_name + '.mpi_io.stats'])
+        cmd_normal.extend([cfgs['outside_mpi'], trace_name + '.outside_mpi.stats'])
+        cmd_normal.extend([cfgs['io_call'], trace_name + '.io_call.stats'])
+
+        run_command(cmd_normal, cmdl_args)
+
+        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+            cmd_ideal = ['paramedir', trace_sim]
+            cmd_ideal.extend([cfgs['timings'], trace_name_sim + '.timings.stats'])
+            cmd_ideal.extend([cfgs['runtime'], trace_name_sim + '.runtime.stats'])
+            cmd_ideal.extend([cfgs['outside_mpi'], trace_name_sim + '.outside_mpi.stats'])
+
+        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+            if not trace_sim == '':
+                # print(cmd_ideal)
+                run_command(cmd_ideal, cmdl_args)
+
+        time_pmd = time.time() - time_pmd
+
+        error_timing = 0
+        error_counters = 0
+        error_ideal = 0
+
+        # Check if all files are created
+        if not os.path.exists(trace_name + '.timings.stats') or \
+                not os.path.exists(trace_name + '.runtime.stats') or \
+                not os.path.exists(trace_name + '.outside_mpi.stats'):
+            print('==ERROR== Failed to compute timing information with paramedir.')
+            error_timing = 1
+
+        if not os.path.exists(trace_name + '.cycles.stats') or \
+                not os.path.exists(trace_name + '.instructions.stats'):
+            print('==ERROR== Failed to compute counter information with paramedir.')
+            error_counters = 1
+
+        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+            if not os.path.exists(trace_name_sim + '.timings.stats') or \
+                   not os.path.exists(trace_name_sim + '.runtime.stats') or \
+                   not os.path.exists(trace_name_sim + '.outside_mpi.stats'):
+                print('==ERROR== Failed to compute timing information with paramedir.')
+                error_ideal = 1
+                trace_sim = ''
+
+        if error_timing or error_counters or error_ideal:
+            print('Failed to analyze trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
+        else:
+            print('Successfully analyzed trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
+
+        # Parse the paramedir output files
+        time_prs = time.time()
+
+        # Get total, average, and maximum useful duration
+        if os.path.exists(trace_name + '.timings.stats'):
+            content = []
+            with open(trace_name + '.timings.stats') as f:
+                content = f.readlines()
+
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Total':
+                        raw_data['useful_tot'][trace] = float(line.split()[1])
+                    if line.split()[0] == 'Average':
+                        raw_data['useful_avg'][trace] = float(line.split()[1])
+                    if line.split()[0] == 'Maximum':
+                        raw_data['useful_max'][trace] = float(line.split()[1])
+        else:
+            raw_data['useful_tot'][trace] = 'NaN'
+            raw_data['useful_avg'][trace] = 'NaN'
+            raw_data['useful_max'][trace] = 'NaN'
+        f.close()
+
+        # Get total File IO, average IO, and maximum IO duration
+        if os.path.exists(trace_name + '.io_call.stats'):
+            content = []
+            with open(trace_name + '.io_call.stats') as f:
+                content = f.readlines()
+
+                for line in content:
+                    for field in line.split("\n"):
+                        line_list = field.split("\t")
+                        if "Total" in field.split("\t"):
+                            count_procs = len(line_list[1:])
+                            list_io_tot = [float(iotime) for iotime in line_list[1:count_procs]]
+                            # print(list_mpiio_tot)
+                            raw_data['io_tot'][trace] = sum(list_io_tot)
+                        elif "Average" in field.split("\t"):
+                            raw_data['io_avg'][trace] = sum(list_io_tot)/count_procs
+                            raw_data['io_std'][trace] = math.sqrt(sum([(number - raw_data['io_avg'][trace]) ** 2 \
+                                                                       for number in list_io_tot]) / (len(list_io_tot) - 1))
+                        elif "Maximum" in field.split("\t"):
+                            raw_data['io_max'][trace] = max(list_io_tot)
+        else:
+            raw_data['io_tot'][trace] = 0.0
+            raw_data['io_avg'][trace] = 0.0
+            raw_data['io_max'][trace] = 0.0
+            raw_data['io_std'][trace] = 0.0
+        f.close()
+
+        # Get total MPI IO, average IO, and maximum IO duration for MPI-IO
+        if os.path.exists(trace_name + '.mpi_io.stats'):
+            content = []
+            with open(trace_name + '.mpi_io.stats') as f:
+                content = f.readlines()
+
+                for line in content:
+                    for field in line.split("\n"):
+                        line_list = field.split("\t")
+                        if "Total" in field.split("\t"):
+                            count_procs = len(line_list[1:])
+                            list_mpiio_tot = [ float(iotime) for iotime in line_list[1:count_procs]]
+                            # print(list_mpiio_tot)
+                            raw_data['mpiio_tot'][trace] = sum(list_mpiio_tot)
+                        elif "Average" in field.split("\t"):
+                            raw_data['mpiio_avg'][trace] = sum(list_mpiio_tot)/count_procs
+                            raw_data['mpiio_std'][trace] = math.sqrt(sum([(number - raw_data['mpiio_avg'][trace]) ** 2
+                                                                          for number in list_mpiio_tot])
+                                                                     / (len(list_mpiio_tot) - 1))
+                        elif "Maximum" in field.split("\t"):
+                            raw_data['mpiio_max'][trace] = max(list_mpiio_tot)
+        else:
+            raw_data['mpiio_tot'][trace] = 0.0
+            raw_data['mpiio_avg'][trace] = 0.0
+            raw_data['mpiio_max'][trace] = 0.0
+            raw_data['mpiio_std'][trace] = 0.0
+        f.close()
+
+        # Get total State IO, average IO, and maximum IO duration
+        if os.path.exists(trace_name + '.timings.stats'):
+            content = []
+            with open(trace_name + '.timings.stats') as f:
+                content = f.readlines()
+                useful_plus_io = []
+                useful_comp = []
+                io_time = []
+                for line in content:
+                    for field in line.split("\n"):
+                        line_list = field.split("\t")
+                        #print(line)
+                        if "Running" in line_list:
+                            try:
+                                io_index = line_list.index("I/O")
+                            except:
+                                io_index = " "
+                        elif io_index != " ":
+                            if "Total" in field.split("\t"):
+                                raw_data['io_state_tot'][trace] = float(line_list[io_index])
+                            elif "Average" in field.split("\t"):
+                                raw_data['io_state_avg'][trace] = float(line_list[io_index])
+                            elif "Maximum" in field.split("\t"):
+                                raw_data['io_state_max'][trace] = float(line_list[io_index])
+                            elif line_list[0].find("THREAD") != -1 and "Minimum" not in line_list \
+                                and "StDev" not in line_list and "Avg/Max" not in line_list \
+                                and len(line_list) > 1:
+                                sum_aux = float(line_list[1])+float(line_list[io_index])
+                                useful_plus_io.append(float(sum_aux))
+                                useful_comp.append(float(line_list[1]))
+                                io_time.append(float(line_list[io_index]))
+                if io_index != " ":
+                    useful_io_avg = float(sum(useful_plus_io)/len(useful_plus_io))
+                    raw_data['useful_plus_io_avg'][trace] = float(useful_io_avg)
+                    raw_data['useful_plus_io_max'][trace] = float(max(useful_plus_io))
+                else:
+                    useful_io_avg = 0.0
+                    raw_data['useful_plus_io_avg'][trace] = 0.0
+                    raw_data['useful_plus_io_max'][trace] = 0.0
+                    raw_data['io_state_tot'][trace] = 0.0
+                    raw_data['io_state_avg'][trace] = 0.0
+                    raw_data['io_state_max'][trace] = 0.0
+        else:
+            raw_data['useful_plus_io_avg'][trace] = 0.0
+            raw_data['useful_plus_io_max'][trace] = 0.0
+            raw_data['io_state_tot'][trace] = 0.0
+            raw_data['io_state_avg'][trace] = 0.0
+            raw_data['io_state_max'][trace] = 0.0
+        f.close()
+
+
+        # Get runtime
+        if os.path.exists(trace_name + '.runtime.stats'):
+            content = []
+            with open(trace_name + '.runtime.stats') as f:
+                content = f.readlines()
+
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Average':
+                        raw_data['runtime'][trace] = float(line.split()[1])
+        else:
+            raw_data['runtime'][trace] = 'NaN'
+
+        # Get total, average, and maximum outside MPI
+        # list_mpi_procs_count = []
+        if os.path.exists(trace_name + '.outside_mpi.stats'):
+            content = []
+            with open(trace_name + '.outside_mpi.stats') as f:
+                content = f.readlines()
+                list_outside_mpi = []
+                list_thread_outside_mpi = []
+                init_count_thread = False
+                count_threads = 1
+                for line1 in content[1:(len(content) - 8)]:
+                    line = line1.split("\t")
+                    # print(line)
+                    if line:
+                        if line[0] != 'Total' and line[0] != 'Average' \
+                                and line[0] != 'Maximum' and line[0] != 'StDev' \
+                                and line[0] != 'Avg/Max':
+                            # To extract the count of MPI tasks
+                            if float(line[1]) != raw_data['runtime'][trace]:
+                                list_outside_mpi.append(float(line[1]))
+                                # To extract the count of threads per MPI task
+                                if len(list_outside_mpi) > 1:
+                                    list_thread_outside_mpi.append(count_threads)
+                                    count_threads = 1
+                            else:
+                                if len(list_outside_mpi) == 1 and not init_count_thread:
+                                    count_threads = 2
+                                    init_count_thread = True
+                                else:
+                                    count_threads += 1
+                list_thread_outside_mpi.append(count_threads)
+                # print(list_thread_outside_mpi, list_outside_mpi)
+                count = 0
+                equal_threads = True
+                # Evaluate if the count of threads per MPI task are equal
+                while count < (len(list_thread_outside_mpi) - 1) and equal_threads:
+                    if list_thread_outside_mpi[count] != list_thread_outside_mpi[count+1]:
+                        equal_threads = False
+                    count += 1
+                rescaled_outside_mpi = []
+                # This is need to calculate the MPI_Par_Eff with the right #MPI_tasks and #threads
+                if not equal_threads:
+                    rescaled_outside_mpi.append(list_outside_mpi[0] * (list_thread_outside_mpi[0]))
+                    # This is the sum of the outsidempi by the threads
+                    sum_outside_mpi_threads = list_thread_outside_mpi[0]
+
+                    for i in range(1,len(list_outside_mpi)):
+                        rescaled_outside_mpi.append(list_outside_mpi[i] * (list_thread_outside_mpi[i]))
+                        sum_outside_mpi_threads += list_thread_outside_mpi[i]
+                    raw_data['outsidempi_tot_diff'][trace] = sum(rescaled_outside_mpi)
+                    raw_data['outsidempi_tot'][trace] = sum(list_outside_mpi)
+                    # Only the average is updated with the rescaled outsidempi
+                    raw_data['outsidempi_avg'][trace] = sum(rescaled_outside_mpi) / sum(list_thread_outside_mpi)
+                    # Maximum outsidempi is the same, although the count of threads is different
+                    # because it waits that the MPI task has the max outsidempi.
+                    raw_data['outsidempi_max'][trace] = max(list_outside_mpi)
+
+                else:
+                    raw_data['outsidempi_tot_diff'][trace] = sum(list_outside_mpi)
+                    list_mpi_procs_count[trace] = len(list_outside_mpi)
+                    raw_data['outsidempi_tot'][trace] = sum(list_outside_mpi)
+                    raw_data['outsidempi_avg'][trace] = sum(list_outside_mpi) / len(list_outside_mpi)
+                    raw_data['outsidempi_max'][trace] = max(list_outside_mpi)
+        else:
+            raw_data['outsidempi_tot'][trace] = 'NaN'
+            raw_data['outsidempi_avg'][trace] = 'NaN'
+            raw_data['outsidempi_max'][trace] = 'NaN'
+        f.close()
+        # Get total, average, and maximum flushing duration
+        if os.path.exists(trace_name + '.flushing.stats'):
+            content = []
+            with open(trace_name + '.flushing.stats') as f:
+                content = f.readlines()
+                flushing_exist = '\tBegin\t\n' in content
+
+            if flushing_exist:
+                for line in content:
+                    if line.split():
+                        if line.split()[0] == 'Total':
+                            raw_data['flushing_tot'][trace] = float(line.split()[1])
+                        if line.split()[0] == 'Average':
+                            raw_data['flushing_avg'][trace] = float(line.split()[1])
+                        if line.split()[0] == 'Maximum':
+                            raw_data['flushing_max'][trace] = float(line.split()[1])
+            else:
+                raw_data['flushing_tot'][trace] = 0.0
+                raw_data['flushing_avg'][trace] = 0.0
+                raw_data['flushing_max'][trace] = 0.0
+        else:
+            raw_data['flushing_tot'][trace] = 0.0
+            raw_data['flushing_avg'][trace] = 0.0
+            raw_data['flushing_max'][trace] = 0.0
+
+        # Get useful cycles
+        if os.path.exists(trace_name + '.cycles.stats'):
+            content = []
+            with open(trace_name + '.cycles.stats') as f:
+                content = f.readlines()
+
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Total':
+                        raw_data['useful_cyc'][trace] = int(float(line.split()[1]))
+        else:
+            raw_data['useful_cyc'][trace] = 'NaN'
+
+        # Get useful instructions
+        if os.path.exists(trace_name + '.instructions.stats'):
+            content = []
+            with open(trace_name + '.instructions.stats') as f:
+                content = f.readlines()
+
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Total':
+                        raw_data['useful_ins'][trace] = int(float(line.split()[1]))
+        else:
+            raw_data['useful_ins'][trace] = 'NaN'
+
+        # Get timing for SIMULATED traces
+        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+            # Get maximum useful duration for simulated trace
+            if os.path.exists(trace_name_sim + '.timings.stats'):
+                content = []
+                with open(trace_name_sim + '.timings.stats') as f:
+                    content = f.readlines()
+
+                for line in content:
+                    if line.split():
+                        if line.split()[0] == 'Maximum':
+                            raw_data['useful_dim'][trace] = float(line.split()[1])
+            else:
+                raw_data['useful_dim'][trace] = 'NaN'
+
+            # Get runtime for simulated trace
+            if os.path.exists(trace_name_sim + '.runtime.stats'):
+                content = []
+                with open(trace_name_sim + '.runtime.stats') as f:
+                    content = f.readlines()
+
+                for line in content:
+                    if line.split():
+                        if line.split()[0] == 'Average':
+                            raw_data['runtime_dim'][trace] = float(line.split()[1])
+            else:
+                raw_data['runtime_dim'][trace] = 'NaN'
+
+            # Get outsideMPI max for simulated trace
+            if os.path.exists(trace_name_sim + '.outside_mpi.stats'):
+                    with open(trace_name_sim + '.outside_mpi.stats') as f:
+                        content = f.readlines()
+                        list_outside_mpi = []
+                        list_thread_outside_mpi = []
+                        init_count_thread = False
+                        count_threads = 1
+                        for line1 in content[1:(len(content) - 8)]:
+                            line = line1.split("\t")
+                        # print(line)
+                            if line:
+                                if line[0] != 'Total' and line[0] != 'Average' \
+                                           and line[0] != 'Maximum' and line[0] != 'StDev' \
+                                           and line[0] != 'Avg/Max':
+                                    # To extract the count of MPI tasks
+                                    if float(line[1]) != raw_data['runtime_dim'][trace]:
+                                        list_outside_mpi.append(float(line[1]))
+                                        # To extract the count of threads per MPI task
+                                        if len(list_outside_mpi) > 1:
+                                           list_thread_outside_mpi.append(count_threads)
+                                        count_threads = 1
+                                    else:
+                                        if len(list_outside_mpi) == 1 and not init_count_thread:
+                                            count_threads = 2
+                                            init_count_thread = True
+                                        else:
+                                            count_threads += 1
+
+                                    if line[0] == "THREAD 1.1.1":
+                                        max_time_outside_mpi = float(line[1])
+
+                        list_thread_outside_mpi.append(count_threads)
+                        if len(list_outside_mpi) != 0:
+                            raw_data['outsidempi_dim'][trace] = max(list_outside_mpi)
+                        else:
+                            raw_data['outsidempi_dim'][trace] = max_time_outside_mpi
+            else:
+                raw_data['outsidempi_dim'][trace] = 0.0
+        else:
+            raw_data['useful_dim'][trace] = 'Non-Avail'
+            raw_data['runtime_dim'][trace] = 'Non-Avail'
+            raw_data['outsidempi_dim'][trace] = 'Non-Avail'
+
+        # Remove paramedir output files
+        move_files(trace_name + '.timings.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.runtime.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.cycles.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.instructions.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.flushing.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.mpi_io.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.io_call.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.outside_mpi.stats', path_dest, cmdl_args)
+
+        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+            move_files(trace_name_sim + '.timings.stats', path_dest, cmdl_args)
+            move_files(trace_name_sim + '.runtime.stats', path_dest, cmdl_args)
+            move_files(trace_name_sim + '.outside_mpi.stats', path_dest, cmdl_args)
+            move_files(trace_sim, path_dest, cmdl_args)
+            move_files(trace_sim[:-4] + '.pcf', path_dest, cmdl_args)
+            move_files(trace_sim[:-4] + '.row', path_dest, cmdl_args)
+            # To move simulation trace and ideal cfg
+            move_files(trace_sim[:-8] + '.dim', path_dest, cmdl_args)
+            remove_files(trace_sim[:-8] + '.row', cmdl_args)
+            remove_files(trace_sim[:-8] + '.pcf', cmdl_args)
+            move_files(trace_sim[:-8] + '.dimemas_ideal.cfg', path_dest, cmdl_args)
+            if trace[-7:] == ".prv.gz":
+                move_files(trace_name + '.prv', path_dest, cmdl_args)
+
+        time_prs = time.time() - time_prs
+
+        time_tot = time.time() - time_tot
+        print('Finished successfully in {0:.1f} seconds.'.format(time_tot))
+        print('')
+
+    return raw_data,list_mpi_procs_count
+
+
+def create_ideal_trace(trace, processes, task_per_node, cmdl_args):
+    """Runs prv2dim and dimemas with ideal configuration for given trace."""
+    if trace[-4:] == ".prv":
+        trace_dim = trace[:-4] + '_' + str(processes) + 'P' + '.dim'
+        trace_sim = trace[:-4] + '_' + str(processes) + 'P' + '.sim.prv'
+        trace_name = trace[:-4]
+        cmd = ['prv2dim', trace, trace_dim]
+    elif trace[-7:] == ".prv.gz":
+        with gzip.open(trace, 'rb') as f_in:
+            with open(trace[:-7] + '.prv', 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        trace_dim = trace[:-7] + '_' + str(processes) + 'P' + '.dim'
+        trace_sim = trace[:-7] + '_' + str(processes) + 'P' + '.sim.prv'
+        trace_name = trace[:-7]
+        trace_unzip = trace[:-3]
+        cmd = ['prv2dim', trace_unzip, trace_dim]
+
+    run_command(cmd, cmdl_args)
+
+    if os.path.isfile(trace_dim):
+        if cmdl_args.debug:
+            print('==DEBUG== Created file ' + trace_dim)
+    else:
+        print('==Error== ' + trace_dim + 'could not be creaeted.')
+        return
+
+    # Create Dimemas configuration
+    cfg_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs')
+
+    content = []
+    with open(os.path.join(cfg_dir, 'dimemas_ideal.cfg')) as f:
+        content = f.readlines()
+
+    content = [line.replace('REPLACE_BY_NTASKS_PER_NODE', str(task_per_node)) for line in content]
+    content = [line.replace('REPLACE_BY_NTASKS', str(processes)) for line in content]
+    content = [line.replace('REPLACE_BY_COLLECTIVES_PATH', os.path.join(cfg_dir, 'dimemas.collectives')) for line in
+               content]
+
+    with open(trace_name + '_' + str(processes) + 'P' + '.dimemas_ideal.cfg', 'w') as f:
+        f.writelines(content)
+
+    cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes)
+           + 'P' + '.dimemas_ideal.cfg']
+    run_command(cmd, cmdl_args)
+
+
+    if os.path.isfile(trace_sim):
+        if cmdl_args.debug:
+            print('==DEBUG== Created file ' + trace_sim)
+        return trace_sim
+    else:
+        print('==Error== ' + trace_sim + ' could not be created.')
+        return ''
+
 
 def print_raw_data_table(raw_data, trace_list, trace_processes):
     """Prints the raw data table in human readable form on stdout."""
@@ -80,361 +621,6 @@ def print_raw_data_table(raw_data, trace_list, trace_processes):
     print(final_line_raw_data)
     print('')
 
-def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode, cmdl_args):
-    """Gathers all raw data needed to generate the model factors. Return raw
-    data in a 2D dictionary <data type><list of values for each trace>"""
-    raw_data = create_raw_data(trace_list)
-    global list_mpi_procs_count
-    list_mpi_procs_count = dict()
-
-    cfgs = {}
-    cfgs['root_dir'] = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs')
-    cfgs['timings'] = os.path.join(cfgs['root_dir'], 'timings.cfg')
-    cfgs['runtime'] = os.path.join(cfgs['root_dir'], 'runtime_app.cfg')
-    cfgs['cycles'] = os.path.join(cfgs['root_dir'], 'cycles.cfg')
-    cfgs['instructions'] = os.path.join(cfgs['root_dir'], 'instructions.cfg')
-    cfgs['flushing'] = os.path.join(cfgs['root_dir'], 'flushing.cfg')
-    cfgs['mpi_io'] = os.path.join(cfgs['root_dir'], 'mpi-io-reverse.cfg')
-    cfgs['outside_mpi'] = os.path.join(cfgs['root_dir'], 'mpi-call-outside.cfg')
-
-    # Main loop over all traces
-    # This can be parallelized: the loop iterations have no dependencies
-    for trace in trace_list:
-        time_tot = time.time()
-
-        line = 'Analyzing ' + os.path.basename(trace)
-        line += ' (' + str(trace_processes[trace]) + ' processes'
-        line += ', ' + str(trace_task_per_node[trace]) + ' tasks per node'
-        line += ', ' + str(trace_mode[trace]) + ' mode'
-        line += ', ' + human_readable(os.path.getsize(trace)) + ')'
-        print(line)
-
-        # Create simulated ideal trace with Dimemas
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-           time_dim = time.time()
-           trace_sim = create_ideal_trace(trace, trace_processes[trace], trace_task_per_node[trace], cmdl_args)
-           time_dim = time.time() - time_dim
-           if not trace_sim == '':
-             print('Successfully created simulated trace with Dimemas in {0:.1f} seconds.'.format(time_dim))
-           else:
-             print('Failed to create simulated trace with Dimemas.')
-
-        # Run paramedir for the original and simulated trace
-        time_pmd = time.time()
-        cmd_normal = ['paramedir', trace]
-        cmd_normal.extend([cfgs['timings'], trace[:-4] + '.timings.stats'])
-        cmd_normal.extend([cfgs['runtime'], trace[:-4] + '.runtime.stats'])
-        cmd_normal.extend([cfgs['cycles'], trace[:-4] + '.cycles.stats'])
-        cmd_normal.extend([cfgs['instructions'], trace[:-4] + '.instructions.stats'])
-        cmd_normal.extend([cfgs['flushing'], trace[:-4] + '.flushing.stats'])
-        cmd_normal.extend([cfgs['mpi_io'], trace[:-4] + '.mpi_io.stats'])
-        cmd_normal.extend([cfgs['outside_mpi'], trace[:-4] + '.outside_mpi.stats'])
-
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-           cmd_ideal = ['paramedir', trace_sim]
-           cmd_ideal.extend([cfgs['timings'], trace_sim[:-4] + '.timings.stats'])
-           cmd_ideal.extend([cfgs['runtime'], trace_sim[:-4] + '.runtime.stats'])
-
-        run_command(cmd_normal,cmdl_args)
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-           if not trace_sim == '':
-            run_command(cmd_ideal,cmdl_args)
-
-        time_pmd = time.time() - time_pmd
-
-        error_timing = 0
-        error_counters = 0
-        error_ideal = 0
-
-        # Check if all files are created
-        if not os.path.exists(trace[:-4] + '.timings.stats') or \
-                not os.path.exists(trace[:-4] + '.runtime.stats'):
-            print('==ERROR== Failed to compute timing information with paramedir.')
-            error_timing = 1
-
-        if not os.path.exists(trace[:-4] + '.cycles.stats') or \
-                not os.path.exists(trace[:-4] + '.instructions.stats'):
-            print('==ERROR== Failed to compute counter information with paramedir.')
-            error_counters = 1
-
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-           if not os.path.exists(trace_sim[:-4] + '.timings.stats') or \
-                   not os.path.exists(trace_sim[:-4] + '.runtime.stats'):
-              print('==ERROR== Failed to compute timing information with paramedir.')
-              error_ideal = 1
-              trace_sim = ''
-
-        if error_timing or error_counters or error_ideal:
-            print('Failed to analyze trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
-        else:
-            print('Successfully analyzed trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
-
-        # Parse the paramedir output files
-        time_prs = time.time()
-
-        # Get total, average, and maximum useful duration
-        if os.path.exists(trace[:-4] + '.timings.stats'):
-            content = []
-            with open(trace[:-4] + '.timings.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Total':
-                        raw_data['useful_tot'][trace] = float(line.split()[1])
-                    if line.split()[0] == 'Average':
-                        raw_data['useful_avg'][trace] = float(line.split()[1])
-                    if line.split()[0] == 'Maximum':
-                        raw_data['useful_max'][trace] = float(line.split()[1])
-        else:
-            raw_data['useful_tot'][trace] = 'NaN'
-            raw_data['useful_avg'][trace] = 'NaN'
-            raw_data['useful_max'][trace] = 'NaN'
-        f.close()
-        # Get total IO, average IO, and maximum IO duration
-        if os.path.exists(trace[:-4] + '.timings.stats'):
-            content = []
-            with open(trace[:-4] + '.timings.stats') as f:
-                content = f.readlines()
-
-                for line in content:
-                    for field in line.split("\n"):
-                        line_list = field.split("\t")
-                        if "Running" in line_list:
-                            try:
-                                io_index = line_list.index("I/O")
-                            except:
-                                io_index = " "
-                        elif io_index != " ":
-                            if "Total" in field.split("\t"):
-                                raw_data['io_tot'][trace] = float(line_list[io_index])
-                            elif "Average" in field.split("\t"):
-                                raw_data['io_avg'][trace] = float(line_list[io_index])
-                            elif "Maximum" in field.split("\t"):
-                                raw_data['io_max'][trace] = float(line_list[io_index])
-                        else:
-                            raw_data['io_tot'][trace] = 0.0
-                            raw_data['io_avg'][trace] = 0.0
-                            raw_data['io_max'][trace] = 0.0
-        else:
-            raw_data['io_tot'][trace] = 'NaN'
-            raw_data['io_avg'][trace] = 'NaN'
-            raw_data['io_max'][trace] = 'NaN'
-        f.close()
-
-        # Get total IO, average IO, and maximum IO duration for MPI-IO
-        if os.path.exists(trace[:-4] + '.mpi_io.stats'):
-            content = []
-            with open(trace[:-4] + '.mpi_io.stats') as f:
-                content = f.readlines()
-
-                for line in content:
-                    for field in line.split("\n"):
-                        line_list = field.split("\t")
-                        if "Total" in field.split("\t"):
-                            count_procs = len(line_list[1:])
-                            list_mpiio_tot = [ float(iotime) for iotime in line_list[1:count_procs]]
-                            raw_data['mpiio_tot'][trace] = sum(list_mpiio_tot)
-                        elif "Average" in field.split("\t"):
-                            raw_data['mpiio_avg'][trace] = sum(list_mpiio_tot)/count_procs
-                        elif "Maximum" in field.split("\t"):
-                            raw_data['mpiio_max'][trace] = max(list_mpiio_tot)
-        else:
-            raw_data['mpiio_tot'][trace] = 0.0
-            raw_data['mpiio_avg'][trace] = 0.0
-            raw_data['mpiio_max'][trace] = 0.0
-        f.close()
-
-        # Get runtime
-        if os.path.exists(trace[:-4] + '.runtime.stats'):
-            content = []
-            with open(trace[:-4] + '.runtime.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Average':
-                        raw_data['runtime'][trace] = float(line.split()[1])
-        else:
-            raw_data['runtime'][trace] = 'NaN'
-
-        # Get total, average, and maximum outside MPI
-        # list_mpi_procs_count = []
-        if os.path.exists(trace[:-4] + '.outside_mpi.stats'):
-            content = []
-            with open(trace[:-4] + '.outside_mpi.stats') as f:
-                content = f.readlines()
-                list_outside_mpi = []
-                for line1 in content[1:(len(content) - 8)]:
-                    line = line1.split("\t")
-                    # print(line)
-                    if line:
-                        if line[0] != 'Total' and line[0] != 'Average' \
-                                and line[0] != 'Maximum' and line[0] != 'StDev' \
-                                and line[0] != 'Avg/Max':
-                            if float(line[1]) != raw_data['runtime'][trace]:
-                                list_outside_mpi.append(float(line[1]))
-                list_mpi_procs_count[trace] = len(list_outside_mpi)
-                raw_data['outsidempi_tot'][trace] = sum(list_outside_mpi)
-                raw_data['outsidempi_avg'][trace] = sum(list_outside_mpi) / len(list_outside_mpi)
-                raw_data['outsidempi_max'][trace] = max(list_outside_mpi)
-
-        else:
-            raw_data['outsidempi_tot'][trace] = 'NaN'
-            raw_data['outsidempi_avg'][trace] = 'NaN'
-            raw_data['outsidempi_max'][trace] = 'NaN'
-        f.close()
-        # Get total, average, and maximum flushing duration
-        if os.path.exists(trace[:-4] + '.flushing.stats'):
-            content = []
-            with open(trace[:-4] + '.flushing.stats') as f:
-                content = f.readlines()
-                flushing_exist = '\tBegin\t\n' in content
-
-            if flushing_exist:
-                for line in content:
-                    if line.split():
-                        if line.split()[0] == 'Total':
-                            raw_data['flushing_tot'][trace] = float(line.split()[1])
-                        if line.split()[0] == 'Average':
-                            raw_data['flushing_avg'][trace] = float(line.split()[1])
-                        if line.split()[0] == 'Maximum':
-                            raw_data['flushing_max'][trace] = float(line.split()[1])
-            else:
-                raw_data['flushing_tot'][trace] = 0.0
-                raw_data['flushing_avg'][trace] = 0.0
-                raw_data['flushing_max'][trace] = 0.0
-        else:
-            raw_data['flushing_tot'][trace] = 0.0
-            raw_data['flushing_avg'][trace] = 0.0
-            raw_data['flushing_max'][trace] = 0.0
-
-        # Get useful cycles
-        if os.path.exists(trace[:-4] + '.cycles.stats'):
-            content = []
-            with open(trace[:-4] + '.cycles.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Total':
-                        raw_data['useful_cyc'][trace] = int(float(line.split()[1]))
-        else:
-            raw_data['useful_cyc'][trace] = 'NaN'
-
-        # Get useful instructions
-        if os.path.exists(trace[:-4] + '.instructions.stats'):
-            content = []
-            with open(trace[:-4] + '.instructions.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Total':
-                        raw_data['useful_ins'][trace] = int(float(line.split()[1]))
-        else:
-            raw_data['useful_ins'][trace] = 'NaN'
-
-        # Get maximum useful duration for simulated trace
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-           if os.path.exists(trace_sim[:-4] + '.timings.stats'):
-              content = []
-              with open(trace_sim[:-4] + '.timings.stats') as f:
-                content = f.readlines()
-
-              for line in content:
-                if line.split():
-                    if line.split()[0] == 'Maximum':
-                        raw_data['useful_dim'][trace] = float(line.split()[1])
-           else:
-            raw_data['useful_dim'][trace] = 'NaN'
-        else:
-            raw_data['useful_dim'][trace] = 'Non-Avail'
-
-        # Get runtime for simulated trace
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-          if os.path.exists(trace_sim[:-4] + '.runtime.stats'):
-            content = []
-            with open(trace_sim[:-4] + '.runtime.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Average':
-                        raw_data['runtime_dim'][trace] = float(line.split()[1])
-          else:
-            raw_data['runtime_dim'][trace] = 'NaN'
-        else:
-            raw_data['runtime_dim'][trace] = 'Non-Avail'
-
-        # Remove paramedir output files
-        save_remove(trace[:-4] + '.timings.stats',cmdl_args)
-        save_remove(trace[:-4] + '.runtime.stats',cmdl_args)
-        save_remove(trace[:-4] + '.cycles.stats',cmdl_args)
-        save_remove(trace[:-4] + '.instructions.stats',cmdl_args)
-        save_remove(trace[:-4] + '.flushing.stats',cmdl_args)
-        save_remove(trace[:-4] + '.mpi_io.stats',cmdl_args)
-
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-          save_remove(trace_sim[:-4] + '.timings.stats',cmdl_args)
-          save_remove(trace_sim[:-4] + '.runtime.stats',cmdl_args)
-
-        time_prs = time.time() - time_prs
-
-        time_tot = time.time() - time_tot
-        print('Finished successfully in {0:.1f} seconds.'.format(time_tot))
-        print('')
-
-    return raw_data,list_mpi_procs_count
-
-def create_ideal_trace(trace, processes, task_per_node, cmdl_args):
-    """Runs prv2dim and dimemas with ideal configuration for given trace."""
-    if trace[-4:] == ".prv":
-        trace_dim = trace[:-4] + '.dim'
-        trace_sim = trace[:-4] + '.sim.prv'
-    elif trace[-7:] == ".prv.gz":
-        trace_dim = trace[:-7] + '.dim'
-        trace_sim = trace[:-7] + '.sim.prv'
-
-    cmd = ['prv2dim', trace, trace_dim]
-    run_command(cmd,cmdl_args)
-
-    if os.path.isfile(trace_dim):
-        if cmdl_args.debug:
-            print('==DEBUG== Created file ' + trace_dim)
-    else:
-        print('==Error== ' + trace_dim + 'could not be creaeted.')
-        return
-
-    # Create Dimemas configuration
-    cfg_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs')
-
-    content = []
-    with open(os.path.join(cfg_dir, 'dimemas_ideal.cfg')) as f:
-        content = f.readlines()
-
-    content = [line.replace('REPLACE_BY_NTASKS_PER_NODE', str(task_per_node)) for line in content]
-    content = [line.replace('REPLACE_BY_NTASKS', str(processes)) for line in content]
-    content = [line.replace('REPLACE_BY_COLLECTIVES_PATH', os.path.join(cfg_dir, 'dimemas.collectives')) for line in
-               content]
-
-    with open(trace[:-4] + '.dimemas_ideal.cfg', 'w') as f:
-        f.writelines(content)
-
-    cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace[:-4] + '.dimemas_ideal.cfg']
-    run_command(cmd,cmdl_args)
-    # To remove simulation trace and ideal cfg
-    os.remove(trace_dim)
-    # os.remove(trace[:-4] + '.dimemas_ideal.cfg')
-
-    if os.path.isfile(trace_sim):
-        if cmdl_args.debug:
-            print('==DEBUG== Created file ' + trace_sim)
-        return trace_sim
-    else:
-        print('==Error== ' + trace_sim + ' could not be created.')
-        return ''
-
 
 def print_raw_data_csv(raw_data, trace_list, trace_processes):
     """Prints the model factors table in a csv file."""
@@ -463,7 +649,8 @@ def print_raw_data_csv(raw_data, trace_list, trace_processes):
                     line += '{}'.format(raw_data[raw_key][trace])
             output.write(line + '\n')
 
-    print('======== CSV File: TRACES RAW DATA ========')
+    print('======== Output Files: Traces raw data and intermediate data ========')
     print('Raw data written to ' + file_path)
-    print('')
+    file_path_intermediate = os.path.join(os.getcwd(), 'scratch_out_basicanalysis')
+    print('Intermediate file written to ' + file_path_intermediate)
     print('')
