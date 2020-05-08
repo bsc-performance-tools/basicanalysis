@@ -21,11 +21,6 @@ try:
 except ImportError:
     print('==ERROR== Could not import NumPy. Please make sure to install a current version.')
 
-try:
-    import sty
-    from sty import fg, bg, ef, rs
-except ImportError:
-    print('sty module not available. Skipping color printing.')
 
 __author__ = "Sandra Mendez"
 __copyright__ = "Copyright 2019, Barcelona Supercomputing Center (BSC)"
@@ -157,6 +152,7 @@ def move_files(path_source, path_dest, cmdl_args):
     except:
         if cmdl_args.debug:
             print('==DEBUG== Failed to move ' + path_source + '!')
+
 
 def remove_files(path,cmdl_args):
     """Wraps os.remove with a try clause."""

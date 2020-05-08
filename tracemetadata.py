@@ -35,12 +35,10 @@ def get_traces_from_args(cmdl_args):
         trace_processes[trace] = get_num_processes(trace)
         trace_mode[trace] = get_trace_mode(trace)
         trace_task_per_node[trace] = get_task_per_node(trace)
-        #if trace[-7:] == ".prv.gz":
-        #    cmd_normal = ['gunzip', trace]
-        #    run_command(cmd_normal)
 
     print_overview(trace_list, trace_processes, trace_mode, trace_task_per_node)
     return trace_list, trace_processes, trace_task_per_node, trace_mode
+
 
 def get_num_processes(prv_file):
     """Gets the number of processes in a trace from the according .row file.
@@ -52,6 +50,7 @@ def get_num_processes(prv_file):
     elif prv_file[-7:] == ".prv.gz":
         tracefile = open(prv_file[:-7] + '.row')
 
+    cpus = 0
     for line in tracefile:
         if "LEVEL CPU SIZE" in line:
             cpus = line[15:]
@@ -69,6 +68,8 @@ def get_task_per_node(prv_file):
     elif prv_file[-7:] == ".prv.gz":
         tracefile = open(prv_file[:-7] + '.row')
 
+    tasks = 0
+    nodes = 0
     for line in tracefile:
         if "LEVEL CPU SIZE" in line:
             tasks = int(line[15:])
@@ -77,29 +78,33 @@ def get_task_per_node(prv_file):
 
     tracefile.close()
     task_nodes = math.ceil(tasks / nodes)
-    return (task_nodes)
+    return task_nodes
+
 
 def get_tasks_threads(prv_file):
     """Gets the app, tasks and threads from the .row file.
       """
     if prv_file[-4:] == ".prv":
-        tracefile = open(prv_file[:-4] + '.row')
-    elif prv_file[-7:] == ".prv.gz":
-        tracefile = open(prv_file[:-7] + '.row')
+        tracefile = open(prv_file)
+        for line in tracefile:
+            header_trace = line.split(':')
+            break
+        tracefile.close()
 
-    start_threads = False
-    for line in tracefile:
-        if "LEVEL THREAD SIZE" in line:
-            start_threads = True
-        elif start_threads:
-            tasks_found = re.split(r'\.(.+?)\.', line)
+    if prv_file[-7:] == ".prv.gz":
+        with gzip.open(prv_file, 'rt') as f:
+            for line in f:
+                if "#Paraver" in line:
+                    header_trace = line.split(':')
+                    break
+        f.close()
 
-    tracefile.close()
-
-    app = re.split(r'\s', tasks_found[0])[1]
-    tasks = tasks_found[1]
-    threads = tasks_found[2]
-    return int(app), int(tasks), int(threads)
+    header_to_print = header_trace[5].split('(')
+    tasks = header_to_print[0]
+    threads = header_to_print[1]
+    # tasks = tasks_found[1]
+    # threads = tasks_found[2]
+    return int(tasks), int(threads)
 
 
 def get_trace_mode(prv_file):
@@ -135,29 +140,29 @@ def get_trace_mode(prv_file):
 
     with open(file_pcf, 'rb', 0) as file, \
         mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as s:
-        if s.find(b'500000') != -1:
+        if s.find(b'   500000') != -1:
             mode_trace += '+MPI'
-            if s.find(b'600000') != -1:
+            if s.find(b'   600000') != -1:
                 mode_trace += '+OpenMP'
-            if s.find(b'610000') != -1:
+            if s.find(b'   610000') != -1:
                 mode_trace += '+Pthreads'
-            if s.find(b'630000') != -1 or s.find(b'631000') != -1 or s.find(b'632000') != -1:
+            if s.find(b'   630000') != -1 or s.find(b'   631000') != -1 or s.find(b'   632000') != -1:
                 mode_trace += '+CUDA'
-            if s.find(b'9200001') != -1:
+            if s.find(b'   9200001') != -1:
                 mode_trace += '+OmpSs'
-            if s.find(b'642000') != -1 or s.find(b'6400001') != -1 or s.find(b'641000') != -1:
+            if s.find(b'   642000') != -1 or s.find(b'   6400001') != -1 or s.find(b'   641000') != -1:
                 mode_trace += '+OpenCL'
         else:
             mode_trace += '+non-MPI'
-            if s.find(b'600000') != -1:
+            if s.find(b'   600000') != -1:
                 mode_trace += '+OpenMP'
-            if s.find(b'610000') != -1:
+            if s.find(b'   610000') != -1:
                 mode_trace += '+Pthreads'
-            if s.find(b'630000') != -1 or s.find(b'631000') != -1 or s.find(b'632000') != -1:
+            if s.find(b'   630000') != -1 or s.find(b'   631000') != -1 or s.find(b'   632000') != -1:
                 mode_trace += '+CUDA'
-            if s.find(b'9200001') != -1:
+            if s.find(b'   9200001') != -1:
                 mode_trace += '+OmpSs'
-            if s.find(b'642000') != -1 or s.find(b'640000') != -1 or s.find(b'641000') != -1:
+            if s.find(b'   642000') != -1 or s.find(b'   640000') != -1 or s.find(b'   641000') != -1:
                 mode_trace += '+OpenCL'
     file.close()
 
@@ -179,11 +184,20 @@ def print_overview(trace_list, trace_processes, trace_mode, trace_task_per_node)
     print('Running modelfactors.py for the following traces:')
     # print('Running', os.path.basename(__file__), 'for the following traces:')
 
-    for index, trace in enumerate(trace_list):
-        line = '(' + str(index+1) + ') ' + trace
-        line += ', ' + str(trace_processes[trace]) + ' processes'
-        line += ', ' + str(trace_task_per_node[trace]) + ' tasks per node'
-        line += ', ' + human_readable(os.path.getsize(trace))
-        line += ', ' + str(trace_mode[trace]) + ' mode'
-        print(line)
+    file_path = os.path.join(os.getcwd(), 'traces_metadata.txt')
+    with open(file_path, 'w') as output:
+        for index, trace in enumerate(trace_list):
+            line = '[' + str(index+1) + '] ' + trace
+
+            tasks, threads = get_tasks_threads(trace)
+            line += ', ' + str(trace_processes[trace]) \
+                    + '(' + str(tasks) + 'x' + str(threads) + ')' + ' processes'
+            line += ', ' + str(trace_task_per_node[trace]) + ' tasks per node'
+            line += ', ' + human_readable(os.path.getsize(trace))
+            line += ', ' + str(trace_mode[trace]) + ' mode'
+            print(line)
+            output.write(line + '\n')
+
+    print('======== Output Files: Traces metadata ========')
+    print('Traces metadata written to ' + file_path)
     print('')

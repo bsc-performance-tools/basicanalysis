@@ -28,23 +28,30 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('outsidempi_max', 'Outside MPI duration (maximum)'),
                             ('outsidempi_dim', 'Outside MPI duration (ideal,maximum)'),
                             ('outsidempi_tot', 'Outside MPI duration (total)'),
+                            ('mpicomm_tot', 'Communication MPI duration (total)'),
                             ('outsidempi_tot_diff', 'Outside MPI duration rescaled (total*threads)'),
                             ('flushing_avg', 'Flushing duration (average)'),
                             ('flushing_max', 'Flushing duration (maximum)'),
                             ('flushing_tot', 'Flushing duration (total)'),
-                            ('io_tot', 'I/O duration (total)'),
-                            ('io_max', 'I/O duration (maximum)'),
-                            ('io_avg', 'I/O duration (avg)'),
-                            ('io_std', 'I/O duration (std)'),
-                            ('useful_plus_io_avg', 'I/O plus useful duration (avg)'),
-                            ('useful_plus_io_max', 'I/O plus useful duration (max)'),
+                            ('flushing_cyc', 'Flushing cycles (total)'),
+                            ('flushing_ins', 'Flushing instructions (total)'),
+                            ('io_tot', 'Posix I/O duration (total)'),
+                            ('io_max', 'Posix I/O duration (maximum)'),
+                            ('io_avg', 'Posix I/O duration (avg)'),
+                            ('io_std', 'Posix I/O duration (std)'),
+                            ('io_cyc', 'Posix I/O cycles (total)'),
+                            ('io_ins', 'Posix I/O instructions (total)'),
+                            ('useful_plus_io_avg', 'Serial I/O plus useful duration (avg)'),
+                            ('useful_plus_io_max', 'Serial I/O plus useful duration (max)'),
                             ('io_state_tot', 'state I/O duration (total)'),
                             ('io_state_avg', 'state I/O duration (avg)'),
                             ('io_state_max', 'state I/O duration (maximum)'),
                             ('mpiio_tot', 'MPI I/O duration (total)'),
                             ('mpiio_max', 'MPI I/O duration (maximum)'),
                             ('mpiio_avg', 'MPI I/O duration (avg)'),
-                            ('mpiio_std', 'MPI I/O duration (std)')])
+                            ('mpiio_std', 'MPI I/O duration (std)'),
+                            ('mpiio_cyc', 'MPI I/O cycles (total)'),
+                            ('mpiio_ins', 'MPI I/O instructions (total)')])
 
 
 def create_raw_data(trace_list):
@@ -80,6 +87,12 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
     cfgs['mpi_io'] = os.path.join(cfgs['root_dir'], 'mpi-io-reverse.cfg')
     cfgs['outside_mpi'] = os.path.join(cfgs['root_dir'], 'mpi-call-outside.cfg')
     cfgs['io_call'] = os.path.join(cfgs['root_dir'], 'io-call-reverse.cfg')
+    cfgs['io_cycles'] = os.path.join(cfgs['root_dir'], 'io-call-cycles.cfg')
+    cfgs['io_inst'] = os.path.join(cfgs['root_dir'], 'io-call-instructions.cfg')
+    cfgs['mpiio_cycles'] = os.path.join(cfgs['root_dir'], 'mpi-io-cycles.cfg')
+    cfgs['mpiio_inst'] = os.path.join(cfgs['root_dir'], 'mpi-io-instructions.cfg')
+    cfgs['flushing_cycles'] = os.path.join(cfgs['root_dir'], 'flushing-cycles.cfg')
+    cfgs['flushing_inst'] = os.path.join(cfgs['root_dir'], 'flushing-inst.cfg')
 
     # Main loop over all traces
     # This can be parallelized: the loop iterations have no dependencies
@@ -121,9 +134,17 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         cmd_normal.extend([cfgs['cycles'], trace_name + '.cycles.stats'])
         cmd_normal.extend([cfgs['instructions'], trace_name + '.instructions.stats'])
         cmd_normal.extend([cfgs['flushing'], trace_name + '.flushing.stats'])
-        cmd_normal.extend([cfgs['mpi_io'], trace_name + '.mpi_io.stats'])
-        cmd_normal.extend([cfgs['outside_mpi'], trace_name + '.outside_mpi.stats'])
         cmd_normal.extend([cfgs['io_call'], trace_name + '.io_call.stats'])
+        cmd_normal.extend([cfgs['io_cycles'], trace_name + '.posixio-cycles.stats'])
+        cmd_normal.extend([cfgs['io_inst'], trace_name + '.posixio-inst.stats'])
+        cmd_normal.extend([cfgs['flushing_cycles'], trace_name + '.flushing-cycles.stats'])
+        cmd_normal.extend([cfgs['flushing_inst'], trace_name + '.flushing-inst.stats'])
+
+        if trace_mode[trace][:12] == 'Detailed+MPI':
+            cmd_normal.extend([cfgs['mpi_io'], trace_name + '.mpi_io.stats'])
+            cmd_normal.extend([cfgs['outside_mpi'], trace_name + '.outside_mpi.stats'])
+            cmd_normal.extend([cfgs['mpiio_cycles'], trace_name + '.mpiio-cycles.stats'])
+            cmd_normal.extend([cfgs['mpiio_inst'], trace_name + '.mpiio-inst.stats'])
 
         run_command(cmd_normal, cmdl_args)
 
@@ -220,7 +241,8 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         f.close()
 
         # Get total MPI IO, average IO, and maximum IO duration for MPI-IO
-        if os.path.exists(trace_name + '.mpi_io.stats'):
+        dict_trace_mpiio={}
+        if os.path.exists(trace_name + '.mpi_io.stats') and trace_mode[trace][:12] == 'Detailed+MPI':
             content = []
             with open(trace_name + '.mpi_io.stats') as f:
                 content = f.readlines()
@@ -231,6 +253,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                         if "Total" in field.split("\t"):
                             count_procs = len(line_list[1:])
                             list_mpiio_tot = [ float(iotime) for iotime in line_list[1:count_procs]]
+                            dict_trace_mpiio[trace] = list_mpiio_tot
                             # print(list_mpiio_tot)
                             raw_data['mpiio_tot'][trace] = sum(list_mpiio_tot)
                         elif "Average" in field.split("\t"):
@@ -248,6 +271,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         f.close()
 
         # Get total State IO, average IO, and maximum IO duration
+        #print(dict_trace_mpiio)
         if os.path.exists(trace_name + '.timings.stats'):
             content = []
             with open(trace_name + '.timings.stats') as f:
@@ -274,12 +298,19 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                             elif line_list[0].find("THREAD") != -1 and "Minimum" not in line_list \
                                 and "StDev" not in line_list and "Avg/Max" not in line_list \
                                 and len(line_list) > 1:
-                                sum_aux = float(line_list[1])+float(line_list[io_index])
+                                mpiio_index = len(useful_plus_io)
+                                if len(dict_trace_mpiio) != 0:
+                                    sum_aux = float(line_list[1]) + (float(line_list[io_index])
+                                                                     - dict_trace_mpiio[trace][mpiio_index])
+                                else:
+                                    sum_aux = float(line_list[1]) + float(line_list[io_index])
+                                #print("OutsideMP? ",sum_aux)
                                 useful_plus_io.append(float(sum_aux))
                                 useful_comp.append(float(line_list[1]))
                                 io_time.append(float(line_list[io_index]))
                 if io_index != " ":
                     useful_io_avg = float(sum(useful_plus_io)/len(useful_plus_io))
+                    # mpiio is not included in useful + IO
                     raw_data['useful_plus_io_avg'][trace] = float(useful_io_avg)
                     raw_data['useful_plus_io_max'][trace] = float(max(useful_plus_io))
                 else:
@@ -313,11 +344,12 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
 
         # Get total, average, and maximum outside MPI
         # list_mpi_procs_count = []
-        if os.path.exists(trace_name + '.outside_mpi.stats'):
+        if os.path.exists(trace_name + '.outside_mpi.stats') and trace_mode[trace][:12] == 'Detailed+MPI':
             content = []
             with open(trace_name + '.outside_mpi.stats') as f:
                 content = f.readlines()
                 list_outside_mpi = []
+
                 list_thread_outside_mpi = []
                 init_count_thread = False
                 count_threads = 1
@@ -341,8 +373,9 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                                     init_count_thread = True
                                 else:
                                     count_threads += 1
+
                 list_thread_outside_mpi.append(count_threads)
-                # print(list_thread_outside_mpi, list_outside_mpi)
+
                 count = 0
                 equal_threads = True
                 # Evaluate if the count of threads per MPI task are equal
@@ -367,17 +400,26 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                     # Maximum outsidempi is the same, although the count of threads is different
                     # because it waits that the MPI task has the max outsidempi.
                     raw_data['outsidempi_max'][trace] = max(list_outside_mpi)
-
                 else:
                     raw_data['outsidempi_tot_diff'][trace] = sum(list_outside_mpi)
                     list_mpi_procs_count[trace] = len(list_outside_mpi)
                     raw_data['outsidempi_tot'][trace] = sum(list_outside_mpi)
                     raw_data['outsidempi_avg'][trace] = sum(list_outside_mpi) / len(list_outside_mpi)
                     raw_data['outsidempi_max'][trace] = max(list_outside_mpi)
+                for line2 in content[(len(content) - 7):]:
+                    line_aux = line2.split("\t")
+
+                    if line_aux[0] == 'Total':
+                        #print(line_aux)
+                        count_mpiop = len(line_aux[1:])
+                        list_mpi_tot = [float(mpitime) for mpitime in line_aux[2:count_mpiop]]
+                        #print(list_mpi_tot)
+                raw_data['mpicomm_tot'][trace] = sum(list_mpi_tot)
         else:
             raw_data['outsidempi_tot'][trace] = 'NaN'
             raw_data['outsidempi_avg'][trace] = 'NaN'
             raw_data['outsidempi_max'][trace] = 'NaN'
+            raw_data['mpicomm_tot'][trace] = 'NaN'
         f.close()
         # Get total, average, and maximum flushing duration
         if os.path.exists(trace_name + '.flushing.stats'):
@@ -403,6 +445,84 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             raw_data['flushing_tot'][trace] = 0.0
             raw_data['flushing_avg'][trace] = 0.0
             raw_data['flushing_max'][trace] = 0.0
+
+        # Get total flushing cycles
+        if os.path.exists(trace_name + '.flushing-cycles.stats'):
+            content = []
+            with open(trace_name + '.flushing-cycles.stats') as f:
+                content = f.readlines()
+
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Total':
+                        raw_data['flushing_cyc'][trace] = int(float(line.split()[1]))
+        else:
+            raw_data['flushing_cyc'][trace] = 0.0
+
+        # Get total flushing instructions
+        if os.path.exists(trace_name + '.flushing-inst.stats'):
+            content = []
+            with open(trace_name + '.flushing-inst.stats') as f:
+                content = f.readlines()
+
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Total':
+                        raw_data['flushing_ins'][trace] = int(float(line.split()[1]))
+        else:
+            raw_data['flushing_ins'][trace] = 0.0
+
+        # Get total posixio cycles
+        if os.path.exists(trace_name + '.posixio-cycles.stats'):
+            content = []
+            with open(trace_name + '.posixio-cycles.stats') as f:
+                content = f.readlines()
+
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Total':
+                        raw_data['io_cyc'][trace] = int(float(line.split()[1]))
+        else:
+            raw_data['io_cyc'][trace] = 0.0
+
+        # Get total posixio instructions
+        if os.path.exists(trace_name + '.posixio-inst.stats'):
+            content = []
+            with open(trace_name + '.posixio-inst.stats') as f:
+                content = f.readlines()
+
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Total':
+                        raw_data['io_ins'][trace] = int(float(line.split()[1]))
+        else:
+            raw_data['io_ins'][trace] = 0.0
+
+        # Get total mpiio instructions
+        if os.path.exists(trace_name + '.mpiio-cycles.stats') and trace_mode[trace][:12] == 'Detailed+MPI':
+            content = []
+            with open(trace_name + '.mpiio-cycles.stats') as f:
+                content = f.readlines()
+
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Total':
+                        raw_data['mpiio_cyc'][trace] = int(float(line.split()[1]))
+        else:
+            raw_data['mpiio_cyc'][trace] = 0.0
+
+        # Get total mpiio instructions
+        if os.path.exists(trace_name + '.mpiio-inst.stats') and trace_mode[trace][:12] == 'Detailed+MPI':
+            content = []
+            with open(trace_name + '.mpiio-inst.stats') as f:
+                content = f.readlines()
+
+            for line in content:
+                if line.split():
+                    if line.split()[0] == 'Total':
+                        raw_data['mpiio_ins'][trace] = int(float(line.split()[1]))
+        else:
+            raw_data['mpiio_ins'][trace] = 0.0
 
         # Get useful cycles
         if os.path.exists(trace_name + '.cycles.stats'):
@@ -508,9 +628,17 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         move_files(trace_name + '.cycles.stats', path_dest, cmdl_args)
         move_files(trace_name + '.instructions.stats', path_dest, cmdl_args)
         move_files(trace_name + '.flushing.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.mpi_io.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.io_call.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.outside_mpi.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.posixio-cycles.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.posixio-inst.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.flushing-cycles.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.flushing-inst.stats', path_dest, cmdl_args)
+
+        if trace_mode[trace][:12] == 'Detailed+MPI':
+            move_files(trace_name + '.mpi_io.stats', path_dest, cmdl_args)
+            move_files(trace_name + '.io_call.stats', path_dest, cmdl_args)
+            move_files(trace_name + '.outside_mpi.stats', path_dest, cmdl_args)
+            move_files(trace_name + '.mpiio-cycles.stats', path_dest, cmdl_args)
+            move_files(trace_name + '.mpiio-inst.stats', path_dest, cmdl_args)
 
         if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
             move_files(trace_name_sim + '.timings.stats', path_dest, cmdl_args)
@@ -525,7 +653,8 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             remove_files(trace_sim[:-8] + '.pcf', cmdl_args)
             move_files(trace_sim[:-8] + '.dimemas_ideal.cfg', path_dest, cmdl_args)
             if trace[-7:] == ".prv.gz":
-                move_files(trace_name + '.prv', path_dest, cmdl_args)
+                remove_files(trace_name + '.prv', cmdl_args)
+                # move_files(trace_name + '.prv', path_dest, cmdl_args)
 
         time_prs = time.time() - time_prs
 

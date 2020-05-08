@@ -4,22 +4,41 @@
 
 from __future__ import print_function, division
 import sys
-import shutil
 
 from rawdata import *
+from tracemetadata import get_tasks_threads
 from collections import OrderedDict
+
+import numpy as np
+
+try:
+    import pandas as pd
+except ImportError:
+    print('==ERROR== Could not import pandas. Please make sure to install a current version for plotting.')
+try:
+    import seaborn as sns
+except ImportError:
+    print('==ERROR== Could not import seaborn. Please make sure to install a current version for plotting.')
+
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+     print('==ERROR== Could not import matplotlib. Please make sure to install a current version for plotting.')
+
 
 # Contains all model factor entries with a printable name.
 # This is used to generate and print all model factors, so, if an entry is added,
 # it should be added here, too.
 
-other_metrics_doc = OrderedDict([('speedup', 'Speedup'),
+other_metrics_doc = OrderedDict([('elapsed_time', 'Elapsed time (sec)'),
+                               ('efficiency', 'Efficiency (%)'),
+                               ('speedup', 'Speedup'),
                                ('ipc', 'Average IPC'),
                                ('freq', 'Average frequency (GHz)'),
-                               ('flushing', 'Flushing'),
-                               ('io_mpiio', 'MPI I/O'),
-                               ('io_posix', 'Other File I/O'),
-                               ('io_eff', 'I/O Efficiency')])
+                               ('flushing', 'Flushing (%)'),
+                               ('io_mpiio', 'MPI I/O (%)'),
+                               ('io_posix', 'POSIX I/O (%)'),
+                               ('io_eff', 'I/O Efficiency (%)')])
 
 mod_factors_doc = OrderedDict([('global_eff', 'Global efficiency'),
                                ('parallel_eff', '-- Parallel efficiency'),
@@ -28,6 +47,11 @@ mod_factors_doc = OrderedDict([('global_eff', 'Global efficiency'),
                                ('serial_eff', '      -- Serialization efficiency'),
                                ('transfer_eff', '      -- Transfer efficiency'),
                                ('comp_scale', '-- Computation scalability'),
+                               ('ipc_scale', '   -- IPC scalability'),
+                               ('inst_scale', '   -- Instruction scalability'),
+                               ('freq_scale', '   -- Frequency scalability')])
+
+mod_factors_scale_plus_io_doc = OrderedDict([('comp_scale', '-- Computation scalability + I/O'),
                                ('ipc_scale', '   -- IPC scalability'),
                                ('inst_scale', '   -- Instruction scalability'),
                                ('freq_scale', '   -- Frequency scalability')])
@@ -46,6 +70,21 @@ def create_mod_factors(trace_list):
         mod_factors[key] = trace_dict
 
     return mod_factors
+
+
+def create_mod_factors_scale_io(trace_list):
+    """Creates 2D dictionary of the model factors and initializes with an empty
+    string. The mod_factors dictionary has the format: [mod factor key][trace].
+    """
+    global mod_factors_scale_plus_io_doc
+    mod_factors_scale_plus_io = {}
+    for key in mod_factors_scale_plus_io_doc:
+        trace_dict = {}
+        for trace_name in trace_list:
+            trace_dict[trace_name] = 0.0
+        mod_factors_scale_plus_io[key] = trace_dict
+
+    return mod_factors_scale_plus_io
 
 
 def create_other_metrics(trace_list):
@@ -129,6 +168,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     according dictionary of model factors."""
     mod_factors = create_mod_factors(trace_list)
     other_metrics = create_other_metrics(trace_list)
+    mod_factors_scale_plus_io = create_mod_factors_scale_io(trace_list)
+
     # Guess the weak or strong scaling
     scaling = get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args)
 
@@ -139,37 +180,46 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         # Flushing measurements
         try:  # except NaN
             other_metrics['flushing'][trace] = raw_data['flushing_tot'][trace] \
-                                                 / (raw_data['runtime'][trace] * trace_processes[trace]) * 100.0
+                                               / (raw_data['runtime'][trace] * trace_processes[trace]) * 100.0
         except:
             other_metrics['flushing'][trace] = 0.0
 
         # I/O measurements
         try:  # except NaN
-            other_metrics['io_mpiio'][trace] = (raw_data['mpiio_avg'][trace] + raw_data['mpiio_std'][trace])\
-                                             / raw_data['runtime'][trace] * 100.0
+            other_metrics['io_mpiio'][trace] = raw_data['mpiio_tot'][trace] \
+                                               / (raw_data['runtime'][trace] * trace_processes[trace]) * 100.0
         except:
             other_metrics['io_mpiio'][trace] = 0.0
 
         try:  # except NaN
-            other_metrics['io_posix'][trace] = (raw_data['io_avg'][trace] + raw_data['io_std'][trace]) \
-                                               / raw_data['runtime'][trace] * 100.0
+            other_metrics['io_posix'][trace] = raw_data['io_tot'][trace] \
+                                               / (raw_data['runtime'][trace] * trace_processes[trace]) * 100.0
         except:
             other_metrics['io_posix'][trace] = 0.0
         try:  # except NaN
             io_total = raw_data['mpiio_tot'][trace] + raw_data['flushing_tot'][trace] + raw_data['io_tot'][trace]
-            other_metrics['io_eff'][trace] = (1 - io_total / (raw_data['useful_tot'][trace] + io_total)) * 100
+            other_metrics['io_eff'][trace] = raw_data['useful_tot'][trace] \
+                                             / (raw_data['useful_tot'][trace] + io_total) * 100.0
         except:
             other_metrics['io_eff'][trace] = 0.0
 
         # Basic efficiency factors
         try:  # except NaN
-            mod_factors['load_balance'][trace] = raw_data['useful_avg'][trace] \
+            if other_metrics['io_posix'][trace] >= 5.0 or other_metrics['flushing'][trace] >= 10.0:
+                mod_factors['load_balance'][trace] = raw_data['useful_plus_io_avg'][trace] \
+                                                     / raw_data['useful_plus_io_max'][trace] * 100.0
+            else:
+                mod_factors['load_balance'][trace] = raw_data['useful_avg'][trace] \
                                                  / raw_data['useful_max'][trace] * 100.0
         except:
             mod_factors['load_balance'][trace] = 'NaN'
 
         try:  # except NaN
-            mod_factors['comm_eff'][trace] = raw_data['useful_max'][trace] \
+            if other_metrics['io_posix'][trace] >= 5.0 or other_metrics['flushing'][trace] >= 10.0:
+                mod_factors['comm_eff'][trace] = raw_data['useful_plus_io_max'][trace] \
+                                                 / raw_data['runtime'][trace] * 100.0
+            else:
+                mod_factors['comm_eff'][trace] = raw_data['useful_max'][trace] \
                                                      / raw_data['runtime'][trace] * 100.0
         except:
             mod_factors['comm_eff'][trace] = 'NaN'
@@ -188,26 +238,51 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                  / mod_factors['serial_eff'][trace] * 100.0
         except:
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-              mod_factors['transfer_eff'][trace] = 'NaN'
+                mod_factors['transfer_eff'][trace] = 'NaN'
             else:
-              mod_factors['transfer_eff'][trace] = 'Non-Avail'
+                mod_factors['transfer_eff'][trace] = 'Non-Avail'
 
         # Parallel Efficiency
         try:  # except NaN
-            mod_factors['parallel_eff'][trace] = mod_factors['load_balance'][trace] \
+            if other_metrics['io_posix'][trace] >= 5.0 or other_metrics['flushing'][trace] >= 10.0:
+                mod_factors['parallel_eff'][trace] = raw_data['useful_plus_io_avg'][trace] \
+                                                     / raw_data['runtime'][trace] * 100.0
+            else:
+                mod_factors['parallel_eff'][trace] = mod_factors['load_balance'][trace] \
                                                      * mod_factors['comm_eff'][trace] / 100.0
         except:
             mod_factors['parallel_eff'][trace] = 'NaN'
 
+        # Computation Scale only useful computation
         try:  # except NaN
             if scaling == 'strong':
                 mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] \
                                                    / raw_data['useful_tot'][trace] * 100.0
             else:
                 mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] \
-                                                   / raw_data['useful_tot'][trace] * proc_ratio * 100.0
+                                                   / raw_data['useful_tot'][trace] \
+                                                   * proc_ratio * 100.0
         except:
             mod_factors['comp_scale'][trace] = 'NaN'
+
+        # Computation Scale + Serial I/O
+        try:  # except NaN
+            if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 0.0:
+                io_serial_0 = raw_data['io_tot'][trace_list[0]] + raw_data['flushing_tot'][trace_list[0]]
+                io_serial_n = raw_data['io_tot'][trace] + raw_data['flushing_tot'][trace]
+                if scaling == 'strong':
+                    mod_factors_scale_plus_io['comp_scale'][trace] = (raw_data['useful_tot'][trace_list[0]]
+                                                                      + io_serial_0) / (raw_data['useful_tot'][trace]
+                                                                                        + io_serial_n) * 100.0
+                else:
+                    mod_factors_scale_plus_io['comp_scale'][trace] = (raw_data['useful_tot'][trace_list[0]]
+                                                                      + io_serial_0) \
+                                                                     / (raw_data['useful_tot'][trace] + io_serial_n) \
+                                                                     * proc_ratio * 100.0
+            else:
+                mod_factors_scale_plus_io['comp_scale'][trace] = mod_factors['comp_scale'][trace]
+        except:
+            mod_factors_scale_plus_io['comp_scale'][trace] = 'NaN'
 
         try:  # except NaN
             mod_factors['global_eff'][trace] = mod_factors['parallel_eff'][trace] \
@@ -226,25 +301,89 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                               / other_metrics['ipc'][trace_list[0]] * 100.0
         except:
             mod_factors['ipc_scale'][trace] = 'NaN'
+
+        # IPC scale + Serial I/O
+        try:  # except NaN
+            if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 0.0:
+                ipc_serial_io_0 = (raw_data['useful_ins'][trace_list[0]] + raw_data['io_ins'][trace_list[0]]
+                               + raw_data['flushing_ins'][trace_list[0]]) \
+                              / (raw_data['useful_cyc'][trace_list[0]] + raw_data['io_cyc'][trace_list[0]]
+                                 + raw_data['flushing_cyc'][trace_list[0]])
+
+                ipc_serial_io_n = (raw_data['useful_ins'][trace] + raw_data['io_ins'][trace]
+                               + raw_data['flushing_ins'][trace]) \
+                              / (raw_data['useful_cyc'][trace] + raw_data['io_cyc'][trace]
+                                 + raw_data['flushing_cyc'][trace])
+                mod_factors_scale_plus_io['ipc_scale'][trace] = ipc_serial_io_n / ipc_serial_io_0 * 100.0
+            else:
+                mod_factors_scale_plus_io['ipc_scale'][trace] = 0.0
+        except:
+            mod_factors_scale_plus_io['ipc_scale'][trace] = mod_factors['ipc_scale'][trace]
+
         try:  # except NaN
             other_metrics['freq'][trace] = float(raw_data['useful_cyc'][trace]) \
-                                         / float(raw_data['useful_tot'][trace]) / 1000
+                                       / float(raw_data['useful_tot'][trace]) / 1000
         except:
             other_metrics['freq'][trace] = 'NaN'
+
         try:  # except NaN
             mod_factors['freq_scale'][trace] = other_metrics['freq'][trace] \
                                                / other_metrics['freq'][trace_list[0]] * 100.0
         except:
             mod_factors['freq_scale'][trace] = 'NaN'
+            
+        # freq scale + Serial I/O
+        try:  # except NaN
+            if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 0.0:
+                freq_serial_io_0 = (float(raw_data['useful_cyc'][trace_list[0]])
+                                    + float(raw_data['io_cyc'][trace_list[0]])
+                                    + float(raw_data['flushing_cyc'][trace_list[0]])) \
+                                   / (float(raw_data['useful_tot'][trace_list[0]])
+                                      + float(raw_data['io_tot'][trace_list[0]])
+                                      + float(raw_data['flushing_tot'][trace_list[0]])) / 1000
+
+                freq_serial_io_n = (float(raw_data['useful_cyc'][trace]) + float(raw_data['io_cyc'][trace])
+                                    + float(raw_data['flushing_cyc'][trace])) \
+                                   / (float(raw_data['useful_tot'][trace])
+                                      + float(raw_data['io_tot'][trace])
+                                      + float(raw_data['flushing_tot'][trace])) / 1000
+                mod_factors_scale_plus_io['freq_scale'][trace] = freq_serial_io_n / freq_serial_io_0 * 100.0
+            else:
+                mod_factors_scale_plus_io['freq_scale'][trace] = mod_factors['freq_scale'][trace]
+        except:
+            mod_factors_scale_plus_io['freq_scale'][trace] = 'NaN'
+
         try:  # except NaN
             if scaling == 'strong':
                 mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
                                                    / float(raw_data['useful_ins'][trace]) * 100.0
             else:
                 mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
-                                                   / float(raw_data['useful_ins'][trace]) * proc_ratio * 100.0
+                                                   / float(raw_data['useful_ins'][trace]) \
+                                                   * proc_ratio * 100.0
         except:
             mod_factors['inst_scale'][trace] = 'NaN'
+
+        # ins scale + Serial I/O
+        try:  # except NaN
+            if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 0.0:
+                useful_ins_plus_io_0 = float(raw_data['useful_ins'][trace_list[0]]) \
+                                       + float(raw_data['io_ins'][trace_list[0]]) \
+                                       + float(raw_data['flushing_ins'][trace_list[0]])
+                useful_ins_plus_io_n = float(raw_data['useful_ins'][trace]) \
+                                       + float(raw_data['io_ins'][trace]) \
+                                       + float(raw_data['flushing_ins'][trace])
+                if scaling == 'strong':
+                    mod_factors_scale_plus_io['inst_scale'][trace] = useful_ins_plus_io_0 \
+                                                                 / useful_ins_plus_io_n * 100.0
+                else:
+                    mod_factors_scale_plus_io['inst_scale'][trace] = useful_ins_plus_io_0 / useful_ins_plus_io_n \
+                                                     * proc_ratio * 100.0
+            else:
+                mod_factors_scale_plus_io['inst_scale'][trace] = mod_factors['inst_scale'][trace]
+        except:
+            mod_factors_scale_plus_io['inst_scale'][trace] = 'NaN'
+
         try:  # except NaN
             if scaling == 'strong':
                 other_metrics['speedup'][trace] = raw_data['runtime'][trace_list[0]] \
@@ -255,7 +394,17 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             other_metrics['speedup'][trace] = 'NaN'
 
-    return mod_factors, other_metrics
+        try:  # except NaN
+            other_metrics['elapsed_time'][trace] = raw_data['runtime'][trace] * 0.000001
+        except:
+            other_metrics['elapsed_time'][trace] = 'NaN'
+
+        try:  # except NaN
+            other_metrics['efficiency'][trace] = mod_factors['global_eff'][trace]
+        except:
+            other_metrics['efficiency'][trace] = 'NaN'
+
+    return mod_factors, mod_factors_scale_plus_io, other_metrics
 
 
 def read_mod_factors_csv(cmdl_args):
@@ -304,18 +453,47 @@ def read_mod_factors_csv(cmdl_args):
     return mod_factors, trace_list, trace_processes
 
 
-def print_mod_factors_table(mod_factors, trace_list, trace_processes):
+def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes):
     """Prints the model factors table in human readable form on stdout."""
     global mod_factors_doc
-    print('')
+    global mod_factors_scale_plus_io_doc
+
+    warning_io = []
+    warning_flush = []
+    warning_flush_wrong = []
+    for trace in trace_list:
+        if 10.0 <= other_metrics['flushing'][trace] < 15.0:
+            warning_flush.append(1)
+        elif other_metrics['flushing'][trace] >= 15.0:
+            warning_flush_wrong.append(1)
+        if other_metrics['io_posix'][trace] >= 5.0:
+            warning_io.append(1)
+    if len(warning_flush_wrong) > 0:
+        print("WARNING! Flushing in a trace is too high. Disabling standard output metrics...")
+        print("         Flushing is an overhead due to the tracer, please review your trace.")
+        print('')
+        return
+
     print('Overview of the Efficiency metrics:')
 
     longest_name = len(sorted(mod_factors_doc.values(), key=len)[-1])
 
     line = ''.rjust(longest_name)
+
+    if len(trace_list) == 1:
+        limit_min = trace_processes[trace_list[0]]
+        limit_max = trace_processes[trace_list[0]]
+    else:
+        limit_min = trace_processes[trace_list[0]]
+        limit_max = trace_processes[trace_list[len(trace_list)-1]]
+
     for index, trace in enumerate(trace_list):
         line += ' | '
-        line += (str(trace_processes[trace]) + '(' + str(index+1) + ')').rjust(10)
+        if limit_min == limit_max and len(trace_list) > 1:
+            line += (str(trace_processes[trace]) + '[' + str(index+1) + ']').rjust(10)
+        else:
+            line += (str(trace_processes[trace])).rjust(10)
+
     print(''.ljust(len(line), '='))
     print(line)
     line_procs_factors = line
@@ -331,6 +509,28 @@ def print_mod_factors_table(mod_factors, trace_list, trace_processes):
             except ValueError:
                 line += ('{}'.format(mod_factors[mod_key][trace])).rjust(10)
         print(line)
+
+    # print('')
+
+    io_metrics = []
+    io_metrics.append(0)
+    for mod_key in mod_factors_scale_plus_io_doc:
+        for trace in trace_list:
+            if mod_factors_scale_plus_io[mod_key][trace] != 0:
+                io_metrics.append(1)
+
+    if (len(warning_flush) >= 1 or len(warning_io) >= 1) and len(trace_list) > 1:
+        print(''.ljust(len(line_procs_factors), '-'))
+        for mod_key in mod_factors_scale_plus_io_doc:
+            line = mod_factors_scale_plus_io_doc[mod_key].ljust(longest_name)
+            for trace in trace_list:
+                line += ' | '
+                try:  # except NaN
+                    line += ('{0:.2f}%'.format(mod_factors_scale_plus_io[mod_key][trace])).rjust(10)
+                except ValueError:
+                    line += ('{}'.format(mod_factors_scale_plus_io[mod_key][trace])).rjust(10)
+            print(line)
+
     print(''.ljust(len(line_procs_factors), '='))
     print('')
 
@@ -344,9 +544,20 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
     longest_name = len(sorted(other_metrics_doc.values(), key=len)[-1])
 
     line = ''.rjust(longest_name)
+    if len(trace_list) == 1:
+        limit_min = trace_processes[trace_list[0]]
+        limit_max = trace_processes[trace_list[0]]
+    else:
+        limit_min = trace_processes[trace_list[0]]
+        limit_max = trace_processes[trace_list[len(trace_list)-1]]
+
     for index, trace in enumerate(trace_list):
         line += ' | '
-        line += (str(trace_processes[trace]) + '(' + str(index+1) + ')').rjust(10)
+        if limit_min == limit_max and len(trace_list) > 1:
+            line += (str(trace_processes[trace]) + '[' + str(index+1) + ']').rjust(10)
+        else:
+            line += (str(trace_processes[trace])).rjust(10)
+
     print(''.ljust(len(line), '-'))
     print(line)
     line_head = line
@@ -354,7 +565,7 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
 
     for mod_key in other_metrics_doc:
         line = other_metrics_doc[mod_key].ljust(longest_name)
-        if mod_key in ['speedup', 'ipc', 'freq']:
+        if mod_key in ['speedup', 'ipc', 'freq', 'elapsed_time', 'efficiency']:
             for trace in trace_list:
                 line += ' | '
                 try:  # except NaN
@@ -363,24 +574,15 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
                     line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
             print(line)
     print(''.ljust(len(line_head), '-'))
-    print('')
+    # print('')
 
     warning_io = []
     warning_flush = []
     for trace in trace_list:
-        if other_metrics['flushing'][trace] >= 5.0:
+        if other_metrics['flushing'][trace] >= 10.0:
             warning_flush.append(1)
-        if (other_metrics['io_mpiio'][trace] + other_metrics['io_posix'][trace]) >= 5.0:
+        if other_metrics['io_mpiio'][trace] >= 5.0 or other_metrics['io_posix'][trace] >= 5.0:
             warning_io.append(1)
-    if len(warning_flush) > 0:
-        message_warning_flush = "WARNING!!! --> Flushing > 5%.  "
-    else:
-        message_warning_flush = ""
-    if len(warning_io) > 0:
-        message_warning_io = "WARNING!!! --> File I/O > 5%."
-    else:
-        message_warning_io = ""
-    print(message_warning_flush+message_warning_io)
 
     for mod_key in other_metrics_doc:
         line = other_metrics_doc[mod_key].ljust(longest_name)
@@ -389,7 +591,7 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
             print("Overview of tracer\'s flushing weight:")
             print(''.ljust(len(line_head), '-'))
 
-        if mod_key not in ['speedup', 'ipc', 'freq']:
+        if mod_key not in ['speedup', 'ipc', 'freq', 'elapsed_time','efficiency']:
             if mod_key in ['flushing']:
                 for trace in trace_list:
                     line += ' | '
@@ -400,7 +602,7 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
                 if len(warning_flush) > 0:
                     print(line)
                     print(''.ljust(len(line_head), '-'))
-            elif mod_key in ['io_mpiio','io_posix', 'io_eff']:
+            elif mod_key in ['io_mpiio','io_posix']:
                 for trace in trace_list:
                     line += ' | '
                     try:  # except NaN
@@ -409,6 +611,16 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
                         line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
                 if len(warning_io) > 0:
                     print(line)
+            elif mod_key in ['io_eff']:
+                for trace in trace_list:
+                    line += ' | '
+                    try:  # except NaN
+                        line += ('{0:.2f}%'.format(other_metrics[mod_key][trace])).rjust(10)
+                    except ValueError:
+                        line += ('{}'.format(other_metrics[mod_key][trace])).rjust(10)
+                if len(warning_io) > 0 or len(warning_flush) > 0:
+                    print(line)
+
         # Print headers I/O
         if mod_key in ['flushing'] and len(warning_io) > 0:
             print(''.ljust(len(line), ' '))
@@ -416,7 +628,18 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
             print(''.ljust(len(line), '-'))
         if mod_key in ['io_eff'] and len(warning_io) > 0:
             print(''.ljust(len(line), '-'))
-            print('')
+        #    print('')
+
+    if len(warning_flush) > 0:
+        message_warning_flush = "WARNING! %Flushing is high and affects computation of efficiency metrics."
+    else:
+        message_warning_flush = ""
+    if len(warning_io) > 0:
+        message_warning_io = "WARNING! % File I/O is high and affects computation of efficiency metrics."
+    else:
+        message_warning_io = ""
+    print(message_warning_flush + message_warning_io)
+    print('')
 
 
 def print_efficiency_table(mod_factors, trace_list, trace_processes):
@@ -427,14 +650,24 @@ def print_efficiency_table(mod_factors, trace_list, trace_processes):
     delimiter = ','
     file_path = os.path.join(os.getcwd(), 'efficiency_table.csv')
     with open(file_path, 'w') as output:
-        line = '\"Number of processes\" '
+        line = '\"Number of processes\"'
+        if len(trace_list) == 1:
+            limit_min = trace_processes[trace_list[0]]
+            limit_max = trace_processes[trace_list[0]]
+        else:
+            limit_min = trace_processes[trace_list[0]]
+            limit_max = trace_processes[trace_list[len(trace_list)-1]]
+
         for index, trace in enumerate(trace_list):
             line += delimiter
-            line += str(trace_processes[trace]) + '(' + str(index+1) + ')'
+            if limit_min == limit_max and len(trace_list) > 1:
+                line += str(trace_processes[trace]) + '[' + str(index+1) + ']'
+            else:
+                line += str(trace_processes[trace])
         output.write(line + '\n')
 
         for mod_key in mod_factors_doc:
-            if mod_key not in ['speedup', 'ipc', 'freq', 'flushing', 'io_mpiio', 'io_posix']:
+            if mod_key not in ['speedup', 'ipc', 'freq', 'elapsed_time', 'efficiency', 'flushing', 'io_mpiio', 'io_posix']:
                 if mod_key in ['parallel_eff', 'comp_scale']:
                     line = "\"" + mod_factors_doc[mod_key].replace('  ', '', 2) + "\""
                 elif mod_key in ['load_balance', 'comm_eff','ipc_scale', 'inst_scale','freq_scale']:
@@ -489,14 +722,14 @@ def print_mod_factors_csv(mod_factors, trace_list, trace_processes):
     file_path = os.path.join(os.getcwd(), 'modelfactors.csv')
 
     with open(file_path, 'w') as output:
-        line = 'Number of processes'
+        line = "\"Number of processes\""
         for trace in trace_list:
             line += delimiter
             line += str(trace_processes[trace])
         output.write(line + '\n')
 
         for mod_key in mod_factors_doc:
-            line = mod_factors_doc[mod_key].replace('  ', '', 2)
+            line = "\"" + mod_factors_doc[mod_key].replace('  ', '', 2) + "\""
             for trace in trace_list:
                 line += delimiter
                 try:  # except NaN
@@ -522,14 +755,14 @@ def print_other_metrics_csv(other_metrics, trace_list, trace_processes):
     file_path = os.path.join(os.getcwd(), 'other_metrics.csv')
 
     with open(file_path, 'w') as output:
-        line = 'Number of processes'
+        line = "\"Number of processes\""
         for trace in trace_list:
             line += delimiter
             line += str(trace_processes[trace])
         output.write(line + '\n')
 
         for mod_key in other_metrics_doc:
-            line = other_metrics_doc[mod_key].replace('  ', '', 2)
+            line = "\"" + other_metrics_doc[mod_key].replace('  ', '', 2) +"\""
             for trace in trace_list:
                 line += delimiter
                 try:  # except NaN
@@ -543,4 +776,181 @@ def print_other_metrics_csv(other_metrics, trace_list, trace_processes):
     print('======== Output File: Other Metrics ========')
     print('Speedup, IPC, Frequency, I/O and Flushing written to ' + file_path)
     print('')
-    # print('')
+
+
+def plots_efficiency_table_matplot(trace_list, trace_processes, cmdl_args):
+    # Plotting using python
+    # For plotting using python, read the csv file
+
+    file_path = os.path.join(os.getcwd(), 'efficiency_table.csv')
+    df = pd.read_csv(file_path)
+    metrics = df['Number of processes'].tolist()
+
+    traces_procs = list(df.keys())[1:]
+
+    # To control same number of processes for the header on plots and table
+    same_procs = True
+    procs_trace_prev = trace_processes[trace_list[0]]
+    tasks_trace_prev, threads_trace_prev = get_tasks_threads(trace_list[0])
+    for index, trace in enumerate(trace_list):
+        tasks, threads = get_tasks_threads(trace)
+        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
+                and threads_trace_prev == threads:
+            same_procs *= True
+        else:
+            same_procs *= False
+
+    # Set limit for projection
+    if cmdl_args.limit:
+        limit = cmdl_args.limit
+    else:
+        limit = str(trace_processes[trace_list[len(trace_list)-1]])
+
+    limit_min = trace_processes[trace_list[0]]
+
+    # To xticks label
+    label_xtics = []
+    for index, trace in enumerate(trace_list):
+        tasks, threads = get_tasks_threads(trace)
+        if int(limit) == int(limit_min) and same_procs:
+            s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
+        elif int(limit) == int(limit_min) and not same_procs:
+            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
+        else:
+            s_xtics = str(trace_processes[trace])
+        if s_xtics in label_xtics:
+            s_xtics += '[' + str(index + 1) + ']'
+        label_xtics.append(s_xtics)
+    ##### End xticks
+
+    list_data = []
+    for index, rows in df.iterrows():
+        list_data.append(list(rows)[1:])
+
+    list_np = np.array(list_data)
+
+    idx = metrics
+    cols = label_xtics
+    #cols = traces_procs
+    df = pd.DataFrame(list_np, index=idx, columns=cols)
+
+    # min for 1 traces is x=3 for the (x,y) in figsize
+    size_figure_y = len(idx) * 0.40
+    size_figure_x = len(cols) * 1.40
+    plt.figure(figsize=(size_figure_x, size_figure_y))
+
+    ax = sns.heatmap(df, cmap='RdYlGn', linewidths=0.05, annot=True, vmin=0, vmax=100, center=75, \
+                     fmt='.2f', annot_kws={"size": 10}, cbar_kws={'label': 'Percentage(%)'})
+    ## to align ylabels to left
+    plt.yticks(rotation=0, ha='left')
+    ax.xaxis.tick_top()
+    # to adjust metrics
+    len_pad = 0
+    for metric in metrics:
+        if len(metric) > len_pad:
+            len_pad = len(metric)
+
+    ax.yaxis.set_tick_params(pad=len_pad + 120)
+    plt.savefig('efficiency_table-matplot.png', bbox_inches='tight')
+
+
+def plots_modelfactors_matplot(trace_list, trace_processes, cmdl_args):
+    # Plotting using python
+    # For plotting using python, read the csv file
+    file_path = os.path.join(os.getcwd(), 'modelfactors.csv')
+    df = pd.read_csv(file_path, sep=';')
+
+    # metrics = df['Number of processes'].tolist()
+
+    traces_procs = list(df.keys())[1:]
+
+    list_data = []
+    for index, rows in df.iterrows():
+        list_data.append(list(rows)[1:])
+
+    # To control same number of processes for the header on plots and table
+    same_procs = True
+    procs_trace_prev = trace_processes[trace_list[0]]
+    tasks_trace_prev, threads_trace_prev = get_tasks_threads(trace_list[0])
+    for index, trace in enumerate(trace_list):
+        tasks, threads = get_tasks_threads(trace)
+        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
+                and threads_trace_prev == threads:
+            same_procs *= True
+        else:
+            same_procs *= False
+
+    # Set limit for projection
+    if cmdl_args.limit:
+        limit = cmdl_args.limit
+    else:
+        limit = str(trace_processes[trace_list[len(trace_list)-1]])
+
+    limit_min = trace_processes[trace_list[0]]
+
+    # To xticks label
+    label_xtics = []
+    for index, trace in enumerate(trace_list):
+        tasks, threads = get_tasks_threads(trace)
+        if int(limit) == int(limit_min) and same_procs:
+            s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
+        elif int(limit) == int(limit_min) and not same_procs:
+            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' \
+                           + str(threads) + ')'
+        else:
+            s_xtics = str(trace_processes[trace])
+        label_xtics.append(s_xtics)
+
+    ### Plot: Global Metrics
+    plt.figure()
+    max_global = max([max(list_data[0]), max(list_data[1]), max(list_data[2]), max(list_data[3]), max(list_data[6])])
+    plt.plot(traces_procs, list_data[0], 'o-', color='black', label='Global Efficiency')
+    plt.plot(traces_procs, list_data[1], 's-.', color='magenta', label='Parallel Efficiency')
+    plt.plot(traces_procs, list_data[2], 's-.', color='red', label='Load Balance')
+    plt.plot(traces_procs, list_data[3], 's-.', color='green', label='Communication efficiency')
+    plt.plot(traces_procs, list_data[6], 'v--', color='blue', label='Computation scalability')
+    plt.xlabel("Number of Processes")
+    plt.ylabel("Efficiency (%)")
+    plt.xticks(tuple(traces_procs), tuple(label_xtics))
+    if max_global < 100:
+        max_global = 100
+
+    plt.ylim(0, max_global+5)
+    plt.legend()
+    plt.savefig('modelfactors-matplot.png', bbox_inches='tight')
+
+    ### Plot: Comm Metrics
+    plt.figure()
+    max_comm = max([max(list_data[3]), max(list_data[4]), max(list_data[5])])
+    plt.plot(traces_procs, list_data[3], 's-.', color='green', label='Communication efficiency')
+    plt.plot(traces_procs, list_data[4], 's-.', color='gold', label='Serialization efficiency')
+    plt.plot(traces_procs, list_data[5], 's-.', color='tomato', label='Transfer efficiency')
+    plt.xlabel("Number of Processes")
+    plt.ylabel("Efficiency (%)")
+    plt.xticks(tuple(traces_procs), tuple(label_xtics))
+    if max_comm < 100:
+        max_comm = 100
+
+    plt.ylim(0, max_comm+5)
+    plt.legend()
+    plt.savefig('modelfactors-comm-matplot.png', bbox_inches='tight')
+
+    ### Plot: Scale Metrics
+    plt.figure()
+    max_scale = max([max(list_data[6]), max(list_data[7]), max(list_data[8]), max(list_data[9])])
+    plt.plot(traces_procs, list_data[6], label='Computation scalability', color='blue',
+             linestyle='dashed', marker='v', markerfacecolor='blue')
+    plt.plot(traces_procs, list_data[7], 'v--', color='skyblue', label='IPC scalability')
+    plt.plot(traces_procs, list_data[8], 'v--', color='gray', label='Instruction scalability')
+    plt.plot(traces_procs, list_data[9], 'v--', color='darkviolet', label='Frequency scalability')
+    plt.xlabel("Number of Processes")
+    plt.ylabel("Efficiency (%)")
+    plt.xticks(tuple(traces_procs), tuple(label_xtics))
+    if max_scale < 100:
+        max_scale = 100
+
+    plt.ylim(0, max_scale+5)
+    plt.legend()
+    plt.savefig('modelfactors-scale-matplot.png', bbox_inches='tight')
+
+    # END Plotting using python
