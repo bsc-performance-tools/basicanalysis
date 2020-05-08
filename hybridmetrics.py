@@ -11,7 +11,11 @@ from tracemetadata import get_trace_mode
 from collections import OrderedDict
 from tracemetadata import get_tasks_threads
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    print('==ERROR== Could not import NumPy. Please make sure to install a current version.')
+
 
 try:
     import pandas as pd

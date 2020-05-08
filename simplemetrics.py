@@ -9,7 +9,10 @@ from rawdata import *
 from tracemetadata import get_tasks_threads
 from collections import OrderedDict
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    print('==ERROR== Could not import NumPy. Please make sure to install a current version.')
 
 try:
     import pandas as pd
