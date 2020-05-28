@@ -7,7 +7,6 @@ import os
 import sys
 import math
 import fnmatch
-import re
 import mmap
 import gzip
 

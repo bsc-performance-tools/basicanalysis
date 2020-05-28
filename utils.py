@@ -14,12 +14,26 @@ import shutil
 try:
     import scipy.optimize
 except ImportError:
-    print('==ERROR== Could not import SciPy. Please make sure to install a current version.')
+    print('==Error== Could not import SciPy. Please make sure to install a current version.')
 
 try:
     import numpy
 except ImportError:
-    print('==ERROR== Could not import NumPy. Please make sure to install a current version.')
+    print('==Error== Could not import NumPy. Please make sure to install a current version.')
+
+try:
+    import pandas as pd
+except ImportError:
+    print('==Error== Could not import pandas. Please make sure to install a current version.')
+try:
+    import seaborn as sns
+except ImportError:
+    print('==Error== Could not import seaborn. Please make sure to install a current version.')
+
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    print('==Error== Could not import matplotlib. Please make sure to install a current version.')
 
 
 __author__ = "Sandra Mendez"

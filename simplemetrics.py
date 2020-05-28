@@ -9,24 +9,34 @@ from rawdata import *
 from tracemetadata import get_tasks_threads
 from collections import OrderedDict
 
+# error import variables
+error_import_pandas = False
+error_import_seaborn = False
+error_import_matplotlib = False
+error_import_numpy = False
+
 try:
     import numpy as np
 except ImportError:
-    print('==ERROR== Could not import NumPy. Please make sure to install a current version.')
+    error_import_numpy = True
+
 
 try:
     import pandas as pd
 except ImportError:
-    print('==ERROR== Could not import pandas. Please make sure to install a current version for plotting.')
+    error_import_pandas = True
+
 try:
     import seaborn as sns
 except ImportError:
-    print('==ERROR== Could not import seaborn. Please make sure to install a current version for plotting.')
+    error_import_seaborn = True
+
 
 try:
     import matplotlib.pyplot as plt
 except ImportError:
-     print('==ERROR== Could not import matplotlib. Please make sure to install a current version for plotting.')
+    error_import_matplotlib = True
+
 
 
 # Contains all model factor entries with a printable name.
@@ -208,21 +218,31 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         # Basic efficiency factors
         try:  # except NaN
-            if other_metrics['io_posix'][trace] >= 5.0 or other_metrics['flushing'][trace] >= 10.0:
-                mod_factors['load_balance'][trace] = raw_data['useful_plus_io_avg'][trace] \
-                                                     / raw_data['useful_plus_io_max'][trace] * 100.0
+            if trace_mode[trace] == 'Burst+MPI':
+                # mod_factors['load_balance'][trace] = float(raw_data['burst_LB_Eff'][trace]) * 100.0
+                mod_factors['load_balance'][trace] = float(raw_data['burst_useful_avg'][trace]) \
+                                                     / float(raw_data['burst_useful_max'][trace]) * 100.0
             else:
-                mod_factors['load_balance'][trace] = raw_data['useful_avg'][trace] \
+                if other_metrics['io_posix'][trace] >= 5.0 or other_metrics['flushing'][trace] >= 10.0:
+                    mod_factors['load_balance'][trace] = raw_data['useful_plus_io_avg'][trace] \
+                                                     / raw_data['useful_plus_io_max'][trace] * 100.0
+                else:
+                    mod_factors['load_balance'][trace] = raw_data['useful_avg'][trace] \
                                                  / raw_data['useful_max'][trace] * 100.0
         except:
             mod_factors['load_balance'][trace] = 'NaN'
 
         try:  # except NaN
-            if other_metrics['io_posix'][trace] >= 5.0 or other_metrics['flushing'][trace] >= 10.0:
-                mod_factors['comm_eff'][trace] = raw_data['useful_plus_io_max'][trace] \
+            if trace_mode[trace] == 'Burst+MPI':
+                # mod_factors['comm_eff'][trace] = float(raw_data['burst_Comm_Eff'][trace]) * 100.0
+                mod_factors['comm_eff'][trace] = float(raw_data['burst_useful_max'][trace]) \
                                                  / raw_data['runtime'][trace] * 100.0
             else:
-                mod_factors['comm_eff'][trace] = raw_data['useful_max'][trace] \
+                if other_metrics['io_posix'][trace] >= 5.0 or other_metrics['flushing'][trace] >= 10.0:
+                    mod_factors['comm_eff'][trace] = raw_data['useful_plus_io_max'][trace] \
+                                                 / raw_data['runtime'][trace] * 100.0
+                else:
+                    mod_factors['comm_eff'][trace] = raw_data['useful_max'][trace] \
                                                      / raw_data['runtime'][trace] * 100.0
         except:
             mod_factors['comm_eff'][trace] = 'NaN'
@@ -247,22 +267,36 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         # Parallel Efficiency
         try:  # except NaN
-            if other_metrics['io_posix'][trace] >= 5.0 or other_metrics['flushing'][trace] >= 10.0:
-                mod_factors['parallel_eff'][trace] = raw_data['useful_plus_io_avg'][trace] \
+            if trace_mode[trace] == 'Burst+MPI':
+                # mod_factors['parallel_eff'][trace] = float(raw_data['burst_Par_Eff'][trace]) * 100.0
+                mod_factors['parallel_eff'][trace] = float(raw_data['burst_useful_avg'][trace]) \
                                                      / raw_data['runtime'][trace] * 100.0
             else:
-                mod_factors['parallel_eff'][trace] = mod_factors['load_balance'][trace] \
+                if other_metrics['io_posix'][trace] >= 5.0 or other_metrics['flushing'][trace] >= 10.0:
+                    mod_factors['parallel_eff'][trace] = raw_data['useful_plus_io_avg'][trace] \
+                                                     / raw_data['runtime'][trace] * 100.0
+                else:
+                    mod_factors['parallel_eff'][trace] = mod_factors['load_balance'][trace] \
                                                      * mod_factors['comm_eff'][trace] / 100.0
         except:
             mod_factors['parallel_eff'][trace] = 'NaN'
 
         # Computation Scale only useful computation
         try:  # except NaN
-            if scaling == 'strong':
-                mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] \
-                                                   / raw_data['useful_tot'][trace] * 100.0
+            if trace_mode[trace] == 'Burst+MPI':
+                if scaling == 'strong':
+                    mod_factors['comp_scale'][trace] = raw_data['burst_useful_tot'][trace_list[0]] \
+                                                   / raw_data['burst_useful_tot'][trace] * 100.0
+                else:
+                    mod_factors['comp_scale'][trace] = raw_data['burst_useful_tot'][trace_list[0]] \
+                                                   / raw_data['burst_useful_tot'][trace] \
+                                                   * proc_ratio * 100.0
             else:
-                mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] \
+                if scaling == 'strong':
+                    mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] \
+                                                   / raw_data['useful_tot'][trace] * 100.0
+                else:
+                    mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] \
                                                    / raw_data['useful_tot'][trace] \
                                                    * proc_ratio * 100.0
         except:
@@ -300,8 +334,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             other_metrics['ipc'][trace] = 'NaN'
         try:  # except NaN
-            mod_factors['ipc_scale'][trace] = other_metrics['ipc'][trace] \
+            if trace_mode[trace][:5] != 'Burst':
+                mod_factors['ipc_scale'][trace] = other_metrics['ipc'][trace] \
                                               / other_metrics['ipc'][trace_list[0]] * 100.0
+            else:
+                mod_factors['ipc_scale'][trace] = 'Non-Avail'
         except:
             mod_factors['ipc_scale'][trace] = 'NaN'
 
@@ -330,8 +367,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             other_metrics['freq'][trace] = 'NaN'
 
         try:  # except NaN
-            mod_factors['freq_scale'][trace] = other_metrics['freq'][trace] \
+            if trace_mode[trace][:5] != 'Burst':
+                mod_factors['freq_scale'][trace] = other_metrics['freq'][trace] \
                                                / other_metrics['freq'][trace_list[0]] * 100.0
+            else:
+                mod_factors['freq_scale'][trace] = 'Non-Avail'
         except:
             mod_factors['freq_scale'][trace] = 'NaN'
             
@@ -357,13 +397,16 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             mod_factors_scale_plus_io['freq_scale'][trace] = 'NaN'
 
         try:  # except NaN
-            if scaling == 'strong':
-                mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
+            if trace_mode[trace][:5] != 'Burst':
+                if scaling == 'strong':
+                    mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
                                                    / float(raw_data['useful_ins'][trace]) * 100.0
-            else:
-                mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
+                else:
+                    mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
                                                    / float(raw_data['useful_ins'][trace]) \
-                                                   * proc_ratio * 100.0
+                                                       * proc_ratio * 100.0
+            else:
+                mod_factors['inst_scale'][trace] = 'Non-Avail'
         except:
             mod_factors['inst_scale'][trace] = 'NaN'
 
@@ -710,7 +753,7 @@ def print_efficiency_table(mod_factors, trace_list, trace_processes):
             f.writelines(content)
 
         # print('======== Plot (gnuplot File): EFFICIENCY Table ========')
-        print('Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.png')
+        print('Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.gp')
         # print('')
 
 
@@ -857,7 +900,7 @@ def plots_efficiency_table_matplot(trace_list, trace_processes, cmdl_args):
     plt.savefig('efficiency_table-matplot.png', bbox_inches='tight')
 
 
-def plots_modelfactors_matplot(trace_list, trace_processes, cmdl_args):
+def plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, cmdl_args):
     # Plotting using python
     # For plotting using python, read the csv file
     file_path = os.path.join(os.getcwd(), 'modelfactors.csv')
@@ -869,7 +912,14 @@ def plots_modelfactors_matplot(trace_list, trace_processes, cmdl_args):
 
     list_data = []
     for index, rows in df.iterrows():
-        list_data.append(list(rows)[1:])
+        list_temp = []
+        for value in list(rows)[1:]:
+            if value != 'Non-Avail':
+                list_temp.append(float(value))
+            elif value == 'Non-Avail':
+                list_temp.append(0.0)
+        # print(list_temp)
+        list_data.append(list_temp)
 
     # To control same number of processes for the header on plots and table
     same_procs = True
@@ -905,6 +955,7 @@ def plots_modelfactors_matplot(trace_list, trace_processes, cmdl_args):
         label_xtics.append(s_xtics)
 
     ### Plot: Global Metrics
+    # print(list_data)
     plt.figure()
     max_global = max([max(list_data[0]), max(list_data[1]), max(list_data[2]), max(list_data[3]), max(list_data[6])])
     plt.plot(traces_procs, list_data[0], 'o-', color='black', label='Global Efficiency')
@@ -915,45 +966,48 @@ def plots_modelfactors_matplot(trace_list, trace_processes, cmdl_args):
     plt.xlabel("Number of Processes")
     plt.ylabel("Efficiency (%)")
     plt.xticks(tuple(traces_procs), tuple(label_xtics))
-    if max_global < 100:
+    # print(max_global)
+    if float(max_global) < 100:
         max_global = 100
 
-    plt.ylim(0, max_global+5)
+    plt.ylim(0, float(max_global)+5)
     plt.legend()
     plt.savefig('modelfactors-matplot.png', bbox_inches='tight')
 
     ### Plot: Comm Metrics
-    plt.figure()
-    max_comm = max([max(list_data[3]), max(list_data[4]), max(list_data[5])])
-    plt.plot(traces_procs, list_data[3], 's-.', color='green', label='Communication efficiency')
-    plt.plot(traces_procs, list_data[4], 's-.', color='gold', label='Serialization efficiency')
-    plt.plot(traces_procs, list_data[5], 's-.', color='tomato', label='Transfer efficiency')
-    plt.xlabel("Number of Processes")
-    plt.ylabel("Efficiency (%)")
-    plt.xticks(tuple(traces_procs), tuple(label_xtics))
-    if max_comm < 100:
-        max_comm = 100
+    if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+        plt.figure()
+        max_comm = max([max(list_data[3]), max(list_data[4]), max(list_data[5])])
+        plt.plot(traces_procs, list_data[3], 's-.', color='green', label='Communication efficiency')
+        plt.plot(traces_procs, list_data[4], 's-.', color='gold', label='Serialization efficiency')
+        plt.plot(traces_procs, list_data[5], 's-.', color='tomato', label='Transfer efficiency')
+        plt.xlabel("Number of Processes")
+        plt.ylabel("Efficiency (%)")
+        plt.xticks(tuple(traces_procs), tuple(label_xtics))
+        if float(max_comm) < 100:
+            max_comm = 100
 
-    plt.ylim(0, max_comm+5)
-    plt.legend()
-    plt.savefig('modelfactors-comm-matplot.png', bbox_inches='tight')
+        plt.ylim(0, float(max_comm)+5)
+        plt.legend()
+        plt.savefig('modelfactors-comm-matplot.png', bbox_inches='tight')
 
     ### Plot: Scale Metrics
-    plt.figure()
-    max_scale = max([max(list_data[6]), max(list_data[7]), max(list_data[8]), max(list_data[9])])
-    plt.plot(traces_procs, list_data[6], label='Computation scalability', color='blue',
-             linestyle='dashed', marker='v', markerfacecolor='blue')
-    plt.plot(traces_procs, list_data[7], 'v--', color='skyblue', label='IPC scalability')
-    plt.plot(traces_procs, list_data[8], 'v--', color='gray', label='Instruction scalability')
-    plt.plot(traces_procs, list_data[9], 'v--', color='darkviolet', label='Frequency scalability')
-    plt.xlabel("Number of Processes")
-    plt.ylabel("Efficiency (%)")
-    plt.xticks(tuple(traces_procs), tuple(label_xtics))
-    if max_scale < 100:
-        max_scale = 100
+    if trace_mode[trace][:5] != 'Burst':
+        plt.figure()
+        max_scale = max([max(list_data[6]), max(list_data[7]), max(list_data[8]), max(list_data[9])])
+        plt.plot(traces_procs, list_data[6], label='Computation scalability', color='blue',
+                 linestyle='dashed', marker='v', markerfacecolor='blue')
+        plt.plot(traces_procs, list_data[7], 'v--', color='skyblue', label='IPC scalability')
+        plt.plot(traces_procs, list_data[8], 'v--', color='gray', label='Instruction scalability')
+        plt.plot(traces_procs, list_data[9], 'v--', color='darkviolet', label='Frequency scalability')
+        plt.xlabel("Number of Processes")
+        plt.ylabel("Efficiency (%)")
+        plt.xticks(tuple(traces_procs), tuple(label_xtics))
+        if float(max_scale) < 100:
+            max_scale = 100
 
-    plt.ylim(0, max_scale+5)
-    plt.legend()
-    plt.savefig('modelfactors-scale-matplot.png', bbox_inches='tight')
+        plt.ylim(0, float(max_scale)+5)
+        plt.legend()
+        plt.savefig('modelfactors-scale-matplot.png', bbox_inches='tight')
 
     # END Plotting using python

@@ -7,15 +7,21 @@ import os
 from tracemetadata import get_trace_mode, get_tasks_threads
 from collections import OrderedDict
 
+# error import variables
+error_import_scipy = False
+error_import_numpy = False
+
 try:
     import scipy.optimize
 except ImportError:
-    print('==ERROR== Could not import SciPy. Please make sure to install a current version.')
+    error_import_scipy = True
+    # print('==ERROR== Could not import SciPy. Please make sure to install a current version.')
 
 try:
     import numpy
 except ImportError:
-    print('==ERROR== Could not import NumPy. Please make sure to install a current version.')
+    error_import_numpy = True
+    # print('==ERROR== Could not import NumPy. Please make sure to install a current version.')
 
 
 mod_hybrid_factors_doc = OrderedDict([
@@ -138,17 +144,28 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
 
     # To xticks label
     label_xtics = 'set xtics ('
+    glabel_xtics = []
     for index, trace in enumerate(trace_list):
         tasks, threads = get_tasks_threads(trace)
+        s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
         if int(limit) == int(limit_min) and same_procs:
-            label_xtics += '"' + str(trace_processes[trace]) + '[' + str(index + 1) + ']' + '" ' \
-                           + str(trace_processes[trace] + index * 5) + ', '
+            proc_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')' \
+                         + '[' + str(index + 1) + ']'
+            real_procs = str(trace_processes[trace] + index * 5)
         elif int(limit) == int(limit_min) and not same_procs:
-            label_xtics += '"' + str(trace_processes[trace]) + '(' + str(tasks) + 'x' \
-                           + str(threads) + ')' + '" ' \
-                           + str(trace_processes[trace] + index * 5) + ', '
+            proc_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
+            real_procs = str(trace_processes[trace] + index * 5)
+            if s_xtics in glabel_xtics:
+                proc_xtics += '[' + str(index + 1) + ']'
+            glabel_xtics.append(s_xtics)
         else:
-            label_xtics += '"' + str(trace_processes[trace]) + '" ' + str(trace_processes[trace]) + ', '
+            proc_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
+            real_procs = str(trace_processes[trace])
+            if s_xtics in glabel_xtics:
+                proc_xtics += '[' + str(index + 1) + ']'
+            glabel_xtics.append(s_xtics)
+
+        label_xtics += '"' + proc_xtics + '" ' + real_procs + ', '
 
     content = [line.replace('#REPLACE_BY_XRANGE', ''
                             .join(['set xrange [', str(limit_min), ':', str(limit_plot), ']'])) for line in content]
@@ -470,9 +487,14 @@ def plot_simple_metrics(mod_factors, trace_list, trace_processes, cmdl_args):
         y_comm[index] = mod_factors['comm_eff'][trace]
         y_comp[index] = mod_factors['comp_scale'][trace]
         y_glob[index] = mod_factors['global_eff'][trace]
-        y_ipc_scale[index] = mod_factors['ipc_scale'][trace]
-        y_inst_scale[index] = mod_factors['inst_scale'][trace]
-        y_freq_scale[index] = mod_factors['freq_scale'][trace]
+        if get_trace_mode(trace)[:5] != 'Burst':
+            y_ipc_scale[index] = mod_factors['ipc_scale'][trace]
+            y_inst_scale[index] = mod_factors['inst_scale'][trace]
+            y_freq_scale[index] = mod_factors['freq_scale'][trace]
+        else:
+            y_ipc_scale[index] = 0.0
+            y_inst_scale[index] = 0.0
+            y_freq_scale[index] = 0.0
         if get_trace_mode(trace) == 'Detailed+MPI' or get_trace_mode(trace) == 'Detailed+MPI+OpenMP':
             y_comm_serial[index] = mod_factors['serial_eff'][trace]
             y_comm_transfer[index] = mod_factors['transfer_eff'][trace]

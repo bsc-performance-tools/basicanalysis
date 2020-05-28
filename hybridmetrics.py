@@ -11,25 +11,34 @@ from tracemetadata import get_trace_mode
 from collections import OrderedDict
 from tracemetadata import get_tasks_threads
 
+# error import variables
+error_import_pandas = False
+error_import_seaborn = False
+error_import_matplotlib = False
+error_import_numpy = False
+
 try:
     import numpy as np
 except ImportError:
-    print('==ERROR== Could not import NumPy. Please make sure to install a current version.')
+    error_import_numpy = True
 
 
 try:
     import pandas as pd
 except ImportError:
-    print('==ERROR== Could not import pandas. Please make sure to install a current version for plotting.')
+    error_import_pandas = True
+
 try:
     import seaborn as sns
 except ImportError:
-    print('==ERROR== Could not import seaborn. Please make sure to install a current version for plotting.')
+    error_import_seaborn = True
+
 
 try:
     import matplotlib.pyplot as plt
 except ImportError:
-     print('==ERROR== Could not import matplotlib. Please make sure to install a current version for plotting.')
+    error_import_matplotlib = True
+    
 
 
 # Contains all model factor entries with a printable name.
@@ -541,13 +550,18 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         else:
             same_procs *= False
 
+    label_xtics = []
     for index, trace in enumerate(trace_list):
         line += ' | '
         tasks, threads = get_tasks_threads(trace)
         if limit_min == limit_max and same_procs and len(trace_list) > 1:
-            line += (str(trace_processes[trace]) + '[' + str(index+1) + ']').rjust(10)
+            s_xtics = (str(trace_processes[trace]) + '[' + str(index+1) + ']')
         else:
-            line += (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')').rjust(10)
+            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
+        if s_xtics in label_xtics:
+            s_xtics += '[' + str(index + 1) + ']'
+        label_xtics.append(s_xtics)
+        line += s_xtics.rjust(10)
 
     print(''.ljust(len(line), '='))
     print(line)
@@ -629,13 +643,18 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
         else:
             same_procs *= False
 
+    label_xtics = []
     for index, trace in enumerate(trace_list):
         line += ' | '
         tasks, threads = get_tasks_threads(trace)
         if limit_min == limit_max and same_procs and len(trace_list) > 1:
-            line += (str(trace_processes[trace]) + '[' + str(index+1) + ']').rjust(10)
+            s_xtics = (str(trace_processes[trace]) + '[' + str(index+1) + ']')
         else:
-            line += (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')').rjust(10)
+            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
+        if s_xtics in label_xtics:
+            s_xtics += '[' + str(index + 1) + ']'
+        label_xtics.append(s_xtics)
+        line += s_xtics.rjust(10)
 
     print(''.ljust(len(line), '-'))
     print(line)
@@ -740,13 +759,20 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
     file_path = os.path.join(os.getcwd(), 'efficiency_table-global.csv')
     with open(file_path, 'w') as output:
         line = '\"Number of processes\"'
+
+        label_xtics = []
         for index, trace in enumerate(trace_list):
             line += delimiter
             tasks, threads = get_tasks_threads(trace)
             if limit_min == limit_max and same_procs and len(trace_list) > 1:
-                line += str(trace_processes[trace]) + '[' + str(index+1) + ']'
+                s_xtics = (str(trace_processes[trace]) + '[' + str(index + 1) + ']')
             else:
-                line += str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
+                s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
+            if s_xtics in label_xtics:
+                s_xtics += '[' + str(index + 1) + ']'
+            label_xtics.append(s_xtics)
+            line += s_xtics
+
         output.write(line + '\n')
 
         for mod_key in mod_factors_doc:
@@ -787,20 +813,25 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
         with open(file_path, 'w') as f:
             f.writelines(content)
         # print('======== Plot (gnuplot File): EFFICIENCY Table ========')
-        print('Global Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.png')
+        print('Global Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.gp')
         # print('')
 
     delimiter = ','
     file_path = os.path.join(os.getcwd(), 'efficiency_table-hybrid.csv')
     with open(file_path, 'w') as output:
         line = '\"Number of processes\"'
+        label_xtics = []
         for index, trace in enumerate(trace_list):
             line += delimiter
             tasks, threads = get_tasks_threads(trace)
             if limit_min == limit_max and same_procs and len(trace_list) > 1:
-                line += str(trace_processes[trace]) + '[' + str(index+1) + ']'
+                s_xtics = (str(trace_processes[trace]) + '[' + str(index + 1) + ']')
             else:
-                line += str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
+                s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
+            if s_xtics in label_xtics:
+                s_xtics += '[' + str(index + 1) + ']'
+            label_xtics.append(s_xtics)
+            line += s_xtics
         output.write(line + '\n')
 
         for mod_key in mod_hybrid_factors_doc:
@@ -841,7 +872,7 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
         with open(file_path, 'w') as f:
             f.writelines(content)
         # print('======== Plot (gnuplot File): EFFICIENCY Table ========')
-        print('Hybrid Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.png')
+        print('Hybrid Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.gp')
         #print('')
 
 
@@ -958,10 +989,8 @@ def plots_efficiency_table_matplot(trace_list, trace_processes, cmdl_args):
         tasks, threads = get_tasks_threads(trace)
         if int(limit) == int(limit_min) and same_procs:
             s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
-        elif int(limit) == int(limit_min) and not same_procs:
-            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
         else:
-            s_xtics = str(trace_processes[trace])
+            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
         if s_xtics in label_xtics:
             s_xtics += '[' + str(index + 1) + ']'
         label_xtics.append(s_xtics)
@@ -1077,10 +1106,8 @@ def plots_modelfactors_matplot(trace_list, trace_processes, cmdl_args):
         tasks, threads = get_tasks_threads(trace)
         if int(limit) == int(limit_min) and same_procs:
             s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
-        elif int(limit) == int(limit_min) and not same_procs:
-            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
         else:
-            s_xtics = str(trace_processes[trace])
+            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
         if s_xtics in label_xtics:
             s_xtics += '[' + str(index + 1) + ']'
         label_xtics.append(s_xtics)

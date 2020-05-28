@@ -3,8 +3,6 @@
 """modelfactors.py Generates performance metrics from a set of Paraver traces."""
 
 from __future__ import print_function, division
-import sys
-import os
 import subprocess
 import plots
 from utils import parse_arguments, check_installation
@@ -16,31 +14,39 @@ from simplemetrics import compute_model_factors, print_mod_factors_csv, print_ef
 
 import hybridmetrics
 
+# error import variables
+error_import_pandas = False
+error_import_seaborn = False
+error_import_matplotlib = False
+error_import_scipy = False
+error_import_numpy = False
+
 try:
     import pandas as pd
 except ImportError:
-    print('==ERROR== Could not import pandas. Please make sure to install a current version for plotting.')
+    error_import_pandas = True
+
 try:
     import seaborn as sns
 except ImportError:
-    print('==ERROR== Could not import seaborn. Please make sure to install a current version for plotting.')
+    error_import_seaborn = True
 
 try:
     import matplotlib.pyplot as plt
 except ImportError:
-     print('==ERROR== Could not import matplotlib. Please make sure to install a current version for plotting.')
-
+    error_import_matplotlib = True
 
 
 try:
     import scipy.optimize
 except ImportError:
-    print('==ERROR== Could not import SciPy. Please make sure to install a current version.')
+    error_import_scipy = True
+
 
 try:
     import numpy
 except ImportError:
-    print('==ERROR== Could not import NumPy. Please make sure to install a current version.')
+    error_import_numpy = True
 
 
 __author__ = "Sandra Mendez"
@@ -76,7 +82,6 @@ if __name__ == "__main__":
             if trace_mode[trace] == 'Detailed+MPI' or \
                     trace_mode[trace][:16] == 'Detailed+non-MPI' or \
                     trace_mode[trace][:5] == 'Burst':
-
                 trace_metrics += 1
 
         # Analyze the traces and gather the raw input data
@@ -88,69 +93,91 @@ if __name__ == "__main__":
         # Compute the model factors and print them
 
         if cmdl_args.metrics == 'hybrid' and trace_metrics == 0:
-            mod_factors, mod_factors_scale_plus_io, hybrid_factors, other_metrics = hybridmetrics.compute_model_factors(raw_data, trace_list, \
-                                                    trace_processes, trace_mode, list_mpi_procs_count, cmdl_args)
+            mod_factors, mod_factors_scale_plus_io, hybrid_factors, other_metrics = \
+                hybridmetrics.compute_model_factors(raw_data, trace_list, trace_processes,
+                                                    trace_mode, list_mpi_procs_count, cmdl_args)
             hybridmetrics.print_other_metrics_table(other_metrics, trace_list, trace_processes)
             hybridmetrics.print_other_metrics_csv(other_metrics, trace_list, trace_processes)
-            hybridmetrics.print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors, trace_list, trace_processes)
+            hybridmetrics.print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io,
+                                                  hybrid_factors, trace_list, trace_processes)
             hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
-            # plot efficiency table
             hybridmetrics.print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_processes)
-            subprocess.call(["gnuplot", "efficiency_table_global.gp"])
-            subprocess.call(["gnuplot", "efficiency_table-hybrid.gp"])
+            # Plotting efficiency table with matplotlib
+            error_plot_table = False
+            if error_import_numpy or error_import_pandas or error_import_matplotlib or error_import_seaborn:
+                print('Numpy/Pandas/Matplotlib/Seaborn modules not available. '
+                      'Skipping efficiency table plotting with python.')
+                if len(trace_list) > 1:
+                    out_ver_gnuplot = subprocess.check_output(["gnuplot", "--version"])
+                    if 'gnuplot 5.' not in str(out_ver_gnuplot):
+                        print('It requires gnuplot version 5.0 or higher. '
+                              'Skipping efficiency table and lineal plotting with gnuplot.')
+                    else:
+                        try:
+                            output_gnuplot_g = subprocess.check_output(["gnuplot", "efficiency_table_global.gp"])
+                            output_gnuplot_h = subprocess.check_output(["gnuplot", "efficiency_table-hybrid.gp"])
+                        except:
+                            print(output_gnuplot_g)
+                            print(output_gnuplot_h)
+                error_plot_table = True
 
+            if not error_plot_table:
+                hybridmetrics.plots_efficiency_table_matplot(trace_list, trace_processes, cmdl_args)
+                if len(trace_list) > 1:
+                    hybridmetrics.plots_modelfactors_matplot(trace_list, trace_processes, cmdl_args)
 
             # Plotting if SciPy and NumPy are installed.
-            try:
-                numpy.__version__
-                scipy.__version__
-            except NameError:
-                print('Scipy or NumPy module not available. Skipping plotting.')
-                sys.exit(1)
-            if len(trace_list) > 1:
-                plots.plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes, cmdl_args)
-            # Plotting efficiency table with matplotlib
-            try:
-                pd.__version__
-                plt.__file__
-                sns.__version__
-            except NameError:
-                print('pandas or matplotlib or seaborn modules not available. Skipping plotting with matplotlib.')
-                sys.exit(1)
-            hybridmetrics.plots_efficiency_table_matplot(trace_list, trace_processes, cmdl_args)
-            if len(trace_list) > 1:
-                hybridmetrics.plots_modelfactors_matplot(trace_list, trace_processes, cmdl_args)
+            error_plot_lineal = False
+            if error_import_numpy or error_import_scipy:
+                print('Scipy/NumPy module not available. Skipping lineal plotting.')
+                error_plot_lineal = True
+
+            if not error_plot_lineal:
+                if len(trace_list) > 1:
+                    plots.plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes, cmdl_args)
+
         elif cmdl_args.metrics == 'simple' or trace_metrics > 0:
-            mod_factors, mod_factors_scale_plus_io, other_metrics = compute_model_factors(raw_data, trace_list, trace_processes
-                                                                , trace_mode, list_mpi_procs_count, cmdl_args)
+            mod_factors, mod_factors_scale_plus_io, other_metrics = compute_model_factors(raw_data, trace_list,
+                                                                                          trace_processes, trace_mode,
+                                                                                          list_mpi_procs_count, cmdl_args)
             print_other_metrics_table(other_metrics, trace_list, trace_processes)
             print_other_metrics_csv(other_metrics, trace_list, trace_processes)
             print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes)
             print_mod_factors_csv(mod_factors, trace_list, trace_processes)
-            # plot efficiency table
             print_efficiency_table(mod_factors, trace_list, trace_processes)
-            subprocess.call(["gnuplot", "efficiency_table.gp"])
+
+            # Plotting efficiency table with matplotlib
+            error_plot_table = False
+            if error_import_numpy or error_import_pandas or error_import_matplotlib or error_import_seaborn:
+                print('Numpy/Pandas/Matplotlib/Seaborn modules not available. '
+                      'Skipping efficiency table plotting with python.')
+                if len(trace_list) > 1:
+                    out_ver_gnuplot = subprocess.check_output(["gnuplot", "--version"])
+                    if 'gnuplot 5.' not in str(out_ver_gnuplot):
+                        print('It requires gnuplot version 5.0 or higher. '
+                              'Skipping efficiency table and lineal plotting with gnuplot.')
+                    else:
+                        try:
+                           output_gnuplot = subprocess.check_output(["gnuplot", "efficiency_table.gp"])
+                        except:
+                            print(output_gnuplot)
+
+                error_plot_table = True
+
+            if not error_plot_table:
+                plots_efficiency_table_matplot(trace_list, trace_processes, cmdl_args)
+                if len(trace_list) > 1:
+                    plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, cmdl_args)
 
             # Plotting if SciPy and NumPy are installed.
-            try:
-                numpy.__version__
-                scipy.__version__
-            except NameError:
-                print('Scipy or NumPy module not available. Skipping plotting.')
-                sys.exit(1)
-            if len(trace_list) > 1:
-                plots.plot_simple_metrics(mod_factors, trace_list, trace_processes, cmdl_args)
-            # Plotting efficiency table with matplotlib
-            try:
-                pd.__version__
-                plt.__file__
-                sns.__version__
-            except NameError:
-                print('pandas or matplotlib or seaborn modules not available. Skipping plotting with matplotlib.')
-                sys.exit(1)
-            plots_efficiency_table_matplot(trace_list, trace_processes, cmdl_args)
-            if len(trace_list) > 1:
-                plots_modelfactors_matplot(trace_list, trace_processes, cmdl_args)
+            error_plot_lineal = False
+            if error_import_numpy or error_import_scipy:
+                print('Scipy/NumPy module not available. Skipping lineal plotting.')
+                error_plot_lineal = True
+                # sys.exit(1)
+            if not error_plot_lineal:
+                if len(trace_list) > 1:
+                    plots.plot_simple_metrics(mod_factors, trace_list, trace_processes, cmdl_args)
     else:
         # Read the model factors from the csv file
         mod_factors, trace_list, trace_processes = read_mod_factors_csv(cmdl_args)

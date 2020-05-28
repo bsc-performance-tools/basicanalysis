@@ -51,7 +51,10 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('mpiio_avg', 'MPI I/O duration (avg)'),
                             ('mpiio_std', 'MPI I/O duration (std)'),
                             ('mpiio_cyc', 'MPI I/O cycles (total)'),
-                            ('mpiio_ins', 'MPI I/O instructions (total)')])
+                            ('mpiio_ins', 'MPI I/O instructions (total)'),
+                            ('burst_useful_tot', 'Burst Useful (total)'),
+                            ('burst_useful_max', 'Burst Useful (max)'),
+                            ('burst_useful_avg', 'Burst Useful (avg)')])
 
 
 def create_raw_data(trace_list):
@@ -93,6 +96,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
     cfgs['mpiio_inst'] = os.path.join(cfgs['root_dir'], 'mpi-io-instructions.cfg')
     cfgs['flushing_cycles'] = os.path.join(cfgs['root_dir'], 'flushing-cycles.cfg')
     cfgs['flushing_inst'] = os.path.join(cfgs['root_dir'], 'flushing-inst.cfg')
+    cfgs['burst_useful'] = os.path.join(cfgs['root_dir'], 'burst_useful.cfg')
 
     # Main loop over all traces
     # This can be parallelized: the loop iterations have no dependencies
@@ -146,6 +150,9 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             cmd_normal.extend([cfgs['mpiio_cycles'], trace_name + '.mpiio-cycles.stats'])
             cmd_normal.extend([cfgs['mpiio_inst'], trace_name + '.mpiio-inst.stats'])
 
+        if trace_mode[trace][:9] == 'Burst+MPI':
+            cmd_normal.extend([cfgs['burst_useful'], trace_name + '.burst_useful.stats'])
+
         run_command(cmd_normal, cmdl_args)
 
         if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
@@ -167,9 +174,12 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
 
         # Check if all files are created
         if not os.path.exists(trace_name + '.timings.stats') or \
-                not os.path.exists(trace_name + '.runtime.stats') or \
-                not os.path.exists(trace_name + '.outside_mpi.stats'):
+                not os.path.exists(trace_name + '.runtime.stats'):
             print('==ERROR== Failed to compute timing information with paramedir.')
+            error_timing = 1
+
+        if not os.path.exists(trace_name + '.outside_mpi.stats') and trace_mode[trace][:5] != 'Burst':
+            print('==ERROR== Failed to compute outside MPI timing information with paramedir.')
             error_timing = 1
 
         if not os.path.exists(trace_name + '.cycles.stats') or \
@@ -181,7 +191,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             if not os.path.exists(trace_name_sim + '.timings.stats') or \
                    not os.path.exists(trace_name_sim + '.runtime.stats') or \
                    not os.path.exists(trace_name_sim + '.outside_mpi.stats'):
-                print('==ERROR== Failed to compute timing information with paramedir.')
+                print('==ERROR== Failed to compute simulated timing information with paramedir.')
                 error_ideal = 1
                 trace_sim = ''
 
@@ -550,6 +560,34 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         else:
             raw_data['useful_ins'][trace] = 'NaN'
 
+        # Get Efficiencies for BurstMode
+        if trace_mode[trace] == 'Burst+MPI':
+            # Get total, maximum and avg from burst useful
+            if os.path.exists(trace_name + '.burst_useful.stats'):
+                content = []
+                list_burst_tot = []
+                with open(trace_name + '.burst_useful.stats') as f:
+                    content = f.readlines()
+                for line in content:
+                    for field in line.split("\n"):
+                        line_list = field.split("\t")
+                        if "Total" in field.split("\t"):
+                            count_procs = len(line_list[1:])
+                            list_burst_tot = [float(burst_time) for burst_time in line_list[1:count_procs]]
+
+                raw_data['burst_useful_tot'][trace] = sum(list_burst_tot)
+                raw_data['burst_useful_avg'][trace] = sum(list_burst_tot)/len(list_burst_tot)
+                raw_data['burst_useful_max'][trace] = max(list_burst_tot)
+
+            else:
+                raw_data['burst_useful_avg'][trace] = 'NaN'
+                raw_data['burst_useful_max'][trace] = 'NaN'
+                raw_data['burst_useful_tot'][trace] = 'NaN'
+        else:
+            raw_data['burst_useful_avg'][trace] = 0.0
+            raw_data['burst_useful_max'][trace] = 0.0
+            raw_data['burst_useful_tot'][trace] = 0.0
+
         # Get timing for SIMULATED traces
         if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
             # Get maximum useful duration for simulated trace
@@ -640,6 +678,10 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             move_files(trace_name + '.mpiio-cycles.stats', path_dest, cmdl_args)
             move_files(trace_name + '.mpiio-inst.stats', path_dest, cmdl_args)
 
+        if trace_mode[trace][:9] == 'Burst+MPI':
+            move_files(trace_name + '.2dh_BurstEff.stats', path_dest, cmdl_args)
+            move_files(trace_name + '.burst_useful.stats', path_dest, cmdl_args)
+
         if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
             move_files(trace_name_sim + '.timings.stats', path_dest, cmdl_args)
             move_files(trace_name_sim + '.runtime.stats', path_dest, cmdl_args)
@@ -662,7 +704,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         print('Finished successfully in {0:.1f} seconds.'.format(time_tot))
         print('')
 
-    return raw_data,list_mpi_procs_count
+    return raw_data, list_mpi_procs_count
 
 
 def create_ideal_trace(trace, processes, task_per_node, cmdl_args):
