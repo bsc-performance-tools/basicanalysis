@@ -14,26 +14,26 @@ import shutil
 try:
     import scipy.optimize
 except ImportError:
-    print('==Error== Could not import SciPy. Please make sure to install a current version.')
+    print('==Error== Could not import SciPy. Please make sure you have installed SciPy.')
 
 try:
     import numpy
 except ImportError:
-    print('==Error== Could not import NumPy. Please make sure to install a current version.')
+    print('==Error== Could not import NumPy. Please make sure you have installed NumPy.')
 
 try:
     import pandas as pd
 except ImportError:
-    print('==Error== Could not import pandas. Please make sure to install a current version.')
+    print('==Error== Could not import pandas. Please make sure you have installed pandas.')
 try:
     import seaborn as sns
 except ImportError:
-    print('==Error== Could not import seaborn. Please make sure to install a current version.')
+    print('==Error== Could not import seaborn. Please make sure you have installed  seaborn.')
 
 try:
     import matplotlib.pyplot as plt
 except ImportError:
-    print('==Error== Could not import matplotlib. Please make sure to install a current version.')
+    print('==Error== Could not import matplotlib. Please make sure you have installed matplotlib.')
 
 
 __author__ = "Sandra Mendez"
@@ -65,7 +65,6 @@ def parse_arguments():
                         help="run only the projection for the given modelfactors.csv (default: false)")
     parser.add_argument('--limit', help='limit number of cores for the plots '
                                         '(default: max processes of the trace list )')
-
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -99,6 +98,12 @@ def check_installation(cmdl_args):
     if not which('paramedir'):
         print('Could not find paramedir. Please make sure Paraver is correctly installed and in the path.')
         sys.exit(1)
+
+    if not which('python3'):
+        print('==> WARNING!!! It requires python version 3 or higher for a full functionality.')
+        option_user = input("Do you want to proceed with the analysis? (Yes/No)[Yes]: ").upper()
+        if option_user == 'NO':
+            sys.exit(1)
 
     if cmdl_args.debug:
         print('==DEBUG== Using', __file__, __version__)

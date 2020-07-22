@@ -10,7 +10,7 @@ from tracemetadata import get_traces_from_args
 from rawdata import gather_raw_data, print_raw_data_table, print_raw_data_csv
 from simplemetrics import compute_model_factors, print_mod_factors_csv, print_efficiency_table, \
     print_mod_factors_table, read_mod_factors_csv, print_other_metrics_table, \
-    print_other_metrics_csv, plots_efficiency_table_matplot, plots_modelfactors_matplot
+    print_other_metrics_csv, plots_efficiency_table_matplot, plots_modelfactors_matplot, plots_speedup_matplot
 
 import hybridmetrics
 
@@ -80,7 +80,11 @@ if __name__ == "__main__":
         #print(trace_mode)
         for trace in trace_list:
             if trace_mode[trace] == 'Detailed+MPI' or \
-                    trace_mode[trace][:16] == 'Detailed+non-MPI' or \
+                    trace_mode[trace][:15] == 'Detailed+OpenMP' or \
+                    trace_mode[trace][:17] == 'Detailed+Pthreads' or \
+                    trace_mode[trace][:13] == 'Detailed+CUDA' or \
+                    trace_mode[trace][:14] == 'Detailed+OmpSs' or \
+                    trace_mode[trace][:15] == 'Detailed+OpenCL' or  \
                     trace_mode[trace][:5] == 'Burst':
                 trace_metrics += 1
 
@@ -125,6 +129,7 @@ if __name__ == "__main__":
                 hybridmetrics.plots_efficiency_table_matplot(trace_list, trace_processes, cmdl_args)
                 if len(trace_list) > 1:
                     hybridmetrics.plots_modelfactors_matplot(trace_list, trace_processes, cmdl_args)
+                    hybridmetrics.plots_speedup_matplot(trace_list, trace_processes, cmdl_args)
 
             # Plotting if SciPy and NumPy are installed.
             error_plot_lineal = False
@@ -135,6 +140,10 @@ if __name__ == "__main__":
             if not error_plot_lineal:
                 if len(trace_list) > 1:
                     plots.plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes, cmdl_args)
+
+            if len(trace_list) == 1:
+                subprocess.check_output(["rm", "efficiency_table_global.gp"])
+                subprocess.check_output(["rm", "efficiency_table-hybrid.gp"])
 
         elif cmdl_args.metrics == 'simple' or trace_metrics > 0:
             mod_factors, mod_factors_scale_plus_io, other_metrics = compute_model_factors(raw_data, trace_list,
@@ -161,7 +170,6 @@ if __name__ == "__main__":
                            output_gnuplot = subprocess.check_output(["gnuplot", "efficiency_table.gp"])
                         except:
                             print(output_gnuplot)
-
                 error_plot_table = True
 
             if not error_plot_table:
@@ -178,6 +186,9 @@ if __name__ == "__main__":
             if not error_plot_lineal:
                 if len(trace_list) > 1:
                     plots.plot_simple_metrics(mod_factors, trace_list, trace_processes, cmdl_args)
+                    plots_speedup_matplot(trace_list, trace_processes, cmdl_args)
+            if len(trace_list) == 1:
+                subprocess.check_output(["rm", "efficiency_table.gp"])
     else:
         # Read the model factors from the csv file
         mod_factors, trace_list, trace_processes = read_mod_factors_csv(cmdl_args)

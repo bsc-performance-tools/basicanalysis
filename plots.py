@@ -92,8 +92,14 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
         y_mpi_comm[index] = hybrid_factors['mpi_comm_eff'][trace]
         if get_trace_mode(trace) == 'Detailed+MPI' \
                 or get_trace_mode(trace) == 'Detailed+MPI+OpenMP':
-            y_comm_serial[index] = hybrid_factors['serial_eff'][trace]
-            y_comm_transfer[index] = hybrid_factors['transfer_eff'][trace]
+            if hybrid_factors['serial_eff'][trace] != 'Non-Avail':
+                y_comm_serial[index] = hybrid_factors['serial_eff'][trace]
+            else:
+                y_comm_serial[index] = 0.0
+            if hybrid_factors['transfer_eff'][trace] != 'Non-Avail':
+                y_comm_transfer[index] = hybrid_factors['transfer_eff'][trace]
+            else:
+                y_comm_transfer[index] = 0.0
         else:
             y_comm_serial[index] = 0.0
             y_comm_transfer[index] = 0.0
