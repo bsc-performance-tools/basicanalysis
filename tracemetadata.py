@@ -27,16 +27,23 @@ def get_traces_from_args(cmdl_args):
         sys.exit(1)
 
     trace_processes = dict()
+    trace_tasks = dict()
+    trace_threads = dict()
     trace_mode = dict()
     trace_task_per_node = dict()
 
+    print('Running modelfactors.py for the following traces list:')
     for trace in trace_list:
-        trace_processes[trace] = get_num_processes(trace)
+        print(trace)
+        
+    print('\nExtracting metadata for the traces list:')
+    for trace in trace_list:
+        trace_processes[trace], trace_tasks[trace], trace_threads[trace] = get_num_processes(trace)
         trace_mode[trace] = get_trace_mode(trace)
         trace_task_per_node[trace] = get_task_per_node(trace)
 
-    print_overview(trace_list, trace_processes, trace_mode, trace_task_per_node)
-    return trace_list, trace_processes, trace_task_per_node, trace_mode
+    print_overview(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, trace_task_per_node)
+    return trace_list, trace_processes, trace_tasks, trace_threads, trace_task_per_node, trace_mode
 
 
 def get_num_processes(prv_file):
@@ -44,51 +51,56 @@ def get_num_processes(prv_file):
     Please note: return value needs to be integer because this function is also
     used as sorting key.
     """
-    row_file = True
-
-    if prv_file[-4:] == ".prv":
-        if os.path.exists(prv_file[:-4] + '.row'):
-            tracefile = open(prv_file[:-4] + '.row')
-        else:
-            tracefile = prv_file[:-4]
-            row_file = False
-    elif prv_file[-7:] == ".prv.gz":
-        if os.path.exists(prv_file[:-7] + '.row'):
-            tracefile = open(prv_file[:-7] + '.row')
-        else:
-            tracefile = prv_file[:-7]
-            row_file = False
-
     cpus = 0
-    if row_file:
+    if prv_file[-4:] == ".prv":
+        tracefile = open(prv_file)
         for line in tracefile:
-            if "LEVEL CPU SIZE" in line:
-                cpus = line[15:]
-
+            header_trace = line.split('_')
+            break
         tracefile.close()
-    else:
-        if prv_file[-4:] == ".prv":
-            tracefile = open(prv_file)
-            for line in tracefile:
-                header_trace = line.split('_')
-                break
-            tracefile.close()
 
-        if prv_file[-7:] == ".prv.gz":
-            with gzip.open(prv_file, 'rt') as f:
-                for line in f:
-                    if "#Paraver" in line:
-                        header_trace = line.split('_')
-                        break
-            f.close()
+    if prv_file[-7:] == ".prv.gz":
+        with gzip.open(prv_file, 'rt') as f:
+            for line in f:
+                if "#Paraver" in line:
+                    header_trace = line.split('_')
+                    break
+        f.close()
 
-        # tasks_temp = header_trace[3].split('(')[1].split(',')[0]
+    header_to_print = header_trace[1].split(':')[3].split('(')
+    tasks = header_to_print[0]
+    threads = header_to_print[1]
+    list_procspernode = header_trace[1].split('(')[2].split(')')[0].split(',')
+    total_procs = 0
+    for proc_node in list_procspernode:
+        total_procs += int(proc_node[0])
 
-        list_tasks_node_temp = header_trace[1].split(':')[1].split('(')[1].replace(')','').split(',')
-        list_tasks_node = [int(mapping) for mapping in list_tasks_node_temp]
-        cpus = sum(list_tasks_node)
+    cpus = total_procs
 
-    return int(cpus)
+    return int(cpus), int(tasks), int(threads)
+
+
+def get_tasks_threads(prv_file):
+    """Gets the tasks and threads from the .prv file.
+      """
+    if prv_file[-4:] == ".prv":
+        tracefile = open(prv_file)
+        for line in tracefile:
+            header_trace = line.split('_')
+            break
+        tracefile.close()
+
+    if prv_file[-7:] == ".prv.gz":
+        with gzip.open(prv_file, 'rt') as f:
+            for line in f:
+                if "#Paraver" in line:
+                    header_trace = line.split('_')
+                    break
+        f.close()
+    header_to_print = header_trace[1].split(':')[3].split('(')
+    tasks = header_to_print[0]
+    threads = header_to_print[1]
+    return int(tasks), int(threads)
 
 
 def get_task_per_node(prv_file):
@@ -139,29 +151,6 @@ def get_task_per_node(prv_file):
     return int(task_nodes)
 
 
-def get_tasks_threads(prv_file):
-    """Gets the tasks and threads from the .prv file.
-      """
-    if prv_file[-4:] == ".prv":
-        tracefile = open(prv_file)
-        for line in tracefile:
-            header_trace = line.split('_')
-            break
-        tracefile.close()
-
-    if prv_file[-7:] == ".prv.gz":
-        with gzip.open(prv_file, 'rt') as f:
-            for line in f:
-                if "#Paraver" in line:
-                    header_trace = line.split('_')
-                    break
-        f.close()
-    header_to_print = header_trace[1].split(':')[3].split('(')
-    tasks = header_to_print[0]
-    threads = header_to_print[1]
-    return int(tasks), int(threads)
-
-
 def get_trace_mode(prv_file):
     """Gets the trace mode by detecting the event 40000018:2 in .prv file
     to detect the Burst mode trace in another case is Detailed mode.
@@ -200,7 +189,8 @@ def get_trace_mode(prv_file):
                 if s.find(b'   610000') != -1:
                     mode_trace += '+Pthreads'
                 elif s.find(b'   60000') != -1:
-                    mode_trace += '+OpenMP'
+                    if not s.find(b'   60000019') == s.find(b'   60000'):
+                        mode_trace += '+OpenMP'
                 if s.find(b'   630000') != -1 or s.find(b'   631000') != -1 or s.find(b'   632000') != -1:
                     mode_trace += '+CUDA'
                 if s.find(b'   9200001') != -1:
@@ -235,7 +225,7 @@ def get_trace_mode(prv_file):
                         count_mpi = 1
                         mpi_trace = '+MPI'
                     elif "60000" in line_event[6] and "60000020" not in line_event[6] \
-                            and "60000120" not in line_event[6]:
+                            and "60000120" not in line_event[6] and "60000019" not in line_event[6]:
                         count_omp = 1
                         omp_trace = '+OpenMP'
                     elif "610000" in line_event[6]:
@@ -302,19 +292,17 @@ def human_readable(size, precision=1):
     return "%.*f%s" % (precision, size, suffixes[suffixIndex])
 
 
-def print_overview(trace_list, trace_processes, trace_mode, trace_task_per_node):
+def print_overview(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, trace_task_per_node):
     """Prints an overview of the traces that will be processed."""
-    print('Running modelfactors.py for the following traces:')
-    # print('Running', os.path.basename(__file__), 'for the following traces:')
+    #print('Running', os.path.basename(__file__), 'for the following traces:')
 
     file_path = os.path.join(os.getcwd(), 'traces_metadata.txt')
     with open(file_path, 'w') as output:
         for index, trace in enumerate(trace_list):
             line = '[' + str(index+1) + '] ' + trace
 
-            tasks, threads = get_tasks_threads(trace)
             line += ', ' + str(trace_processes[trace]) \
-                    + '(' + str(tasks) + 'x' + str(threads) + ')' + ' processes'
+                    + '(' + str(trace_tasks[trace]) + 'x' + str(trace_threads[trace]) + ')' + ' processes'
             line += ', ' + str(trace_task_per_node[trace]) + ' tasks per node'
             line += ', ' + human_readable(os.path.getsize(trace))
             line += ', ' + str(trace_mode[trace]) + ' mode'

@@ -6,7 +6,6 @@ from __future__ import print_function, division
 import sys
 
 from rawdata import *
-from tracemetadata import get_tasks_threads
 from collections import OrderedDict
 
 # error import variables
@@ -254,6 +253,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             mod_factors['serial_eff'][trace] = raw_data['outsidempi_dim'][trace] \
                                                / raw_data['runtime_dim'][trace] * 100.0
+            if mod_factors['serial_eff'][trace] > 100.0:
+                mod_factors['serial_eff'][trace] = 'Wrong-Value'
         except:
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
                 mod_factors['serial_eff'][trace] = 'NaN'
@@ -263,6 +264,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             mod_factors['transfer_eff'][trace] = mod_factors['comm_eff'][trace] \
                                                  / mod_factors['serial_eff'][trace] * 100.0
+            if mod_factors['transfer_eff'][trace] > 100.0:
+                mod_factors['transfer_eff'][trace] = 'Wrong-Value'
         except:
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
                 mod_factors['transfer_eff'][trace] = 'NaN'
@@ -591,7 +594,7 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         if max_len_header < len(proc_h):
             max_len_header = len(proc_h)
 
-    value_to_adjust = 10
+    value_to_adjust = 12
     if max_len_header > value_to_adjust:
         value_to_adjust = max_len_header + 1
     # END To adjust header to big number of processes
@@ -816,7 +819,7 @@ def print_efficiency_table(mod_factors, trace_list, trace_processes):
                 for trace in trace_list:
                     line += delimiter
                     try:  # except NaN
-                        if mod_factors[mod_key][trace] == "Non-Avail":
+                        if mod_factors[mod_key][trace] == "Non-Avail" or mod_factors[mod_key][trace] == "Wrong-Value":
                             line += '0.00'
                         else:
                             line += '{0:.2f}'.format(mod_factors[mod_key][trace])
@@ -916,7 +919,7 @@ def print_other_metrics_csv(other_metrics, trace_list, trace_processes):
     print('')
 
 
-def plots_efficiency_table_matplot(trace_list, trace_processes, cmdl_args):
+def plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, cmdl_args):
     # Plotting using python
     # For plotting using python, read the csv file
 
@@ -929,9 +932,11 @@ def plots_efficiency_table_matplot(trace_list, trace_processes, cmdl_args):
     # To control same number of processes for the header on plots and table
     same_procs = True
     procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev, threads_trace_prev = get_tasks_threads(trace_list[0])
+    tasks_trace_prev = trace_tasks[trace_list[0]]
+    threads_trace_prev = trace_threads[trace_list[0]]
     for index, trace in enumerate(trace_list):
-        tasks, threads = get_tasks_threads(trace)
+        tasks = trace_tasks[trace]
+        threads = trace_threads[trace]
         if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
                 and threads_trace_prev == threads:
             same_procs *= True
@@ -949,7 +954,8 @@ def plots_efficiency_table_matplot(trace_list, trace_processes, cmdl_args):
     # To xticks label
     label_xtics = []
     for index, trace in enumerate(trace_list):
-        tasks, threads = get_tasks_threads(trace)
+        tasks = trace_tasks[trace]
+        threads = trace_threads[trace]
         if int(limit) == int(limit_min) and same_procs:
             s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
         elif int(limit) == int(limit_min) and not same_procs:
@@ -1008,7 +1014,7 @@ def plots_efficiency_table_matplot(trace_list, trace_processes, cmdl_args):
     plt.savefig('efficiency_table-matplot.png', bbox_inches='tight')
 
 
-def plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, cmdl_args):
+def plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, trace_tasks, trace_threads, cmdl_args):
     # Plotting using python
     # For plotting using python, read the csv file
     file_path = os.path.join(os.getcwd(), 'modelfactors.csv')
@@ -1032,9 +1038,11 @@ def plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, cmdl_arg
     # To control same number of processes for the header on plots and table
     same_procs = True
     procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev, threads_trace_prev = get_tasks_threads(trace_list[0])
+    tasks_trace_prev = trace_tasks[trace_list[0]]
+    threads_trace_prev = trace_threads[trace_list[0]]
     for index, trace in enumerate(trace_list):
-        tasks, threads = get_tasks_threads(trace)
+        tasks = trace_tasks[trace]
+        threads = trace_tasks[trace]
         if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
                 and threads_trace_prev == threads:
             same_procs *= True
@@ -1052,7 +1060,8 @@ def plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, cmdl_arg
     # To xticks label
     label_xtics = []
     for index, trace in enumerate(trace_list):
-        tasks, threads = get_tasks_threads(trace)
+        tasks = trace_tasks[trace]
+        threads = trace_tasks[trace]
         if int(limit) == int(limit_min) and same_procs:
             s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
         elif int(limit) == int(limit_min) and not same_procs:
@@ -1119,7 +1128,7 @@ def plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, cmdl_arg
         plt.savefig('modelfactors-scale-matplot.png', bbox_inches='tight')
 
 
-def plots_speedup_matplot(trace_list, trace_processes, cmdl_args):
+def plots_speedup_matplot(trace_list, trace_processes, trace_tasks, trace_threads, cmdl_args):
     # Plotting using python
     # For plotting using python, read the csv file
     file_path = os.path.join(os.getcwd(), 'other_metrics.csv')
@@ -1141,9 +1150,11 @@ def plots_speedup_matplot(trace_list, trace_processes, cmdl_args):
     # To control same number of processes for the header on plots and table
     same_procs = True
     procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev, threads_trace_prev = get_tasks_threads(trace_list[0])
+    tasks_trace_prev = trace_tasks[trace_list[0]]
+    threads_trace_prev = trace_threads[trace_list[0]]
     for index, trace in enumerate(trace_list):
-        tasks, threads = get_tasks_threads(trace)
+        tasks = trace_tasks[trace]
+        threads = trace_threads[trace]
         if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
                 and threads_trace_prev == threads:
             same_procs *= True
@@ -1167,7 +1178,8 @@ def plots_speedup_matplot(trace_list, trace_processes, cmdl_args):
     # To xticks label
     label_xtics = []
     for index, trace in enumerate(trace_list):
-        tasks, threads = get_tasks_threads(trace)
+        tasks = trace_tasks[trace]
+        threads = trace_threads[trace]
         if int(limit) == int(limit_min) and same_procs:
             s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
         elif int(limit) == int(limit_min) and not same_procs:
@@ -1179,29 +1191,43 @@ def plots_speedup_matplot(trace_list, trace_processes, cmdl_args):
 
     ### Plot: SpeedUp
     # print(list_data)
+
+    int_traces_procs = []
+    for procs in traces_procs:
+        int_traces_procs.append(int(procs))
+
     plt.figure()
-    plt.plot(traces_procs, list_data[2], 'o-', color='blue', label='measured')
-    plt.plot(traces_procs, proc_ratio, 'o-', color='black', label='ideal')
+    for x, y in zip(int_traces_procs, list_data[2]):
+        label = "{:.2f}".format(y)
+        plt.annotate(label, (x, y), textcoords="offset points", xytext=(0, 10), ha='center')
+    plt.plot(int_traces_procs, list_data[2], 'o-', color='blue', label='measured')
+    plt.plot(int_traces_procs, proc_ratio, 'o-', color='black', label='ideal')
     plt.xlabel("Number of Processes")
     plt.ylabel("SpeedUp")
-    plt.xticks(tuple(traces_procs), tuple(label_xtics))
-    plt.yscale('log')
+    plt.xticks(tuple(int_traces_procs), tuple(label_xtics))
+    #plt.yscale('log')
     plt.legend()
+    plt.xlim(0, )
+    plt.ylim(0, )
     plt.savefig('speedup-matplot.png', bbox_inches='tight')
 
     ### Plot: Efficiency
     # print(list_data)
     plt.figure()
+    for x, y in zip(int_traces_procs, list_data[1]):
+        label = "{:.2f}".format(y)
+        plt.annotate(label, (x, y), textcoords="offset points", xytext=(0, 10), ha='center')
 
-    plt.plot(traces_procs, list_data[1], 'o-', color='blue', label='measured')
+    plt.plot(int_traces_procs, list_data[1], 'o-', color='blue', label='measured')
     plt.axhline(y=1, color='black', linestyle='-', label='ideal')
     plt.xlabel("Number of Processes")
     plt.ylabel("Efficiency")
-    plt.xticks(tuple(traces_procs), tuple(label_xtics))
+    plt.xticks(tuple(int_traces_procs), tuple(label_xtics))
     # plt.yscale('log')
     max_y = max(list_data[1])
     if max_y < 1.1:
         max_y = 1.1
-    plt.ylim(0,max_y)
+    plt.ylim(0,max_y+0.1)
+    plt.xlim(0, )
     plt.legend()
     plt.savefig('efficiency-matplot.png', bbox_inches='tight')

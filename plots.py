@@ -4,7 +4,6 @@
 
 from __future__ import print_function, division
 import os
-from tracemetadata import get_trace_mode, get_tasks_threads
 from collections import OrderedDict
 
 # error import variables
@@ -36,14 +35,14 @@ mod_hybrid_factors_doc = OrderedDict([
                                ('omp_comm_eff', '      -- OMP Communication efficiency')])
 
 
-def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes, cmdl_args):
+def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args):
     """Computes the projection from the gathered model factors and returns the
     according dictionary of fitted prediction functions."""
 
     global mod_hybrid_factors_doc
 
     # Update the hybrid parallelism mode
-    trace_mode_doc = get_trace_mode(trace_list[0])
+    trace_mode_doc = trace_mode[trace_list[0]]
     if trace_mode_doc[0:len("Detailed+MPI+")] == "Detailed+MPI+":
         mod_hybrid_factors_doc['omp_parallel_eff'] = "   -- " + \
                                                      trace_mode_doc[len("Detailed+MPI+"):] + " Parallel efficiency"
@@ -90,8 +89,8 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
         y_mpi_par[index] = hybrid_factors['mpi_parallel_eff'][trace]
         y_mpi_load[index] = hybrid_factors['mpi_load_balance'][trace]
         y_mpi_comm[index] = hybrid_factors['mpi_comm_eff'][trace]
-        if get_trace_mode(trace) == 'Detailed+MPI' \
-                or get_trace_mode(trace) == 'Detailed+MPI+OpenMP':
+        if trace_mode[trace] == 'Detailed+MPI' \
+                or trace_mode[trace] == 'Detailed+MPI+OpenMP':
             if hybrid_factors['serial_eff'][trace] != 'Non-Avail':
                 y_comm_serial[index] = hybrid_factors['serial_eff'][trace]
             else:
@@ -127,9 +126,11 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     # To control same number of processes for the header on plots and table
     same_procs = True
     procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev, threads_trace_prev = get_tasks_threads(trace_list[0])
+    tasks_trace_prev = trace_tasks[trace_list[0]]
+    threads_trace_prev = trace_threads[trace_list[0]]
     for index, trace in enumerate(trace_list):
-        tasks, threads = get_tasks_threads(trace)
+        tasks = trace_tasks[trace]
+        threads = trace_threads[trace]
         if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
                 and threads_trace_prev == threads:
             same_procs *= True
@@ -152,7 +153,8 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     label_xtics = 'set xtics ('
     glabel_xtics = []
     for index, trace in enumerate(trace_list):
-        tasks, threads = get_tasks_threads(trace)
+        tasks = trace_tasks[trace]
+        threads = trace_threads[trace]
         s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
         if int(limit) == int(limit_min) and same_procs:
             proc_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')' \
@@ -465,7 +467,7 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     print('MPI hybrid metrics plot written to ' + file_path)
 
 
-def plot_simple_metrics(mod_factors, trace_list, trace_processes, cmdl_args):
+def plot_simple_metrics(mod_factors, trace_list, trace_processes, trace_mode, cmdl_args):
     """Computes the projection from the gathered model factors and returns the
     according dictionary of fitted prediction functions."""
 
@@ -493,7 +495,7 @@ def plot_simple_metrics(mod_factors, trace_list, trace_processes, cmdl_args):
         y_comm[index] = mod_factors['comm_eff'][trace]
         y_comp[index] = mod_factors['comp_scale'][trace]
         y_glob[index] = mod_factors['global_eff'][trace]
-        if get_trace_mode(trace)[:5] != 'Burst':
+        if trace_mode[trace][:5] != 'Burst':
             y_ipc_scale[index] = mod_factors['ipc_scale'][trace]
             y_inst_scale[index] = mod_factors['inst_scale'][trace]
             y_freq_scale[index] = mod_factors['freq_scale'][trace]
@@ -501,7 +503,7 @@ def plot_simple_metrics(mod_factors, trace_list, trace_processes, cmdl_args):
             y_ipc_scale[index] = 0.0
             y_inst_scale[index] = 0.0
             y_freq_scale[index] = 0.0
-        if get_trace_mode(trace) == 'Detailed+MPI' or get_trace_mode(trace) == 'Detailed+MPI+OpenMP':
+        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
             y_comm_serial[index] = mod_factors['serial_eff'][trace]
             y_comm_transfer[index] = mod_factors['transfer_eff'][trace]
         else:

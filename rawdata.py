@@ -198,7 +198,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                 trace_sim = ''
 
         if error_timing or error_counters or error_ideal:
-            print('Failed to analyze trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
+            print('Failed to analyze trace with paramedir')
         else:
             print('Successfully analyzed trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
 
@@ -226,17 +226,20 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         f.close()
 
         # Get total File IO, average IO, and maximum IO duration
+        dict_trace_posixio = {}
         if os.path.exists(trace_name + '.posixio_call.stats'):
             content = []
             with open(trace_name + '.posixio_call.stats') as f:
                 content = f.readlines()
 
                 for line in content:
+                    
                     for field in line.split("\n"):
                         line_list = field.split("\t")
                         if "Total" in field.split("\t"):
                             count_procs = len(line_list[1:])
                             list_io_tot = [float(iotime) for iotime in line_list[1:count_procs]]
+                            dict_trace_posixio[trace] = list_io_tot
                             # print(list_mpiio_tot)
                             raw_data['io_tot'][trace] = sum(list_io_tot)
                         elif "Average" in field.split("\t"):
@@ -314,19 +317,25 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                                 raw_data['io_state_max'][trace] = float(line_list[io_index])
                             elif "Minimum" not in line_list and "StDev" not in line_list \
                                     and "Avg/Max" not in line_list and len(line_list) > 1:
-                                mpiio_index = len(useful_plus_io)
-                                if len(dict_trace_mpiio) != 0:
-                                    sum_aux = float(line_list[1]) + (float(line_list[io_index])
-                                                                     - dict_trace_mpiio[trace][mpiio_index])
+                                posixio_index = len(useful_plus_io)
+                                # print(dict_trace_posixio[trace][posixio_index])
+                                if len(dict_trace_posixio) != 0:
+                                    sum_aux = float(line_list[1]) + float(dict_trace_posixio[trace][posixio_index])
                                 else:
-                                    sum_aux = float(line_list[1]) + float(line_list[io_index])
+                                    sum_aux = float(line_list[1])
+
+                                #if len(dict_trace_mpiio) != 0:
+                                #    sum_aux = float(line_list[1]) + (float(line_list[io_index])
+                                #                                     - dict_trace_mpiio[trace][mpiio_index])
+                                #else:
+                                #    sum_aux = float(line_list[1]) + float(line_list[io_index])
                                 #print("OutsideMP? ",sum_aux)
                                 useful_plus_io.append(float(sum_aux))
                                 useful_comp.append(float(line_list[1]))
                                 io_time.append(float(line_list[io_index]))
                         count_line += 1
                 if io_index != " ":
-                    useful_io_avg = float(sum(useful_plus_io)/trace_processes[trace])
+                    useful_io_avg = float(sum(useful_plus_io) / len(useful_plus_io))
                     # print(len(useful_plus_io))
                     # mpiio is not included in useful + IO
                     raw_data['useful_plus_io_avg'][trace] = float(useful_io_avg)
@@ -404,6 +413,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                 rescaled_outside_mpi = []
                 # This is need to calculate the MPI_Par_Eff with the right #MPI_tasks and #threads
                 if not equal_threads:
+                    # print("\n===== Different number of threads per mpi task \n")
                     rescaled_outside_mpi.append(list_outside_mpi[0] * (list_thread_outside_mpi[0]))
                     # This is the sum of the outsidempi by the threads
                     sum_outside_mpi_threads = list_thread_outside_mpi[0]
@@ -419,6 +429,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                     # because it waits that the MPI task has the max outsidempi.
                     raw_data['outsidempi_max'][trace] = max(list_outside_mpi)
                 else:
+                    # print("\n===== Equal number of threads per mpi task \n")
                     raw_data['outsidempi_tot_diff'][trace] = sum(list_outside_mpi)
                     list_mpi_procs_count[trace] = len(list_outside_mpi)
                     raw_data['outsidempi_tot'][trace] = sum(list_outside_mpi)
