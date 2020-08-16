@@ -85,7 +85,8 @@ if __name__ == "__main__":
                     trace_mode[trace][:17] == 'Detailed+Pthreads' or \
                     trace_mode[trace][:13] == 'Detailed+CUDA' or \
                     trace_mode[trace][:14] == 'Detailed+OmpSs' or \
-                    trace_mode[trace][:15] == 'Detailed+OpenCL' or  \
+                    trace_mode[trace][:15] == 'Detailed+OpenCL' or \
+                    trace_mode[trace] == 'Detailed' or \
                     trace_mode[trace][:5] == 'Burst':
                 trace_metrics += 1
 

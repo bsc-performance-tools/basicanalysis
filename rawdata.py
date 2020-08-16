@@ -66,7 +66,7 @@ def create_raw_data(trace_list):
     for key in raw_data_doc:
         trace_dict = {}
         for trace_name in trace_list:
-            trace_dict[trace_name] = 0
+            trace_dict[trace_name] = 0.0
 
         raw_data[key] = trace_dict
 
@@ -240,12 +240,16 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                             count_procs = len(line_list[1:])
                             list_io_tot = [float(iotime) for iotime in line_list[1:count_procs]]
                             dict_trace_posixio[trace] = list_io_tot
-                            # print(list_mpiio_tot)
                             raw_data['io_tot'][trace] = sum(list_io_tot)
                         elif "Average" in field.split("\t"):
-                            raw_data['io_avg'][trace] = sum(list_io_tot)/count_procs
-                            raw_data['io_std'][trace] = math.sqrt(sum([(number - raw_data['io_avg'][trace]) ** 2 \
-                                                                       for number in list_io_tot]) / (len(list_io_tot) - 1))
+                            if count_procs != 0:
+                                raw_data['io_avg'][trace] = float(sum(list_io_tot)/count_procs)
+                                raw_data['io_std'][trace] = math.sqrt(sum([(number - raw_data['io_avg'][trace]) ** 2
+                                                                           for number in list_io_tot])
+                                                                      / (len(list_io_tot) - 1))
+                            else:
+                                raw_data['io_avg'][trace] = 0.0
+                                raw_data['io_std'][trace] = 0.0
                         elif "Maximum" in field.split("\t"):
                             raw_data['io_max'][trace] = max(list_io_tot)
         else:
@@ -267,15 +271,19 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                         line_list = field.split("\t")
                         if "Total" in field.split("\t"):
                             count_procs = len(line_list[1:])
-                            list_mpiio_tot = [ float(iotime) for iotime in line_list[1:count_procs]]
+                            list_mpiio_tot = [float(iotime) for iotime in line_list[1:count_procs]]
                             dict_trace_mpiio[trace] = list_mpiio_tot
                             # print(list_mpiio_tot)
                             raw_data['mpiio_tot'][trace] = sum(list_mpiio_tot)
                         elif "Average" in field.split("\t"):
-                            raw_data['mpiio_avg'][trace] = sum(list_mpiio_tot)/count_procs
-                            raw_data['mpiio_std'][trace] = math.sqrt(sum([(number - raw_data['mpiio_avg'][trace]) ** 2
+                            if count_procs != 0:
+                                raw_data['mpiio_avg'][trace] = sum(list_mpiio_tot)/count_procs
+                                raw_data['mpiio_std'][trace] = math.sqrt(sum([(number - raw_data['mpiio_avg'][trace]) ** 2
                                                                           for number in list_mpiio_tot])
-                                                                     / (len(list_mpiio_tot) - 1))
+                                                                     /(len(list_mpiio_tot) - 1))
+                            else:
+                                raw_data['mpiio_avg'][trace] = 0.0
+                                raw_data['mpiio_std'][trace] = 0.0
                         elif "Maximum" in field.split("\t"):
                             raw_data['mpiio_max'][trace] = max(list_mpiio_tot)
         else:
@@ -324,24 +332,20 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                                 else:
                                     sum_aux = float(line_list[1])
 
-                                #if len(dict_trace_mpiio) != 0:
-                                #    sum_aux = float(line_list[1]) + (float(line_list[io_index])
-                                #                                     - dict_trace_mpiio[trace][mpiio_index])
-                                #else:
-                                #    sum_aux = float(line_list[1]) + float(line_list[io_index])
-                                #print("OutsideMP? ",sum_aux)
                                 useful_plus_io.append(float(sum_aux))
                                 useful_comp.append(float(line_list[1]))
                                 io_time.append(float(line_list[io_index]))
                         count_line += 1
                 if io_index != " ":
-                    useful_io_avg = float(sum(useful_plus_io) / len(useful_plus_io))
+                    if len(useful_plus_io) != 0:
+                        useful_io_avg = float(sum(useful_plus_io) / len(useful_plus_io))
+                    else:
+                        useful_io_avg = 0.0
                     # print(len(useful_plus_io))
                     # mpiio is not included in useful + IO
                     raw_data['useful_plus_io_avg'][trace] = float(useful_io_avg)
                     raw_data['useful_plus_io_max'][trace] = float(max(useful_plus_io))
                 else:
-                    useful_io_avg = 0.0
                     raw_data['useful_plus_io_avg'][trace] = 0.0
                     raw_data['useful_plus_io_max'][trace] = 0.0
                     raw_data['io_state_tot'][trace] = 0.0
@@ -424,7 +428,10 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                     raw_data['outsidempi_tot_diff'][trace] = sum(rescaled_outside_mpi)
                     raw_data['outsidempi_tot'][trace] = sum(list_outside_mpi)
                     # Only the average is updated with the rescaled outsidempi
-                    raw_data['outsidempi_avg'][trace] = sum(rescaled_outside_mpi) / sum(list_thread_outside_mpi)
+                    if sum(list_thread_outside_mpi) != 0:
+                        raw_data['outsidempi_avg'][trace] = sum(rescaled_outside_mpi) / sum(list_thread_outside_mpi)
+                    else:
+                        raw_data['outsidempi_avg'][trace] = 'NaN'
                     # Maximum outsidempi is the same, although the count of threads is different
                     # because it waits that the MPI task has the max outsidempi.
                     raw_data['outsidempi_max'][trace] = max(list_outside_mpi)
@@ -433,7 +440,10 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                     raw_data['outsidempi_tot_diff'][trace] = sum(list_outside_mpi)
                     list_mpi_procs_count[trace] = len(list_outside_mpi)
                     raw_data['outsidempi_tot'][trace] = sum(list_outside_mpi)
-                    raw_data['outsidempi_avg'][trace] = sum(list_outside_mpi) / len(list_outside_mpi)
+                    if len(list_outside_mpi) != 0:
+                        raw_data['outsidempi_avg'][trace] = sum(list_outside_mpi) / len(list_outside_mpi)
+                    else:
+                        raw_data['outsidempi_avg'][trace] = 'NaN'
                     raw_data['outsidempi_max'][trace] = max(list_outside_mpi)
                 for line2 in content[(len(content) - 7):]:
                     line_aux = line2.split("\t")

@@ -65,6 +65,8 @@ def parse_arguments():
                         help="run only the projection for the given modelfactors.csv (default: false)")
     parser.add_argument('--limit', help='limit number of cores for the plots '
                                         '(default: max processes of the trace list )')
+    parser.add_argument('-ms',"--max_trace_size", help='maximum trace size in MiB'
+                                                       ' (default: 1024 MiB )', default=1024.0)
 
     if len(sys.argv) == 1:
         parser.print_help()

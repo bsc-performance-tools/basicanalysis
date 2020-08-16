@@ -91,11 +91,12 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
         y_mpi_comm[index] = hybrid_factors['mpi_comm_eff'][trace]
         if trace_mode[trace] == 'Detailed+MPI' \
                 or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-            if hybrid_factors['serial_eff'][trace] != 'Non-Avail':
+            if hybrid_factors['serial_eff'][trace] != 'Non-Avail' and hybrid_factors['serial_eff'][trace] != 'Warning!':
                 y_comm_serial[index] = hybrid_factors['serial_eff'][trace]
             else:
                 y_comm_serial[index] = 0.0
-            if hybrid_factors['transfer_eff'][trace] != 'Non-Avail':
+            if hybrid_factors['transfer_eff'][trace] != 'Non-Avail' \
+                    and hybrid_factors['transfer_eff'][trace] != 'Warning!':
                 y_comm_transfer[index] = hybrid_factors['transfer_eff'][trace]
             else:
                 y_comm_transfer[index] = 0.0
@@ -503,9 +504,15 @@ def plot_simple_metrics(mod_factors, trace_list, trace_processes, trace_mode, cm
             y_ipc_scale[index] = 0.0
             y_inst_scale[index] = 0.0
             y_freq_scale[index] = 0.0
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-            y_comm_serial[index] = mod_factors['serial_eff'][trace]
-            y_comm_transfer[index] = mod_factors['transfer_eff'][trace]
+        if trace_mode[trace] == 'Detailed+MPI':
+            if mod_factors['serial_eff'][trace] != 'Warning!':
+                y_comm_serial[index] = mod_factors['serial_eff'][trace]
+            else:
+                y_comm_serial[index] = 0.0
+            if mod_factors['transfer_eff'][trace] != 'Warning!':
+                y_comm_transfer[index] = mod_factors['transfer_eff'][trace]
+            else:
+                y_comm_transfer[index] = 0.0
         else:
             y_comm_serial[index] = 0.0
             y_comm_transfer[index] = 0.0

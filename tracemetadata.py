@@ -18,10 +18,12 @@ def get_traces_from_args(cmdl_args):
     this script, i.e. *.sim.prv
     Returns list of trace paths and dictionary with the number of processes.
     """
+
+    def get_processes(prv_file):
+        return trace_processes[prv_file], trace_tasks[prv_file], trace_threads[prv_file]
+
     trace_list = [x for x in cmdl_args.trace_list if (fnmatch.fnmatch(x, '*.prv') or fnmatch.fnmatch(x, '*.prv.gz'))
                   if not fnmatch.fnmatch(x, '*.sim.prv')]
-    trace_list = sorted(trace_list, key=get_num_processes)
-
     if not trace_list:
         print('==Error== could not find any traces matching "', ' '.join(cmdl_args.trace_list))
         sys.exit(1)
@@ -32,13 +34,34 @@ def get_traces_from_args(cmdl_args):
     trace_mode = dict()
     trace_task_per_node = dict()
 
-    print('Running modelfactors.py for the following traces list:')
+    trace_list_temp = []
+    trace_list_removed = []
+    for trace in trace_list:
+        if float(os.path.getsize(trace)/1024/1024) < float(cmdl_args.max_trace_size):
+            trace_processes[trace], trace_tasks[trace], trace_threads[trace] = get_num_processes(trace)
+            trace_list_temp.append(trace)
+        else:
+            trace_list_removed.append(trace)
+
+    if len(trace_list_temp) < 1:
+        print('==Error== All traces exceed the maximum size (', cmdl_args.max_trace_size, 'MiB)')
+        for trace_upper in trace_list_removed:
+            print(trace_upper)
+        sys.exit(1)
+
+    print("Running modelfactors.py for the following traces list:")
+    trace_list = trace_list_temp
+    trace_list = sorted(trace_list, key=get_processes)
     for trace in trace_list:
         print(trace)
+
+    if len(trace_list_removed) > 0:
+        print("\nFollowing traces were excluded to be analyzed (size >", cmdl_args.max_trace_size, "MiB): ")
+        for trace in trace_list_removed:
+            print(trace)
         
     print('\nExtracting metadata for the traces list:')
     for trace in trace_list:
-        trace_processes[trace], trace_tasks[trace], trace_threads[trace] = get_num_processes(trace)
         trace_mode[trace] = get_trace_mode(trace)
         trace_task_per_node[trace] = get_task_per_node(trace)
 
@@ -51,7 +74,6 @@ def get_num_processes(prv_file):
     Please note: return value needs to be integer because this function is also
     used as sorting key.
     """
-    cpus = 0
     if prv_file[-4:] == ".prv":
         tracefile = open(prv_file)
         for line in tracefile:
@@ -66,18 +88,17 @@ def get_num_processes(prv_file):
                     header_trace = line.split('_')
                     break
         f.close()
-
+    #print(header_trace)
     header_to_print = header_trace[1].split(':')[3].split('(')
     tasks = header_to_print[0]
     threads = header_to_print[1]
     list_procspernode = header_trace[1].split('(')[2].split(')')[0].split(',')
+    #print(list_procspernode)
     total_procs = 0
     for proc_node in list_procspernode:
-        total_procs += int(proc_node[0])
+        total_procs += int(proc_node.split(':')[0])
 
-    cpus = total_procs
-
-    return int(cpus), int(tasks), int(threads)
+    return int(total_procs), int(tasks), int(threads)
 
 
 def get_tasks_threads(prv_file):
@@ -201,7 +222,8 @@ def get_trace_mode(prv_file):
                 if s.find(b'   610000') != -1:
                     mode_trace += '+Pthreads'
                 elif s.find(b'   60000') != -1:
-                    mode_trace += '+OpenMP'
+                    if not s.find(b'   60000019') == s.find(b'   60000'):
+                        mode_trace += '+OpenMP'
                 if s.find(b'   630000') != -1 or s.find(b'   631000') != -1 or s.find(b'   632000') != -1:
                     mode_trace += '+CUDA'
                 if s.find(b'   9200001') != -1:

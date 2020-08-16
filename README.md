@@ -41,5 +41,3 @@ modelfactors.py <list-of-traces>
 
 The \<list-of-traces\> accepts any list of files including wild cards and
 automatically filters for valid Paraver traces.
-
-
