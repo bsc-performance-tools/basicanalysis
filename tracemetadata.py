@@ -38,7 +38,6 @@ def get_traces_from_args(cmdl_args):
     trace_list_removed = []
     for trace in trace_list:
         if float(os.path.getsize(trace)/1024/1024) < float(cmdl_args.max_trace_size):
-            trace_processes[trace], trace_tasks[trace], trace_threads[trace] = get_num_processes(trace)
             trace_list_temp.append(trace)
         else:
             trace_list_removed.append(trace)
@@ -51,7 +50,6 @@ def get_traces_from_args(cmdl_args):
 
     print("Running modelfactors.py for the following traces list:")
     trace_list = trace_list_temp
-    trace_list = sorted(trace_list, key=get_processes)
     for trace in trace_list:
         print(trace)
 
@@ -59,10 +57,15 @@ def get_traces_from_args(cmdl_args):
         print("\nFollowing traces were excluded to be analyzed (size >", cmdl_args.max_trace_size, "MiB): ")
         for trace in trace_list_removed:
             print(trace)
-        
+
     print('\nExtracting metadata for the traces list:')
     for trace in trace_list:
-        trace_mode[trace] = get_trace_mode(trace)
+        trace_processes[trace], trace_tasks[trace], trace_threads[trace] = get_num_processes(trace)
+
+    trace_list = sorted(trace_list, key=get_processes)
+    
+    for trace in trace_list:
+        trace_mode[trace] = get_trace_mode(trace,cmdl_args)
         trace_task_per_node[trace] = get_task_per_node(trace)
 
     print_overview(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, trace_task_per_node)
@@ -172,7 +175,7 @@ def get_task_per_node(prv_file):
     return int(task_nodes)
 
 
-def get_trace_mode(prv_file):
+def get_trace_mode(prv_file, cmdl_args):
     """Gets the trace mode by detecting the event 40000018:2 in .prv file
     to detect the Burst mode trace in another case is Detailed mode.
     50000001 for MPI, 60000001 for OpenMP, 61000000 for pthreads, 63000001 for CUDA
@@ -202,7 +205,7 @@ def get_trace_mode(prv_file):
     else:
         mode_trace = 'Detailed'
 
-    if os.path.exists(file_pcf):
+    if os.path.exists(file_pcf) and cmdl_args.trace_mode_detection == 'pcf':
         with open(file_pcf, 'rb', 0) as file, \
                 mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as s:
             if s.find(b'   500000') != -1:

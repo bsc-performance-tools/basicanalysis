@@ -54,19 +54,21 @@ def parse_arguments():
     parser.add_argument('trace_list', nargs='*',
                         help='list of traces to process. Accepts wild cards and automatically filters for '
                              'valid traces'),
-    parser.add_argument('--metrics', choices=['simple', 'hybrid'], default='hybrid',
-                        help='select the kind of efficiency metrics (single parallelism or hybrid, default: simple)')
+    parser.add_argument("-m", "--metrics", choices=['simple', 'hybrid'], default='hybrid',
+                        help='select the kind of efficiency metrics (single parallelism or hybrid, default: hybrid)')
     parser.add_argument("-v", "--version", action='version', version='%(prog)s {version}'.format(version=__version__))
     parser.add_argument("-d", "--debug", help="increase output verbosity to debug level", action="store_true")
     parser.add_argument("-s", "--scaling",
                         help="define whether the measurements are weak or strong scaling (default: auto)",
                         choices=['weak', 'strong', 'auto'], default='auto')
-    parser.add_argument("-p", "--project", metavar='<path-to-modelfactors.csv>',
-                        help="run only the projection for the given modelfactors.csv (default: false)")
     parser.add_argument('--limit', help='limit number of cores for the plots '
                                         '(default: max processes of the trace list )')
-    parser.add_argument('-ms',"--max_trace_size", help='maximum trace size in MiB'
-                                                       ' (default: 1024 MiB )', default=1024.0)
+    parser.add_argument("-ms", "--max_trace_size", help='set the maximum trace size in MiB allowed.'
+                                                        ' (default: 1024 MiB )', default=1024.0)
+    parser.add_argument("-tmd", "--trace_mode_detection", choices=['pcf', 'prv'], default='pcf',
+                        help='select .prv or .pcf file for trace mode detection. '
+                             'For customized traces, i.e. cut, filtered and so on, you must select'
+                             ' the .prv file. (default: pcf)')
 
     if len(sys.argv) == 1:
         parser.print_help()

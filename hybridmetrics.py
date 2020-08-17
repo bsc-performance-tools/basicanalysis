@@ -340,7 +340,6 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                / float(raw_data['runtime_dim'][trace]) * 100.0
             if hybrid_factors['serial_eff'][trace] > 100.0:
                 hybrid_factors['serial_eff'][trace] = 'Warning!'
-
         except:
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
                 hybrid_factors['serial_eff'][trace] = 'NaN'
@@ -356,7 +355,6 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                         / float(raw_data['runtime'][trace]) * 100.0
             if hybrid_factors['transfer_eff'][trace] > 100.0:
                 hybrid_factors['transfer_eff'][trace] = 'Warning!'
-
         except:
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
                 hybrid_factors['transfer_eff'][trace] = 'NaN'
@@ -692,7 +690,12 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         for trace in trace_list:
             line += ' | '
             try:  # except NaN
-                line += ('{0:.2f}%'.format(hybrid_factors[mod_key][trace])).rjust(value_to_adjust)
+                if str(hybrid_factors[mod_key][trace]) != 'nan':
+                    line += ('{0:.2f}%'.format(hybrid_factors[mod_key][trace])).rjust(value_to_adjust)
+                elif str(hybrid_factors[mod_key][trace]) == 'nan':
+                    line += ('{}'.format('NaN')).rjust(value_to_adjust)
+                else:
+                    line += ('{}'.format(hybrid_factors[mod_key][trace])).rjust(value_to_adjust)
             except ValueError:
                 line += ('{}'.format(hybrid_factors[mod_key][trace])).rjust(value_to_adjust)
         print(line)
