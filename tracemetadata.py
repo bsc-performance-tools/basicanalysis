@@ -4,11 +4,16 @@
 
 from __future__ import print_function, division
 import os
+import time
 import sys
 import math
+import re
 import fnmatch
 import mmap
 import gzip
+import multiprocessing
+import threading
+from multiprocessing import Process
 
 
 def get_traces_from_args(cmdl_args):
@@ -58,16 +63,33 @@ def get_traces_from_args(cmdl_args):
         for trace in trace_list_removed:
             print(trace)
 
-    print('\nExtracting metadata for the traces list:')
+    print('\nExtracting metadata from the traces list.')
+    # This part could be parallelized
+    # t1 = time.perf_counter()
     for trace in trace_list:
         trace_processes[trace], trace_tasks[trace], trace_threads[trace] = get_num_processes(trace)
-
     trace_list = sorted(trace_list, key=get_processes)
-    
+
+    t1 = time.perf_counter()
+    jobs = []
+    manager = multiprocessing.Manager()
+    trace_mode = manager.dict()
     for trace in trace_list:
-        trace_mode[trace] = get_trace_mode(trace,cmdl_args)
+        p_act = Process(target=get_trace_mode, args=(trace, cmdl_args, trace_mode))
+        jobs.append(p_act)
+        p_act.start()
+
+    for p in jobs:
+        p.join()
+
+    t2 = time.perf_counter()
+
+    print('Successfully Metadata Extraction in {0:.1f} seconds.\n'.format(t2 - t1))
+
+    for trace in trace_list:
         trace_task_per_node[trace] = get_task_per_node(trace)
 
+    print("Starting Analysis for the following sorted traces list:")
     print_overview(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, trace_task_per_node)
     return trace_list, trace_processes, trace_tasks, trace_threads, trace_task_per_node, trace_mode
 
@@ -91,6 +113,8 @@ def get_num_processes(prv_file):
                     header_trace = line.split('_')
                     break
         f.close()
+
+    
     #print(header_trace)
     header_to_print = header_trace[1].split(':')[3].split('(')
     tasks = header_to_print[0]
@@ -175,7 +199,7 @@ def get_task_per_node(prv_file):
     return int(task_nodes)
 
 
-def get_trace_mode(prv_file, cmdl_args):
+def get_trace_mode(prv_file, cmdl_args, trace_mode):
     """Gets the trace mode by detecting the event 40000018:2 in .prv file
     to detect the Burst mode trace in another case is Detailed mode.
     50000001 for MPI, 60000001 for OpenMP, 61000000 for pthreads, 63000001 for CUDA
@@ -242,55 +266,67 @@ def get_trace_mode(prv_file, cmdl_args):
         count_ompss = 0
         count_opencl = 0
         if prv_file[-4:] == ".prv":
-            tracefile = open(prv_file)
-            for line in tracefile:
-                line_event = line.split(':')
-                if line_event[0] == '2':
-                    if "500000" in line_event[6]:
-                        count_mpi = 1
-                        mpi_trace = '+MPI'
-                    elif "60000" in line_event[6] and "60000020" not in line_event[6] \
-                            and "60000120" not in line_event[6] and "60000019" not in line_event[6]:
-                        count_omp = 1
-                        omp_trace = '+OpenMP'
-                    elif "610000" in line_event[6]:
-                        count_pthreads = 1
-                        pthreads_trace = '+Pthreads'
-                    elif "630000" in line_event[6] or "631000" in line_event[6] or "632000" in line_event[6]:
-                        count_cuda = 1
-                        cuda_trace = '+CUDA'
-                    elif "9200001" in line_event[6]:
-                        count_ompss = 1
-                        ompss_trace = '+OmpSs'
-                    elif "642000" in line_event[6] or "6400001" in line_event[6] or "641000" in line_event[6]:
-                        count_opencl = 1
-                        opencl_trace = '+OpenCL'
-            tracefile.close()
+            with open(prv_file, 'rb', 0) as file, \
+                    mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_COPY) as s:
+                # 2:cpu_id:appl_id:task_id:thread_id:time:event_type:event_value
+                mpi = re.compile(rb'\n2:\w+:\w+:[1-4]:1:\w+:50000\w\w\w:')
+                omp = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:60000018:')
+                cuda = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:63\w\w\w\w\w\w:')
+                pthreads = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:610000\w\w:')
+                ompss = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:9200001:')
+                opencl = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:64\w\w\w\w\w\w:')
+                if mpi.search(s):
+                    count_mpi = 1
+                    mpi_trace = '+MPI'
+                if omp.search(s):
+                    count_omp = 1
+                    omp_trace = '+OpenMP'
+                elif cuda.search(s):
+                    count_cuda = 1
+                    cuda_trace = '+CUDA'
+                elif pthreads.search(s):
+                    count_pthreads = 1
+                    pthreads_trace = '+Pthreads'
+                elif ompss.search(s):
+                    count_ompss = 1
+                    ompss_trace = '+OmpSs'
+                elif opencl.search(s):
+                    count_opencl = 1
+                    opencl_trace = '+OpenCL'
+            file.close()
         elif prv_file[-7:] == ".prv.gz":
-            with gzip.open(prv_file, 'rt') as f:
-                for line in f:
-                    line_event = line.split(':')
-                    if line_event[0] == '2':
-                        if "500000" in line_event[6]:
-                            count_mpi = 1
-                            mpi_trace = '+MPI'
-                        elif "60000" in line_event[6] and "60000020" not in line_event[6] \
-                                and "60000120" not in line_event[6]:
-                            count_omp = 1
-                            omp_trace = '+OpenMP'
-                        elif "610000" in line_event[6]:
-                            count_pthreads = 1
-                            pthreads_trace = '+Pthreads'
-                        elif "630000" in line_event[6] or "631000" in line_event[6] or "632000" in line_event[6]:
-                            count_cuda = 1
-                            cuda_trace = '+CUDA'
-                        elif "9200001" in line_event[6]:
-                            count_ompss = 1
-                            ompss_trace = '+OmpSs'
-                        elif "642000" in line_event[6] or "6400001" in line_event[6] or "641000" in line_event[6]:
-                            count_opencl = 1
-                            opencl_trace = '+OpenCL'
-            f.close()
+            handle = open(prv_file, "rb")
+            mapped = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
+            gzfile = gzip.GzipFile(mode="r", fileobj=mapped)
+
+            # 2:cpu_id:appl_id:task_id:thread_id:time:event_type:event_value
+            mpi = re.compile(rb'\n2:\w+:\w+:[1-4]:1:\w+:50000\w\w\w:')
+            omp = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:60000018:')
+            cuda = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:63\w\w\w\w\w\w:')
+            pthreads = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:610000\w\w:')
+            ompss = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:9200001:')
+            opencl = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:64\w\w\w\w\w\w:')
+            s = gzfile.read()
+            if mpi.search(s):
+                count_mpi = 1
+                mpi_trace = '+MPI'
+            if omp.search(s):
+                count_omp = 1
+                omp_trace = '+OpenMP'
+            elif cuda.search(s):
+                count_cuda = 1
+                cuda_trace = '+CUDA'
+            elif pthreads.search(s):
+                count_pthreads = 1
+                pthreads_trace = '+Pthreads'
+            elif ompss.search(s):
+                count_ompss = 1
+                ompss_trace = '+OmpSs'
+            elif opencl.search(s):
+                count_opencl = 1
+                opencl_trace = '+OpenCL'
+
+            handle.close()
         if count_mpi > 0:
             mode_trace += mpi_trace
         if count_omp > 0:
@@ -304,7 +340,8 @@ def get_trace_mode(prv_file, cmdl_args):
         if count_opencl > 0:
             mode_trace += opencl_trace
 
-    return mode_trace
+    trace_mode[prv_file] = mode_trace
+    #return mode_trace
 
 
 def human_readable(size, precision=1):

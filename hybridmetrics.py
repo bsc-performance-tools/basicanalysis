@@ -246,7 +246,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         # Basic efficiency factors
         try:  # except NaN
-            if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 0.0:
+            if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
+                print("Hello, I pass for this conditional", trace)
                 mod_factors['load_balance'][trace] = float(raw_data['useful_plus_io_avg'][trace]) \
                                                      / float(raw_data['useful_plus_io_max'][trace]) * 100.0
             else:
@@ -256,7 +257,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             mod_factors['load_balance'][trace] = 'NaN'
 
         try:  # except NaN
-            if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 0.0:
+            if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
                 mod_factors['comm_eff'][trace] = float(raw_data['useful_plus_io_max'][trace] \
                                                  / raw_data['runtime'][trace] * 100.0)
             else:
@@ -266,7 +267,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             mod_factors['comm_eff'][trace] = 'NaN'
 
         try:  # except NaN
-            if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 0.0:
+            if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
                 mod_factors['parallel_eff'][trace] = float(raw_data['useful_plus_io_avg'][trace]) \
                                                      / float(raw_data['runtime'][trace]) * 100.0
             else:

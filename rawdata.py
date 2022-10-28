@@ -771,7 +771,7 @@ def create_ideal_trace(trace, processes, task_per_node, cmdl_args):
     with open(os.path.join(cfg_dir, 'dimemas_ideal.cfg')) as f:
         content = f.readlines()
 
-    content = [line.replace('REPLACE_BY_NTASKS_PER_NODE', str(task_per_node)) for line in content]
+    content = [line.replace('REPLACE_BY_CPUS_PER_NODE', str(task_per_node)) for line in content]
     content = [line.replace('REPLACE_BY_NTASKS', str(processes)) for line in content]
     content = [line.replace('REPLACE_BY_COLLECTIVES_PATH', os.path.join(cfg_dir, 'dimemas.collectives')) for line in
                content]
@@ -782,7 +782,6 @@ def create_ideal_trace(trace, processes, task_per_node, cmdl_args):
     cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes)
            + 'P' + '.dimemas_ideal.cfg']
     run_command(cmd, cmdl_args)
-
 
     if os.path.isfile(trace_sim):
         if cmdl_args.debug:
