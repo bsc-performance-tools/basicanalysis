@@ -268,7 +268,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             mod_factors['comm_eff'][trace] = 'NaN'
 
         try:  # except NaN
-            mod_factors['serial_eff'][trace] = float(raw_data['outsidempi_dim'][trace]) \
+            mod_factors['serial_eff'][trace] = float(raw_data['useful_dim'][trace]) \
                                                / float(raw_data['runtime_dim'][trace]) * 100.0
             if mod_factors['serial_eff'][trace] > 100.0:
                 mod_factors['serial_eff'][trace] = 'Warning!'
@@ -373,7 +373,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             other_metrics['ipc'][trace] = 'NaN'
         try:  # except NaN
             if len(trace_list) > 1:
-                if trace_mode[trace][:5] != 'Burst':
+                if trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':
                     mod_factors['ipc_scale'][trace] = other_metrics['ipc'][trace] \
                                               / other_metrics['ipc'][trace_list[0]] * 100.0
                 else:
@@ -412,7 +412,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         try:  # except NaN
             if len(trace_list) > 1:
-                if trace_mode[trace][:5] != 'Burst':
+                if trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':
                     mod_factors['freq_scale'][trace] = other_metrics['freq'][trace] \
                                                / other_metrics['freq'][trace_list[0]] * 100.0
                 else:
@@ -448,7 +448,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         try:  # except NaN
             if len(trace_list) > 1:
-                if trace_mode[trace][:5] != 'Burst':
+                if trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':
                     if scaling == 'strong':
                         mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
                                                    / float(raw_data['useful_ins'][trace]) * 100.0
@@ -488,14 +488,14 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         try:  # except NaN
             if len(trace_list) > 1:
-                other_metrics['speedup'][trace] = raw_data['runtime'][trace_list[0]] \
-                                                  / raw_data['runtime'][trace]
-                #if scaling == 'strong':
-                #    other_metrics['speedup'][trace] = raw_data['runtime'][trace_list[0]] \
-                #                                / raw_data['runtime'][trace]
-                #else:
-                #    other_metrics['speedup'][trace] = raw_data['runtime'][trace_list[0]] \
-                #                                      / raw_data['runtime'][trace] * proc_ratio
+                #other_metrics['speedup'][trace] = raw_data['runtime'][trace_list[0]] \
+                #                                  / raw_data['runtime'][trace]
+                if scaling == 'strong':
+                    other_metrics['speedup'][trace] = raw_data['runtime'][trace_list[0]] \
+                                                / raw_data['runtime'][trace]
+                else:
+                    other_metrics['speedup'][trace] = raw_data['runtime'][trace_list[0]] \
+                                                      / raw_data['runtime'][trace] * proc_ratio
             else:
                 other_metrics['speedup'][trace] = 'Non-Avail'
         except:
@@ -641,6 +641,8 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         if trace_mode[trace][0:len("Detailed")] == "Detailed":
             mode_string = trace_mode[trace][len("Detailed+"):]
         elif trace_mode[trace][0:len("Burst")] == "Burst":
+            mode_string = trace_mode[trace]
+        elif trace_mode[trace] == "Sampling":
             mode_string = trace_mode[trace]
         line_trace_mode += mode_string.rjust(value_to_adjust)
         label_trace_mode.append(mode_string)

@@ -89,19 +89,19 @@ def get_traces_from_args(cmdl_args):
 
     print('Successfully Metadata Extraction in {0:.1f} seconds.\n'.format(t2 - t1))
 
-    trace_list_wo_sampling = []
-    for trace in trace_list:
-        if trace_mode[trace] != 'Sampling':
-            trace_list_wo_sampling.append(trace)
-        else:
-            print("WARNING!!! Modelfactors does not compute metrics for Sampling tracing mode")
-            print("Trace ", trace, " excluded from the analysis")
+    #trace_list_wo_sampling = []
+    #for trace in trace_list:
+    #    if trace_mode[trace] != 'Sampling':
+    #        trace_list_wo_sampling.append(trace)
+    #    else:
+    #        print("WARNING!!! Modelfactors does not compute metrics for Sampling tracing mode")
+    #       print("Trace ", trace, " excluded from the analysis")
 
-    trace_list = trace_list_wo_sampling
-    if len(trace_list) == 0:
-        print("All traces were excluded from the analysis")
-        print("Finishing execution without metrics calculation")
-        sys.exit(1)
+    #trace_list = trace_list_wo_sampling
+    #if len(trace_list) == 0:
+    #    print("All traces were excluded from the analysis")
+    #    print("Finishing execution without metrics calculation")
+    #    sys.exit(1)
 
     for trace in trace_list:
         trace_task_per_node[trace] = get_task_per_node(trace)

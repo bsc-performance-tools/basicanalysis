@@ -480,7 +480,7 @@ def plot_simple_metrics(mod_factors, trace_list, trace_processes, trace_mode, cm
         y_comm[index] = mod_factors['comm_eff'][trace]
         y_comp[index] = mod_factors['comp_scale'][trace]
         y_glob[index] = mod_factors['global_eff'][trace]
-        if trace_mode[trace][:5] != 'Burst':
+        if trace_mode[trace][:5] != 'Burst' and trace_mode[trace]!= 'Sampling':
             y_ipc_scale[index] = mod_factors['ipc_scale'][trace]
             y_inst_scale[index] = mod_factors['inst_scale'][trace]
             y_freq_scale[index] = mod_factors['freq_scale'][trace]
