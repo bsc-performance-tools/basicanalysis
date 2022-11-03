@@ -66,9 +66,12 @@ def get_traces_from_args(cmdl_args):
     print('\nExtracting metadata from the traces list.')
     # This part could be parallelized
     # t1 = time.perf_counter()
+
     for trace in trace_list:
-        trace_processes[trace], trace_tasks[trace], trace_threads[trace] = get_num_processes(trace)
-    trace_list = sorted(trace_list, key=get_processes)
+        trace_processes[trace], trace_tasks[trace], trace_threads[trace] = get_num_processes(trace,cmdl_args)
+
+    if cmdl_args.order_traces == 'yes':
+        trace_list = sorted(trace_list, key=get_processes)
 
     t1 = time.perf_counter()
     jobs = []
@@ -86,27 +89,43 @@ def get_traces_from_args(cmdl_args):
 
     print('Successfully Metadata Extraction in {0:.1f} seconds.\n'.format(t2 - t1))
 
+    trace_list_wo_sampling = []
+    for trace in trace_list:
+        if trace_mode[trace] != 'Sampling':
+            trace_list_wo_sampling.append(trace)
+        else:
+            print("WARNING!!! Modelfactors does not compute metrics for Sampling tracing mode")
+            print("Trace ", trace, " excluded from the analysis")
+
+    trace_list = trace_list_wo_sampling
+    if len(trace_list) == 0:
+        print("All traces were excluded from the analysis")
+        print("Finishing execution without metrics calculation")
+        sys.exit(1)
+
     for trace in trace_list:
         trace_task_per_node[trace] = get_task_per_node(trace)
-
+           
     print("Starting Analysis for the following sorted traces list:")
     print_overview(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, trace_task_per_node)
     return trace_list, trace_processes, trace_tasks, trace_threads, trace_task_per_node, trace_mode
 
 
-def get_num_processes(prv_file):
+def get_num_processes(prv_file, cmdl_args):
     """Gets the number of processes in a trace from the according .row file.
     Please note: return value needs to be integer because this function is also
     used as sorting key.
     """
+    file_trace_name = "not found"
     if prv_file[-4:] == ".prv":
         tracefile = open(prv_file)
+        file_trace_name = prv_file[:-4]+".prv"
         for line in tracefile:
             header_trace = line.split('_')
             break
         tracefile.close()
-
-    if prv_file[-7:] == ".prv.gz":
+    elif prv_file[-7:] == ".prv.gz":
+        file_trace_name = prv_file[:-4] + ".prv.gz"
         with gzip.open(prv_file, 'rt') as f:
             for line in f:
                 if "#Paraver" in line:
@@ -114,13 +133,15 @@ def get_num_processes(prv_file):
                     break
         f.close()
 
-    
-    #print(header_trace)
+    if cmdl_args.debug:
+        #if file_trace_name == "not found":
+        print("Trace File ", prv_file)
+
     header_to_print = header_trace[1].split(':')[3].split('(')
     tasks = header_to_print[0]
     threads = header_to_print[1]
     list_procspernode = header_trace[1].split('(')[2].split(')')[0].split(',')
-    #print(list_procspernode)
+
     total_procs = 0
     for proc_node in list_procspernode:
         total_procs += int(proc_node.split(':')[0])
@@ -211,7 +232,7 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
         file_pcf = prv_file[:-4] + '.pcf'
         tracefile = open(prv_file)
         for line in tracefile:
-            if "40000018:2" in line:
+            if ":40000018:2" in line:
                 burst = 1
                 break
         tracefile.close()
@@ -219,7 +240,7 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
         file_pcf = prv_file[:-7] + '.pcf'
         with gzip.open(prv_file, 'rt') as f:
             for line in f:
-                if "40000018:2" in line:
+                if ":40000018:2" in line:
                     burst = 1
                     break
         f.close()
@@ -232,7 +253,10 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
     if os.path.exists(file_pcf) and cmdl_args.trace_mode_detection == 'pcf':
         with open(file_pcf, 'rb', 0) as file, \
                 mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as s:
-            if s.find(b'   500000') != -1:
+            #print(s.find(b'    30000'))
+            if s.find(b'    30000') != -1:
+                mode_trace = 'Sampling'
+            elif s.find(b'   500000') != -1:
                 mode_trace += '+MPI'
                 if s.find(b'   610000') != -1:
                     mode_trace += '+Pthreads'

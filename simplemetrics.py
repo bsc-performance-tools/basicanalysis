@@ -126,6 +126,8 @@ def get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args):
     """
     eps = 0.9
     normalized_inst_ratio = 0
+    normalized_runtime_ratio = 0
+    normalized_useful_avg_ratio = 0
 
     # Check if there is only one trace.
     if len(trace_list) == 1:
@@ -140,15 +142,35 @@ def get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args):
             proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
         except:
             proc_ratio = 'NaN'
+        try:  # except NaN
+            runtime_ratio = float(raw_data['runtime'][trace]) / float(raw_data['runtime'][trace_list[0]])
+        except:
+            runtime_ratio = 'NaN'
+        try:  # except NaN
+            useful_avg_ratio = float(raw_data['useful_avg'][trace]) / float(raw_data['useful_avg'][trace_list[0]])
+        except:
+            useful_avg_ratio = 'NaN'
            
         normalized_inst_ratio += inst_ratio / proc_ratio
-
+        normalized_runtime_ratio += runtime_ratio
+        normalized_useful_avg_ratio += useful_avg_ratio
     # Get the average inst increase. Ignore ratio of first trace 1.0)
     normalized_inst_ratio = (normalized_inst_ratio - 1) / (len(trace_list) - 1)
+    normalized_runtime_ratio = (normalized_runtime_ratio - 1) / (len(trace_list) - 1)
+    normalized_useful_avg_ratio = (normalized_useful_avg_ratio - 1) / (len(trace_list) - 1)
     
     scaling_computed = ''
+    scale_type = 0
 
     if normalized_inst_ratio > eps:
+        scale_type += 1
+    if normalized_runtime_ratio > eps:
+        scale_type += 1
+    if normalized_useful_avg_ratio > eps:
+        scale_type += 1
+
+    # scale_type greater than 1 means weak scaling.
+    if scale_type > 1:
         scaling_computed = 'weak'
     else:
         scaling_computed = 'strong'
@@ -547,7 +569,7 @@ def read_mod_factors_csv(cmdl_args):
     return mod_factors, trace_list, trace_processes
 
 
-def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes):
+def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes, trace_mode):
     """Prints the model factors table in human readable form on stdout."""
     global mod_factors_doc
     global mod_factors_scale_plus_io_doc
@@ -576,7 +598,10 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
 
     longest_name = len(sorted(mod_factors_doc.values(), key=len)[-1])
 
-    line = ''.rjust(longest_name)
+    # line = ''.rjust(longest_name)
+
+    line = 'Processes [Trace Order]'.rjust(longest_name)
+    line_trace_mode = 'Trace mode'.rjust(longest_name)
 
     if len(trace_list) == 1:
         limit_min = trace_processes[trace_list[0]]
@@ -602,15 +627,26 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
     if max_len_header > value_to_adjust:
         value_to_adjust = max_len_header + 1
     # END To adjust header to big number of processes
-
+    label_trace_mode = []
+    mode_string = ""
     for index, trace in enumerate(trace_list):
         line += ' | '
-        if limit_min == limit_max and len(trace_list) > 1:
-            line += (str(trace_processes[trace]) + '[' + str(index+1) + ']').rjust(value_to_adjust)
-        else:
-            line += (str(trace_processes[trace])).rjust(value_to_adjust)
+        line_trace_mode += ' | '
+        #if limit_min == limit_max and len(trace_list) > 1:
+        line += (str(trace_processes[trace]) + '[' + str(index+1) + ']').rjust(value_to_adjust)
+        #else:
+        #    line += (str(trace_processes[trace])).rjust(value_to_adjust)
+
+        # For trace mode
+        if trace_mode[trace][0:len("Detailed")] == "Detailed":
+            mode_string = trace_mode[trace][len("Detailed+"):]
+        elif trace_mode[trace][0:len("Burst")] == "Burst":
+            mode_string = trace_mode[trace]
+        line_trace_mode += mode_string.rjust(value_to_adjust)
+        label_trace_mode.append(mode_string)
 
     print(''.ljust(len(line), '='))
+    print(line_trace_mode)
     print(line)
     line_procs_factors = line
 
@@ -691,10 +727,10 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
 
     for index, trace in enumerate(trace_list):
         line += ' | '
-        if limit_min == limit_max and len(trace_list) > 1:
-            line += (str(trace_processes[trace]) + '[' + str(index+1) + ']').rjust(value_to_adjust)
-        else:
-            line += (str(trace_processes[trace])).rjust(value_to_adjust)
+        #if limit_min == limit_max and len(trace_list) > 1:
+        line += (str(trace_processes[trace]) + '[' + str(index+1) + ']').rjust(value_to_adjust)
+        #else:
+        #    line += (str(trace_processes[trace])).rjust(value_to_adjust)
 
     print(''.ljust(len(line), '-'))
     print(line)
@@ -1100,19 +1136,21 @@ def plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, trace_ta
     # Plot: Comm Metrics
     if trace_mode[trace] == 'Detailed+MPI':
         plt.figure()
-        max_comm = max([max(list_data[3]), max(list_data[4]), max(list_data[5])])
-        plt.plot(traces_procs, list_data[3], 's-', color='green', label='Communication efficiency')
-        plt.plot(traces_procs, list_data[4], 'h--', color='gold', label='Serialization efficiency')
-        plt.plot(traces_procs, list_data[5], 'x:', color='tomato', label='Transfer efficiency')
-        plt.xlabel("Number of Processes")
-        plt.ylabel("Efficiency (%)")
-        plt.xticks(tuple(traces_procs), tuple(label_xtics))
-        if float(max_comm) < 100:
-            max_comm = 100
+        if max(list_data[3]) != 'NaN' and max(list_data[4]) != 'NaN' and max(list_data[5]) != 'NaN':
+            max_comm = max([max(list_data[3]), max(list_data[4]), max(list_data[5])])
+            plt.plot(traces_procs, list_data[3], 's-', color='green', label='Communication efficiency')
+            plt.plot(traces_procs, list_data[4], 'h--', color='gold', label='Serialization efficiency')
+            plt.plot(traces_procs, list_data[5], 'x:', color='tomato', label='Transfer efficiency')
+            plt.xlabel("Number of Processes")
+            plt.ylabel("Efficiency (%)")
+            plt.xticks(tuple(traces_procs), tuple(label_xtics))
+        
+            if float(max_comm) < 100:
+                max_comm = 100
 
-        plt.ylim(0, float(max_comm)+5)
-        plt.legend()
-        plt.savefig('modelfactors-comm-matplot.png', bbox_inches='tight')
+            plt.ylim(0, float(max_comm)+5)
+            plt.legend()
+            plt.savefig('modelfactors-comm-matplot.png', bbox_inches='tight')
 
     ### Plot: Scale Metrics
     if trace_mode[trace][:5] != 'Burst':

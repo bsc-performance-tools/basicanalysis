@@ -8,6 +8,7 @@ import time
 import math
 import gzip
 import shutil
+from utils import which
 from collections import OrderedDict
 from tracemetadata import human_readable
 from utils import run_command, move_files,remove_files, create_temp_folder
@@ -119,16 +120,17 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         print(line)
 
         # Create simulated ideal trace with Dimemas
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-            time_dim = time.time()
-            trace_sim = create_ideal_trace(trace, trace_processes[trace], trace_task_per_node[trace], cmdl_args)
-            trace_name_sim = trace_sim[:-4]
-            # print(trace_sim)
-            time_dim = time.time() - time_dim
-            if not trace_sim == '':
-                print('Successfully created simulated trace with Dimemas in {0:.1f} seconds.'.format(time_dim))
-            else:
-                print('Failed to create simulated trace with Dimemas.')
+        if which('Dimemas'):
+            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+                time_dim = time.time()
+                trace_sim = create_ideal_trace(trace, trace_processes[trace], trace_task_per_node[trace], cmdl_args)
+                trace_name_sim = trace_sim[:-4]
+                # print(trace_sim)
+                time_dim = time.time() - time_dim
+                if not trace_sim == '':
+                    print('Successfully created simulated trace with Dimemas in {0:.1f} seconds.'.format(time_dim))
+                else:
+                    print('Failed to create simulated trace with Dimemas.')
 
         # Run paramedir for the original and simulated trace
         time_pmd = time.time()
@@ -156,16 +158,17 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
 
         run_command(cmd_normal, cmdl_args)
 
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-            cmd_ideal = ['paramedir', trace_sim]
-            cmd_ideal.extend([cfgs['timings'], trace_name_sim + '.timings.stats'])
-            cmd_ideal.extend([cfgs['runtime'], trace_name_sim + '.runtime.stats'])
-            cmd_ideal.extend([cfgs['outside_mpi'], trace_name_sim + '.outside_mpi.stats'])
+        if which('Dimemas'):
+            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+                cmd_ideal = ['paramedir', trace_sim]
+                cmd_ideal.extend([cfgs['timings'], trace_name_sim + '.timings.stats'])
+                cmd_ideal.extend([cfgs['runtime'], trace_name_sim + '.runtime.stats'])
+                cmd_ideal.extend([cfgs['outside_mpi'], trace_name_sim + '.outside_mpi.stats'])
 
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-            if not trace_sim == '':
-                # print(cmd_ideal)
-                run_command(cmd_ideal, cmdl_args)
+            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+                if not trace_sim == '':
+                    # print(cmd_ideal)
+                    run_command(cmd_ideal, cmdl_args)
 
         time_pmd = time.time() - time_pmd
 
@@ -189,13 +192,16 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             print('==ERROR== Failed to compute counter information with paramedir.')
             error_counters = 1
 
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-            if not os.path.exists(trace_name_sim + '.timings.stats') or \
-                   not os.path.exists(trace_name_sim + '.runtime.stats') or \
-                   not os.path.exists(trace_name_sim + '.outside_mpi.stats'):
-                print('==ERROR== Failed to compute simulated timing information with paramedir.')
-                error_ideal = 1
-                trace_sim = ''
+        if which('Dimemas'):
+            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+                if not os.path.exists(trace_name_sim + '.timings.stats') or \
+                        not os.path.exists(trace_name_sim + '.runtime.stats') or \
+                        not os.path.exists(trace_name_sim + '.outside_mpi.stats'):
+                    print('==ERROR== Failed to compute simulated timing information with paramedir.')
+                    error_ideal = 1
+                    trace_sim = ''
+        else:
+            error_ideal = 0
 
         if error_timing or error_counters or error_ideal:
             print('Failed to analyze trace with paramedir')
@@ -386,12 +392,14 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                 count_threads = 1
                 for line1 in content[1:(len(content) - 8)]:
                     line = line1.split("\t")
-                    # print(line)
+                    #print(line)
                     if line:
                         if line[0] != 'Total' and line[0] != 'Average' \
                                 and line[0] != 'Maximum' and line[0] != 'StDev' \
                                 and line[0] != 'Avg/Max':
                             # To extract the count of MPI tasks
+                            #print(line[1])
+                            #print(raw_data['runtime'][trace])
                             if float(line[1]) != raw_data['runtime'][trace]:
                                 list_outside_mpi.append(float(line[1]))
                                 # To extract the count of threads per MPI task
@@ -620,7 +628,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             raw_data['burst_useful_tot'][trace] = 0.0
 
         # Get timing for SIMULATED traces
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+        if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP') and which('Dimemas'):
             # Get maximum useful duration for simulated trace
             if os.path.exists(trace_name_sim + '.timings.stats'):
                 content = []
@@ -663,11 +671,11 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                                            and line[0] != 'Maximum' and line[0] != 'StDev' \
                                            and line[0] != 'Avg/Max':
                                     # To extract the count of MPI tasks
-                                    if float(line[1]) != raw_data['runtime_dim'][trace]:
+                                    if line[0].split(".")[2] == '1':
                                         list_outside_mpi.append(float(line[1]))
                                         # To extract the count of threads per MPI task
                                         if len(list_outside_mpi) > 1:
-                                           list_thread_outside_mpi.append(count_threads)
+                                            list_thread_outside_mpi.append(count_threads)
                                         count_threads = 1
                                     else:
                                         if len(list_outside_mpi) == 1 and not init_count_thread:
@@ -713,7 +721,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             move_files(trace_name + '.2dh_BurstEff.stats', path_dest, cmdl_args)
             move_files(trace_name + '.burst_useful.stats', path_dest, cmdl_args)
 
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+        if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP') and which('Dimemas'):
             move_files(trace_name_sim + '.timings.stats', path_dest, cmdl_args)
             move_files(trace_name_sim + '.runtime.stats', path_dest, cmdl_args)
             move_files(trace_name_sim + '.outside_mpi.stats', path_dest, cmdl_args)

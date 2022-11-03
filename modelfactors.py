@@ -76,10 +76,7 @@ if __name__ == "__main__":
     trace_metrics = 0
     # print(trace_mode)
     for trace in trace_list:
-        if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace][:15] == 'Detailed+OpenMP' \
-                or trace_mode[trace][:17] == 'Detailed+Pthreads' or trace_mode[trace][:13] == 'Detailed+CUDA' \
-                or trace_mode[trace][:14] == 'Detailed+OmpSs' or trace_mode[trace][:15] == 'Detailed+OpenCL' \
-                or trace_mode[trace] == 'Detailed' or trace_mode[trace][:5] == 'Burst':
+        if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
             trace_metrics += 1
 
     # Analyze the traces and gather the raw input data
@@ -89,17 +86,18 @@ if __name__ == "__main__":
 
     # Compute the model factors and print them
 
-    if cmdl_args.metrics == 'hybrid' and trace_metrics == 0:
+    if cmdl_args.metrics == 'hybrid' and trace_metrics > 0:
         mod_factors, mod_factors_scale_plus_io, hybrid_factors, other_metrics = \
                 hybridmetrics.compute_model_factors(raw_data, trace_list, trace_processes,
                                                     trace_mode, list_mpi_procs_count, cmdl_args)
-        hybridmetrics.print_other_metrics_table(other_metrics, trace_list, trace_processes, trace_tasks, trace_threads)
+        hybridmetrics.print_other_metrics_table(other_metrics, trace_list, trace_processes, trace_tasks,
+                                                trace_threads, trace_mode)
         hybridmetrics.print_other_metrics_csv(other_metrics, trace_list, trace_processes)
         hybridmetrics.print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors,
                                               trace_list, trace_processes, trace_tasks, trace_threads, trace_mode)
         hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
         hybridmetrics.print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_processes, trace_tasks,
-                                             trace_threads)
+                                             trace_threads,trace_mode)
         # Plotting efficiency table with matplotlib
         error_plot_table = False
         if error_import_numpy or error_import_pandas or error_import_matplotlib or error_import_seaborn:
@@ -113,20 +111,21 @@ if __name__ == "__main__":
                 else:
                     try:
                         output_gnuplot_g = subprocess.check_output(["gnuplot", "efficiency_table_global.gp"])
-                        output_gnuplot_h = subprocess.check_output(["gnuplot", "efficiency_table-hybrid.gp"])
+                        output_gnuplot_h = subprocess.check_output(["gnuplot", "efficiency_table_hybrid.gp"])
                     except:
                         print(output_gnuplot_g)
                         print(output_gnuplot_h)
+
             error_plot_table = True
 
         if not error_plot_table:
             hybridmetrics.plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks,
-                                                         trace_threads, cmdl_args)
+                                                         trace_threads, trace_mode, cmdl_args)
             if len(trace_list) > 1:
                 hybridmetrics.plots_modelfactors_matplot(trace_list, trace_processes, trace_tasks,
-                                                         trace_threads, cmdl_args)
+                                                         trace_threads, trace_mode, cmdl_args)
                 hybridmetrics.plots_speedup_matplot(trace_list, trace_processes, trace_tasks,
-                                                    trace_threads, cmdl_args)
+                                                    trace_threads, trace_mode, cmdl_args)
 
         # Plotting if SciPy and NumPy are installed.
         error_plot_lineal = False
@@ -141,15 +140,15 @@ if __name__ == "__main__":
 
         if len(trace_list) == 1:
             subprocess.check_output(["rm", "efficiency_table_global.gp"])
-            subprocess.check_output(["rm", "efficiency_table-hybrid.gp"])
+            subprocess.check_output(["rm", "efficiency_table_hybrid.gp"])
 
-    elif cmdl_args.metrics == 'simple' or trace_metrics > 0:
+    elif cmdl_args.metrics == 'simple' or trace_metrics == 0:
         mod_factors, mod_factors_scale_plus_io, other_metrics = compute_model_factors(raw_data, trace_list,
                                                                                       trace_processes, trace_mode,
                                                                                       list_mpi_procs_count, cmdl_args)
         print_other_metrics_table(other_metrics, trace_list, trace_processes)
         print_other_metrics_csv(other_metrics, trace_list, trace_processes)
-        print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes)
+        print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes, trace_mode)
         print_mod_factors_csv(mod_factors, trace_list, trace_processes)
         print_efficiency_table(mod_factors, trace_list, trace_processes)
 

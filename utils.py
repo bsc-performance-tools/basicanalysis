@@ -69,6 +69,8 @@ def parse_arguments():
                         help='select .prv or .pcf file for trace mode detection. '
                              'For customized traces, i.e. cut, filtered and so on, you must select'
                              ' the .prv file. (default: pcf)')
+    parser.add_argument("-ord", "--order_traces", choices=['yes', 'not'], default='yes',
+                        help='Order the trace list based on the numbers of processes')
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -98,7 +100,8 @@ def check_installation(cmdl_args):
 
     if not which('Dimemas'):
         print('Could not find Dimemas. Please make sure Dimemas is correctly installed and in the path.')
-        sys.exit(1)
+        print("Warning: Dimemas is not installed. Transfer and Serialization will be not calculated!\n")
+        # sys.exit(1)
     if not which('paramedir'):
         print('Could not find paramedir. Please make sure Paraver is correctly installed and in the path.')
         sys.exit(1)
