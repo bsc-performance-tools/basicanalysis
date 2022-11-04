@@ -1,11 +1,12 @@
-# Installation Instructions
+# Installation
 
 There is no installation required. Just copy the content of this folder to your
 preferred location and add the directory to the PATH environment variable.
 
 ## Prerequisites
 
-This script relies on *paramedir* and *Dimemas* being installed and available
+Basicanalysis requires Python 3 and relies on 
+*paramedir* and *Dimemas* being installed and available
 through the PATH environment variable.
 
 * *paramedir* available at https://tools.bsc.es/paraver
@@ -21,6 +22,7 @@ export PATH=<dimemas-install-dir>/bin:$PATH
 export DIMEMAS_HOME=<dimemas-install-dir>
 
 ```
-The projection of the model factors additionally relies on the according SciPy
-(>= 0.17.0) and NumPy modules for Python2/3. Furthermore, the gnuplot output
-requires gnuplot version 5.0 or higher.
+
+Additionally, plotting relies on the according SciPy(>= 0.17.0),
+NumPy, pandas, searborn and matplotlib (>= 3.x) modules for Python 3.
+Furthermore, the gnuplot output requires gnuplot version 5.0 or higher.
