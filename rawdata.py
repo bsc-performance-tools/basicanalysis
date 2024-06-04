@@ -394,9 +394,9 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                     line = line1.split("\t")
                     #print(line)
                     if line:
-                        if line[0] != 'Total' and line[0] != 'Average' \
+                        if line[0] != 'Num. Cells' and line[0] != 'Total' and line[0] != 'Average' \
                                 and line[0] != 'Maximum' and line[0] != 'StDev' \
-                                and line[0] != 'Avg/Max':
+                                and line[0] != 'Avg/Max' and line[0] != '\n':
                             # To extract the count of MPI tasks
                             #print(line[1])
                             #print(raw_data['runtime'][trace])
@@ -667,9 +667,9 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                             line = line1.split("\t")
                         # print(line)
                             if line:
-                                if line[0] != 'Total' and line[0] != 'Average' \
-                                           and line[0] != 'Maximum' and line[0] != 'StDev' \
-                                           and line[0] != 'Avg/Max':
+                                if line[0] != 'Num. Cells' and line[0] != 'Total' and line[0] != 'Average' \
+                                        and line[0] != 'Maximum' and line[0] != 'StDev' \
+                                        and line[0] != 'Avg/Max' and line[0] != '\n':
                                     # To extract the count of MPI tasks
                                     if line[0].split(".")[2] == '1':
                                         list_outside_mpi.append(float(line[1]))
