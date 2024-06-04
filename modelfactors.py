@@ -52,7 +52,7 @@ __author__ = "Sandra Mendez"
 __copyright__ = "Copyright 2019, Barcelona Supercomputing Center (BSC)"
 __version_major__ = 0
 __version_minor__ = 3
-__version_micro__ = 7
+__version_micro__ = 9
 __version__ = str(__version_major__) + "." + str(__version_minor__) + "." + str(__version_micro__)
 
 
