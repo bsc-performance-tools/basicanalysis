@@ -366,11 +366,15 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             mod_factors['global_eff'][trace] = 'NaN'
 
         # Basic scalability factors
+        # IPC Scalability
         try:  # except NaN
             other_metrics['ipc'][trace] = float(raw_data['useful_ins'][trace]) \
                                         / float(raw_data['useful_cyc'][trace])
         except:
-            other_metrics['ipc'][trace] = 'NaN'
+            if (raw_data['useful_ins'][trace] == 0) or (raw_data['useful_cyc'][trace] == 0):
+                other_metrics['ipc'][trace] = 'Non-Avail'
+            else:
+                other_metrics['ipc'][trace] = 'NaN'
         try:  # except NaN
             if len(trace_list) > 1:
                 if trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':
@@ -404,9 +408,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             mod_factors_scale_plus_io['ipc_scale'][trace] = mod_factors['ipc_scale'][trace]
 
+        # Frequency Scalability
         try:  # except NaN
             other_metrics['freq'][trace] = float(raw_data['useful_cyc'][trace]) \
-                                       / float(raw_data['useful_tot'][trace]) / 1000
+                                       / float(raw_data['useful_not_0_tot'][trace]) / 1000
         except:
             other_metrics['freq'][trace] = 'NaN'
 
@@ -429,13 +434,13 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     freq_serial_io_0 = (float(raw_data['useful_cyc'][trace_list[0]])
                                     + float(raw_data['io_cyc'][trace_list[0]])
                                     + float(raw_data['flushing_cyc'][trace_list[0]])) \
-                                   / (float(raw_data['useful_tot'][trace_list[0]])
+                                   / (float(raw_data['useful_not_0_tot'][trace_list[0]])
                                       + float(raw_data['io_tot'][trace_list[0]])
                                       + float(raw_data['flushing_tot'][trace_list[0]])) / 1000
 
                     freq_serial_io_n = (float(raw_data['useful_cyc'][trace]) + float(raw_data['io_cyc'][trace])
                                     + float(raw_data['flushing_cyc'][trace])) \
-                                   / (float(raw_data['useful_tot'][trace])
+                                   / (float(raw_data['useful_not_0_tot'][trace])
                                       + float(raw_data['io_tot'][trace])
                                       + float(raw_data['flushing_tot'][trace])) / 1000
                     mod_factors_scale_plus_io['freq_scale'][trace] = freq_serial_io_n / freq_serial_io_0 * 100.0
@@ -446,6 +451,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             mod_factors_scale_plus_io['freq_scale'][trace] = 'NaN'
 
+        # Instruction Scalability
         try:  # except NaN
             if len(trace_list) > 1:
                 if trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':
@@ -453,9 +459,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
                                                    / float(raw_data['useful_ins'][trace]) * 100.0
                     else:
+                        procs_ratio_ins = float(raw_data['procs_ins'][trace]) \
+                                          / float(raw_data['procs_ins'][trace_list[0]])
                         mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
-                                                   / float(raw_data['useful_ins'][trace]) \
-                                                       * proc_ratio * 100.0
+                                                           / float(raw_data['useful_ins'][trace]) \
+                                                           * procs_ratio_ins * 100.0
                 else:
                     mod_factors['inst_scale'][trace] = 'Non-Avail'
             else:
@@ -477,8 +485,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         mod_factors_scale_plus_io['inst_scale'][trace] = useful_ins_plus_io_0 \
                                                                  / useful_ins_plus_io_n * 100.0
                     else:
+                        procs_ratio_ins = float(raw_data['procs_ins'][trace]) \
+                                          / float(raw_data['procs_ins'][trace_list[0]])
                         mod_factors_scale_plus_io['inst_scale'][trace] = useful_ins_plus_io_0 / useful_ins_plus_io_n \
-                                                     * proc_ratio * 100.0
+                                                                         * procs_ratio_ins * 100.0
                 else:
                     mod_factors_scale_plus_io['inst_scale'][trace] = mod_factors['inst_scale'][trace]
             else:
@@ -488,8 +498,6 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         try:  # except NaN
             if len(trace_list) > 1:
-                #other_metrics['speedup'][trace] = raw_data['runtime'][trace_list[0]] \
-                #                                  / raw_data['runtime'][trace]
                 if scaling == 'strong':
                     other_metrics['speedup'][trace] = raw_data['runtime'][trace_list[0]] \
                                                 / raw_data['runtime'][trace]
@@ -508,7 +516,6 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         try:  # except NaN
             if len(trace_list) > 1:
-                #other_metrics['efficiency'][trace] = other_metrics['speedup'][trace] / proc_ratio
                 if scaling == 'strong':
                     other_metrics['efficiency'][trace] = raw_data['runtime'][trace_list[0]] \
                                                      / (raw_data['runtime'][trace] * proc_ratio)

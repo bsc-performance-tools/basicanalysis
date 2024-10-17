@@ -55,7 +55,12 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('mpiio_ins', 'MPI I/O instructions (total)'),
                             ('burst_useful_tot', 'Burst Useful (total)'),
                             ('burst_useful_max', 'Burst Useful (max)'),
-                            ('burst_useful_avg', 'Burst Useful (avg)')])
+                            ('burst_useful_avg', 'Burst Useful (avg)'),
+                            ('useful_not_0_avg', 'Useful duration not 0 inst (average)'),
+                            ('useful_not_0_max', 'Useful duration not 0 inst (maximum)'),
+                            ('useful_not_0_tot', 'Useful duration not 0 inst (total)'),
+                            ('procs_ins', 'Procs with instructions (total)')
+                            ])
 
 
 def create_raw_data(trace_list):
@@ -98,6 +103,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
     cfgs['flushing_cycles'] = os.path.join(cfgs['root_dir'], 'flushing-cycles.cfg')
     cfgs['flushing_inst'] = os.path.join(cfgs['root_dir'], 'flushing-inst.cfg')
     cfgs['burst_useful'] = os.path.join(cfgs['root_dir'], 'burst_useful.cfg')
+
 
     # Main loop over all traces
     # This can be parallelized: the loop iterations have no dependencies
@@ -146,6 +152,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         cmd_normal.extend([cfgs['io_inst'], trace_name + '.posixio-inst.stats'])
         cmd_normal.extend([cfgs['flushing_cycles'], trace_name + '.flushing-cycles.stats'])
         cmd_normal.extend([cfgs['flushing_inst'], trace_name + '.flushing-inst.stats'])
+
 
         if trace_mode[trace][:12] == 'Detailed+MPI':
             cmd_normal.extend([cfgs['mpi_io'], trace_name + '.mpi_io.stats'])
@@ -210,6 +217,91 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
 
         # Parse the paramedir output files
         time_prs = time.time()
+
+
+        # Get useful cycles
+        if os.path.exists(trace_name + '.cycles.stats'):
+            content = []
+            useful_cyc = 0.0
+            with open(trace_name + '.cycles.stats') as f:
+                next(f)
+                content = f.readlines()
+
+            for line in content:
+                if line.split():
+                    if ("Total" not in line.split()) and \
+                            ("Average" not in line.split()) and \
+                            ("Maximum" not in line.split()) and \
+                            ("Minimum" not in line.split()) and \
+                            ("StDev" not in line.split()) and \
+                            ("Num." not in line.split()) and \
+                            ("Avg/Max" not in line.split()):
+                        if float(line.split()[-1]) > 0:
+                            useful_cyc = useful_cyc + float(line.split()[-1])
+            #print("USEFUL cyc:", useful_cyc)
+            raw_data['useful_cyc'][trace] = useful_cyc
+        else:
+            raw_data['useful_cyc'][trace] = 'NaN'
+
+        # Get useful instructions
+        # take care this variable is used also for useful total time not cero inst
+        procs_ins = 0
+        if os.path.exists(trace_name + '.instructions.stats'):
+            useful_ins = 0.0
+            procs_index = 0
+            content_insttructions = []
+            with open(trace_name + '.instructions.stats') as f:
+                next(f)
+                content = f.readlines()
+
+            for line in content:
+                if line.split():
+                    if ("Total" not in line.split()) and \
+                        ("Average" not in line.split()) and \
+                        ("Maximum" not in line.split()) and \
+                        ("Minimum" not in line.split()) and \
+                        ("StDev" not in line.split()) and \
+                        ("Num." not in line.split()) and \
+                        ("Avg/Max" not in line.split()):
+                        #print("LINE", line.split()[0])
+                        content_insttructions.append(0)
+                        if float(line.split()[-1]) > 0.0:
+                            procs_ins = procs_ins + 1
+                            content_insttructions[procs_index] = 1
+                            useful_ins = useful_ins + float(line.split()[-1])
+                        procs_index = procs_index + 1
+            raw_data['procs_ins'] [trace] = procs_ins
+            raw_data['useful_ins'][trace] = float(useful_ins)
+        else:
+            raw_data['useful_ins'][trace] = 'NaN'
+
+        #### To Useful Total for Instructions not 0 ####
+        if os.path.exists(trace_name + '.timings.stats') and (procs_ins != 0):
+            procs_index = 0
+            useful_not_0_tot = []
+            with open(trace_name + '.timings.stats') as f:
+                next(f)
+                content = f.readlines()
+            for line in content:
+                if line.split():
+                    if ("Total" not in line.split()) and \
+                            ("Average" not in line.split()) and \
+                            ("Maximum" not in line.split()) and \
+                            ("Minimum" not in line.split()) and \
+                            ("StDev" not in line.split()) and \
+                            ("Num." not in line.split()) and \
+                            ("Avg/Max" not in line.split()):
+                        useful_not_0_tot.append(float(line.split("\t")[1]) * float(content_insttructions[procs_index]))
+                        procs_index = procs_index + 1
+            raw_data['useful_not_0_tot'][trace] = float(sum(useful_not_0_tot))
+            raw_data['useful_not_0_avg'][trace] = float(sum(useful_not_0_tot) / procs_ins)
+            raw_data['useful_not_0_max'][trace] = float(max(useful_not_0_tot))
+        else:
+            raw_data['useful_not_0_tot'][trace] = 'NaN'
+            raw_data['useful_not_0_avg'][trace] = 'NaN'
+            raw_data['useful_not_0_max'][trace] = 'NaN'
+        f.close()
+        #### END To Useful Total for Instructions not 0 ####
 
         # Get total, average, and maximum useful duration
         if os.path.exists(trace_name + '.timings.stats'):
@@ -572,32 +664,6 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                         raw_data['mpiio_ins'][trace] = int(float(line.split()[1]))
         else:
             raw_data['mpiio_ins'][trace] = 0.0
-
-        # Get useful cycles
-        if os.path.exists(trace_name + '.cycles.stats'):
-            content = []
-            with open(trace_name + '.cycles.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Total':
-                        raw_data['useful_cyc'][trace] = int(float(line.split()[1]))
-        else:
-            raw_data['useful_cyc'][trace] = 'NaN'
-
-        # Get useful instructions
-        if os.path.exists(trace_name + '.instructions.stats'):
-            content = []
-            with open(trace_name + '.instructions.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Total':
-                        raw_data['useful_ins'][trace] = int(float(line.split()[1]))
-        else:
-            raw_data['useful_ins'][trace] = 'NaN'
 
         # Get Efficiencies for BurstMode
         if trace_mode[trace] == 'Burst+MPI':
