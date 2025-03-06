@@ -52,7 +52,7 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
                                                  trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
 
     if cmdl_args.debug:
-        print('==DEBUG== Computing projection of model factors.')
+        print('==DEBUG== Plotting Modelfactors metrics.')
 
     number_traces = len(trace_list)
     x_proc = numpy.zeros(number_traces)
