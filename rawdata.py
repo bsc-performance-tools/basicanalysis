@@ -855,14 +855,22 @@ def create_ideal_trace(trace, processes, task_per_node, cmdl_args):
 
     cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes)
            + 'P' + '.dimemas_ideal.cfg']
-    run_command(cmd, cmdl_args)
+    result_exit_code_command = run_command(cmd, cmdl_args)
 
-    if os.path.isfile(trace_sim):
+    if result_exit_code_command == 1001:
+        cmd = ['Dimemas', '-S', '256k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes)
+           + 'P' + '.dimemas_ideal.cfg']
+        result_exit_code_command = run_command(cmd, cmdl_args)
+
+    if os.path.isfile(trace_sim) and (result_exit_code_command == 0):
         if cmdl_args.debug:
             print('==DEBUG== Created file ' + trace_sim)
         return trace_sim
     else:
-        print('==Error== ' + trace_sim + ' could not be created.')
+        if (result_exit_code_command == 1001):
+            print('==ERROR== ' + trace_sim + ' is incomplete.')
+        else:
+            print('==ERROR== ' + trace_sim + ' could not be created.')
         return ''
 
 
