@@ -144,8 +144,8 @@ def run_command(cmd, cmdl_args):
         result_dimemas = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # Save stdout to a file
         line_command = cmd[4].split("/")
-        dimemas_output = "dimemas_" + line_command[2][:-4] + ".out"
-        dimemas_error = "dimemas_" + line_command[2][:-4] + ".err"
+        dimemas_output = "dimemas_" + line_command[len(line_command)-1][:-4] + ".out"
+        dimemas_error = "dimemas_" + line_command[len(line_command)-1][:-4] + ".err"
         #print("=== file out === \n", dimemas_error)
         with open(dimemas_output, "wb") as file:
             file.write(result_dimemas.stdout)
@@ -162,6 +162,7 @@ def run_command(cmd, cmdl_args):
             if (b'END SIMULATION' in result_dimemas.stdout):
                 return_value = ERROR_SIMULATION_INCOMPLETE
             else:
+                print("ERROR DIMEMAS: \n",result_dimemas.returncode)
                 return_value = result_dimemas.returncode
     else:
         line_command = cmd[1].split("/")
