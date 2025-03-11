@@ -227,22 +227,40 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
     """
     mode_trace = ''
     burst = 0
+    target_pair_burst = "40000018:2"
     pcf_file = True
     if prv_file[-4:] == ".prv":
         file_pcf = prv_file[:-4] + '.pcf'
         tracefile = open(prv_file)
         for line in tracefile:
-            if ":40000018:2" in line:
-                burst = 1
-                break
+            line_splitted = line.split(":")
+            if (line_splitted[0] == "2") and (len(line_splitted) > 6):  # Ensure there are at least 6 elements
+                values = line_splitted[6:]  # Get everything from the 6th value onward
+                # Check in pairs (step = 2)
+                for i in range(0, len(values) - 1, 2):
+                    pair = f"{values[i]}:{values[i + 1]}"  # Form "key:value" pair
+                    if pair == target_pair_burst:
+                        burst = 1
+                        break
+                if burst == 1:
+                   break
         tracefile.close()
+
     if prv_file[-7:] == ".prv.gz":
         file_pcf = prv_file[:-7] + '.pcf'
         with gzip.open(prv_file, 'rt') as f:
             for line in f:
-                if ":40000018:2" in line:
-                    burst = 1
-                    break
+                line_splitted = line.split(":")
+                if (line_splitted[0] == "2") and (len(line_splitted) > 6):  # Ensure there are at least 6 elements
+                    values = line_splitted[6:]  # Get everything from the 6th value onward
+                    # Check in pairs (step = 2)
+                    for i in range(0, len(values) - 1, 2):
+                        pair = f"{values[i]}:{values[i + 1]}"  # Form "key:value" pair
+                        if pair == target_pair_burst:
+                            burst = 1
+                            break
+                    if burst == 1:
+                        break
         f.close()
 
     if burst == 1:
