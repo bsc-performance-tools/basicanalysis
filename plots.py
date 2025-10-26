@@ -113,7 +113,8 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
         else:
             y_mpi_comm[index] = 0.0
         if trace_mode[trace] == 'Detailed+MPI' \
-                or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+                or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
+                or trace_mode[trace] == 'Detailed+MPI+CUDA':
             if hybrid_factors['serial_eff'][trace] != 'N/A' and hybrid_factors['serial_eff'][trace] != 'Warning!':
                 y_comm_serial[index] = hybrid_factors['serial_eff'][trace]
             else:

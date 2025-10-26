@@ -270,10 +270,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             mod_factors['serial_eff'][trace] = float(raw_data['useful_dim'][trace]) \
                                                / float(raw_data['runtime_dim'][trace]) * 100.0
-            if mod_factors['serial_eff'][trace] > 100.0:
+            if round(mod_factors['serial_eff'][trace]) > 100:
                 mod_factors['serial_eff'][trace] = 'Warning!'
         except:
-            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+            if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP') \
+                    and raw_data['runtime_dim'][trace]!='Non-Avail':
                 mod_factors['serial_eff'][trace] = 'NaN'
             else:
                 mod_factors['serial_eff'][trace] = 'Non-Avail'
@@ -286,11 +287,13 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 mod_factors['transfer_eff'][trace] = float(raw_data['runtime_dim'][trace]) \
                                                      / float(raw_data['runtime'][trace]) * 100.0
 
-            if mod_factors['transfer_eff'][trace] > 100.0:
+            if round(mod_factors['transfer_eff'][trace]) > 100:
                 mod_factors['transfer_eff'][trace] = 'Warning!'
         except:
-            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+            if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP') \
+                    and raw_data['runtime_dim'][trace]!='Non-Avail':
                 mod_factors['transfer_eff'][trace] = 'NaN'
+
             else:
                 mod_factors['transfer_eff'][trace] = 'Non-Avail'
 
@@ -365,7 +368,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             mod_factors['global_eff'][trace] = 'NaN'
 
-        # Basic scalability factors
+        # Basic scalability factors - Computational
         # IPC Scalability
         try:  # except NaN
             other_metrics['ipc'][trace] = float(raw_data['useful_ins'][trace]) \
@@ -410,7 +413,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         # Frequency Scalability
         try:  # except NaN
-            other_metrics['freq'][trace] = float(raw_data['useful_cyc'][trace]) \
+            if (raw_data['useful_cyc'][trace] == 0):
+                other_metrics['freq'][trace] = 'Non-Avail'
+            else:
+                other_metrics['freq'][trace] = float(raw_data['useful_cyc'][trace]) \
                                        / float(raw_data['useful_not_0_tot'][trace]) / 1000
         except:
             other_metrics['freq'][trace] = 'NaN'
@@ -462,8 +468,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         procs_ratio_ins = float(raw_data['procs_ins'][trace]) \
                                           / float(raw_data['procs_ins'][trace_list[0]])
                         mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
-                                                           / float(raw_data['useful_ins'][trace]) \
-                                                           * procs_ratio_ins * 100.0
+                                                   / float(raw_data['useful_ins'][trace]) \
+                                                       * procs_ratio_ins * 100.0
                 else:
                     mod_factors['inst_scale'][trace] = 'Non-Avail'
             else:
@@ -488,7 +494,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         procs_ratio_ins = float(raw_data['procs_ins'][trace]) \
                                           / float(raw_data['procs_ins'][trace_list[0]])
                         mod_factors_scale_plus_io['inst_scale'][trace] = useful_ins_plus_io_0 / useful_ins_plus_io_n \
-                                                                         * procs_ratio_ins * 100.0
+                                                     * procs_ratio_ins * 100.0
                 else:
                     mod_factors_scale_plus_io['inst_scale'][trace] = mod_factors['inst_scale'][trace]
             else:
@@ -496,6 +502,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             mod_factors_scale_plus_io['inst_scale'][trace] = 'NaN'
 
+        # Speed-UP
         try:  # except NaN
             if len(trace_list) > 1:
                 if scaling == 'strong':
@@ -514,6 +521,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             other_metrics['elapsed_time'][trace] = 'NaN'
 
+        # Efficiency
         try:  # except NaN
             if len(trace_list) > 1:
                 if scaling == 'strong':
@@ -523,7 +531,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     other_metrics['efficiency'][trace] = raw_data['runtime'][trace_list[0]] \
                                                          / raw_data['runtime'][trace]
             else:
-                other_metrics['efficiency'][trace] =  'Non-Avail'
+                other_metrics['efficiency'][trace] = 'Non-Avail'
         except:
             other_metrics['efficiency'][trace] = 'NaN'
 
@@ -979,7 +987,6 @@ def plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, tra
     file_path = os.path.join(os.getcwd(), 'efficiency_table.csv')
     df = pd.read_csv(file_path)
     metrics = df['Number of processes'].tolist()
-
     traces_procs = list(df.keys())[1:]
 
     # To control same number of processes for the header on plots and table
@@ -1025,8 +1032,8 @@ def plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, tra
     for labelx in label_xtics:
         if len(labelx) > max_len_header:
             max_len_header = len(labelx)
-
     # END To adjust header to big number of processes
+
     list_data = []
     for index, rows in df.iterrows():
         list_temp = []

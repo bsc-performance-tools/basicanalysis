@@ -40,7 +40,7 @@ __author__ = "Sandra Mendez"
 __copyright__ = "Copyright 2019, Barcelona Supercomputing Center (BSC)"
 __version_major__ = 0
 __version_minor__ = 3
-__version_micro__ = 9
+__version_micro__ = 10
 __version__ = str(__version_major__) + "." + str(__version_minor__) + "." + str(__version_micro__)
 
 
@@ -71,6 +71,10 @@ def parse_arguments():
                              ' the .prv file. (default: pcf)')
     parser.add_argument("-ord", "--order_traces", choices=['yes', 'not'], default='yes',
                         help='Order the trace list based on the numbers of processes')
+    parser.add_argument("-somp", "--simulation_openmp", help='OpenMP events will be simulated '
+                                                          '(default: disable).', action="store_true")
+    parser.add_argument("-scuda", "--simulation_cuda", help='CUDA events will be simulated '
+                                                         '(default: disable).', action="store_true")
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -135,29 +139,59 @@ def check_installation(cmdl_args):
 
 def run_command(cmd, cmdl_args):
     """Runs a command and forwards the return value."""
+    ERROR_SIMULATION_INCOMPLETE = 1001 # 1001 when Dimemas produces incomplete simulation
     if cmdl_args.debug:
         print('==DEBUG== Executing:', ' '.join(cmd))
 
-    # In debug mode, keep the output. Otherwise, redirect it to devnull.
-    if cmdl_args.debug:
-        out = tempfile.NamedTemporaryFile(suffix='.out', prefix=cmd[0] + '_', dir='./', delete=False)
-        err = tempfile.NamedTemporaryFile(suffix='.err', prefix=cmd[0] + '_', dir='./', delete=False)
+    # Run the command and capture output
+    if "Dimemas" in cmd:
+        result_dimemas = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Save stdout to a file
+        line_command = cmd[4].split("/")
+        dimemas_output = "dimemas_" + line_command[len(line_command)-1][:-4] + ".out"
+        dimemas_error = "dimemas_" + line_command[len(line_command)-1][:-4] + ".err"
+        with open(dimemas_output, "wb") as file:
+            file.write(result_dimemas.stdout)
+
+        # Save error to a file
+        with open(dimemas_error, "wb") as file:
+            file.write(result_dimemas.stderr)
+
+        # Check if the specific string is in the output
+        if (b'] 100.0%' in result_dimemas.stdout):
+            return_value = 0
+        else:
+            if (b'END SIMULATION' in result_dimemas.stdout):
+                return_value = ERROR_SIMULATION_INCOMPLETE
+            else:
+                print("ERROR DIMEMAS: \n",result_dimemas.returncode)
+                return_value = result_dimemas.returncode
     else:
-        out = open(os.devnull, 'w')
-        err = open(os.devnull, 'w')
+        line_command = cmd[1].split("/")
+        std_output = cmd[0] + "stdout_" + line_command[2][:-4] + ".out"
+        err_error = cmd[0] + "error_" + line_command[2][:-4] + ".err"
 
-    return_value = subprocess.call(cmd, stdout=out, stderr=err)
-
-    out.close
-    err.close
+        with open(std_output, "w") as out, open(err_error, "w") as err:
+            return_value = subprocess.call(cmd, stdout=out, stderr=err)
 
     if return_value == 0:
-        if cmdl_args.debug:
-            os.remove(out.name)
-            os.remove(err.name)
+        if "Dimemas" in cmd:
+            os.remove(dimemas_output)
+            os.remove(dimemas_error)
+            print("")
+        else:
+            os.remove(std_output)
+            os.remove(err_error)
     else:
-        print('==ERROR== ' + ' '.join(cmd) + ' failed with return value ' + str(return_value) + '!')
-        print('See ' + out.name + ' and ' + err.name + ' for more details.')
+        if return_value != ERROR_SIMULATION_INCOMPLETE and "Dimemas" not in cmd:
+            print('==ERROR== ' + ' '.join(cmd) + ' failed with return value ' + str(return_value) + '!')
+            print('See ' + std_output + ' and ' + err_error + ' for more details.')
+        else:
+            if return_value != ERROR_SIMULATION_INCOMPLETE:
+                print('==ERROR== ' + ' '.join(cmd) + ' failed with return value ' + str(return_value) + '!')
+                print('See ' + dimemas_output + ' and ' + dimemas_error + ' for more details.')
+
+            #print('Run in debug mode and see .out and .err files for more details.')
 
     return return_value
 

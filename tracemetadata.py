@@ -14,6 +14,9 @@ import gzip
 import multiprocessing
 import threading
 from multiprocessing import Process
+import re
+from collections import defaultdict, Counter
+from typing import Dict, List, Tuple
 
 
 def get_traces_from_args(cmdl_args):
@@ -166,14 +169,23 @@ def get_tasks_threads(prv_file):
                     header_trace = line.split('_')
                     break
         f.close()
+    #print("header_trace: ", header_trace[1].split('(')[2].split(')')[0].split(','))
+    threads_per_task_per_node = header_trace[1].split('(')[2].split(')')[0].split(',')
+    first_elements = [int(item.split(':')[0]) for item in threads_per_task_per_node]
+    #print("first_elements: ",max(first_elements))
     header_to_print = header_trace[1].split(':')[3].split('(')
+    #print("header_to_print: ", header_to_print)
     tasks = header_to_print[0]
-    threads = header_to_print[1]
+    threads = max(first_elements)
+    #threads = header_to_print[1]
+
     return int(tasks), int(threads)
 
 
 def get_task_per_node(prv_file):
-    """Gets the number of processes and nodes in a trace from the according .row file.
+    """Gets the number of processes and nodes in a trace from the 
+    corresponding .prv or .row file. If .row exists, tasks and nodes
+     are taken from row; otherwise, they are taken from .prv.
     """
     row_file = True
 
@@ -219,7 +231,6 @@ def get_task_per_node(prv_file):
 
     return int(task_nodes)
 
-
 def get_trace_mode(prv_file, cmdl_args, trace_mode):
     """Gets the trace mode by detecting the event 40000018:2 in .prv file
     to detect the Burst mode trace in another case is Detailed mode.
@@ -227,22 +238,40 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
     """
     mode_trace = ''
     burst = 0
+    target_pair_burst = "40000018:2"
     pcf_file = True
     if prv_file[-4:] == ".prv":
         file_pcf = prv_file[:-4] + '.pcf'
         tracefile = open(prv_file)
         for line in tracefile:
-            if ":40000018:2" in line:
-                burst = 1
-                break
+            line_splitted = line.split(":")
+            if (line_splitted[0] == "2") and (len(line_splitted) > 6):  # Ensure there are at least 6 elements
+                values = line_splitted[6:]  # Get everything from the 6th value onward
+                # Check in pairs (step = 2)
+                for i in range(0, len(values) - 1, 2):
+                    pair = f"{values[i]}:{values[i + 1]}"  # Form "key:value" pair
+                    if pair == target_pair_burst:
+                        burst = 1
+                        break
+                if burst == 1:
+                   break
         tracefile.close()
+
     if prv_file[-7:] == ".prv.gz":
         file_pcf = prv_file[:-7] + '.pcf'
         with gzip.open(prv_file, 'rt') as f:
             for line in f:
-                if ":40000018:2" in line:
-                    burst = 1
-                    break
+                line_splitted = line.split(":")
+                if (line_splitted[0] == "2") and (len(line_splitted) > 6):  # Ensure there are at least 6 elements
+                    values = line_splitted[6:]  # Get everything from the 6th value onward
+                    # Check in pairs (step = 2)
+                    for i in range(0, len(values) - 1, 2):
+                        pair = f"{values[i]}:{values[i + 1]}"  # Form "key:value" pair
+                        if pair == target_pair_burst:
+                            burst = 1
+                            break
+                    if burst == 1:
+                        break
         f.close()
 
     if burst == 1:
@@ -398,3 +427,103 @@ def print_overview(trace_list, trace_processes, trace_tasks, trace_threads, trac
     print('======== Output Files: Traces metadata ========')
     print('Traces metadata written to ' + file_path)
     print('')
+
+
+def get_device_count(prv_file):
+    """Gets the count of devices from row files. 
+    It is need to have a row file with the device name.  """
+    row_file = True
+
+    if prv_file[-4:] == ".prv":
+        if os.path.exists(prv_file[:-4] + '.row'):
+            tracefile = open(prv_file[:-4] + '.row')
+        else:
+            tracefile = prv_file[:-4]
+            row_file = False
+    elif prv_file[-7:] == ".prv.gz":
+        if os.path.exists(prv_file[:-7] + '.row'):
+            tracefile = open(prv_file[:-7] + '.row')
+        else:
+            tracefile = prv_file[:-7]
+            row_file = False
+    
+    devices = set()
+    if row_file:
+        # pattern: "CUDA-D<number>."
+        pattern = re.compile(r"CUDA-(D\d+)\.")
+        for line in tracefile:
+            match = pattern.search(line)
+            if match:
+                devices.add(match.group(1))
+    else:
+        print(".row file is needed to obtain the count of devices.")
+
+    tracefile.close()
+    return len(devices)
+
+def _iter_thread_section_lines(prv_file):
+    """Yield stripped lines belonging to the LEVEL THREAD section."""
+    in_threads = False
+
+    if prv_file[-4:] == ".prv":
+        tracefile = prv_file[:-4] + '.row'
+    elif prv_file[-7:] == ".prv.gz":
+        tracefile = prv_file[:-7] + '.row'
+    
+    with open(tracefile, "r", encoding="utf-8") as f:
+        for raw in f:
+            s = raw.strip()
+            if s.startswith("LEVEL THREAD SIZE"):
+                in_threads = True
+                continue
+            if not in_threads:
+                continue
+            if s.startswith("LEVEL "):  # next section (safety)
+                break
+            if s:  # skip empty
+                yield s
+
+def get_device_stream_id_mapping(prv_file, start_id: int = 1, pad: int = 3
+                                 ) -> Dict[str, Tuple[int, List[str]]]:
+    """
+    Number entries in the THREAD section sequentially:
+      THREAD line -> consumes an ID (ignored for device counts)
+      each CUDA line -> consumes an ID and is counted for its device
+    Return { device: (count, [id_str...]) } with zero-padded IDs (e.g., '002').
+    """
+
+    DEV_RE    = re.compile(r"CUDA-(D\d+)\.")                # "CUDA-D1.S2-as..." -> "D1"
+    THREAD_RE = re.compile(r"^THREAD\s+\d+\.\d+\.\d+\s*$")  # "THREAD 1.20.1"
+
+    dev_to_ids: Dict[str, List[str]] = defaultdict(list)
+    next_id = start_id
+
+    def fmt(n: int) -> str:
+        return str(n).zfill(pad)
+
+    if prv_file[-4:] == ".prv":
+        tracefile = prv_file[:-4] + '.row'
+    elif prv_file[-7:] == ".prv.gz":
+        tracefile = prv_file[:-7] + '.row'
+
+    for s in _iter_thread_section_lines(prv_file):
+        if THREAD_RE.match(s):
+            # Assign an ID to the THREAD itself (not counted per device)
+            _ = fmt(next_id)
+            next_id += 1
+            continue
+
+        m = DEV_RE.search(s)
+        if m:
+            dev = m.group(1)            # e.g., "D1"
+            dev_to_ids[dev].append(fmt(next_id))  # count only CUDA lines
+            next_id += 1
+
+    # Sort devices and their IDs numerically
+    out: Dict[str, Tuple[int, List[str]]] = {}
+    for dev in sorted(dev_to_ids.keys(), key=lambda d: int(d[1:])):
+        ids_sorted = sorted(dev_to_ids[dev], key=lambda x: int(x))
+        out[dev] = (len(ids_sorted), ids_sorted)
+    return out
+
+
