@@ -88,15 +88,22 @@ if __name__ == "__main__":
     # Compute the model factors and print them
 
     if cmdl_args.metrics == 'hybrid' and trace_metrics > 0:
-        mod_factors, mod_factors_scale_plus_io, hybrid_factors, other_metrics, device_factors = \
+        mod_factors, mod_factors_scale_plus_io, hybrid_factors, other_metrics, device_factors, host_factors = \
                 hybridmetrics.compute_model_factors(raw_data, trace_list, trace_processes,
                                                     trace_mode, list_mpi_procs_count, cmdl_args)
         hybridmetrics.print_other_metrics_table(other_metrics, trace_list, trace_processes, trace_tasks,
                                                 trace_threads, trace_mode)
         hybridmetrics.print_other_metrics_csv(other_metrics, trace_list, trace_processes)
-        hybridmetrics.print_device_metrics_csv(device_factors, trace_list, trace_processes,raw_data)
-        hybridmetrics.print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors, device_factors,
-                                              trace_list, trace_processes, trace_tasks, trace_threads, trace_mode)
+        
+        
+        if cmdl_args.pop_model_to_apply == 'talp':
+            hybridmetrics.print_talp_metrics_csv(device_factors,host_factors, trace_list, trace_processes,raw_data)
+            hybridmetrics.print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors, device_factors, host_factors,
+                                              trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data)
+            hybridmetrics.plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode,raw_data, cmdl_args)
+        else:
+            hybridmetrics.print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors, device_factors,
+                                              trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data)
         hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
         hybridmetrics.print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_processes, trace_tasks,
                                              trace_threads,trace_mode)

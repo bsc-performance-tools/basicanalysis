@@ -75,6 +75,9 @@ def parse_arguments():
                                                           '(default: disable).', action="store_true")
     parser.add_argument("-scuda", "--simulation_cuda", help='CUDA events will be simulated '
                                                          '(default: disable).', action="store_true")
+    parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='classic',
+                        help='Select the model to compute POP metrics (default: classic).'
+                             ' classic shows the hybrid metrics proposed with Judith and talp presents the metrics proposed by TALP team.')
 
     if len(sys.argv) == 1:
         parser.print_help()
