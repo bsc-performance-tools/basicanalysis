@@ -298,6 +298,8 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
                     mode_trace += '+OmpSs'
                 if s.find(b'   642000') != -1 or s.find(b'   6400001') != -1 or s.find(b'   641000') != -1:
                     mode_trace += '+OpenCL'
+                # if s.find(b'   635000'):
+                #    mode_trace += '+HIP'
             else:
                 if s.find(b'   610000') != -1:
                     mode_trace += '+Pthreads'
@@ -310,6 +312,8 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
                     mode_trace += '+OmpSs'
                 if s.find(b'   642000') != -1 or s.find(b'   6400001') != -1 or s.find(b'   641000') != -1:
                     mode_trace += '+OpenCL'
+                # if s.find(b'   635000'):
+                #    mode_trace += '+HIP'
         file.close()
     else:
         count_mpi = 0
@@ -322,12 +326,15 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
             with open(prv_file, 'rb', 0) as file, \
                     mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_COPY) as s:
                 # 2:cpu_id:appl_id:task_id:thread_id:time:event_type:event_value
+                # 2:1:1:1:1:841276931:63500000:11:63500005:140730628952712:63500004:67108864
                 mpi = re.compile(rb'\n2:\w+:\w+:[1-4]:1:\w+:50000\w\w\w:')
                 omp = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:60000018:')
-                cuda = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:63\w\w\w\w\w\w:')
+                cuda = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:630\w\w\w\w\w:')
                 pthreads = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:610000\w\w:')
                 ompss = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:9200001:')
                 opencl = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:64\w\w\w\w\w\w:')
+                # hip = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:635\w\w\w\w\w:')
+                
                 if mpi.search(s):
                     count_mpi = 1
                     mpi_trace = '+MPI'
@@ -346,6 +353,9 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
                 elif opencl.search(s):
                     count_opencl = 1
                     opencl_trace = '+OpenCL'
+                #elif hip.search(s):
+                #    count_hip = 1
+                #    hip_trace = '+HIP'
             file.close()
         elif prv_file[-7:] == ".prv.gz":
             handle = open(prv_file, "rb")
@@ -355,10 +365,11 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
             # 2:cpu_id:appl_id:task_id:thread_id:time:event_type:event_value
             mpi = re.compile(rb'\n2:\w+:\w+:[1-4]:1:\w+:50000\w\w\w:')
             omp = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:60000018:')
-            cuda = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:63\w\w\w\w\w\w:')
+            cuda = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:630\w\w\w\w\w:')
             pthreads = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:610000\w\w:')
             ompss = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:9200001:')
             opencl = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:64\w\w\w\w\w\w:')
+            hip = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:635\w\w\w\w\w:')
             s = gzfile.read()
             if mpi.search(s):
                 count_mpi = 1
@@ -378,6 +389,9 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
             elif opencl.search(s):
                 count_opencl = 1
                 opencl_trace = '+OpenCL'
+            # elif hip.search(s):
+            #        count_hip = 1
+            #        hip_trace = '+HIP'
 
             handle.close()
         if count_mpi > 0:
@@ -392,6 +406,8 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
             mode_trace += cuda_trace
         if count_opencl > 0:
             mode_trace += opencl_trace
+        # if count_hip > 0:
+        #    mode_trace += hip_trace
 
     trace_mode[prv_file] = mode_trace
     #return mode_trace
@@ -430,8 +446,11 @@ def print_overview(trace_list, trace_processes, trace_tasks, trace_threads, trac
 
 
 def get_device_count(prv_file):
-    """Gets the count of devices from row files. 
-    It is need to have a row file with the device name.  """
+    """Gets the count of *node+device* from row files.
+    Now we distinguish devices by node too:
+      CUDA-D1.S1-as04r1b15  -> as04r1b15:D1
+      CUDA-D1.S1-as04r1b16  -> as04r1b16:D1
+    """
     row_file = True
 
     if prv_file[-4:] == ".prv":
@@ -446,19 +465,26 @@ def get_device_count(prv_file):
         else:
             tracefile = prv_file[:-7]
             row_file = False
-    
+
     devices = set()
     if row_file:
-        # pattern: "CUDA-D<number>."
-        pattern = re.compile(r"CUDA-(D\d+)\.")
+        # NEW: capture both D# and node from lines like:
+        #   CUDA-D1.S2-as04r1b15
+        #        ^^^       ^^^^^
+        #        D1        as04r1b15
+        pattern = re.compile(r"CUDA-(D\d+)\.[^-]*-([^\s]+)")
         for line in tracefile:
             match = pattern.search(line)
             if match:
-                devices.add(match.group(1))
+                dev  = match.group(1)   # e.g. "D1"
+                node = match.group(2)   # e.g. "as04r1b15"
+                key = f"{node}:{dev}"   # unique per node+device
+                devices.add(key)
     else:
         print(".row file is needed to obtain the count of devices.")
 
-    tracefile.close()
+    if row_file:
+        tracefile.close()
     return len(devices)
 
 def _iter_thread_section_lines(prv_file):
@@ -483,16 +509,25 @@ def _iter_thread_section_lines(prv_file):
             if s:  # skip empty
                 yield s
 
-def get_device_stream_id_mapping(prv_file, start_id: int = 1, pad: int = 3
-                                 ) -> Dict[str, Tuple[int, List[str]]]:
+def get_device_stream_id_mapping(
+    prv_file,
+    start_id: int = 1,
+    pad: int = 3
+) -> Dict[str, Tuple[int, List[str]]]:
     """
     Number entries in the THREAD section sequentially:
-      THREAD line -> consumes an ID (ignored for device counts)
-      each CUDA line -> consumes an ID and is counted for its device
-    Return { device: (count, [id_str...]) } with zero-padded IDs (e.g., '002').
+      - THREAD line -> consumes an ID (ignored for per-device counts)
+      - each CUDA line -> consumes an ID and is counted for its (node,device)
+
+    Returns:
+        { "node:Dev": (count, [id_str...]) }
+      where id_str are zero-padded IDs (e.g., '002').
     """
 
-    DEV_RE    = re.compile(r"CUDA-(D\d+)\.")                # "CUDA-D1.S2-as..." -> "D1"
+    # NEW: capture device and node
+    #  CUDA-D1.S2-as04r1b15
+    #       ^^^       ^^^^^
+    DEV_RE    = re.compile(r"CUDA-(D\d+)\.[^-]*-([^\s]+)")
     THREAD_RE = re.compile(r"^THREAD\s+\d+\.\d+\.\d+\s*$")  # "THREAD 1.20.1"
 
     dev_to_ids: Dict[str, List[str]] = defaultdict(list)
@@ -501,11 +536,7 @@ def get_device_stream_id_mapping(prv_file, start_id: int = 1, pad: int = 3
     def fmt(n: int) -> str:
         return str(n).zfill(pad)
 
-    if prv_file[-4:] == ".prv":
-        tracefile = prv_file[:-4] + '.row'
-    elif prv_file[-7:] == ".prv.gz":
-        tracefile = prv_file[:-7] + '.row'
-
+    # (tracefile variable not needed here; we reuse _iter_thread_section_lines)
     for s in _iter_thread_section_lines(prv_file):
         if THREAD_RE.match(s):
             # Assign an ID to the THREAD itself (not counted per device)
@@ -515,15 +546,26 @@ def get_device_stream_id_mapping(prv_file, start_id: int = 1, pad: int = 3
 
         m = DEV_RE.search(s)
         if m:
-            dev = m.group(1)            # e.g., "D1"
-            dev_to_ids[dev].append(fmt(next_id))  # count only CUDA lines
+            dev  = m.group(1)  # "D1"
+            node = m.group(2)  # "as04r1b15"
+            key = f"{node}:{dev}"
+            dev_to_ids[key].append(fmt(next_id))  # count only CUDA lines
             next_id += 1
 
-    # Sort devices and their IDs numerically
+    # Sort devices and their IDs:
+    #   first by node name, then by numeric device index
     out: Dict[str, Tuple[int, List[str]]] = {}
-    for dev in sorted(dev_to_ids.keys(), key=lambda d: int(d[1:])):
-        ids_sorted = sorted(dev_to_ids[dev], key=lambda x: int(x))
-        out[dev] = (len(ids_sorted), ids_sorted)
+
+    def dev_sort_key(k: str):
+        # k example: "as04r1b15:D1"
+        node, d = k.split(":")
+        return (node, int(d[1:]))  # ('as04r1b15', 1)
+
+    for key in sorted(dev_to_ids.keys(), key=dev_sort_key):
+        ids_sorted = sorted(dev_to_ids[key], key=lambda x: int(x))
+        out[key] = (len(ids_sorted), ids_sorted)
+
     return out
+
 
 

@@ -147,10 +147,11 @@ def write_all_device_cfgs_useful(
     - Stores the file paths in cfgs as 'useful_device_D1', 'useful_device_D2', ...
     """
     template_path = cfgs[template_key]
-    root = cfgs["root_dir"]
-
+    #root = cfgs["root_dir"]
+    root = "scratch_out_basicanalysis"
     for dev, dev_tuple in mapping.items():
-        out_path = os.path.join(root, f"{output_basename}-{dev}.cfg")
+        safe_id = dev.replace(":", "_").replace("/", "_")
+        out_path = os.path.join(root, f"{output_basename}-{safe_id}.cfg")
         # choose decimals vs trimming here:
         write_cfg_for_device(
             template_path,
@@ -159,13 +160,13 @@ def write_all_device_cfgs_useful(
             decimals=12,                # exact 12-decimal output
             trim_trailing_zeros=False   # set True if you want "2 3 8 9 ..." instead
         )
-        cfgs[f"useful_device_{dev}"] = out_path
+        cfgs[f"useful_device_{safe_id}"] = out_path
 
 def write_all_device_cfgs_useful_plus_memtransfer(
     cfgs: dict,
     mapping: Dict[str, Tuple[int, List[str]]],
     template_key: str = "useful_memtransf_device",
-    output_basename: str = "KernelsPlusMemTransfer-x-Tasks-in-Device_app"
+    output_basename: str = "kernelsPlusMemTransfer-x-Tasks-in-Device_app"
 ):
     """
     Convenience wrapper:
@@ -174,10 +175,12 @@ def write_all_device_cfgs_useful_plus_memtransfer(
     - Stores the file paths in cfgs as 'useful_device_D1', 'useful_device_D2', ...
     """
     template_path = cfgs[template_key]
-    root = cfgs["root_dir"]
+    #root = cfgs["root_dir"]
+    root = "scratch_out_basicanalysis"
 
     for dev, dev_tuple in mapping.items():
-        out_path = os.path.join(root, f"{output_basename}-{dev}.cfg")
+        safe_id = dev.replace(":", "_").replace("/", "_")
+        out_path = os.path.join(root, f"{output_basename}-{safe_id}.cfg")
         # choose decimals vs trimming here:
         write_cfg_for_device(
             template_path,
@@ -186,7 +189,7 @@ def write_all_device_cfgs_useful_plus_memtransfer(
             decimals=12,                # exact 12-decimal output
             trim_trailing_zeros=False   # set True if you want "2 3 8 9 ..." instead
         )
-        cfgs[f"useful_memtransf_device_{dev}"] = out_path
+        cfgs[f"useful_memtransf_device_{safe_id}"] = out_path
 
 
 ###############################
@@ -218,7 +221,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
 
     # To obtain running in host and devices
     cfgs['useful_device'] = os.path.join(cfgs['root_dir'], 'kernels-x-Tasks-in-Device_app.cfg')
-    cfgs['useful_memtransf_device'] = os.path.join(cfgs['root_dir'], 'KernelsPlusMemTransfer-x-Tasks-in-Device_app.cfg')
+    cfgs['useful_memtransf_device'] = os.path.join(cfgs['root_dir'], 'kernelsPlusMemTransfer-x-Tasks-in-Device_app.cfg')
 
     # Main loop over all traces
     # This can be parallelized: the loop iterations have no dependencies
@@ -275,18 +278,19 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             write_all_device_cfgs_useful(cfgs, mapping_devices)
             #print("CFGS: ", cfgs)
             for device_id in mapping_devices:
-                key_device_to_replace = "useful_device_" + str(device_id)
+                safe_id = device_id.replace(":", "_").replace("/", "_")
+                key_device_to_replace = "useful_device_" + str(safe_id)
                 cmd_normal.extend([cfgs[key_device_to_replace], trace_name +"." + str(key_device_to_replace) + '.stats'])
                 #print("Id device: ",key_device_to_replace)
             
             write_all_device_cfgs_useful_plus_memtransfer(cfgs, mapping_devices)
             for device_id in mapping_devices:
-                key_device_to_replace = "useful_memtransf_device_" + str(device_id)
+                safe_id = device_id.replace(":", "_").replace("/", "_")
+                key_device_to_replace = "useful_memtransf_device_" + str(safe_id)
                 cmd_normal.extend([cfgs[key_device_to_replace], trace_name +"." + str(key_device_to_replace) + '.stats'])
                 #print("Id device: ",key_device_to_replace)
         
-        #content = [line.replace('REPLACE_BY_GPU_MAPPING', str(mapping_gpu)) for line in content]
-
+        
         run_command(cmd_normal, cmdl_args)
 
         # Create simulated ideal trace with Dimemas
@@ -818,7 +822,8 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             raw_data['useful_memtransf_device'][trace] = 0.0
             raw_data['useful_memtransf_device_max'][trace] = 0.0
             for device_id in mapping_devices:
-                key_device_to_replace = "useful_device_" + str(device_id)
+                safe_id = device_id.replace(":", "_").replace("/", "_")                
+                key_device_to_replace = "useful_device_" + str(safe_id)
                 if os.path.exists(trace_name +"." + str(key_device_to_replace) + '.stats'):
                     content = []
                     with open(trace_name +"." + str(key_device_to_replace) + '.stats') as f:
@@ -831,7 +836,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                                     if float(line.split()[1]) > raw_data['useful_device_max'][trace]:
                                         raw_data['useful_device_max'][trace] = float(line.split()[1])
                 
-                key_device_to_replace = "useful_memtransf_device_" + str(device_id)
+                key_device_to_replace = "useful_memtransf_device_" + str(safe_id)
                 if os.path.exists(trace_name +"." + str(key_device_to_replace) + '.stats'):
                     content = []
                     with open(trace_name +"." + str(key_device_to_replace) + '.stats') as f:
@@ -991,11 +996,15 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         if trace_mode[trace] == 'Detailed+MPI+CUDA':
             #print("CFGS: ", cfgs)
             for device_id in mapping_devices:
-                key_device_to_replace = "useful_device_" + str(device_id)
+                safe_id = device_id.replace(":", "_").replace("/", "_")
+                key_device_to_replace = "useful_device_" + str(safe_id)
                 move_files(trace_name +"." + str(key_device_to_replace) + '.stats', path_dest, cmdl_args)
-                key_device_to_replace = "useful_memtransf_device_" + str(device_id)
+                key_device_to_replace = "useful_memtransf_device_" + str(safe_id)
                 move_files(trace_name +"." + str(key_device_to_replace) + '.stats', path_dest, cmdl_args)
-                
+                #file_cfg_device_to_remove = str(path_dest)+"/" + "kernels-x-Tasks-in-Device_app-"+ str(device_id) + '.cfg' 
+                #remove_files(file_cfg_device_to_remove, cmdl_args)
+                #file_cfg_device_to_remove = str(path_dest)+"/" + "kernelsPlusMemTransfer-x-Tasks-in-Device_app-"+ str(device_id) + '.cfg'
+                #remove_files(file_cfg_device_to_remove, cmdl_args)
 
         time_prs = time.time() - time_prs
 
