@@ -657,7 +657,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 else:
                     device_factors['dev_comp_scale'][trace] = float(raw_data['useful_device'][trace_list[0]]) \
                                                    / float(raw_data['useful_device'][trace]) * proc_ratio * 100.0
-        
+            else:
+                device_factors['dev_comp_scale'][trace] = 'Non-Avail'
         except:
                device_factors['dev_comp_scale'][trace] = 'NaN'
         
@@ -822,7 +823,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         ### Host Computational Metrics
         try:  # except NaN
-            if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA'):
+            if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA') and (len(trace_list) > 1):
                 if scaling == 'strong':
                     host_factors['host_comp_scale'][trace] = float(raw_data['useful_not_0_tot'][trace_list[0]]) \
                                                    / float(raw_data['useful_not_0_tot'][trace]) * 100.0
@@ -2235,7 +2236,10 @@ def print_talp_metrics_csv(device_factors,host_factors, trace_list, trace_proces
             for trace in trace_list:
                 line += delimiter
                 try:  # except NaN
-                    line += '{0:.6f}'.format(host_factors[mod_key][trace])
+                    if host_factors[mod_key][trace] == "Non-Avail":
+                        line += '0.00'
+                    else:
+                        line += '{0:.6f}'.format(host_factors[mod_key][trace])
                 except ValueError:
                     line += '{}'.format(host_factors[mod_key][trace])
             output.write(line + '\n')
@@ -2245,7 +2249,10 @@ def print_talp_metrics_csv(device_factors,host_factors, trace_list, trace_proces
             for trace in trace_list:
                 line += delimiter
                 try:  # except NaN
-                    line += '{0:.6f}'.format(device_factors[mod_key][trace])
+                    if device_factors[mod_key][trace] == "Non-Avail":
+                        line += '0.00'
+                    else:
+                        line += '{0:.6f}'.format(device_factors[mod_key][trace])
                 except ValueError:
                     line += '{}'.format(device_factors[mod_key][trace])
             output.write(line + '\n')
