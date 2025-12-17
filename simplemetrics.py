@@ -267,35 +267,39 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             mod_factors['comm_eff'][trace] = 'NaN'
 
+        
+        if math.isnan(float(raw_data['outsidempi_avg'][trace])) or math.isnan(float(raw_data['outsidempi_max'][trace])):
+            outmpi_measures = False
+        else:
+            outmpi_measures = True
+
         try:  # except NaN
-            mod_factors['serial_eff'][trace] = float(raw_data['useful_dim'][trace]) \
-                                               / float(raw_data['runtime_dim'][trace]) * 100.0
-            if round(mod_factors['serial_eff'][trace]) > 100:
-                mod_factors['serial_eff'][trace] = 'Warning!'
-        except:
-            if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP') \
-                    and raw_data['runtime_dim'][trace]!='Non-Avail':
-                mod_factors['serial_eff'][trace] = 'NaN'
-            else:
+            if (not outmpi_measures) or cmdl_args.skip_simulation:
                 mod_factors['serial_eff'][trace] = 'Non-Avail'
+            else: 
+                mod_factors['serial_eff'][trace] = float(raw_data['useful_dim'][trace]) \
+                                               / float(raw_data['runtime_dim'][trace]) * 100.0
+                
+                if round(mod_factors['serial_eff'][trace]) > 100:
+                    mod_factors['serial_eff'][trace] = 'Warning!'
+        except:
+            mod_factors['serial_eff'][trace] = 'NaN'
 
         try:  # except NaN
-            if mod_factors['serial_eff'][trace] != 'Warning!':
-                mod_factors['transfer_eff'][trace] = mod_factors['comm_eff'][trace] \
-                                                     / mod_factors['serial_eff'][trace] * 100.0
-            else:
-                mod_factors['transfer_eff'][trace] = float(raw_data['runtime_dim'][trace]) \
-                                                     / float(raw_data['runtime'][trace]) * 100.0
-
-            if round(mod_factors['transfer_eff'][trace]) > 100:
-                mod_factors['transfer_eff'][trace] = 'Warning!'
-        except:
-            if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP') \
-                    and raw_data['runtime_dim'][trace]!='Non-Avail':
-                mod_factors['transfer_eff'][trace] = 'NaN'
-
-            else:
+            if (not outmpi_measures) or cmdl_args.skip_simulation:
                 mod_factors['transfer_eff'][trace] = 'Non-Avail'
+            else:
+                if mod_factors['serial_eff'][trace] != 'Warning!':
+                    mod_factors['transfer_eff'][trace] = mod_factors['comm_eff'][trace] \
+                                                     / mod_factors['serial_eff'][trace] * 100.0
+                else:
+                    mod_factors['transfer_eff'][trace] = float(raw_data['runtime_dim'][trace]) \
+                                                     / float(raw_data['runtime'][trace]) * 100.0
+                
+                if round(mod_factors['transfer_eff'][trace]) > 100:
+                    mod_factors['transfer_eff'][trace] = 'Warning!'
+        except:
+            mod_factors['transfer_eff'][trace] = 'NaN'
 
         # Parallel Efficiency
         try:  # except NaN

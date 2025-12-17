@@ -65,6 +65,7 @@ def parse_arguments():
                                         '(default: max processes of the trace list )')
     parser.add_argument("-ms", "--max_trace_size", help='set the maximum trace size in MiB allowed.'
                                                         ' (default: 1024 MiB )', default=1024.0)
+    parser.add_argument("-skip-simul", "--skip-simulation", help="Skip running the dimemas simulation", action="store_true")
     parser.add_argument("-tmd", "--trace_mode_detection", choices=['pcf', 'prv'], default='pcf',
                         help='select .prv or .pcf file for trace mode detection. '
                              'For customized traces, i.e. cut, filtered and so on, you must select'
@@ -78,6 +79,7 @@ def parse_arguments():
     parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='classic',
                         help='Select the model to compute POP metrics (default: classic).'
                              ' classic shows the hybrid metrics proposed in POP2 and talp presents the metrics proposed by TALP team.')
+    
 
     #parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='classic',
     #                    help='Select the model to compute POP metrics (default: classic).'
@@ -112,7 +114,10 @@ def check_installation(cmdl_args):
     if not which('Dimemas'):
         print('Could not find Dimemas. Please make sure Dimemas is correctly installed and in the path.')
         print("Warning: Dimemas is not installed. Transfer and Serialization will be not calculated!\n")
-        # sys.exit(1)
+
+    if cmdl_args.skip_simulation:
+        print("Skipping Simulation. Transfer and Serialization will be not calculated!\n")
+
     if not which('paramedir'):
         print('Could not find paramedir. Please make sure Paraver is correctly installed and in the path.')
         sys.exit(1)

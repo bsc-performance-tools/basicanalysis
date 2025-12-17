@@ -456,10 +456,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         # ------------> BEGIN MPI communication sub-metrics
         try:  # except NaN
-            if not outmpi_measures:
+            if (not outmpi_measures) or cmdl_args.skip_simulation:
                 hybrid_factors['serial_eff'][trace] = 'Non-Avail'
             elif trace_mode[trace] == "Detailed+MPI+OpenMP" \
-                    or trace_mode[trace] == 'Detailed+MPI+CUDA':
+                        or trace_mode[trace] == 'Detailed+MPI+CUDA':
                 hybrid_factors['serial_eff'][trace] = float(raw_data['outsidempi_dim'][trace]) \
                                                / float(raw_data['runtime_dim'][trace]) * 100.0
                 mod_factors['serial_eff'][trace] = 'N/A'
@@ -476,13 +476,14 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
             if round(hybrid_factors['serial_eff'][trace]) > 100:
                 hybrid_factors['serial_eff'][trace] = 'Warning!'
-        except:
-            if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP') and outmpi_measures:
-                if hybrid_factors['serial_eff'][trace] != 'N/A':
+        except:    
+            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
+                    or trace_mode[trace] == 'Detailed+MPI+CUDA':
+                if hybrid_factors['serial_eff'][trace] != 'Non-Avail' and hybrid_factors['serial_eff'][trace] != 'N/A':
                     hybrid_factors['serial_eff'][trace] = 'NaN'
 
         try:  # except NaN
-            if not outmpi_measures:
+            if (not outmpi_measures) or cmdl_args.skip_simulation:
                 hybrid_factors['transfer_eff'][trace] = 'Non-Avail'
             elif hybrid_factors['serial_eff'][trace] != 'Warning!':
                 if trace_mode[trace] == "Detailed+MPI+OpenMP" \
@@ -501,13 +502,13 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     hybrid_factors['transfer_eff'][trace] = 'N/A'
                     mod_factors['transfer_eff'][trace] = 'Non-Avail'
 
-            if not hybrid_factors['transfer_eff'][trace] == 'Non-Avail':
-                if round(hybrid_factors['transfer_eff'][trace]) > 100:
-                    hybrid_factors['transfer_eff'][trace] = 'Warning!'
+                if not hybrid_factors['transfer_eff'][trace] == 'Non-Avail':
+                    if round(hybrid_factors['transfer_eff'][trace]) > 100:
+                        hybrid_factors['transfer_eff'][trace] = 'Warning!'
         except:
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
                     or trace_mode[trace] == 'Detailed+MPI+CUDA':
-                if hybrid_factors['transfer_eff'][trace] != 'N/A':
+                if hybrid_factors['transfer_eff'][trace] != 'N/A' and hybrid_factors['transfer_eff'][trace] != 'Non-Avail':
                     hybrid_factors['transfer_eff'][trace] = 'NaN'
 
         # --------------> END MPI communication sub-metrics
@@ -579,7 +580,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
 # ------------> BEGIN MPI communication sub-metrics HOST
         try:  # except NaN
-            if not outmpi_measures:
+            if not outmpi_measures or cmdl_args.skip_simulation:
                 host_factors['serial_eff'][trace] = 'Non-Avail'
             elif trace_mode[trace] == 'Detailed+MPI+CUDA':
                 host_factors['serial_eff'][trace] = hybrid_factors['serial_eff'][trace]
@@ -587,7 +588,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             host_factors['serial_eff'][trace] = 'NaN'        
 
         try:  # except NaN
-            if not outmpi_measures:
+            if not outmpi_measures or cmdl_args.skip_simulation:
                 host_factors['transfer_eff'][trace] = 'Non-Avail'
             elif trace_mode[trace] == 'Detailed+MPI+CUDA':
                     host_factors['transfer_eff'][trace] = hybrid_factors['transfer_eff'][trace]

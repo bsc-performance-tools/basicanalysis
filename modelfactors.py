@@ -80,7 +80,7 @@ if __name__ == "__main__":
         if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
             trace_metrics += 1
 
-    # Analyze the traces and gather the raw input data
+    # Analyze the traces and gather the raw input data      
     raw_data, list_mpi_procs_count = gather_raw_data(trace_list, trace_processes, trace_task_per_node,
                                                      trace_mode,trace_tasks, trace_threads, cmdl_args)
     print_raw_data_csv(raw_data, trace_list, trace_processes)

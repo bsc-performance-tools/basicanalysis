@@ -294,7 +294,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         run_command(cmd_normal, cmdl_args)
 
         # Create simulated ideal trace with Dimemas
-        if which('Dimemas'):
+        if which('Dimemas') and not cmdl_args.skip_simulation:
             if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' or \
                     trace_mode[trace] == 'Detailed+MPI+CUDA') and os.path.exists(trace_name + '.outside_mpi.stats'):
                 time_dim = time.time()
@@ -310,7 +310,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                     print('Failed to create simulated trace with Dimemas.')
 
         # Run paramedir for the simulated trace
-        if which('Dimemas') and os.path.exists(trace_name + '.outside_mpi.stats'):
+        if which('Dimemas') and os.path.exists(trace_name + '.outside_mpi.stats') and not cmdl_args.skip_simulation:
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
                     or trace_mode[trace] == 'Detailed+MPI+CUDA':
                 cmd_ideal = ['paramedir', trace_sim]
@@ -346,7 +346,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             print('==ERROR== Failed to compute counter information with paramedir.')
             error_counters = 1
 
-        if which('Dimemas'):
+        if which('Dimemas') and not cmdl_args.skip_simulation:
             if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
                     or trace_mode[trace] == 'Detailed+MPI+CUDA') and os.path.exists(trace_name + '.outside_mpi.stats'):
                 if not os.path.exists(trace_name_sim + '.timings.stats') or \
@@ -488,9 +488,11 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                         elif "Average" in field.split("\t"):
                             if count_procs != 0:
                                 raw_data['io_avg'][trace] = float(sum(list_io_tot)/count_procs)
-                                raw_data['io_std'][trace] = math.sqrt(sum([(number - raw_data['io_avg'][trace]) ** 2
-                                                                           for number in list_io_tot])
-                                                                      / (len(list_io_tot) - 1))
+                                if len(list_io_tot) > 1:
+                                    variance = sum((x - raw_data['io_avg'][trace]) ** 2 for x in list_io_tot) / len(list_io_tot)
+                                    raw_data['io_std'][trace] = math.sqrt(variance)
+                                else:
+                                    raw_data['io_std'][trace] = 0.0
                             else:
                                 raw_data['io_avg'][trace] = 0.0
                                 raw_data['io_std'][trace] = 0.0
@@ -522,9 +524,11 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                         elif "Average" in field.split("\t"):
                             if count_procs != 0:
                                 raw_data['mpiio_avg'][trace] = sum(list_mpiio_tot)/count_procs
-                                raw_data['mpiio_std'][trace] = math.sqrt(sum([(number - raw_data['mpiio_avg'][trace]) ** 2
-                                                                          for number in list_mpiio_tot])
-                                                                     /(len(list_mpiio_tot) - 1))
+                                if len(list_mpiio_tot) > 1:
+                                    variance = sum((x - raw_data['mpiio_avg'][trace]) ** 2 for x in list_mpiio_tot) / len(list_mpiio_tot)
+                                    raw_data['mpiio_std'][trace] = math.sqrt(variance)
+                                else:
+                                    raw_data['mpiio_std'][trace] = 0.0                                
                             else:
                                 raw_data['mpiio_avg'][trace] = 0.0
                                 raw_data['mpiio_std'][trace] = 0.0
@@ -881,7 +885,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         # Get timing for SIMULATED traces
         if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
             or trace_mode[trace] == 'Detailed+MPI+CUDA') and (which('Dimemas') and \
-                os.path.exists(trace_name + '.outside_mpi.stats')):
+                os.path.exists(trace_name + '.outside_mpi.stats') and not cmdl_args.skip_simulation):
             # Get maximum useful duration for simulated trace
             if os.path.exists(trace_name_sim + '.timings.stats'):
                 content = []
@@ -954,7 +958,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
 
         if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
                 or trace_mode[trace] == 'Detailed+MPI+CUDA') and (which('Dimemas') \
-                and os.path.exists(trace_name + '.outside_mpi.stats')):
+                and os.path.exists(trace_name + '.outside_mpi.stats')) and not cmdl_args.skip_simulation:
             move_files(trace_name_sim + '.timings.stats', path_dest, cmdl_args)
             move_files(trace_name_sim + '.runtime.stats', path_dest, cmdl_args)
             move_files(trace_name_sim + '.outside_mpi.stats', path_dest, cmdl_args)
@@ -1094,16 +1098,41 @@ def create_ideal_trace(trace, processes, task_per_node, trace_mode,trace_tasks, 
         cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
            + 'P' + '.dimemas_ideal.cfg']
 
-    run_command(cmd, cmdl_args)
+    #run_command(cmd, cmdl_args)
+    result_exit_code_command = run_command(cmd, cmdl_args)
 
-    if os.path.isfile(trace_sim):
+    if result_exit_code_command == 1001:
+        if trace_mode == 'Detailed+MPI+CUDA':
+            if cmdl_args.simulation_cuda:
+                cmd = ['Dimemas', '-S', '256k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+                + 'P' + '.dimemas_ideal.cfg']
+            else:
+                cmd = ['Dimemas', '-S', '256k', '--disable-cuda', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+                + 'P' + '.dimemas_ideal.cfg']
+        elif trace_mode == 'Detailed+MPI+OpenMP':
+            if cmdl_args.simulation_openmp:
+                cmd = ['Dimemas', '-S', '256k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+                + 'P' + '.dimemas_ideal.cfg']
+            else:
+                cmd = ['Dimemas', '-S', '256k', '--disable-openmp', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+                + 'P' + '.dimemas_ideal.cfg']
+        else:
+            cmd = ['Dimemas', '-S', '256k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+            + 'P' + '.dimemas_ideal.cfg']
+
+        result_exit_code_command = run_command(cmd, cmdl_args)
+
+
+    if os.path.isfile(trace_sim) and (result_exit_code_command == 0):
         if cmdl_args.debug:
             print('==DEBUG== Created file ' + trace_sim)
         return trace_sim
     else:
-        print('==Error== ' + trace_sim + ' could not be created.')
+        if (result_exit_code_command == 1001):
+            print('==ERROR== ' + trace_sim + ' is incomplete.')
+        else:
+            print('==ERROR== ' + trace_sim + ' could not be created.')
         return ''
-
 
 def print_raw_data_table(raw_data, trace_list, trace_processes):
     """Prints the raw data table in human readable form on stdout."""
