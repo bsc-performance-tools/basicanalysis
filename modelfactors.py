@@ -79,7 +79,6 @@ if __name__ == "__main__":
     for trace in trace_list:
         if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
             trace_metrics += 1
-
     # Analyze the traces and gather the raw input data      
     raw_data, list_mpi_procs_count = gather_raw_data(trace_list, trace_processes, trace_task_per_node,
                                                      trace_mode,trace_tasks, trace_threads, cmdl_args)
@@ -96,7 +95,7 @@ if __name__ == "__main__":
         hybridmetrics.print_other_metrics_csv(other_metrics, trace_list, trace_processes)
         
         
-        if cmdl_args.pop_model_to_apply == 'talp':
+        if (cmdl_args.pop_model_to_apply == 'talp') and (trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"):
             hybridmetrics.print_talp_metrics_csv(device_factors,host_factors, trace_list, trace_processes,raw_data)
             hybridmetrics.print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors, device_factors, host_factors,
                                               trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data)
@@ -104,6 +103,7 @@ if __name__ == "__main__":
         else:
             hybridmetrics.print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors, device_factors,
                                               trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data)
+            
         hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
         hybridmetrics.print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_processes, trace_tasks,
                                              trace_threads,trace_mode)
