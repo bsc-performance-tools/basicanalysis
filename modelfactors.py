@@ -49,14 +49,6 @@ except ImportError:
     error_import_numpy = True
 
 
-__author__ = "Sandra Mendez"
-__copyright__ = "Copyright 2019, Barcelona Supercomputing Center (BSC)"
-__version_major__ = 0
-__version_minor__ = 3
-__version_micro__ = 10
-__version__ = str(__version_major__) + "." + str(__version_minor__) + "." + str(__version_micro__)
-
-
 if __name__ == "__main__":
     """Main control flow.
     Currently the script only accepts one parameter, which is a list of traces
