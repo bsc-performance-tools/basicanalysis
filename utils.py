@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import argparse
 import shutil
-
+from datetime import datetime
 
 try:
     import scipy.optimize
@@ -35,13 +35,12 @@ try:
 except ImportError:
     print('==Error== Could not import matplotlib. Please make sure you have installed matplotlib.')
 
-
 __author__ = "Sandra Mendez"
 __copyright__ = "Copyright 2019, Barcelona Supercomputing Center (BSC)"
 __version_major__ = 0
-__version_minor__ = 3
-__version_micro__ = 10
-__version__ = str(__version_major__) + "." + str(__version_minor__) + "." + str(__version_micro__)
+__version_minor__ = 4
+__version_micro__ = 0
+__version__ = f"{__version_major__}.{__version_minor__}.{__version_micro__}"
 
 
 def parse_arguments():
@@ -111,7 +110,7 @@ def which(cmd):
 def check_installation(cmdl_args):
     """Check if Dimemas and paramedir are in the path."""
 
-    if not which('Dimemas'):
+    if not which('Dimemas') and not cmdl_args.skip_simulation:
         print('Could not find Dimemas. Please make sure Dimemas is correctly installed and in the path.')
         print("Warning: Dimemas is not installed. Transfer and Serialization will be not calculated!\n")
 
