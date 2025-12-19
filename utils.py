@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import argparse
 import shutil
-
+from datetime import datetime
 
 try:
     import scipy.optimize
@@ -35,13 +35,12 @@ try:
 except ImportError:
     print('==Error== Could not import matplotlib. Please make sure you have installed matplotlib.')
 
-
 __author__ = "Sandra Mendez"
 __copyright__ = "Copyright 2019, Barcelona Supercomputing Center (BSC)"
 __version_major__ = 0
-__version_minor__ = 3
-__version_micro__ = 9
-__version__ = str(__version_major__) + "." + str(__version_minor__) + "." + str(__version_micro__)
+__version_minor__ = 4
+__version_micro__ = 0
+__version__ = f"{__version_major__}.{__version_minor__}.{__version_micro__}"
 
 
 def parse_arguments():
@@ -65,12 +64,25 @@ def parse_arguments():
                                         '(default: max processes of the trace list )')
     parser.add_argument("-ms", "--max_trace_size", help='set the maximum trace size in MiB allowed.'
                                                         ' (default: 1024 MiB )', default=1024.0)
+    parser.add_argument("-skip-simul", "--skip-simulation", help="Skip running the dimemas simulation", action="store_true")
     parser.add_argument("-tmd", "--trace_mode_detection", choices=['pcf', 'prv'], default='pcf',
                         help='select .prv or .pcf file for trace mode detection. '
                              'For customized traces, i.e. cut, filtered and so on, you must select'
                              ' the .prv file. (default: pcf)')
     parser.add_argument("-ord", "--order_traces", choices=['yes', 'not'], default='yes',
                         help='Order the trace list based on the numbers of processes')
+    parser.add_argument("-somp", "--simulation_openmp", help='OpenMP events will be simulated '
+                                                          '(default: disable).', action="store_true")
+    parser.add_argument("-scuda", "--simulation_cuda", help='CUDA events will be simulated '
+                                                         '(default: disable).', action="store_true")
+    parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='classic',
+                        help='Select the model to compute POP metrics (default: classic).'
+                             ' classic shows the hybrid metrics proposed in POP2 and talp presents the metrics proposed by TALP team.')
+    
+
+    #parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='classic',
+    #                    help='Select the model to compute POP metrics (default: classic).'
+    #                         ' classic shows the hybrid metrics proposed in POP2 and talp presents the metrics proposed by TALP team.')
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -98,10 +110,13 @@ def which(cmd):
 def check_installation(cmdl_args):
     """Check if Dimemas and paramedir are in the path."""
 
-    if not which('Dimemas'):
+    if not which('Dimemas') and not cmdl_args.skip_simulation:
         print('Could not find Dimemas. Please make sure Dimemas is correctly installed and in the path.')
         print("Warning: Dimemas is not installed. Transfer and Serialization will be not calculated!\n")
-        # sys.exit(1)
+
+    if cmdl_args.skip_simulation:
+        print("Skipping Simulation. Transfer and Serialization will be not calculated!\n")
+
     if not which('paramedir'):
         print('Could not find paramedir. Please make sure Paraver is correctly installed and in the path.')
         sys.exit(1)
@@ -135,47 +150,55 @@ def check_installation(cmdl_args):
 
 def run_command(cmd, cmdl_args):
     """Runs a command and forwards the return value."""
-    ERROR_SIMULATION_INCOMPLETE = 1001 # 1001 when Dimemas produces incomplete simulation
+    ERROR_SIMULATION_INCOMPLETE = 1001  # 1001 when Dimemas produces incomplete simulation
+
     if cmdl_args.debug:
         print('==DEBUG== Executing:', ' '.join(cmd))
 
-    # Run the command and capture output
     if "Dimemas" in cmd:
+        # Run Dimemas and capture output
         result_dimemas = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # Save stdout to a file
-        line_command = cmd[4].split("/")
-        dimemas_output = "dimemas_" + line_command[len(line_command)-1][:-4] + ".out"
-        dimemas_error = "dimemas_" + line_command[len(line_command)-1][:-4] + ".err"
-        #print("=== file out === \n", dimemas_error)
-        with open(dimemas_output, "wb") as file:
-            file.write(result_dimemas.stdout)
-            #file.write("\n/***======================***/\n")
-        # Save error to a file
-        with open(dimemas_error, "wb") as file:
-            file.write(result_dimemas.stderr)
-            #file.write("\n/***======================***/\n")
 
-        # Check if the specific string is in the output
-        if (b'] 100.0%' in result_dimemas.stdout):
+        # cmd[4] should be the trace/config file path
+        dim_path = cmd[4]
+        dim_base = os.path.splitext(os.path.basename(dim_path))[0]  # e.g. "sphexa-cuda....extrae-5.0.0"
+
+        dimemas_output = f"dimemas_{dim_base}.out"
+        dimemas_error  = f"dimemas_{dim_base}.err"
+
+        with open(dimemas_output, "wb") as f:
+            f.write(result_dimemas.stdout)
+        with open(dimemas_error, "wb") as f:
+            f.write(result_dimemas.stderr)
+
+        if b'] 100.0%' in result_dimemas.stdout:
             return_value = 0
+        elif b'END SIMULATION' in result_dimemas.stdout:
+            return_value = ERROR_SIMULATION_INCOMPLETE
         else:
-            if (b'END SIMULATION' in result_dimemas.stdout):
-                return_value = ERROR_SIMULATION_INCOMPLETE
-            else:
-                print("ERROR DIMEMAS: \n",result_dimemas.returncode)
-                return_value = result_dimemas.returncode
+            print("ERROR DIMEMAS:\n", result_dimemas.returncode)
+            return_value = result_dimemas.returncode
+
     else:
-        line_command = cmd[1].split("/")
-        std_output = cmd[0] + "stdout_" + line_command[2][:-4] + ".out"
-        err_error = cmd[0] + "error_" + line_command[2][:-4] + ".err"
+        # Normal command (non-Dimemas)
+        if len(cmd) < 2:
+            raise ValueError(f"Unexpected cmd structure (need at least 2 elements): {cmd}")
+
+        trace_path = cmd[1]
+        trace_base = os.path.splitext(os.path.basename(trace_path))[0]
+
+        std_output = f"{cmd[0]}stdout_{trace_base}.out"
+        err_error  = f"{cmd[0]}error_{trace_base}.err"
 
         with open(std_output, "w") as out, open(err_error, "w") as err:
             return_value = subprocess.call(cmd, stdout=out, stderr=err)
 
+    # Remove temp files if everything went well
     if return_value == 0:
         if "Dimemas" in cmd:
             os.remove(dimemas_output)
             os.remove(dimemas_error)
+            print("")
         else:
             os.remove(std_output)
             os.remove(err_error)
@@ -187,8 +210,6 @@ def run_command(cmd, cmdl_args):
             if return_value != ERROR_SIMULATION_INCOMPLETE:
                 print('==ERROR== ' + ' '.join(cmd) + ' failed with return value ' + str(return_value) + '!')
                 print('See ' + dimemas_output + ' and ' + dimemas_error + ' for more details.')
-
-            #print('Run in debug mode and see .out and .err files for more details.')
 
     return return_value
 

@@ -113,13 +113,16 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
         else:
             y_mpi_comm[index] = 0.0
         if trace_mode[trace] == 'Detailed+MPI' \
-                or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-            if hybrid_factors['serial_eff'][trace] != 'N/A' and hybrid_factors['serial_eff'][trace] != 'Warning!':
+                or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
+                or trace_mode[trace] == 'Detailed+MPI+CUDA':
+            if hybrid_factors['serial_eff'][trace] != 'N/A' and hybrid_factors['serial_eff'][trace] != 'Warning!' \
+            and hybrid_factors['serial_eff'][trace] != 'Non-Avail':
                 y_comm_serial[index] = hybrid_factors['serial_eff'][trace]
             else:
                 y_comm_serial[index] = 0.0
             if hybrid_factors['transfer_eff'][trace] != 'N/A' \
-                    and hybrid_factors['transfer_eff'][trace] != 'Warning!':
+                    and hybrid_factors['transfer_eff'][trace] != 'Warning!'\
+                    and hybrid_factors['transfer_eff'][trace] != 'Non-Avail':
                 y_comm_transfer[index] = hybrid_factors['transfer_eff'][trace]
             else:
                 y_comm_transfer[index] = 0.0
@@ -489,11 +492,11 @@ def plot_simple_metrics(mod_factors, trace_list, trace_processes, trace_mode, cm
             y_inst_scale[index] = 0.0
             y_freq_scale[index] = 0.0
         if trace_mode[trace] == 'Detailed+MPI':
-            if mod_factors['serial_eff'][trace] != 'Warning!':
+            if (mod_factors['serial_eff'][trace] != 'Warning!') and (mod_factors['serial_eff'][trace] != 'Non-Avail'):
                 y_comm_serial[index] = mod_factors['serial_eff'][trace]
             else:
                 y_comm_serial[index] = 0.0
-            if mod_factors['transfer_eff'][trace] != 'Warning!':
+            if mod_factors['transfer_eff'][trace] != 'Warning!' and (mod_factors['serial_eff'][trace] != 'Non-Avail'):
                 y_comm_transfer[index] = mod_factors['transfer_eff'][trace]
             else:
                 y_comm_transfer[index] = 0.0

@@ -8,10 +8,12 @@ import time
 import math
 import gzip
 import shutil
+import re
 from utils import which
-from collections import OrderedDict
-from tracemetadata import human_readable
+from collections import OrderedDict, defaultdict
+from tracemetadata import human_readable, get_tasks_threads, get_traces_from_args, get_device_count, get_device_stream_id_mapping
 from utils import run_command, move_files,remove_files, create_temp_folder
+from typing import Dict, Tuple, List
 
 
 # Contains all raw data entries with a printable name.
@@ -59,7 +61,12 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_not_0_avg', 'Useful duration not 0 inst (average)'),
                             ('useful_not_0_max', 'Useful duration not 0 inst (maximum)'),
                             ('useful_not_0_tot', 'Useful duration not 0 inst (total)'),
-                            ('procs_ins', 'Procs with instructions (total)')
+                            ('procs_ins', 'Procs with instructions (total)'),
+                            ('useful_device', 'Useful duration on the device'),
+                            ('useful_device_max', 'Useful duration on the device (maximum)'),
+                            ('useful_memtransf_device', 'Useful+MemoryTransfer on the device'),
+                            ('useful_memtransf_device_max', 'Useful+MemoryTransfer on the device (maximum)'),
+                            ('count_devices', 'Count of Devices')
                             ])
 
 
@@ -78,8 +85,116 @@ def create_raw_data(trace_list):
 
     return raw_data
 
+# Functions to extract GPU IDs
 
-def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode, cmdl_args):
+def format_mapping_for_cfg(
+    device_tuple: Tuple[int, List[str]],
+    decimals: int = 12,
+    trim_trailing_zeros: bool = False
+) -> str:
+    """
+    device_tuple: (count, ["002","003",...])
+    returns: "40 2.000000000000 3.000000000000 ..." (or trimmed)
+    """
+    count, ids = device_tuple
+
+    parts: List[str] = [str(count)]
+
+    if trim_trailing_zeros:
+        # Use general format to drop trailing zeros, but keep integer look (e.g., "2", "3")
+        parts.extend(f"{int(x):g}" for x in ids)
+    else:
+        # Fixed decimals like "2.000000000000"
+        fmt = f"{{:.{decimals}f}}"
+        parts.extend(fmt.format(int(x)) for x in ids)
+
+    return " ".join(parts)
+
+def write_cfg_for_device(
+    template_path: str,
+    out_path: str,
+    device_tuple: Tuple[int, List[str]],
+    decimals: int = 12,
+    trim_trailing_zeros: bool = False,
+    placeholder: str = "REPLACE_BY_GPU_MAPPING"
+):
+    """
+    Replace the placeholder in the template with the formatted mapping and write to out_path.
+    """
+    with open(template_path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    replacement = format_mapping_for_cfg(device_tuple, decimals, trim_trailing_zeros)
+
+    # Replace just inside the specific line; safe even if there are spaces
+    pattern = re.compile(rf"({re.escape(placeholder)})")
+    new_text = pattern.sub(replacement, text, count=1)
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(new_text)
+
+def write_all_device_cfgs_useful(
+    cfgs: dict,
+    mapping: Dict[str, Tuple[int, List[str]]],
+    template_key: str = "useful_device",
+    output_basename: str = "kernels-x-Tasks-in-Device_app"
+):
+    """
+    Convenience wrapper:
+    - cfgs[template_key] should point to your template cfg file (with REPLACE_BY_GPU_MAPPING).
+    - Creates one cfg file per device: ...-D1.cfg, ...-D2.cfg, ...
+    - Stores the file paths in cfgs as 'useful_device_D1', 'useful_device_D2', ...
+    """
+    template_path = cfgs[template_key]
+    #root = cfgs["root_dir"]
+    root = "scratch_out_basicanalysis"
+    for dev, dev_tuple in mapping.items():
+        safe_id = dev.replace(":", "_").replace("/", "_")
+        out_path = os.path.join(root, f"{output_basename}-{safe_id}.cfg")
+        # choose decimals vs trimming here:
+        write_cfg_for_device(
+            template_path,
+            out_path,
+            dev_tuple,
+            decimals=12,                # exact 12-decimal output
+            trim_trailing_zeros=False   # set True if you want "2 3 8 9 ..." instead
+        )
+        cfgs[f"useful_device_{safe_id}"] = out_path
+
+def write_all_device_cfgs_useful_plus_memtransfer(
+    cfgs: dict,
+    mapping: Dict[str, Tuple[int, List[str]]],
+    template_key: str = "useful_memtransf_device",
+    output_basename: str = "kernelsPlusMemTransfer-x-Tasks-in-Device_app"
+):
+    """
+    Convenience wrapper:
+    - cfgs[template_key] should point to your template cfg file (with REPLACE_BY_GPU_MAPPING).
+    - Creates one cfg file per device: ...-D1.cfg, ...-D2.cfg, ...
+    - Stores the file paths in cfgs as 'useful_device_D1', 'useful_device_D2', ...
+    """
+    template_path = cfgs[template_key]
+    #root = cfgs["root_dir"]
+    root = "scratch_out_basicanalysis"
+
+    for dev, dev_tuple in mapping.items():
+        safe_id = dev.replace(":", "_").replace("/", "_")
+        out_path = os.path.join(root, f"{output_basename}-{safe_id}.cfg")
+        # choose decimals vs trimming here:
+        write_cfg_for_device(
+            template_path,
+            out_path,
+            dev_tuple,
+            decimals=12,                # exact 12-decimal output
+            trim_trailing_zeros=False   # set True if you want "2 3 8 9 ..." instead
+        )
+        cfgs[f"useful_memtransf_device_{safe_id}"] = out_path
+
+
+###############################
+
+def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode,trace_tasks, trace_threads,cmdl_args):
     """Gathers all raw data needed to generate the model factors. Return raw
     data in a 2D dictionary <data type><list of values for each trace>"""
     raw_data = create_raw_data(trace_list)
@@ -104,6 +219,9 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
     cfgs['flushing_inst'] = os.path.join(cfgs['root_dir'], 'flushing-inst.cfg')
     cfgs['burst_useful'] = os.path.join(cfgs['root_dir'], 'burst_useful.cfg')
 
+    # To obtain running in host and devices
+    cfgs['useful_device'] = os.path.join(cfgs['root_dir'], 'kernels-x-Tasks-in-Device_app.cfg')
+    cfgs['useful_memtransf_device'] = os.path.join(cfgs['root_dir'], 'kernelsPlusMemTransfer-x-Tasks-in-Device_app.cfg')
 
     # Main loop over all traces
     # This can be parallelized: the loop iterations have no dependencies
@@ -124,21 +242,9 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         line += ', ' + str(trace_mode[trace]) + ' mode'
         line += ', ' + human_readable(os.path.getsize(trace)) + ')'
         print(line)
+         
 
-        # Create simulated ideal trace with Dimemas
-        if which('Dimemas'):
-            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-                time_dim = time.time()
-                trace_sim = create_ideal_trace(trace, trace_processes[trace], trace_task_per_node[trace], cmdl_args)
-                trace_name_sim = trace_sim[:-4]
-                # print(trace_sim)
-                time_dim = time.time() - time_dim
-                if not trace_sim == '':
-                    print('Successfully created simulated trace with Dimemas in {0:.1f} seconds.'.format(time_dim))
-                else:
-                    print('Failed to create simulated trace with Dimemas.')
-
-        # Run paramedir for the original and simulated trace
+        # Run paramedir for the original trace
         time_pmd = time.time()
         cmd_normal = ['paramedir', trace]
 
@@ -152,7 +258,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         cmd_normal.extend([cfgs['io_inst'], trace_name + '.posixio-inst.stats'])
         cmd_normal.extend([cfgs['flushing_cycles'], trace_name + '.flushing-cycles.stats'])
         cmd_normal.extend([cfgs['flushing_inst'], trace_name + '.flushing-inst.stats'])
-
+        
 
         if trace_mode[trace][:12] == 'Detailed+MPI':
             cmd_normal.extend([cfgs['mpi_io'], trace_name + '.mpi_io.stats'])
@@ -162,17 +268,58 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
 
         if trace_mode[trace][:9] == 'Burst+MPI':
             cmd_normal.extend([cfgs['burst_useful'], trace_name + '.burst_useful.stats'])
-
+        
+        if trace_mode[trace] == 'Detailed+MPI+CUDA':
+            gpu_devices = get_device_count(trace)            
+            print("==> Count of devices: ", gpu_devices)
+            raw_data['count_devices'][trace] = gpu_devices
+            mapping_devices = get_device_stream_id_mapping(trace)
+            #print("==> Mapping in GPU: ", mapping_devices)
+            write_all_device_cfgs_useful(cfgs, mapping_devices)
+            #print("CFGS: ", cfgs)
+            for device_id in mapping_devices:
+                safe_id = device_id.replace(":", "_").replace("/", "_")
+                key_device_to_replace = "useful_device_" + str(safe_id)
+                cmd_normal.extend([cfgs[key_device_to_replace], trace_name +"." + str(key_device_to_replace) + '.stats'])
+                #print("Id device: ",key_device_to_replace)
+            
+            write_all_device_cfgs_useful_plus_memtransfer(cfgs, mapping_devices)
+            for device_id in mapping_devices:
+                safe_id = device_id.replace(":", "_").replace("/", "_")
+                key_device_to_replace = "useful_memtransf_device_" + str(safe_id)
+                cmd_normal.extend([cfgs[key_device_to_replace], trace_name +"." + str(key_device_to_replace) + '.stats'])
+                #print("Id device: ",key_device_to_replace)
+        
+        
         run_command(cmd_normal, cmdl_args)
 
-        if which('Dimemas'):
-            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+        # Create simulated ideal trace with Dimemas
+        if which('Dimemas') and not cmdl_args.skip_simulation:
+            if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' or \
+                    trace_mode[trace] == 'Detailed+MPI+CUDA') and os.path.exists(trace_name + '.outside_mpi.stats'):
+                time_dim = time.time()
+
+                trace_sim = create_ideal_trace(trace, trace_processes[trace], trace_task_per_node[trace], \
+                                               trace_mode[trace],trace_tasks[trace], trace_threads[trace], cmdl_args)
+                trace_name_sim = trace_sim[:-4]
+                # print(trace_sim)
+                time_dim = time.time() - time_dim
+                if not trace_sim == '':
+                    print('Successfully created simulated trace with Dimemas in {0:.1f} seconds.'.format(time_dim))
+                else:
+                    print('Failed to create simulated trace with Dimemas.')
+
+        # Run paramedir for the simulated trace
+        if which('Dimemas') and os.path.exists(trace_name + '.outside_mpi.stats') and not cmdl_args.skip_simulation:
+            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
+                    or trace_mode[trace] == 'Detailed+MPI+CUDA':
                 cmd_ideal = ['paramedir', trace_sim]
                 cmd_ideal.extend([cfgs['timings'], trace_name_sim + '.timings.stats'])
                 cmd_ideal.extend([cfgs['runtime'], trace_name_sim + '.runtime.stats'])
                 cmd_ideal.extend([cfgs['outside_mpi'], trace_name_sim + '.outside_mpi.stats'])
 
-            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
+                    or trace_mode[trace] == 'Detailed+MPI+CUDA':
                 if not trace_sim == '':
                     # print(cmd_ideal)
                     run_command(cmd_ideal, cmdl_args)
@@ -199,8 +346,9 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             print('==ERROR== Failed to compute counter information with paramedir.')
             error_counters = 1
 
-        if which('Dimemas'):
-            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
+        if which('Dimemas') and not cmdl_args.skip_simulation:
+            if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
+                    or trace_mode[trace] == 'Detailed+MPI+CUDA') and os.path.exists(trace_name + '.outside_mpi.stats'):
                 if not os.path.exists(trace_name_sim + '.timings.stats') or \
                         not os.path.exists(trace_name_sim + '.runtime.stats') or \
                         not os.path.exists(trace_name_sim + '.outside_mpi.stats'):
@@ -214,10 +362,9 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             print('Failed to analyze trace with paramedir')
         else:
             print('Successfully analyzed trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
-
+        
         # Parse the paramedir output files
         time_prs = time.time()
-
 
         # Get useful cycles
         if os.path.exists(trace_name + '.cycles.stats'):
@@ -244,7 +391,6 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             raw_data['useful_cyc'][trace] = 'NaN'
 
         # Get useful instructions
-        # take care this variable is used also for useful total time not cero inst
         procs_ins = 0
         if os.path.exists(trace_name + '.instructions.stats'):
             useful_ins = 0.0
@@ -301,7 +447,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             raw_data['useful_not_0_avg'][trace] = 'NaN'
             raw_data['useful_not_0_max'][trace] = 'NaN'
         f.close()
-        #### END To Useful Total for Instructions not 0 ####
+        #### END ####
 
         # Get total, average, and maximum useful duration
         if os.path.exists(trace_name + '.timings.stats'):
@@ -342,9 +488,11 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                         elif "Average" in field.split("\t"):
                             if count_procs != 0:
                                 raw_data['io_avg'][trace] = float(sum(list_io_tot)/count_procs)
-                                raw_data['io_std'][trace] = math.sqrt(sum([(number - raw_data['io_avg'][trace]) ** 2
-                                                                           for number in list_io_tot])
-                                                                      / (len(list_io_tot) - 1))
+                                if len(list_io_tot) > 1:
+                                    variance = sum((x - raw_data['io_avg'][trace]) ** 2 for x in list_io_tot) / len(list_io_tot)
+                                    raw_data['io_std'][trace] = math.sqrt(variance)
+                                else:
+                                    raw_data['io_std'][trace] = 0.0
                             else:
                                 raw_data['io_avg'][trace] = 0.0
                                 raw_data['io_std'][trace] = 0.0
@@ -376,9 +524,11 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                         elif "Average" in field.split("\t"):
                             if count_procs != 0:
                                 raw_data['mpiio_avg'][trace] = sum(list_mpiio_tot)/count_procs
-                                raw_data['mpiio_std'][trace] = math.sqrt(sum([(number - raw_data['mpiio_avg'][trace]) ** 2
-                                                                          for number in list_mpiio_tot])
-                                                                     /(len(list_mpiio_tot) - 1))
+                                if len(list_mpiio_tot) > 1:
+                                    variance = sum((x - raw_data['mpiio_avg'][trace]) ** 2 for x in list_mpiio_tot) / len(list_mpiio_tot)
+                                    raw_data['mpiio_std'][trace] = math.sqrt(variance)
+                                else:
+                                    raw_data['mpiio_std'][trace] = 0.0                                
                             else:
                                 raw_data['mpiio_avg'][trace] = 0.0
                                 raw_data['mpiio_std'][trace] = 0.0
@@ -484,13 +634,13 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                 count_threads = 1
                 for line1 in content[1:(len(content) - 8)]:
                     line = line1.split("\t")
-                    #print(line)
+                    ## print(line)
                     if line:
                         if line[0] != 'Num. Cells' and line[0] != 'Total' and line[0] != 'Average' \
                                 and line[0] != 'Maximum' and line[0] != 'StDev' \
                                 and line[0] != 'Avg/Max' and line[0] != '\n':
                             # To extract the count of MPI tasks
-                            #print(line[1])
+                            #print(line)
                             #print(raw_data['runtime'][trace])
                             if float(line[1]) != raw_data['runtime'][trace]:
                                 list_outside_mpi.append(float(line[1]))
@@ -529,6 +679,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                     raw_data['outsidempi_tot'][trace] = sum(list_outside_mpi)
                     # Only the average is updated with the rescaled outsidempi
                     if sum(list_thread_outside_mpi) != 0:
+                        # print(list_thread_outside_mpi)
                         raw_data['outsidempi_avg'][trace] = sum(rescaled_outside_mpi) / sum(list_thread_outside_mpi)
                     else:
                         raw_data['outsidempi_avg'][trace] = 'NaN'
@@ -536,8 +687,9 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                     # because it waits that the MPI task has the max outsidempi.
                     raw_data['outsidempi_max'][trace] = max(list_outside_mpi)
                 else:
-                    # print("\n===== Equal number of threads per mpi task \n")
+                    #print("\n===== Equal number of threads per mpi task \n")
                     raw_data['outsidempi_tot_diff'][trace] = sum(list_outside_mpi)
+
                     list_mpi_procs_count[trace] = len(list_outside_mpi)
                     raw_data['outsidempi_tot'][trace] = sum(list_outside_mpi)
                     if len(list_outside_mpi) != 0:
@@ -545,6 +697,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                     else:
                         raw_data['outsidempi_avg'][trace] = 'NaN'
                     raw_data['outsidempi_max'][trace] = max(list_outside_mpi)
+
                 for line2 in content[(len(content) - 7):]:
                     line_aux = line2.split("\t")
 
@@ -553,7 +706,8 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                         count_mpiop = len(line_aux[1:])
                         list_mpi_tot = [float(mpitime) for mpitime in line_aux[2:count_mpiop]]
                         #print(list_mpi_tot)
-                raw_data['mpicomm_tot'][trace] = sum(list_mpi_tot)
+                    raw_data['mpicomm_tot'][trace] = sum(list_mpi_tot)
+                #print(list_outside_mpi)
         else:
             raw_data['outsidempi_tot'][trace] = 'NaN'
             raw_data['outsidempi_avg'][trace] = 'NaN'
@@ -665,6 +819,41 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         else:
             raw_data['mpiio_ins'][trace] = 0.0
 
+        ####### Get  values for GPU metrics
+        if trace_mode[trace] == 'Detailed+MPI+CUDA':
+            raw_data['useful_device'][trace] = 0.0
+            raw_data['useful_device_max'][trace] = 0.0
+            raw_data['useful_memtransf_device'][trace] = 0.0
+            raw_data['useful_memtransf_device_max'][trace] = 0.0
+            for device_id in mapping_devices:
+                safe_id = device_id.replace(":", "_").replace("/", "_")                
+                key_device_to_replace = "useful_device_" + str(safe_id)
+                if os.path.exists(trace_name +"." + str(key_device_to_replace) + '.stats'):
+                    content = []
+                    with open(trace_name +"." + str(key_device_to_replace) + '.stats') as f:
+                        content = f.readlines()
+                        for line in content:
+                            if line.split():
+                                if line.split()[0] == 'Total':
+                                    raw_data['useful_device'][trace] += float(line.split()[1])
+                                if line.split()[0] == 'Maximum':
+                                    if float(line.split()[1]) > raw_data['useful_device_max'][trace]:
+                                        raw_data['useful_device_max'][trace] = float(line.split()[1])
+                
+                key_device_to_replace = "useful_memtransf_device_" + str(safe_id)
+                if os.path.exists(trace_name +"." + str(key_device_to_replace) + '.stats'):
+                    content = []
+                    with open(trace_name +"." + str(key_device_to_replace) + '.stats') as f:
+                        content = f.readlines()
+                        for line in content:
+                            if line.split():
+                                if line.split()[0] == 'Total':
+                                    raw_data['useful_memtransf_device'][trace] += float(line.split()[1])
+                                if line.split()[0] == 'Maximum':
+                                    if float(line.split()[1]) > raw_data['useful_memtransf_device_max'][trace]:
+                                        raw_data['useful_memtransf_device_max'][trace] = float(line.split()[1])
+       
+        ####### END Get  values for GPU metrics
         # Get Efficiencies for BurstMode
         if trace_mode[trace] == 'Burst+MPI':
             # Get total, maximum and avg from burst useful
@@ -694,7 +883,9 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             raw_data['burst_useful_tot'][trace] = 0.0
 
         # Get timing for SIMULATED traces
-        if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP') and which('Dimemas'):
+        if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
+            or trace_mode[trace] == 'Detailed+MPI+CUDA') and (which('Dimemas') and \
+                os.path.exists(trace_name + '.outside_mpi.stats') and not cmdl_args.skip_simulation):
             # Get maximum useful duration for simulated trace
             if os.path.exists(trace_name_sim + '.timings.stats'):
                 content = []
@@ -734,8 +925,8 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                         # print(line)
                             if line:
                                 if line[0] != 'Num. Cells' and line[0] != 'Total' and line[0] != 'Average' \
-                                        and line[0] != 'Maximum' and line[0] != 'StDev' \
-                                        and line[0] != 'Avg/Max' and line[0] != '\n':
+                                           and line[0] != 'Maximum' and line[0] != 'StDev' \
+                                           and line[0] != 'Avg/Max' and line[0] != '\n':
                                     # To extract the count of MPI tasks
                                     if line[0].split(".")[2] == '1':
                                         list_outside_mpi.append(float(line[1]))
@@ -765,29 +956,9 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             raw_data['runtime_dim'][trace] = 'Non-Avail'
             raw_data['outsidempi_dim'][trace] = 'Non-Avail'
 
-        # Remove paramedir output files
-        move_files(trace_name + '.timings.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.runtime.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.cycles.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.instructions.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.flushing.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.posixio-cycles.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.posixio-inst.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.flushing-cycles.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.flushing-inst.stats', path_dest, cmdl_args)
-
-        if trace_mode[trace][:12] == 'Detailed+MPI':
-            move_files(trace_name + '.mpi_io.stats', path_dest, cmdl_args)
-            move_files(trace_name + '.posixio_call.stats', path_dest, cmdl_args)
-            move_files(trace_name + '.outside_mpi.stats', path_dest, cmdl_args)
-            move_files(trace_name + '.mpiio-cycles.stats', path_dest, cmdl_args)
-            move_files(trace_name + '.mpiio-inst.stats', path_dest, cmdl_args)
-
-        if trace_mode[trace][:9] == 'Burst+MPI':
-            move_files(trace_name + '.2dh_BurstEff.stats', path_dest, cmdl_args)
-            move_files(trace_name + '.burst_useful.stats', path_dest, cmdl_args)
-
-        if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP') and which('Dimemas'):
+        if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
+                or trace_mode[trace] == 'Detailed+MPI+CUDA') and (which('Dimemas') \
+                and os.path.exists(trace_name + '.outside_mpi.stats')) and not cmdl_args.skip_simulation:
             move_files(trace_name_sim + '.timings.stats', path_dest, cmdl_args)
             move_files(trace_name_sim + '.runtime.stats', path_dest, cmdl_args)
             move_files(trace_name_sim + '.outside_mpi.stats', path_dest, cmdl_args)
@@ -803,6 +974,42 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                 remove_files(trace_name_control + '.prv', cmdl_args)
                 # move_files(trace_name + '.prv', path_dest, cmdl_args)
 
+        # Remove paramedir output files
+        move_files(trace_name + '.timings.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.runtime.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.cycles.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.instructions.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.flushing.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.posixio-cycles.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.posixio-inst.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.flushing-cycles.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.flushing-inst.stats', path_dest, cmdl_args)
+        
+
+        if trace_mode[trace][:12] == 'Detailed+MPI':
+            move_files(trace_name + '.mpi_io.stats', path_dest, cmdl_args)
+            move_files(trace_name + '.posixio_call.stats', path_dest, cmdl_args)
+            move_files(trace_name + '.outside_mpi.stats', path_dest, cmdl_args)
+            move_files(trace_name + '.mpiio-cycles.stats', path_dest, cmdl_args)
+            move_files(trace_name + '.mpiio-inst.stats', path_dest, cmdl_args)
+
+        if trace_mode[trace][:9] == 'Burst+MPI':
+            move_files(trace_name + '.2dh_BurstEff.stats', path_dest, cmdl_args)
+            move_files(trace_name + '.burst_useful.stats', path_dest, cmdl_args)
+
+        if trace_mode[trace] == 'Detailed+MPI+CUDA':
+            #print("CFGS: ", cfgs)
+            for device_id in mapping_devices:
+                safe_id = device_id.replace(":", "_").replace("/", "_")
+                key_device_to_replace = "useful_device_" + str(safe_id)
+                move_files(trace_name +"." + str(key_device_to_replace) + '.stats', path_dest, cmdl_args)
+                key_device_to_replace = "useful_memtransf_device_" + str(safe_id)
+                move_files(trace_name +"." + str(key_device_to_replace) + '.stats', path_dest, cmdl_args)
+                #file_cfg_device_to_remove = str(path_dest)+"/" + "kernels-x-Tasks-in-Device_app-"+ str(device_id) + '.cfg' 
+                #remove_files(file_cfg_device_to_remove, cmdl_args)
+                #file_cfg_device_to_remove = str(path_dest)+"/" + "kernelsPlusMemTransfer-x-Tasks-in-Device_app-"+ str(device_id) + '.cfg'
+                #remove_files(file_cfg_device_to_remove, cmdl_args)
+
         time_prs = time.time() - time_prs
 
         time_tot = time.time() - time_tot
@@ -812,7 +1019,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
     return raw_data, list_mpi_procs_count
 
 
-def create_ideal_trace(trace, processes, task_per_node, cmdl_args):
+def create_ideal_trace(trace, processes, task_per_node, trace_mode,trace_tasks, trace_threads, cmdl_args):
     """Runs prv2dim and dimemas with ideal configuration for given trace."""
     if trace[-4:] == ".prv":
         trace_dim = trace[:-4] + '_' + str(processes) + 'P' + '.dim'
@@ -835,32 +1042,86 @@ def create_ideal_trace(trace, processes, task_per_node, cmdl_args):
         if cmdl_args.debug:
             print('==DEBUG== Created file ' + trace_dim)
     else:
-        print('==Error== ' + trace_dim + 'could not be creaeted.')
+        print('==Error== ' + trace_dim + 'could not be created.')
         return
 
     # Create Dimemas configuration
     cfg_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs')
 
     content = []
-    with open(os.path.join(cfg_dir, 'dimemas_ideal.cfg')) as f:
-        content = f.readlines()
+    if (trace_mode != 'Detailed+MPI+CUDA'):
+        with open(os.path.join(cfg_dir, 'dimemas_ideal.cfg')) as f:
+            content = f.readlines()
+    else:
+        with open(os.path.join(cfg_dir, 'dimemas_ideal_gpu.cfg')) as f:
+            content = f.readlines()
 
-    content = [line.replace('REPLACE_BY_CPUS_PER_NODE', str(task_per_node)) for line in content]
-    content = [line.replace('REPLACE_BY_NTASKS', str(processes)) for line in content]
+    #print("Procs: ", processes, "Task Per Node: ", task_per_node, "Trace Tasks: " ,trace_tasks, "Trace Threads: ", trace_threads, "\n")
+
+    if trace_mode != 'Detailed+MPI+CUDA':
+        content = [line.replace('REPLACE_BY_CPUS_PER_NODE', str(trace_threads)) for line in content]
+        content = [line.replace('REPLACE_BY_NTASKS', str(trace_tasks)) for line in content]
     content = [line.replace('REPLACE_BY_COLLECTIVES_PATH', os.path.join(cfg_dir, 'dimemas.collectives')) for line in
                content]
+    # MPI+CUDA needs a different Dimemas configuration file
+    if trace_mode == 'Detailed+MPI+CUDA':
+        task_mpi, threads_2nd = get_tasks_threads(trace)
+        #print("Task MPI: ", task_mpi, "Threads: ",threads_2nd, "\n")
+
+        content = [line.replace('REPLACE_BY_CPUS_PER_NODE', str(task_mpi)) for line in content]
+        content = [line.replace('REPLACE_BY_NTASKS', str(task_mpi)) for line in content]
+        line_accelerator = ''
+        # Create a line per each CUDA Thread
+        for i in range(int(task_mpi)):
+            line_accelerator += '"accelerator node information" {' + str(i) + ', ' + str(threads_2nd) \
+                                + ', 0.0, 0.0, 0.0, 0, 1.0};;\n'
+        content = [line.replace('REPLACE_ACCELERATORS', line_accelerator) for line in content]
 
     with open(trace_name + '_' + str(processes) + 'P' + '.dimemas_ideal.cfg', 'w') as f:
         f.writelines(content)
 
-    cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes)
+    if trace_mode == 'Detailed+MPI+CUDA':
+        if cmdl_args.simulation_cuda:
+            cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+               + 'P' + '.dimemas_ideal.cfg']
+        else:
+            cmd = ['Dimemas', '-S', '32k', '--disable-cuda', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+               + 'P' + '.dimemas_ideal.cfg']
+    elif trace_mode == 'Detailed+MPI+OpenMP':
+        if cmdl_args.simulation_openmp:
+            cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+               + 'P' + '.dimemas_ideal.cfg']
+        else:
+            cmd = ['Dimemas', '-S', '32k', '--disable-openmp', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+               + 'P' + '.dimemas_ideal.cfg']
+    else:
+        cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
            + 'P' + '.dimemas_ideal.cfg']
+
+    #run_command(cmd, cmdl_args)
     result_exit_code_command = run_command(cmd, cmdl_args)
 
     if result_exit_code_command == 1001:
-        cmd = ['Dimemas', '-S', '256k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes)
-           + 'P' + '.dimemas_ideal.cfg']
+        if trace_mode == 'Detailed+MPI+CUDA':
+            if cmdl_args.simulation_cuda:
+                cmd = ['Dimemas', '-S', '256k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+                + 'P' + '.dimemas_ideal.cfg']
+            else:
+                cmd = ['Dimemas', '-S', '256k', '--disable-cuda', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+                + 'P' + '.dimemas_ideal.cfg']
+        elif trace_mode == 'Detailed+MPI+OpenMP':
+            if cmdl_args.simulation_openmp:
+                cmd = ['Dimemas', '-S', '256k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+                + 'P' + '.dimemas_ideal.cfg']
+            else:
+                cmd = ['Dimemas', '-S', '256k', '--disable-openmp', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+                + 'P' + '.dimemas_ideal.cfg']
+        else:
+            cmd = ['Dimemas', '-S', '256k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+            + 'P' + '.dimemas_ideal.cfg']
+
         result_exit_code_command = run_command(cmd, cmdl_args)
+
 
     if os.path.isfile(trace_sim) and (result_exit_code_command == 0):
         if cmdl_args.debug:
@@ -872,7 +1133,6 @@ def create_ideal_trace(trace, processes, task_per_node, cmdl_args):
         else:
             print('==ERROR== ' + trace_sim + ' could not be created.')
         return ''
-
 
 def print_raw_data_table(raw_data, trace_list, trace_processes):
     """Prints the raw data table in human readable form on stdout."""

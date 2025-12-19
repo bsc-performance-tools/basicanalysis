@@ -13,6 +13,7 @@ from simplemetrics import compute_model_factors, print_mod_factors_csv, print_ef
     print_other_metrics_csv, plots_efficiency_table_matplot, plots_modelfactors_matplot, plots_speedup_matplot
 
 import hybridmetrics
+import os
 
 # error import variables
 error_import_pandas = False
@@ -48,14 +49,6 @@ except ImportError:
     error_import_numpy = True
 
 
-__author__ = "Sandra Mendez"
-__copyright__ = "Copyright 2019, Barcelona Supercomputing Center (BSC)"
-__version_major__ = 0
-__version_minor__ = 3
-__version_micro__ = 9
-__version__ = str(__version_major__) + "." + str(__version_minor__) + "." + str(__version_micro__)
-
-
 if __name__ == "__main__":
     """Main control flow.
     Currently the script only accepts one parameter, which is a list of traces
@@ -78,23 +71,31 @@ if __name__ == "__main__":
     for trace in trace_list:
         if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
             trace_metrics += 1
-
-    # Analyze the traces and gather the raw input data
+    # Analyze the traces and gather the raw input data      
     raw_data, list_mpi_procs_count = gather_raw_data(trace_list, trace_processes, trace_task_per_node,
-                                                     trace_mode, cmdl_args)
+                                                     trace_mode,trace_tasks, trace_threads, cmdl_args)
     print_raw_data_csv(raw_data, trace_list, trace_processes)
 
     # Compute the model factors and print them
 
     if cmdl_args.metrics == 'hybrid' and trace_metrics > 0:
-        mod_factors, mod_factors_scale_plus_io, hybrid_factors, other_metrics = \
+        mod_factors, mod_factors_scale_plus_io, hybrid_factors, other_metrics, device_factors, host_factors = \
                 hybridmetrics.compute_model_factors(raw_data, trace_list, trace_processes,
                                                     trace_mode, list_mpi_procs_count, cmdl_args)
         hybridmetrics.print_other_metrics_table(other_metrics, trace_list, trace_processes, trace_tasks,
                                                 trace_threads, trace_mode)
         hybridmetrics.print_other_metrics_csv(other_metrics, trace_list, trace_processes)
-        hybridmetrics.print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors,
-                                              trace_list, trace_processes, trace_tasks, trace_threads, trace_mode)
+        
+        
+        if (cmdl_args.pop_model_to_apply == 'talp') and (trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"):
+            hybridmetrics.print_talp_metrics_csv(device_factors,host_factors, trace_list, trace_processes,raw_data)
+            hybridmetrics.print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors, device_factors, host_factors,
+                                              trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data)
+            hybridmetrics.plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode,raw_data, cmdl_args)
+        else:
+            hybridmetrics.print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors, device_factors,
+                                              trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data)
+            
         hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
         hybridmetrics.print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_processes, trace_tasks,
                                              trace_threads,trace_mode)
@@ -121,6 +122,7 @@ if __name__ == "__main__":
         if not error_plot_table:
             hybridmetrics.plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks,
                                                          trace_threads, trace_mode, cmdl_args)
+
             if len(trace_list) > 1:
                 hybridmetrics.plots_modelfactors_matplot(trace_list, trace_processes, trace_tasks,
                                                          trace_threads, trace_mode, cmdl_args)

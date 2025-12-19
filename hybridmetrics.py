@@ -4,7 +4,7 @@
 
 from __future__ import print_function, division
 import sys
-
+import math
 
 from rawdata import *
 from collections import OrderedDict
@@ -80,6 +80,27 @@ mod_hybrid_factors_doc = OrderedDict([
                                ('omp_load_balance', '      -- OpenMP Load balance'),
                                ('omp_comm_eff', '      -- OpenMP Communication efficiency')])
 
+mod_device_factors_doc = OrderedDict([
+                               ('dev_global_eff', 'DEVICE Global efficiency'),
+                               ('dev_parallel_eff', '-- Device Parallel efficiency'),
+                               ('dev_load_balance', '   == Device Load balance'),
+                               ('dev_comm_eff', '   == Device Communication efficiency'),
+                               ('dev_orches_eff', '   == Device Orchestration efficiency'),
+                               ('dev_comp_scale', '-- Device Computation scalability')])
+
+mod_host_factors_doc = OrderedDict([
+                               ('host_global_eff', 'HOST Global efficiency'),
+                               ('host_parallel_eff', '-- Host Parallel efficiency'),
+                               ('mpi_parallel_eff', '   == MPI Parallel efficiency'),
+                               ('mpi_load_balance', '       -- MPI Load balance'),
+                               ('mpi_comm_eff', '       -- MPI Communication efficiency'),
+                               ('serial_eff', '          -- Serialization efficiency'),
+                               ('transfer_eff', '          -- Transfer efficiency'),
+                               ('dev_offload_eff', '   == Device Offload efficiency'),
+                               ('host_comp_scale', '-- Host Computation scalability'),
+                               ('host_ipc_scale', '   == IPC scalability'),
+                               ('host_inst_scale', '   == Instruction scalability'),
+                               ('host_freq_scale', '   == Frequency scalability')])
 
 def create_mod_factors(trace_list):
     """Creates 2D dictionary of the model factors and initializes with an empty
@@ -124,6 +145,34 @@ def create_hybrid_mod_factors(trace_list):
         hybrid_factors[key] = trace_dict
 
     return hybrid_factors
+
+def create_mod_device_factors(trace_list):
+    """Creates 2D dictionary of the hybrid model factors at device level and initializes with an empty
+    string. The hybrid_factors dictionary has the format: [mod factor key][trace].
+    """
+    global mod_device_factors_doc
+    device_factors = {}
+    for key in mod_device_factors_doc:
+        trace_dict = {}
+        for trace_name in trace_list:
+            trace_dict[trace_name] = 0.0
+        device_factors[key] = trace_dict
+
+    return device_factors
+
+def create_mod_host_factors(trace_list):
+    """Creates 2D dictionary of the hybrid model factors at device level and initializes with an empty
+    string. The hybrid_factors dictionary has the format: [mod factor key][trace].
+    """
+    global mod_host_factors_doc
+    host_factors = {}
+    for key in mod_host_factors_doc:
+        trace_dict = {}
+        for trace_name in trace_list:
+            trace_dict[trace_name] = 0.0
+        host_factors[key] = trace_dict
+
+    return host_factors
 
 
 def create_other_metrics(trace_list):
@@ -235,7 +284,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     hybrid_factors = create_hybrid_mod_factors(trace_list)
     other_metrics = create_other_metrics(trace_list)
     mod_factors_scale_plus_io = create_mod_factors_scale_io(trace_list)
-
+    device_factors = create_mod_device_factors(trace_list)
+    host_factors = create_mod_host_factors(trace_list)
     # Guess the weak or strong scaling
     scaling = get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args)
 
@@ -375,19 +425,28 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             mod_factors['global_eff'][trace] = 'NaN'
 
         # Hybrid metrics calculation
-        # ------->  MPI metrics
+        # Control OutMPI values no availables
+        if math.isnan(float(raw_data['outsidempi_avg'][trace])) or math.isnan(float(raw_data['outsidempi_max'][trace])):
+            outmpi_measures = False
+        else:
+            outmpi_measures = True
+
+            # ------->  MPI metrics
         try:  # except NaN
-            if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            if not outmpi_measures:
+                hybrid_factors['mpi_load_balance'][trace] = 'Non-Avail'
+            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 hybrid_factors['mpi_load_balance'][trace] = float(raw_data['outsidempi_avg'][trace]) \
                                                         / float(raw_data['outsidempi_max'][trace]) * 100.0
             else:
                 hybrid_factors['mpi_load_balance'][trace] = 'N/A'
-
         except:
-            hybrid_factors['mpi_load_balance'][trace] = 'NaN'
+                hybrid_factors['mpi_load_balance'][trace] = 'NaN'
 
         try:  # except NaN
-            if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            if not outmpi_measures:
+                hybrid_factors['mpi_comm_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 hybrid_factors['mpi_comm_eff'][trace] = float(raw_data['outsidempi_max'][trace]) \
                                                     / float(raw_data['runtime'][trace]) * 100.0
             else:
@@ -397,7 +456,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         # ------------> BEGIN MPI communication sub-metrics
         try:  # except NaN
-            if trace_mode[trace] == "Detailed+MPI+OpenMP":
+            if (not outmpi_measures) or cmdl_args.skip_simulation:
+                hybrid_factors['serial_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace] == "Detailed+MPI+OpenMP" \
+                        or trace_mode[trace] == 'Detailed+MPI+CUDA':
                 hybrid_factors['serial_eff'][trace] = float(raw_data['outsidempi_dim'][trace]) \
                                                / float(raw_data['runtime_dim'][trace]) * 100.0
                 mod_factors['serial_eff'][trace] = 'N/A'
@@ -412,18 +474,20 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 mod_factors['serial_eff'][trace] = 'Non-Avail'
                 hybrid_factors['serial_eff'][trace] = 'N/A'
 
-            if hybrid_factors['serial_eff'][trace] > 100.0:
+            if round(hybrid_factors['serial_eff'][trace]) > 100:
                 hybrid_factors['serial_eff'][trace] = 'Warning!'
-        except:
-            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-                if hybrid_factors['serial_eff'][trace] != 'N/A':
+        except:    
+            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
+                    or trace_mode[trace] == 'Detailed+MPI+CUDA':
+                if hybrid_factors['serial_eff'][trace] != 'Non-Avail' and hybrid_factors['serial_eff'][trace] != 'N/A':
                     hybrid_factors['serial_eff'][trace] = 'NaN'
-            #else:
-            #    hybrid_factors['serial_eff'][trace] = 'Non-Avail'
 
         try:  # except NaN
-            if hybrid_factors['serial_eff'][trace] != 'Warning!':
-                if trace_mode[trace] == "Detailed+MPI+OpenMP":
+            if (not outmpi_measures) or cmdl_args.skip_simulation:
+                hybrid_factors['transfer_eff'][trace] = 'Non-Avail'
+            elif hybrid_factors['serial_eff'][trace] != 'Warning!':
+                if trace_mode[trace] == "Detailed+MPI+OpenMP" \
+                        or trace_mode[trace] == 'Detailed+MPI+CUDA':
                     hybrid_factors['transfer_eff'][trace] = float(hybrid_factors['mpi_comm_eff'][trace]) \
                                                         / float(hybrid_factors['serial_eff'][trace]) * 100.0
                     mod_factors['transfer_eff'][trace] = 'N/A'
@@ -438,18 +502,20 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     hybrid_factors['transfer_eff'][trace] = 'N/A'
                     mod_factors['transfer_eff'][trace] = 'Non-Avail'
 
-            if hybrid_factors['transfer_eff'][trace] > 100.0:
-                hybrid_factors['transfer_eff'][trace] = 'Warning!'
-            
+                if not hybrid_factors['transfer_eff'][trace] == 'Non-Avail':
+                    if round(hybrid_factors['transfer_eff'][trace]) > 100:
+                        hybrid_factors['transfer_eff'][trace] = 'Warning!'
         except:
-            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP':
-                if hybrid_factors['transfer_eff'][trace] != 'N/A':
+            if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
+                    or trace_mode[trace] == 'Detailed+MPI+CUDA':
+                if hybrid_factors['transfer_eff'][trace] != 'N/A' and hybrid_factors['transfer_eff'][trace] != 'Non-Avail':
                     hybrid_factors['transfer_eff'][trace] = 'NaN'
-            #else:
-            #    hybrid_factors['transfer_eff'][trace] = 'Non-Avail'
+
         # --------------> END MPI communication sub-metrics
         try:  # except NaN
-            if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            if not outmpi_measures:
+                hybrid_factors['mpi_parallel_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 if raw_data['outsidempi_tot'][trace] == raw_data['outsidempi_tot_diff'][trace]:
                     hybrid_factors['mpi_parallel_eff'][trace] = float(raw_data['outsidempi_tot'][trace] /
                                                                   (raw_data['runtime'][trace]
@@ -460,13 +526,14 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                                      * trace_processes[trace]) * 100.0)
             else:
                 hybrid_factors['mpi_parallel_eff'][trace] = 'N/A'
-
         except:
             hybrid_factors['mpi_parallel_eff'][trace] = 'NaN'
 
         # ------->  Metrics for the second parallel paradigm
         try:  # except NaN
-            if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            if not outmpi_measures:
+                hybrid_factors['omp_comm_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 hybrid_factors['omp_comm_eff'][trace] = float(mod_factors['comm_eff'][trace]) \
                                                         / float(hybrid_factors['mpi_comm_eff'][trace]) * 100.0
             else:
@@ -475,7 +542,9 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             hybrid_factors['omp_comm_eff'][trace] = 'NaN'
 
         try:  # except NaN
-            if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            if not outmpi_measures:
+                hybrid_factors['omp_load_balance'][trace] = 'Non-Avail'
+            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 hybrid_factors['omp_load_balance'][trace] = float(mod_factors['load_balance'][trace]) \
                                                             / float(hybrid_factors['mpi_load_balance'][trace]) * 100.0
             else:
@@ -484,7 +553,9 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             hybrid_factors['omp_load_balance'][trace] = 'NaN'
 
         try:  # except NaN
-            if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            if not outmpi_measures:
+                hybrid_factors['omp_parallel_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 hybrid_factors['omp_parallel_eff'][trace] = float(mod_factors['parallel_eff'][trace]) \
                                                             / float(hybrid_factors['mpi_parallel_eff'][trace]) * 100.0
             else:
@@ -492,9 +563,122 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             hybrid_factors['omp_parallel_eff'][trace] = 'NaN'
 
-        # ------->  Global Hybrid Metric
+# ------->  HOST metrics
         try:  # except NaN
-            if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA'):
+                host_factors['mpi_parallel_eff'][trace] = hybrid_factors['mpi_parallel_eff'][trace]
+                host_factors['mpi_comm_eff'][trace] = hybrid_factors['mpi_comm_eff'][trace]
+                host_factors['mpi_load_balance'][trace] = hybrid_factors['mpi_load_balance'][trace]
+            else:
+                host_factors['mpi_parallel_eff'][trace] = 'Non-Avail'
+                host_factors['mpi_comm_eff'][trace] = 'Non-Avail'
+                host_factors['mpi_load_balance'][trace] = 'Non-Avail'
+        except:
+            host_factors['mpi_parallel_eff'][trace] = 'NaN'
+            host_factors['mpi_comm_eff'][trace] = 'NaN'
+            host_factors['mpi_load_balance'][trace] = 'NaN'
+
+# ------------> BEGIN MPI communication sub-metrics HOST
+        try:  # except NaN
+            if not outmpi_measures or cmdl_args.skip_simulation:
+                host_factors['serial_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace] == 'Detailed+MPI+CUDA':
+                host_factors['serial_eff'][trace] = hybrid_factors['serial_eff'][trace]
+        except:
+            host_factors['serial_eff'][trace] = 'NaN'        
+
+        try:  # except NaN
+            if not outmpi_measures or cmdl_args.skip_simulation:
+                host_factors['transfer_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace] == 'Detailed+MPI+CUDA':
+                    host_factors['transfer_eff'][trace] = hybrid_factors['transfer_eff'][trace]
+        except:
+            host_factors['transfer_eff'][trace] = 'NaN'
+
+        # --------------> END MPI communication sub-metrics
+        
+        ### Offloading
+        try:  # except NaN
+            if not outmpi_measures:
+                host_factors['dev_offload_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace] == 'Detailed+MPI+CUDA':
+                host_factors['dev_offload_eff'][trace] = 100 * (float(raw_data['useful_tot'][trace])\
+                /float(raw_data['outsidempi_tot'][trace]) )
+            else:
+                host_factors['dev_offload_eff'][trace] = 'N/A'
+        except:
+            host_factors['dev_offload_eff'][trace] = 'NaN'
+        
+        ### Host Parallel Efficiency
+        try:  # except NaN
+            if not outmpi_measures:
+                host_factors['host_parallel_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace] == 'Detailed+MPI+CUDA':
+                host_factors['host_parallel_eff'][trace] = (host_factors['mpi_parallel_eff'][trace]/100) \
+                * (host_factors['dev_offload_eff'][trace]/100) * 100
+            else:
+                host_factors['host_parallel_eff'][trace] = 'N/A'
+        except:
+            host_factors['host_parallel_eff'][trace] = 'NaN'    
+
+# ------->  Devices metrics
+        try:  # except NaN
+            if not outmpi_measures:
+                device_factors['dev_parallel_eff'][trace] = 'Non-Avail'
+                device_factors['dev_load_balance'][trace] = 'Non-Avail'
+                device_factors['dev_comm_eff'][trace] = 'Non-Avail'
+                device_factors['dev_orches_eff'][trace] = 'Non-Avail'
+                device_factors['dev_offload_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace] == 'Detailed+MPI+CUDA':
+                device_factors['dev_parallel_eff'][trace] = 100 * (float(raw_data['useful_device'][trace])\
+                /(int(raw_data['count_devices'][trace])*float(raw_data['runtime'][trace])))
+                device_factors['dev_load_balance'][trace] = 100 * ( (float(raw_data['useful_device'][trace])/int(raw_data['count_devices'][trace]))\
+                /float(raw_data['useful_device_max'][trace]) )
+                device_factors['dev_comm_eff'][trace] = 100 * ( float(raw_data['useful_device_max'][trace])\
+                /float(raw_data['useful_memtransf_device_max'][trace]) )
+                device_factors['dev_orches_eff'][trace] = 100 * ( float(raw_data['useful_memtransf_device_max'][trace]) \
+                / float(raw_data['runtime'][trace]) )
+            else:
+                device_factors['dev_parallel_eff'][trace] = 'N/A'
+                device_factors['dev_load_balance'][trace] = 'N/A'
+                device_factors['dev_comm_eff'][trace] = 'N/A'
+                device_factors['dev_orches_eff'][trace] = 'N/A'   
+        except:
+            device_factors['dev_parallel_eff'][trace] = 'NaN'
+            device_factors['dev_load_balance'][trace] = 'NaN'
+            device_factors['dev_comm_eff'][trace] = 'NaN'
+            device_factors['dev_orches_eff'][trace] = 'NaN'           
+        
+        # Device Computation Scalability
+        try:  # except NaN
+            if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA') and (len(trace_list) > 1):
+                if scaling == 'strong':
+                        device_factors['dev_comp_scale'][trace] = float(raw_data['useful_device'][trace_list[0]]) \
+                                                   / float(raw_data['useful_device'][trace]) * 100.0
+                else:
+                    device_factors['dev_comp_scale'][trace] = float(raw_data['useful_device'][trace_list[0]]) \
+                                                   / float(raw_data['useful_device'][trace]) * proc_ratio * 100.0
+            else:
+                device_factors['dev_comp_scale'][trace] = 'Non-Avail'
+        except:
+               device_factors['dev_comp_scale'][trace] = 'NaN'
+        
+        # Device Global Efficiency
+        try:  # except NaN
+            if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA'):
+                if (len(trace_list) > 1):
+                    device_factors['dev_global_eff'][trace] = (device_factors['dev_parallel_eff'][trace]/100) \
+                    * (device_factors['dev_comp_scale'][trace]/100) * 100
+                else:
+                    device_factors['dev_global_eff'][trace] = device_factors['dev_parallel_eff'][trace]
+        except:
+            device_factors['dev_global_eff'][trace] = 'NaN'
+
+# ------->  Global Hybrid Metric
+        try:  # except NaN
+            if not outmpi_measures:
+                hybrid_factors['hybrid_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 hybrid_factors['hybrid_eff'][trace] = float(hybrid_factors['mpi_parallel_eff'][trace]) \
                                                * float(hybrid_factors['omp_parallel_eff'][trace]) / 100.0
             else:
@@ -502,13 +686,16 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             hybrid_factors['hybrid_eff'][trace] = 'NaN'
 
-        # Basic scalability factors
+        # Basic scalability factors - Computational
         # IPC Scalability
         try:  # except NaN
             other_metrics['ipc'][trace] = float(raw_data['useful_ins'][trace]) \
                                         / float(raw_data['useful_cyc'][trace])
         except:
-            other_metrics['ipc'][trace] = 'NaN'
+            if (raw_data['useful_ins'][trace] == 0) or (raw_data['useful_cyc'][trace] == 0):
+                other_metrics['ipc'][trace] = 'Non-Avail'
+            else:
+                other_metrics['ipc'][trace] = 'NaN'
         try:  # except NaN
             if len(trace_list) > 1:
                 if trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':
@@ -588,7 +775,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             mod_factors_scale_plus_io['freq_scale'][trace] = 'NaN'
 
-        # Instruction Scalability
+    # Instruction Scalability
         try:  # except NaN
             if len(trace_list) > 1:
                 if trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':
@@ -596,11 +783,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]])\
                                                        / float(raw_data['useful_ins'][trace]) * 100.0
                     else:
-                        procs_ratio_ins = float(raw_data['procs_ins'][trace]) \
+                        procs_ratio_ins = float(raw_data['procs_ins'][trace])\
                                           / float(raw_data['procs_ins'][trace_list[0]])
 
                         mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
-                                                           / float(raw_data['useful_ins'][trace]) \
+                                                   / float(raw_data['useful_ins'][trace]) \
                                                            * procs_ratio_ins * 100.0
                 else:
                     mod_factors['inst_scale'][trace] = 'Non-Avail'
@@ -626,7 +813,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         procs_ratio_ins = float(raw_data['procs_ins'][trace]) \
                                           / float(raw_data['procs_ins'][trace_list[0]])
                         mod_factors_scale_plus_io['inst_scale'][trace] = float(useful_ins_plus_io_0) \
-                                                                         / float(useful_ins_plus_io_n) \
+                                                                         / float(useful_ins_plus_io_n)\
                                                                          * procs_ratio_ins * 100.0
                 else:
                     mod_factors_scale_plus_io['inst_scale'][trace] = float(mod_factors['inst_scale'][trace])
@@ -634,6 +821,41 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 mod_factors_scale_plus_io['inst_scale'][trace] = 'Non-Avail'
         except:
             mod_factors_scale_plus_io['inst_scale'][trace] = 'NaN'
+
+        ### Host Computational Metrics
+        try:  # except NaN
+            if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA') and (len(trace_list) > 1):
+                if scaling == 'strong':
+                    host_factors['host_comp_scale'][trace] = float(raw_data['useful_not_0_tot'][trace_list[0]]) \
+                                                   / float(raw_data['useful_not_0_tot'][trace]) * 100.0
+                else:
+                    host_factors['host_comp_scale'][trace] = float(raw_data['useful_not_0_tot'][trace_list[0]]) \
+                                                   / float(raw_data['useful_not_0_tot'][trace]) * proc_ratio * 100.0
+                host_factors['host_ipc_scale'][trace] = mod_factors['ipc_scale'][trace]
+                host_factors['host_inst_scale'][trace] = mod_factors['inst_scale'][trace]
+                host_factors['host_freq_scale'][trace] = mod_factors['freq_scale'][trace]
+            else:
+                host_factors['host_comp_scale'][trace] = 'Non-Avail'
+                host_factors['host_ipc_scale'][trace] = 'Non-Avail'
+                host_factors['host_inst_scale'][trace] = 'Non-Avail'
+                host_factors['host_freq_scale'][trace] = 'Non-Avail'
+        except:
+            host_factors['host_comp_scale'][trace] = 'NaN'
+            host_factors['host_ipc_scale'][trace] = 'NaN'
+            host_factors['host_inst_scale'][trace] = 'NaN'
+            host_factors['host_freq_scale'][trace] = 'NaN'
+        
+        try:  # except NaN
+            if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA'):
+                if len(trace_list) > 1:
+                    host_factors['host_global_eff'][trace] = (host_factors['host_parallel_eff'][trace]/100) \
+                * (host_factors['host_comp_scale'][trace]/100) * 100
+                else:
+                    host_factors['host_global_eff'][trace] = host_factors['host_parallel_eff'][trace]
+            else:
+                host_factors['host_global_eff'][trace] = 'Non-Avail'  
+        except:
+            host_factors['host_global_eff'][trace] = 'NaN'
 
         try:  # except NaN
             if len(trace_list) > 1:
@@ -655,6 +877,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         try:  # except NaN
             if len(trace_list) > 1:
+                #other_metrics['efficiency'][trace] = other_metrics['speedup'][trace] / proc_ratio
                 if scaling == 'strong':
                     other_metrics['efficiency'][trace] = raw_data['runtime'][trace_list[0]] \
                                                         / (raw_data['runtime'][trace] * proc_ratio)
@@ -666,13 +889,13 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             other_metrics['efficiency'][trace] = 'NaN'
 
-    return mod_factors, mod_factors_scale_plus_io, hybrid_factors, other_metrics
+    return mod_factors, mod_factors_scale_plus_io, hybrid_factors, other_metrics, device_factors, host_factors
 
 
-def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors, trace_list,
-                            trace_processes, trace_tasks, trace_threads, trace_mode):
+def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors,device_factors , trace_list,
+                            trace_processes, trace_tasks, trace_threads, trace_mode, raw_data):
     """Prints the model factors table in human readable form on stdout."""
-    global mod_factors_doc, mod_hybrid_factors_doc
+    global mod_factors_doc, mod_hybrid_factors_doc, mod_device_factors_doc
 
     warning_io = []
     warning_flush = []
@@ -720,8 +943,15 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
     print('\n Overview of the Efficiency metrics:')
 
     longest_name = len(sorted(mod_hybrid_factors_doc.values(), key=len)[-1])
+    
+    if trace_mode[trace] == "Detailed+MPI+CUDA":
+        line = '#Procs(ProcsxThreads)(#GPUs)[TraceOrder]'.rjust(longest_name)
+    else:
+        line = '#Procs(ProcsxThreads)[TraceOrder]'.rjust(longest_name)
 
-    line = 'Processes (ProcsxThreads)[Trace Order]'.rjust(longest_name)
+
+
+    
     line_trace_mode = 'Trace mode'.rjust(longest_name)
     if len(trace_list) == 1:
         limit_min = trace_processes[trace_list[0]]
@@ -753,7 +983,9 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         #if limit_min == limit_max and same_procs and len(trace_list) > 1:
         #    s_xtics = (str(trace_processes[trace]) + '[' + str(index+1) + ']')
         #else:
-        if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+        if trace_mode[trace] == "Detailed+MPI+CUDA":
+            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'+'(#'+ str(raw_data['count_devices'][trace]))+')'
+        elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
             s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
         else:
             s_xtics = (str(trace_processes[trace]))
@@ -782,7 +1014,9 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         #if limit_min == limit_max and same_procs and len(trace_list) > 1:
         #    s_xtics = (str(trace_processes[trace]) + '[' + str(index+1) + ']')
         #else:
-        if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+        if trace_mode[trace] == "Detailed+MPI+CUDA":
+            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'+'(#'+ str(raw_data['count_devices'][trace]))+')'
+        elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
             s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
         else:
             s_xtics = (str(trace_processes[trace]))
@@ -854,6 +1088,215 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
                 line += ('{}'.format(hybrid_factors[mod_key][trace])).rjust(value_to_adjust)
         print(line)
 
+#####
+    print(''.ljust(len(line_procs_factors), '='))
+    if len(warning_simulation) > 0:
+        print("===> Warning! Metrics obtained from simulated traces exceed 100%. "
+              "Please review original and simulated traces.")
+    print('')
+
+#### TALP metrics
+def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors,device_factors, host_factors , trace_list,
+                            trace_processes, trace_tasks, trace_threads, trace_mode, raw_data):
+    """Prints the model factors table in human readable form on stdout."""
+    global mod_factors_doc, mod_hybrid_factors_doc, mod_device_factors_doc,mod_host_factors_doc
+
+    warning_io = []
+    warning_flush = []
+    warning_flush_wrong = []
+    warning_simulation = []
+    for trace in trace_list:
+        if 10.0 <= other_metrics['flushing'][trace] < 15.0:
+            warning_flush.append(1)
+        elif other_metrics['flushing'][trace] >= 15.0:
+            warning_flush_wrong.append(1)
+        if other_metrics['io_posix'][trace] >= 5.0:
+            warning_io.append(1)
+        if hybrid_factors['serial_eff'][trace] == "Warning!" \
+                or hybrid_factors['serial_eff'][trace] == "Warning!":
+            warning_simulation.append(1)
+
+    if len(warning_flush_wrong) > 0:
+        print("WARNING! Flushing in a trace is too high. Disabling standard output metrics...")
+        print("         Flushing is an overhead due to the tracer, please review your trace.")
+        print('')
+        return
+
+    count_mode = 0
+    for trace in trace_list:
+        if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            count_mode += 1
+
+    if count_mode == len(trace_list):
+        del(mod_factors['serial_eff'])
+        del (mod_factors['transfer_eff'])
+        del(mod_factors_doc['serial_eff'])
+        del (mod_factors_doc['transfer_eff'])
+
+    # Update the hybrid parallelism mode
+    trace_mode_doc = trace_mode[trace_list[0]]
+    if trace_mode_doc[0:len("Detailed+MPI+")] == "Detailed+MPI+":
+        mod_hybrid_factors_doc['omp_parallel_eff'] = "   -- " + \
+                                                     trace_mode_doc[len("Detailed+MPI+"):] + " Parallel efficiency"
+        mod_hybrid_factors_doc['omp_load_balance'] = "      -- " + \
+                                                     trace_mode_doc[len("Detailed+MPI+"):] + " Load Balance"
+        mod_hybrid_factors_doc['omp_comm_eff'] = "      -- " + \
+                                                 trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
+    
+    # print('')
+    print('\n Overview of the Efficiency metrics:')
+
+    longest_name = len(sorted(mod_hybrid_factors_doc.values(), key=len)[-1])
+    
+    if trace_mode[trace] == "Detailed+MPI+CUDA":
+        line = '#Procs(ProcsxThreads)(#GPUs)[TraceOrder]'.rjust(longest_name)
+    else:
+        line = '#Procs(ProcsxThreads)[TraceOrder]'.rjust(longest_name)
+
+    
+    line_trace_mode = 'Trace mode'.rjust(longest_name)
+    if len(trace_list) == 1:
+        limit_min = trace_processes[trace_list[0]]
+        limit_max = trace_processes[trace_list[0]]
+    else:
+        limit_min = trace_processes[trace_list[0]]
+        limit_max = trace_processes[trace_list[len(trace_list)-1]]
+
+    # To control same number of processes for the header on plots and table
+    same_procs = True
+    procs_trace_prev = trace_processes[trace_list[0]]
+    tasks_trace_prev = trace_tasks[trace_list[0]]
+    threads_trace_prev = trace_threads[trace_list[0]]
+
+    for index, trace in enumerate(trace_list):
+        tasks = trace_tasks[trace]
+        threads = trace_threads[trace]
+        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
+                and threads_trace_prev == threads:
+            same_procs *= True
+        else:
+            same_procs *= False
+
+    # BEGIN To adjust header to big number of processes
+    procs_header = []
+    for index, trace in enumerate(trace_list):
+        tasks = trace_tasks[trace]
+        threads = trace_threads[trace]
+        #if limit_min == limit_max and same_procs and len(trace_list) > 1:
+        #    s_xtics = (str(trace_processes[trace]) + '[' + str(index+1) + ']')
+        #else:
+        if trace_mode[trace] == "Detailed+MPI+CUDA":
+            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'+'(#'+ str(raw_data['count_devices'][trace]))+')'
+        elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
+        else:
+            s_xtics = (str(trace_processes[trace]))
+        #if s_xtics in procs_header:
+        s_xtics += '[' + str(index + 1) + ']'
+        procs_header.append(s_xtics)
+
+    max_len_header = 0
+    for proc_h in procs_header:
+        if max_len_header < len(proc_h):
+            max_len_header = len(proc_h)
+
+    value_to_adjust = 14
+    if max_len_header > value_to_adjust:
+        value_to_adjust = max_len_header + 1
+    # END To adjust header to big number of processes
+
+    label_xtics = []
+    label_trace_mode = []
+    mode_string = ""
+    for index, trace in enumerate(trace_list):
+        line += ' | '
+        line_trace_mode += ' | '
+        tasks = trace_tasks[trace]
+        threads = trace_threads[trace]
+        #if limit_min == limit_max and same_procs and len(trace_list) > 1:
+        #    s_xtics = (str(trace_processes[trace]) + '[' + str(index+1) + ']')
+        #else:
+        if trace_mode[trace] == "Detailed+MPI+CUDA":
+            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'+'(#'+ str(raw_data['count_devices'][trace]))+')'
+        elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
+        else:
+            s_xtics = (str(trace_processes[trace]))
+        #if s_xtics in label_xtics:
+        s_xtics += '[' + str(index + 1) + ']'
+        label_xtics.append(s_xtics)
+        line += s_xtics.rjust(value_to_adjust)
+        # For trace mode
+        if trace_mode[trace][0:len("Detailed")] == "Detailed":
+            mode_string = trace_mode[trace][len("Detailed+"):]
+        elif trace_mode[trace][0:len("Burst")] == "Burst":
+            mode_string = trace_mode[trace]
+        elif trace_mode[trace] == "Sampling":
+            mode_string = trace_mode[trace]
+        line_trace_mode += mode_string.rjust(value_to_adjust)
+        label_trace_mode.append(mode_string)
+
+    print(''.ljust(len(line), '='))
+    print(line_trace_mode)
+    print(line)
+    line_procs_factors = line
+
+    print(''.ljust(len(line), '='))
+
+    io_metrics = []
+    io_metrics.append(0)
+    for mod_key in mod_factors_scale_plus_io_doc:
+        for trace in trace_list:
+            if mod_factors_scale_plus_io[mod_key][trace] != 0:
+                io_metrics.append(1)
+
+    if (len(warning_flush) >= 1 or len(warning_io) >= 1) and len(trace_list) > 1:
+        print(''.ljust(len(line_procs_factors), '-'))
+        for mod_key in mod_factors_scale_plus_io_doc:
+            line = mod_factors_scale_plus_io_doc[mod_key].ljust(longest_name)
+            for trace in trace_list:
+                line += ' | '
+                try:  # except NaN
+                    line += ('{0:.2f}%'.format(mod_factors_scale_plus_io[mod_key][trace])).rjust(value_to_adjust)
+                except ValueError:
+                    line += ('{}'.format(mod_factors_scale_plus_io[mod_key][trace])).rjust(value_to_adjust)
+            print(line)
+        print(''.ljust(len(line_procs_factors), '='))
+    else:
+        print(''.ljust(len(line_procs_factors), '-'))
+        
+    for mod_key in mod_host_factors_doc:
+        line = mod_host_factors_doc[mod_key].ljust(longest_name)
+        for trace in trace_list:
+            line += ' | '
+            try:  # except NaN
+                if str(host_factors[mod_key][trace]) != 'nan':
+                    line += ('{0:.2f}%'.format(host_factors[mod_key][trace])).rjust(value_to_adjust)
+                elif str(host_factors[mod_key][trace]) == 'nan':
+                    line += ('{}'.format('NaN')).rjust(value_to_adjust)
+                else:
+                    line += ('{}'.format(host_factors[mod_key][trace])).rjust(value_to_adjust)
+            except ValueError:
+                line += ('{}'.format(host_factors[mod_key][trace])).rjust(value_to_adjust)
+        print(line)
+## TO Devices metrics
+    print(''.ljust(len(line_procs_factors), '-'))
+    for mod_key in mod_device_factors_doc:
+        line = mod_device_factors_doc[mod_key].ljust(longest_name)
+        for trace in trace_list:
+            line += ' | '
+            try:  # except NaN
+                if str(device_factors[mod_key][trace]) != 'nan':
+                    line += ('{0:.2f}%'.format(device_factors[mod_key][trace])).rjust(value_to_adjust)
+                elif str(device_factors[mod_key][trace]) == 'nan':
+                    line += ('{}'.format('NaN')).rjust(value_to_adjust)
+                else:
+                    line += ('{}'.format(device_factors[mod_key][trace])).rjust(value_to_adjust)
+            except ValueError:
+                line += ('{}'.format(device_factors[mod_key][trace])).rjust(value_to_adjust)
+        print(line)    
+
+#####
     print(''.ljust(len(line_procs_factors), '='))
     if len(warning_simulation) > 0:
         print("===> Warning! Metrics obtained from simulated traces exceed 100%. "
@@ -1057,9 +1500,7 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
             line += delimiter
             tasks = trace_tasks[trace]
             threads = trace_threads[trace]
-            #if limit_min == limit_max and same_procs and len(trace_list) > 1:
-            #    s_xtics = (str(trace_processes[trace]) + '[' + str(index + 1) + ']')
-            #else:
+
             if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
             else:
@@ -1070,15 +1511,6 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
             line += s_xtics
 
         output.write(line + '\n')
-
-        #line = '\"Trace mode\"'
-        #for index, trace in enumerate(trace_list):
-        #    line += delimiter
-        #    if trace_mode[trace][0:len("Detailed+")] == "Detailed+":
-        #        line += trace_mode[trace][len("Detailed+"):]
-        #    else:
-        #        line += trace_mode[trace]
-        #output.write(line + '\n')
 
         for mod_key in mod_factors_doc:
             if mod_key not in ['speedup', 'ipc', 'freq', 'elapsed_time', 'efficiency', 'flushing', 'io_mpiio', 'io_posix']:
@@ -1782,3 +2214,160 @@ def plots_speedup_matplot(trace_list, trace_processes, trace_tasks, trace_thread
     plt.ylim(0,max_y+0.1)
     plt.legend()
     plt.savefig('efficiency_matplot.png', bbox_inches='tight')
+
+def print_talp_metrics_csv(device_factors,host_factors, trace_list, trace_processes,raw_data):
+    """Prints the model factors table in a csv file."""
+    global mod_device_factors_doc, mod_host_factors_doc
+
+    delimiter = ','
+    # File is stored in the trace directory
+    # file_path = os.path.join(os.path.dirname(os.path.realpath(trace_list[0])), 'modelfactors.csv')
+    # File is stored in the execution directory
+    file_path = os.path.join(os.getcwd(), 'talp_metrics.csv')
+
+    with open(file_path, 'w') as output:       
+        line = "\"#Proc(#GPU)\""
+        for trace in trace_list:
+            line += delimiter
+            line += str(trace_processes[trace]) + "("+ str(raw_data['count_devices'][trace])+")"
+        output.write(line + '\n')
+
+        for mod_key in mod_host_factors_doc:
+            line = "\"" + mod_host_factors_doc[mod_key].replace('  ', '', 2)+ "\""
+            for trace in trace_list:
+                line += delimiter
+                try:  # except NaN
+                    if host_factors[mod_key][trace] == "Non-Avail":
+                        line += '0.00'
+                    else:
+                        line += '{0:.6f}'.format(host_factors[mod_key][trace])
+                except ValueError:
+                    line += '{}'.format(host_factors[mod_key][trace])
+            output.write(line + '\n')
+
+        for mod_key in mod_device_factors_doc:
+            line = "\"" + mod_device_factors_doc[mod_key].replace('  ', '', 2)+ "\""
+            for trace in trace_list:
+                line += delimiter
+                try:  # except NaN
+                    if device_factors[mod_key][trace] == "Non-Avail":
+                        line += '0.00'
+                    else:
+                        line += '{0:.6f}'.format(device_factors[mod_key][trace])
+                except ValueError:
+                    line += '{}'.format(device_factors[mod_key][trace])
+            output.write(line + '\n')
+        
+
+        #output.write('#\n')
+
+    print('')
+    print('======== Output File: Device Metrics ========')
+    print('Device Metrics written to ' + file_path)
+
+
+def plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode,raw_data, cmdl_args):
+    # Plotting using python
+    # For plotting using python, read the csv file
+
+    file_path = os.path.join(os.getcwd(), 'talp_metrics.csv')
+    df = pd.read_csv(file_path)
+    metrics = df['#Proc(#GPU)'].tolist()
+
+    ## remove complete nan columns and put to DF1
+    df1 = df.dropna(axis='columns', how='all')
+
+    traces_procs = list(df.keys())[1:]
+    # To control same number of processes for the header on plots and table
+    same_procs = True
+    procs_trace_prev = trace_processes[trace_list[0]]
+    tasks_trace_prev = trace_tasks[trace_list[0]]
+    threads_trace_prev = trace_threads[trace_list[0]]
+    for index, trace in enumerate(trace_list):
+        tasks = trace_tasks[trace]
+        threads = trace_threads[trace]
+        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
+                and threads_trace_prev == threads:
+            same_procs *= True
+        else:
+            same_procs *= False
+
+    # Set limit for projection
+    if cmdl_args.limit:
+        limit = cmdl_args.limit
+    else:
+        limit = str(trace_processes[trace_list[len(trace_list)-1]])
+
+    limit_min = trace_processes[trace_list[0]]
+
+    # To xticks label
+    label_xtics = []
+    label_xtics_hybrid = []
+    for index, trace in enumerate(trace_list):
+        tasks = trace_tasks[trace]
+        threads = trace_threads[trace]
+        #if int(limit) == int(limit_min) and same_procs:
+        #    s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
+        #else:
+        if trace_mode[trace] == "Detailed+MPI+CUDA":
+            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')' \
+                          +"("+ str(raw_data['count_devices'][trace])+"GPUs)"+ '[' + str(index + 1) + ']'
+            label_xtics_hybrid.append(s_xtics)
+        elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')' \
+                          + '[' + str(index + 1) + ']'
+            label_xtics_hybrid.append(s_xtics)
+        else:
+            s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
+        label_xtics.append(s_xtics)
+    ##### End xticks
+
+    # BEGIN To adjust header to big number of processes
+    max_len_header = 7
+    for labelx in label_xtics:
+        if len(labelx) > max_len_header:
+            max_len_header = len(labelx)
+
+    # END To adjust header to big number of processes
+
+    list_data = []
+
+    for index, rows in df1.iterrows():
+        list_temp = []
+        for value in list(rows)[1:]:
+            if pd.isna(value) or value == 0.0:
+                list_temp.append(np.nan)
+            else:
+                list_temp.append(float(value))
+        list_data.append(list_temp)
+
+    list_np = np.array(list_data)
+
+    idx = metrics
+    #cols = label_xtics
+    cols = label_xtics_hybrid
+    # cols = traces_procs
+    df = pd.DataFrame(list_np, index=idx, columns=cols)
+
+    # min for 1 trace is x=3 for the (x,y) in figsize
+    size_figure_y = len(idx) * 0.40
+    size_figure_x = len(cols) * 0.14 * max_len_header
+    plt.figure(figsize=(size_figure_x, size_figure_y))
+
+    ax = sns.heatmap(df, cmap='RdYlGn', linewidths=0.05, annot=True, vmin=0, vmax=100, center=75, \
+                     fmt='.2f', annot_kws={"size": 10}, cbar_kws={'label': 'Percentage(%)'})
+    ## to align ylabels to left
+    plt.yticks(rotation=0, ha='left')
+
+    ax.xaxis.tick_top()
+    # to adjust metrics
+    len_pad = 0
+    for metric in metrics:
+        if len(metric) > len_pad:
+            len_pad = len(metric)
+
+    ax.yaxis.set_tick_params(pad=len_pad + 164)
+
+    plt.savefig('efficiency_table_talp_matplot.png', bbox_inches='tight')
+
+    
