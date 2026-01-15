@@ -78,6 +78,8 @@ def parse_arguments():
     parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='classic',
                         help='Select the model to compute POP metrics (default: classic).'
                              ' classic shows the hybrid metrics proposed in POP2 and talp presents the metrics proposed by TALP team.')
+    parser.add_argument("-eagerlim", "--eager_limit", help='Set the eager limit used in the simulation of MPI calls. '
+    'This parameter can affect the Transfer and Serialization metrics. (default: 32k)', default='32k')                         
     
 
     #parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='classic',

@@ -1082,45 +1082,24 @@ def create_ideal_trace(trace, processes, task_per_node, trace_mode,trace_tasks, 
 
     if trace_mode == 'Detailed+MPI+CUDA':
         if cmdl_args.simulation_cuda:
-            cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+            cmd = ['Dimemas', '-S', cmdl_args.eager_limit, '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
                + 'P' + '.dimemas_ideal.cfg']
         else:
-            cmd = ['Dimemas', '-S', '32k', '--disable-cuda', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+            cmd = ['Dimemas', '-S', cmdl_args.eager_limit, '--disable-cuda', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
                + 'P' + '.dimemas_ideal.cfg']
     elif trace_mode == 'Detailed+MPI+OpenMP':
         if cmdl_args.simulation_openmp:
-            cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+            cmd = ['Dimemas', '-S', cmdl_args.eager_limit, '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
                + 'P' + '.dimemas_ideal.cfg']
         else:
-            cmd = ['Dimemas', '-S', '32k', '--disable-openmp', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+            cmd = ['Dimemas', '-S', cmdl_args.eager_limit, '--disable-openmp', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
                + 'P' + '.dimemas_ideal.cfg']
     else:
-        cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+        cmd = ['Dimemas', '-S', cmdl_args.eager_limit, '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
            + 'P' + '.dimemas_ideal.cfg']
 
     #run_command(cmd, cmdl_args)
     result_exit_code_command = run_command(cmd, cmdl_args)
-
-    if result_exit_code_command == 1001:
-        if trace_mode == 'Detailed+MPI+CUDA':
-            if cmdl_args.simulation_cuda:
-                cmd = ['Dimemas', '-S', '256k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
-                + 'P' + '.dimemas_ideal.cfg']
-            else:
-                cmd = ['Dimemas', '-S', '256k', '--disable-cuda', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
-                + 'P' + '.dimemas_ideal.cfg']
-        elif trace_mode == 'Detailed+MPI+OpenMP':
-            if cmdl_args.simulation_openmp:
-                cmd = ['Dimemas', '-S', '256k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
-                + 'P' + '.dimemas_ideal.cfg']
-            else:
-                cmd = ['Dimemas', '-S', '256k', '--disable-openmp', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
-                + 'P' + '.dimemas_ideal.cfg']
-        else:
-            cmd = ['Dimemas', '-S', '256k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
-            + 'P' + '.dimemas_ideal.cfg']
-
-        result_exit_code_command = run_command(cmd, cmdl_args)
 
 
     if os.path.isfile(trace_sim) and (result_exit_code_command == 0):
