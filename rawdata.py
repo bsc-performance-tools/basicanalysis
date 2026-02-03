@@ -62,6 +62,7 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_not_0_max', 'Useful duration not 0 inst (maximum)'),
                             ('useful_not_0_tot', 'Useful duration not 0 inst (total)'),
                             ('procs_ins', 'Procs with instructions (total)'),
+                            ('useful_host', 'Useful Total duration on the Host'),
                             ('useful_device', 'Useful duration on the device'),
                             ('useful_device_max', 'Useful duration on the device (maximum)'),
                             ('useful_memtransf_device', 'Useful+MemoryTransfer on the device'),
@@ -218,6 +219,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
     cfgs['flushing_cycles'] = os.path.join(cfgs['root_dir'], 'flushing-cycles.cfg')
     cfgs['flushing_inst'] = os.path.join(cfgs['root_dir'], 'flushing-inst.cfg')
     cfgs['burst_useful'] = os.path.join(cfgs['root_dir'], 'burst_useful.cfg')
+    cfgs['useful_host'] = os.path.join(cfgs['root_dir'], 'useful_host.cfg')
 
     # To obtain running in host and devices
     cfgs['useful_device'] = os.path.join(cfgs['root_dir'], 'kernels-x-Tasks-in-Device_app.cfg')
@@ -270,6 +272,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             cmd_normal.extend([cfgs['burst_useful'], trace_name + '.burst_useful.stats'])
         
         if trace_mode[trace] == 'Detailed+MPI+CUDA':
+            cmd_normal.extend([cfgs['useful_host'], trace_name + '.useful_host.stats'])
             gpu_devices = get_device_count(trace)            
             print("==> Count of devices: ", gpu_devices)
             raw_data['count_devices'][trace] = gpu_devices
@@ -851,7 +854,19 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                                     raw_data['useful_memtransf_device'][trace] += float(line.split()[1])
                                 if line.split()[0] == 'Maximum':
                                     if float(line.split()[1]) > raw_data['useful_memtransf_device_max'][trace]:
-                                        raw_data['useful_memtransf_device_max'][trace] = float(line.split()[1])
+                                        raw_data['useful_memtransf_device_max'][trace] = float(line.split()[1])                                       
+            # Useful Total Host 
+            if os.path.exists(trace_name + '.useful_host.stats'):
+                content = []
+                with open(trace_name + '.useful_host.stats') as f:
+                    content = f.readlines()  
+                
+                for line in content:
+                    if line.split():
+                        if line.split()[0] == 'Total':
+                            raw_data['useful_host'][trace] = float(line.split()[1])
+            else:
+                raw_data['useful_host'][trace] = 0.0                                      
        
         ####### END Get  values for GPU metrics
         # Get Efficiencies for BurstMode
@@ -999,6 +1014,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
 
         if trace_mode[trace] == 'Detailed+MPI+CUDA':
             #print("CFGS: ", cfgs)
+            move_files(trace_name + '.useful_host.stats', path_dest, cmdl_args)
             for device_id in mapping_devices:
                 safe_id = device_id.replace(":", "_").replace("/", "_")
                 key_device_to_replace = "useful_device_" + str(safe_id)

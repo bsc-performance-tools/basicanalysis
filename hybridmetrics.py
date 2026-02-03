@@ -602,7 +602,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             if not outmpi_measures:
                 host_factors['dev_offload_eff'][trace] = 'Non-Avail'
             elif trace_mode[trace] == 'Detailed+MPI+CUDA':
-                host_factors['dev_offload_eff'][trace] = 100 * (float(raw_data['useful_tot'][trace])\
+                host_factors['dev_offload_eff'][trace] = 100 * (float(raw_data['useful_host'][trace])\
                 /float(raw_data['outsidempi_tot'][trace]) )
             else:
                 host_factors['dev_offload_eff'][trace] = 'N/A'
