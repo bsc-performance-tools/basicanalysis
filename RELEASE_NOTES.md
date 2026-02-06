@@ -1,5 +1,10 @@
 # Release Notes
 
+## 0.4.1
+### Bug Fixes
+- Fixed computation of offloading metric.
+
+
 ## 0.4.0
 
 ### New Features
