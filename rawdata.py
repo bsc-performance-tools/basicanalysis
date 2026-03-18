@@ -271,7 +271,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         if trace_mode[trace][:9] == 'Burst+MPI':
             cmd_normal.extend([cfgs['burst_useful'], trace_name + '.burst_useful.stats'])
         
-        if trace_mode[trace] == 'Detailed+MPI+CUDA':
+        if trace_mode[trace] == 'Detailed+MPI+CUDA' and (cmdl_args.pop_model_to_apply == 'talp'):
             cmd_normal.extend([cfgs['useful_host'], trace_name + '.useful_host.stats'])
             gpu_devices = get_device_count(trace)            
             print("==> Count of devices: ", gpu_devices)
@@ -823,7 +823,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             raw_data['mpiio_ins'][trace] = 0.0
 
         ####### Get  values for GPU metrics
-        if trace_mode[trace] == 'Detailed+MPI+CUDA':
+        if trace_mode[trace] == 'Detailed+MPI+CUDA' and (cmdl_args.pop_model_to_apply == 'talp'):
             raw_data['useful_device'][trace] = 0.0
             raw_data['useful_device_max'][trace] = 0.0
             raw_data['useful_memtransf_device'][trace] = 0.0
@@ -1012,7 +1012,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             move_files(trace_name + '.2dh_BurstEff.stats', path_dest, cmdl_args)
             move_files(trace_name + '.burst_useful.stats', path_dest, cmdl_args)
 
-        if trace_mode[trace] == 'Detailed+MPI+CUDA':
+        if trace_mode[trace] == 'Detailed+MPI+CUDA' and (cmdl_args.pop_model_to_apply == 'talp'):
             #print("CFGS: ", cfgs)
             move_files(trace_name + '.useful_host.stats', path_dest, cmdl_args)
             for device_id in mapping_devices:
@@ -1021,10 +1021,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                 move_files(trace_name +"." + str(key_device_to_replace) + '.stats', path_dest, cmdl_args)
                 key_device_to_replace = "useful_memtransf_device_" + str(safe_id)
                 move_files(trace_name +"." + str(key_device_to_replace) + '.stats', path_dest, cmdl_args)
-                #file_cfg_device_to_remove = str(path_dest)+"/" + "kernels-x-Tasks-in-Device_app-"+ str(device_id) + '.cfg' 
-                #remove_files(file_cfg_device_to_remove, cmdl_args)
-                #file_cfg_device_to_remove = str(path_dest)+"/" + "kernelsPlusMemTransfer-x-Tasks-in-Device_app-"+ str(device_id) + '.cfg'
-                #remove_files(file_cfg_device_to_remove, cmdl_args)
+
 
         time_prs = time.time() - time_prs
 

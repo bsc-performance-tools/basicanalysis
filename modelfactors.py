@@ -91,14 +91,15 @@ if __name__ == "__main__":
             hybridmetrics.print_talp_metrics_csv(device_factors,host_factors, trace_list, trace_processes,raw_data)
             hybridmetrics.print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors, device_factors, host_factors,
                                               trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data)
-            hybridmetrics.plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode,raw_data, cmdl_args)
+            
         else:
             hybridmetrics.print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors, device_factors,
                                               trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data)
-            
-        hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
-        hybridmetrics.print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_processes, trace_tasks,
+            hybridmetrics.print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_processes, trace_tasks,
                                              trace_threads,trace_mode)
+
+        hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
+        
         # Plotting efficiency table with matplotlib
         error_plot_table = False
         if error_import_numpy or error_import_pandas or error_import_matplotlib or error_import_seaborn:
@@ -120,11 +121,14 @@ if __name__ == "__main__":
             error_plot_table = True
 
         if not error_plot_table:
-            hybridmetrics.plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks,
-                                                         trace_threads, trace_mode, cmdl_args)
-
+            if (cmdl_args.pop_model_to_apply == 'talp') and (trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"):
+                hybridmetrics.plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode,raw_data, cmdl_args)   
+            else:
+                hybridmetrics.plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args)
+            
             if len(trace_list) > 1:
-                hybridmetrics.plots_modelfactors_matplot(trace_list, trace_processes, trace_tasks,
+                if (cmdl_args.pop_model_to_apply == 'classic'):
+                    hybridmetrics.plots_modelfactors_matplot(trace_list, trace_processes, trace_tasks,
                                                          trace_threads, trace_mode, cmdl_args)
                 hybridmetrics.plots_speedup_matplot(trace_list, trace_processes, trace_tasks,
                                                     trace_threads, trace_mode, cmdl_args)
@@ -136,11 +140,11 @@ if __name__ == "__main__":
             error_plot_lineal = True
 
         if not error_plot_lineal:
-            if len(trace_list) > 1:
+            if len(trace_list) > 1 and (cmdl_args.pop_model_to_apply == 'classic'):
                 plots.plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes,
                                           trace_tasks, trace_threads, trace_mode, cmdl_args)
 
-        if len(trace_list) == 1:
+        if len(trace_list) == 1 and (cmdl_args.pop_model_to_apply == 'classic'):
             subprocess.check_output(["rm", "efficiency_table_global.gp"])
             subprocess.check_output(["rm", "efficiency_table_hybrid.gp"])
 

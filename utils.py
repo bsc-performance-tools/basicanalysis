@@ -76,13 +76,10 @@ def parse_arguments():
     parser.add_argument("-scuda", "--simulation_cuda", help='CUDA events will be simulated '
                                                          '(default: disable).', action="store_true")
     parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='classic',
-                        help='Select the model to compute POP metrics (default: classic).'
-                             ' classic shows the hybrid metrics proposed in POP2 and talp presents the metrics proposed by TALP team.')
+                        help='Select the model to compute POP metrics for MPI+GPU codes (default: classic).'
+                             ' classic shows the multiplicative hybrid metrics proposed by BSC Tools group in POP2'
+                             ' and talp presents the metrics proposed by TALP team in POP3.')
     
-
-    #parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='classic',
-    #                    help='Select the model to compute POP metrics (default: classic).'
-    #                         ' classic shows the hybrid metrics proposed in POP2 and talp presents the metrics proposed by TALP team.')
 
     if len(sys.argv) == 1:
         parser.print_help()

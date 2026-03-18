@@ -2215,28 +2215,26 @@ def plots_speedup_matplot(trace_list, trace_processes, trace_tasks, trace_thread
     plt.legend()
     plt.savefig('efficiency_matplot.png', bbox_inches='tight')
 
-def print_talp_metrics_csv(device_factors,host_factors, trace_list, trace_processes,raw_data):
+def print_talp_metrics_csv(device_factors, host_factors, trace_list, trace_processes, raw_data):
     """Prints the model factors table in a csv file."""
     global mod_device_factors_doc, mod_host_factors_doc
 
     delimiter = ','
-    # File is stored in the trace directory
-    # file_path = os.path.join(os.path.dirname(os.path.realpath(trace_list[0])), 'modelfactors.csv')
-    # File is stored in the execution directory
     file_path = os.path.join(os.getcwd(), 'talp_metrics.csv')
 
-    with open(file_path, 'w') as output:       
+    with open(file_path, 'w') as output:
         line = "\"#Proc(#GPU)\""
         for trace in trace_list:
             line += delimiter
-            line += str(trace_processes[trace]) + "("+ str(raw_data['count_devices'][trace])+")"
+            line += str(trace_processes[trace]) + "(" + str(raw_data['count_devices'][trace]) + ")"
         output.write(line + '\n')
 
+        # HOST metrics
         for mod_key in mod_host_factors_doc:
-            line = "\"" + mod_host_factors_doc[mod_key].replace('  ', '', 2)+ "\""
+            line = "\"" + mod_host_factors_doc[mod_key].replace('  ', '', 2) + "\""
             for trace in trace_list:
                 line += delimiter
-                try:  # except NaN
+                try:
                     if host_factors[mod_key][trace] == "Non-Avail":
                         line += '0.00'
                     else:
@@ -2245,11 +2243,12 @@ def print_talp_metrics_csv(device_factors,host_factors, trace_list, trace_proces
                     line += '{}'.format(host_factors[mod_key][trace])
             output.write(line + '\n')
 
+        # DEVICE metrics
         for mod_key in mod_device_factors_doc:
-            line = "\"" + mod_device_factors_doc[mod_key].replace('  ', '', 2)+ "\""
+            line = "\"" + mod_device_factors_doc[mod_key].replace('  ', '', 2) + "\""
             for trace in trace_list:
                 line += delimiter
-                try:  # except NaN
+                try:
                     if device_factors[mod_key][trace] == "Non-Avail":
                         line += '0.00'
                     else:
@@ -2257,37 +2256,40 @@ def print_talp_metrics_csv(device_factors,host_factors, trace_list, trace_proces
                 except ValueError:
                     line += '{}'.format(device_factors[mod_key][trace])
             output.write(line + '\n')
-        
-
-        #output.write('#\n')
 
     print('')
     print('======== Output File: Device Metrics ========')
     print('Device Metrics written to ' + file_path)
 
 
-def plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode,raw_data, cmdl_args):
+def plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads,
+                                        trace_mode, raw_data, cmdl_args):
     # Plotting using python
     # For plotting using python, read the csv file
+    global mod_host_factors_doc
 
     file_path = os.path.join(os.getcwd(), 'talp_metrics.csv')
     df = pd.read_csv(file_path)
+
     metrics = df['#Proc(#GPU)'].tolist()
 
-    ## remove complete nan columns and put to DF1
+    # remove complete nan columns and put to DF1
     df1 = df.dropna(axis='columns', how='all')
 
     traces_procs = list(df.keys())[1:]
+
     # To control same number of processes for the header on plots and table
     same_procs = True
     procs_trace_prev = trace_processes[trace_list[0]]
     tasks_trace_prev = trace_tasks[trace_list[0]]
     threads_trace_prev = trace_threads[trace_list[0]]
+
     for index, trace in enumerate(trace_list):
         tasks = trace_tasks[trace]
         threads = trace_threads[trace]
-        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
-                and threads_trace_prev == threads:
+        if (procs_trace_prev == trace_processes[trace] and
+                tasks_trace_prev == tasks and
+                threads_trace_prev == threads):
             same_procs *= True
         else:
             same_procs *= False
@@ -2296,7 +2298,7 @@ def plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks
     if cmdl_args.limit:
         limit = cmdl_args.limit
     else:
-        limit = str(trace_processes[trace_list[len(trace_list)-1]])
+        limit = str(trace_processes[trace_list[len(trace_list) - 1]])
 
     limit_min = trace_processes[trace_list[0]]
 
@@ -2306,32 +2308,33 @@ def plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks
     for index, trace in enumerate(trace_list):
         tasks = trace_tasks[trace]
         threads = trace_threads[trace]
-        #if int(limit) == int(limit_min) and same_procs:
-        #    s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
-        #else:
+
         if trace_mode[trace] == "Detailed+MPI+CUDA":
-            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')' \
-                          +"("+ str(raw_data['count_devices'][trace])+"GPUs)"+ '[' + str(index + 1) + ']'
+            s_xtics = (
+                str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
+                + "(" + str(raw_data['count_devices'][trace]) + "GPUs)"
+                + '[' + str(index + 1) + ']'
+            )
             label_xtics_hybrid.append(s_xtics)
         elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
-            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')' \
-                          + '[' + str(index + 1) + ']'
+            s_xtics = (
+                str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
+                + '[' + str(index + 1) + ']'
+            )
             label_xtics_hybrid.append(s_xtics)
         else:
             s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
+
         label_xtics.append(s_xtics)
-    ##### End xticks
 
     # BEGIN To adjust header to big number of processes
     max_len_header = 7
     for labelx in label_xtics:
         if len(labelx) > max_len_header:
             max_len_header = len(labelx)
-
     # END To adjust header to big number of processes
 
     list_data = []
-
     for index, rows in df1.iterrows():
         list_temp = []
         for value in list(rows)[1:]:
@@ -2344,22 +2347,47 @@ def plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks
     list_np = np.array(list_data)
 
     idx = metrics
-    #cols = label_xtics
     cols = label_xtics_hybrid
-    # cols = traces_procs
-    df = pd.DataFrame(list_np, index=idx, columns=cols)
+    df_plot = pd.DataFrame(list_np, index=idx, columns=cols)
 
     # min for 1 trace is x=3 for the (x,y) in figsize
     size_figure_y = len(idx) * 0.40
     size_figure_x = len(cols) * 0.14 * max_len_header
     plt.figure(figsize=(size_figure_x, size_figure_y))
 
-    ax = sns.heatmap(df, cmap='RdYlGn', linewidths=0.05, annot=True, vmin=0, vmax=100, center=75, \
-                     fmt='.2f', annot_kws={"size": 10}, cbar_kws={'label': 'Percentage(%)'})
-    ## to align ylabels to left
+    ax = sns.heatmap(
+        df_plot,
+        cmap='RdYlGn',
+        linewidths=0.05,
+        annot=True,
+        vmin=0,
+        vmax=100,
+        center=75,
+        fmt='.2f',
+        annot_kws={"size": 10},
+        cbar_kws={'label': 'Percentage(%)'}
+    )
+
+    # Draw a white separator line between HOST and DEVICE metrics
+    host_rows = len(mod_host_factors_doc)
+    ax.hlines(host_rows, *ax.get_xlim(), colors='white', linewidth=8)
+
+    # Extend separator into the y-label (metrics name) area
+    x0, x1 = ax.get_xlim()
+    ax.hlines(
+    host_rows,
+    x0 - 2.0,   # enough to cover all label padding
+    x1,
+    colors='white',
+    linewidth=8,
+    clip_on=False
+    )
+
+    # to align ylabels to left
     plt.yticks(rotation=0, ha='left')
 
     ax.xaxis.tick_top()
+
     # to adjust metrics
     len_pad = 0
     for metric in metrics:
@@ -2369,5 +2397,3 @@ def plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks
     ax.yaxis.set_tick_params(pad=len_pad + 164)
 
     plt.savefig('efficiency_table_talp_matplot.png', bbox_inches='tight')
-
-    
