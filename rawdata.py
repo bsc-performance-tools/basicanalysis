@@ -71,6 +71,481 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ])
 
 
+SUMMARY_KEYS = {"Total", "Average", "Maximum", "Minimum", "StDev", "Num.", "Avg/Max", "Num. Cells"}
+
+
+def iter_stats_lines(path, skip_header=False):
+    with open(path) as f:
+        if skip_header:
+            next(f, None)
+        for line in f:
+            yield line.rstrip('\n')
+
+
+def get_parts(line, sep=None):
+    parts = line.split(sep)
+    return parts
+
+
+def parse_total_average_max(path):
+    total = None
+    avg = None
+    maximum = None
+
+    for line in iter_stats_lines(path):
+        parts = line.split()
+        if not parts:
+            continue
+        key = parts[0]
+        if key == 'Total':
+            total = float(parts[1])
+        elif key == 'Average':
+            avg = float(parts[1])
+        elif key == 'Maximum':
+            maximum = float(parts[1])
+
+    return total, avg, maximum
+
+
+def parse_total_as_int(path):
+    total = 0.0
+    for line in iter_stats_lines(path):
+        parts = line.split()
+        if not parts:
+            continue
+        if parts[0] == 'Total':
+            total = int(float(parts[1]))
+            break
+    return total
+
+
+def parse_positive_value_sum(path, skip_header=True):
+    total = 0.0
+    for line in iter_stats_lines(path, skip_header=skip_header):
+        parts = line.split()
+        if not parts:
+            continue
+        if parts[0] in SUMMARY_KEYS:
+            continue
+        value = float(parts[-1])
+        if value > 0.0:
+            total += value
+    return total
+
+
+def parse_positive_value_sum_and_mask(path, skip_header=True):
+    total = 0.0
+    mask = []
+    count_positive = 0
+
+    for line in iter_stats_lines(path, skip_header=skip_header):
+        parts = line.split()
+        if not parts:
+            continue
+        if parts[0] in SUMMARY_KEYS:
+            continue
+
+        value = float(parts[-1])
+        if value > 0.0:
+            total += value
+            count_positive += 1
+            mask.append(1)
+        else:
+            mask.append(0)
+
+    return total, count_positive, mask
+
+
+def parse_tab_totals_row(path):
+    """
+    Reads files where 'Total' row contains one value per rank/process.
+    Returns list of totals from the Total row.
+    """
+    with open(path) as f:
+        for raw_line in f:
+            line = raw_line.rstrip('\n')
+            parts = line.split('\t')
+            if not parts:
+                continue
+            if parts[0] == 'Total':
+                values = [float(x) for x in parts[1:] if x != '']
+                return values
+    return []
+
+def parse_tab_total_row_values(path):
+    """
+    Extract numeric values from the 'Total' row of a tab-separated stats file.
+    """
+    with open(path) as f:
+        for raw_line in f:
+            line = raw_line.rstrip('\n')
+            parts = line.split('\t')
+            if not parts:
+                continue
+            if parts[0] == 'Total':
+                return [float(x) for x in parts[1:] if x != '']
+    return []
+
+def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_pcf=False):
+    """
+    Parse timings.stats in one pass.
+
+    Returns a dict with:
+      useful_tot, useful_avg, useful_max,
+      useful_not_0_tot, useful_not_0_avg, useful_not_0_max,
+      io_state_tot, io_state_avg, io_state_max,
+      useful_plus_io_avg, useful_plus_io_max
+    """
+
+    result = {
+        'useful_tot': 'NaN',
+        'useful_avg': 'NaN',
+        'useful_max': 'NaN',
+        'useful_not_0_tot': 'NaN',
+        'useful_not_0_avg': 'NaN',
+        'useful_not_0_max': 'NaN',
+        'io_state_tot': 0.0,
+        'io_state_avg': 0.0,
+        'io_state_max': 0.0,
+        'useful_plus_io_avg': 0.0,
+        'useful_plus_io_max': 0.0,
+    }
+
+    useful_not_0_values = []
+    useful_plus_io = []
+
+    io_index = None
+    data_row_index = 0
+
+    with open(path) as f:
+        for line_num, raw_line in enumerate(f):
+            line = raw_line.rstrip('\n')
+            line_list = line.split('\t')
+
+            if not line_list or all(x == '' for x in line_list):
+                continue
+
+            # Header row: locate IO column once
+            if line_num == 0:
+                if has_pcf:
+                    try:
+                        io_index = line_list.index("I/O")
+                    except ValueError:
+                        io_index = None
+                else:
+                    try:
+                        io_index = line_list.index("Unknown state 12")
+                    except ValueError:
+                        io_index = None
+                continue
+
+            key = line_list[0].strip()
+
+            if key == 'Total':
+                if len(line_list) > 1:
+                    result['useful_tot'] = float(line_list[1])
+                if io_index is not None and io_index < len(line_list) and line_list[io_index] != '':
+                    result['io_state_tot'] = float(line_list[io_index])
+
+            elif key == 'Average':
+                if len(line_list) > 1:
+                    result['useful_avg'] = float(line_list[1])
+                if io_index is not None and io_index < len(line_list) and line_list[io_index] != '':
+                    result['io_state_avg'] = float(line_list[io_index])
+
+            elif key == 'Maximum':
+                if len(line_list) > 1:
+                    result['useful_max'] = float(line_list[1])
+                if io_index is not None and io_index < len(line_list) and line_list[io_index] != '':
+                    result['io_state_max'] = float(line_list[io_index])
+
+            elif key in ('Minimum', 'StDev', 'Avg/Max', 'Num. Cells') or key.startswith('Num.'):
+                continue
+
+            else:
+                # Per-rank / per-thread data row
+                if len(line_list) <= 1 or line_list[1] == '':
+                    continue
+
+                useful_value = float(line_list[1])
+
+                # useful_not_0_* based on instructions mask
+                if instructions_mask is not None and data_row_index < len(instructions_mask):
+                    if instructions_mask[data_row_index] == 1:
+                        useful_not_0_values.append(useful_value)
+
+                # useful_plus_io_* based on POSIX-IO totals
+                if io_index is not None:
+                    posixio_value = 0.0
+                    if posixio_totals is not None and data_row_index < len(posixio_totals):
+                        posixio_value = float(posixio_totals[data_row_index])
+                    useful_plus_io.append(useful_value + posixio_value)
+
+                data_row_index += 1
+
+    # Final reductions
+    if useful_not_0_values:
+        result['useful_not_0_tot'] = float(sum(useful_not_0_values))
+        result['useful_not_0_avg'] = float(sum(useful_not_0_values) / len(useful_not_0_values))
+        result['useful_not_0_max'] = float(max(useful_not_0_values))
+
+    if useful_plus_io:
+        result['useful_plus_io_avg'] = float(sum(useful_plus_io) / len(useful_plus_io))
+        result['useful_plus_io_max'] = float(max(useful_plus_io))
+
+    return result
+
+
+def parse_outside_mpi_stats(path, runtime_value):
+    """
+    Parse outside_mpi.stats for a real trace.
+
+    Returns:
+      {
+        'outsidempi_tot_diff': ...,
+        'outsidempi_tot': ...,
+        'outsidempi_avg': ...,
+        'outsidempi_max': ...,
+        'mpicomm_tot': ...,
+        'mpi_proc_count': ...,
+      }
+    """
+    result = {
+        'outsidempi_tot_diff': 'NaN',
+        'outsidempi_tot': 'NaN',
+        'outsidempi_avg': 'NaN',
+        'outsidempi_max': 'NaN',
+        'mpicomm_tot': 'NaN',
+        'mpi_proc_count': 0,
+    }
+
+    list_outside_mpi = []
+    list_thread_outside_mpi = []
+
+    init_count_thread = False
+    count_threads = 1
+
+    total_row = None
+
+    with open(path) as f:
+        next(f, None)  # skip header
+
+        for raw_line in f:
+            line = raw_line.rstrip('\n')
+            parts = line.split('\t')
+
+            if not parts or parts[0] == '':
+                continue
+
+            key = parts[0]
+
+            # Capture summary Total row for MPI communication totals
+            if key == 'Total':
+                total_row = parts
+                continue
+
+            # Skip summary/stat rows
+            if key in SUMMARY_KEYS:
+                continue
+
+            if len(parts) < 2 or parts[1] == '':
+                continue
+
+            value = float(parts[1])
+
+            # Original logic:
+            # - values different from runtime_value are "outside MPI" representative rows
+            # - values equal to runtime_value count extra threads of the current MPI task
+            if value != runtime_value:
+                list_outside_mpi.append(value)
+
+                if len(list_outside_mpi) > 1:
+                    list_thread_outside_mpi.append(count_threads)
+
+                count_threads = 1
+            else:
+                if len(list_outside_mpi) == 1 and not init_count_thread:
+                    count_threads = 2
+                    init_count_thread = True
+                else:
+                    count_threads += 1
+
+    if list_outside_mpi:
+        list_thread_outside_mpi.append(count_threads)
+
+        equal_threads = all(
+            list_thread_outside_mpi[i] == list_thread_outside_mpi[i + 1]
+            for i in range(len(list_thread_outside_mpi) - 1)
+        )
+
+        if not equal_threads:
+            rescaled_outside_mpi = [
+                list_outside_mpi[i] * list_thread_outside_mpi[i]
+                for i in range(len(list_outside_mpi))
+            ]
+
+            result['outsidempi_tot_diff'] = sum(rescaled_outside_mpi)
+            result['outsidempi_tot'] = sum(list_outside_mpi)
+
+            total_threads = sum(list_thread_outside_mpi)
+            if total_threads != 0:
+                result['outsidempi_avg'] = sum(rescaled_outside_mpi) / total_threads
+            else:
+                result['outsidempi_avg'] = 'NaN'
+
+            result['outsidempi_max'] = max(list_outside_mpi)
+        else:
+            result['outsidempi_tot_diff'] = sum(list_outside_mpi)
+            result['outsidempi_tot'] = sum(list_outside_mpi)
+
+            if len(list_outside_mpi) != 0:
+                result['outsidempi_avg'] = sum(list_outside_mpi) / len(list_outside_mpi)
+            else:
+                result['outsidempi_avg'] = 'NaN'
+
+            result['outsidempi_max'] = max(list_outside_mpi)
+            result['mpi_proc_count'] = len(list_outside_mpi)
+
+    # MPI communication total from Total row
+    if total_row is not None and len(total_row) > 2:
+        list_mpi_tot = [float(x) for x in total_row[2:] if x != '']
+        result['mpicomm_tot'] = sum(list_mpi_tot)
+
+    return result
+
+
+def parse_tab_stats(path):
+    """
+    Parse stats files where rows are:
+    Total / Average / Maximum and values are tab-separated per rank.
+    """
+    values = []
+
+    result = {
+        'tot': 0.0,
+        'avg': 0.0,
+        'max': 0.0,
+        'std': 0.0
+    }
+
+    with open(path) as f:
+        for raw_line in f:
+            line = raw_line.rstrip('\n')
+            parts = line.split('\t')
+
+            if not parts:
+                continue
+
+            key = parts[0]
+
+            if key == 'Total':
+                values = [float(x) for x in parts[1:] if x != '']
+                result['tot'] = sum(values)
+
+            elif key == 'Average':
+                if values:
+                    result['avg'] = result['tot'] / len(values)
+
+                    if len(values) > 1:
+                        mean = result['avg']
+                        variance = sum((x - mean) ** 2 for x in values) / len(values)
+                        result['std'] = math.sqrt(variance)
+                    else:
+                        result['std'] = 0.0
+                else:
+                    result['avg'] = 0.0
+                    result['std'] = 0.0
+
+            elif key == 'Maximum':
+                if values:
+                    result['max'] = max(values)
+
+    return result
+
+
+def parse_outside_mpi_sim_stats(path):
+    """
+    Parse outside_mpi.stats for a simulated trace.
+
+    Returns:
+      {
+        'outsidempi_dim': float
+      }
+    """
+    result = {
+        'outsidempi_dim': 0.0
+    }
+
+    list_outside_mpi = []
+    max_time_outside_mpi = 0.0
+
+    with open(path) as f:
+        next(f, None)  # skip header
+
+        for raw_line in f:
+            line = raw_line.rstrip('\n')
+            parts = line.split('\t')
+
+            if not parts or parts[0] == '':
+                continue
+
+            key = parts[0]
+
+            if key in SUMMARY_KEYS:
+                continue
+
+            if len(parts) < 2 or parts[1] == '':
+                continue
+
+            try:
+                value = float(parts[1])
+            except ValueError:
+                continue
+
+            # Keep original behavior:
+            # representative MPI-task rows are THREAD x.y.1
+            if key.startswith("THREAD "):
+                thread_id = key.split()[1]
+                thread_fields = thread_id.split(".")
+                if len(thread_fields) >= 3 and thread_fields[2] == '1':
+                    list_outside_mpi.append(value)
+
+                if key == "THREAD 1.1.1":
+                    max_time_outside_mpi = value
+
+    if list_outside_mpi:
+        result['outsidempi_dim'] = max(list_outside_mpi)
+    else:
+        result['outsidempi_dim'] = max_time_outside_mpi
+
+    return result
+
+def parse_burst_useful_stats(path):
+    """
+    Parse burst_useful.stats from the Total row.
+    """
+    result = {
+        'tot': 'NaN',
+        'avg': 'NaN',
+        'max': 'NaN',
+    }
+
+    totals = parse_tab_total_row_values(path)
+
+    if totals:
+        result['tot'] = sum(totals)
+        result['avg'] = sum(totals) / len(totals)
+        result['max'] = max(totals)
+
+    return result
+
+def flushing_stats_has_data(path):
+    with open(path) as f:
+        for line in f:
+            if '\tBegin\t' in line or '\tvalue 1\t' in line:
+                return True
+    return False
+
 def create_raw_data(trace_list):
     """Creates 2D dictionary of the raw input data and initializes with zero.
     The raw_data dictionary has the format: [raw data key][trace].
@@ -201,6 +676,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
     raw_data = create_raw_data(trace_list)
     global list_mpi_procs_count
     list_mpi_procs_count = dict()
+    dimemas_available = which('Dimemas') is not None
 
     cfgs = {}
     cfgs['root_dir'] = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs')
@@ -273,10 +749,16 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         
         if trace_mode[trace] == 'Detailed+MPI+CUDA' and (cmdl_args.pop_model_to_apply == 'talp'):
             cmd_normal.extend([cfgs['useful_host'], trace_name + '.useful_host.stats'])
-            gpu_devices = get_device_count(trace)            
-            print("==> Count of devices: ", gpu_devices)
-            raw_data['count_devices'][trace] = gpu_devices
+            #gpu_devices = get_device_count(trace)            
+            #print("==> Count of devices: ", gpu_devices)
+            #raw_data['count_devices'][trace] = gpu_devices
+            #mapping_devices = get_device_stream_id_mapping(trace)
+
             mapping_devices = get_device_stream_id_mapping(trace)
+            gpu_devices = len(mapping_devices)
+            raw_data['count_devices'][trace] = gpu_devices
+            print("==> Count of devices: ", gpu_devices)
+
             #print("==> Mapping in GPU: ", mapping_devices)
             write_all_device_cfgs_useful(cfgs, mapping_devices)
             #print("CFGS: ", cfgs)
@@ -297,7 +779,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         run_command(cmd_normal, cmdl_args)
 
         # Create simulated ideal trace with Dimemas
-        if which('Dimemas') and not cmdl_args.skip_simulation:
+        if dimemas_available and not cmdl_args.skip_simulation:
             if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' or \
                     trace_mode[trace] == 'Detailed+MPI+CUDA') and os.path.exists(trace_name + '.outside_mpi.stats'):
                 time_dim = time.time()
@@ -313,7 +795,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                     print('Failed to create simulated trace with Dimemas.')
 
         # Run paramedir for the simulated trace
-        if which('Dimemas') and os.path.exists(trace_name + '.outside_mpi.stats') and not cmdl_args.skip_simulation:
+        if dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats') and not cmdl_args.skip_simulation:
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
                     or trace_mode[trace] == 'Detailed+MPI+CUDA':
                 cmd_ideal = ['paramedir', trace_sim]
@@ -349,7 +831,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
             print('==ERROR== Failed to compute counter information with paramedir.')
             error_counters = 1
 
-        if which('Dimemas') and not cmdl_args.skip_simulation:
+        if dimemas_available and not cmdl_args.skip_simulation:
             if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
                     or trace_mode[trace] == 'Detailed+MPI+CUDA') and os.path.exists(trace_name + '.outside_mpi.stats'):
                 if not os.path.exists(trace_name_sim + '.timings.stats') or \
@@ -371,368 +853,135 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
 
         # Get useful cycles
         if os.path.exists(trace_name + '.cycles.stats'):
-            content = []
-            useful_cyc = 0.0
-            with open(trace_name + '.cycles.stats') as f:
-                next(f)
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if ("Total" not in line.split()) and \
-                            ("Average" not in line.split()) and \
-                            ("Maximum" not in line.split()) and \
-                            ("Minimum" not in line.split()) and \
-                            ("StDev" not in line.split()) and \
-                            ("Num." not in line.split()) and \
-                            ("Avg/Max" not in line.split()):
-                        if float(line.split()[-1]) > 0:
-                            useful_cyc = useful_cyc + float(line.split()[-1])
-            #print("USEFUL cyc:", useful_cyc)
-            raw_data['useful_cyc'][trace] = useful_cyc
+            raw_data['useful_cyc'][trace] = parse_positive_value_sum(trace_name + '.cycles.stats', skip_header=True)
         else:
             raw_data['useful_cyc'][trace] = 'NaN'
 
         # Get useful instructions
         procs_ins = 0
-        if os.path.exists(trace_name + '.instructions.stats'):
-            useful_ins = 0.0
-            procs_index = 0
-            content_insttructions = []
-            with open(trace_name + '.instructions.stats') as f:
-                next(f)
-                content = f.readlines()
+        content_insttructions = []
 
-            for line in content:
-                if line.split():
-                    if ("Total" not in line.split()) and \
-                        ("Average" not in line.split()) and \
-                        ("Maximum" not in line.split()) and \
-                        ("Minimum" not in line.split()) and \
-                        ("StDev" not in line.split()) and \
-                        ("Num." not in line.split()) and \
-                        ("Avg/Max" not in line.split()):
-                        #print("LINE", line.split()[0])
-                        content_insttructions.append(0)
-                        if float(line.split()[-1]) > 0.0:
-                            procs_ins = procs_ins + 1
-                            content_insttructions[procs_index] = 1
-                            useful_ins = useful_ins + float(line.split()[-1])
-                        procs_index = procs_index + 1
-            raw_data['procs_ins'] [trace] = procs_ins
+        if os.path.exists(trace_name + '.instructions.stats'):
+            useful_ins, procs_ins, content_insttructions = parse_positive_value_sum_and_mask(
+                trace_name + '.instructions.stats',
+                skip_header=True
+            )
+            raw_data['procs_ins'][trace] = procs_ins
             raw_data['useful_ins'][trace] = float(useful_ins)
         else:
             raw_data['useful_ins'][trace] = 'NaN'
 
         #### To Useful Total for Instructions not 0 ####
-        if os.path.exists(trace_name + '.timings.stats') and (procs_ins != 0):
-            procs_index = 0
-            useful_not_0_tot = []
-            with open(trace_name + '.timings.stats') as f:
-                next(f)
-                content = f.readlines()
-            for line in content:
-                if line.split():
-                    if ("Total" not in line.split()) and \
-                            ("Average" not in line.split()) and \
-                            ("Maximum" not in line.split()) and \
-                            ("Minimum" not in line.split()) and \
-                            ("StDev" not in line.split()) and \
-                            ("Num." not in line.split()) and \
-                            ("Avg/Max" not in line.split()):
-                        useful_not_0_tot.append(float(line.split("\t")[1]) * float(content_insttructions[procs_index]))
-                        procs_index = procs_index + 1
-            raw_data['useful_not_0_tot'][trace] = float(sum(useful_not_0_tot))
-            raw_data['useful_not_0_avg'][trace] = float(sum(useful_not_0_tot) / procs_ins)
-            raw_data['useful_not_0_max'][trace] = float(max(useful_not_0_tot))
-        else:
-            raw_data['useful_not_0_tot'][trace] = 'NaN'
-            raw_data['useful_not_0_avg'][trace] = 'NaN'
-            raw_data['useful_not_0_max'][trace] = 'NaN'
-        f.close()
-        #### END ####
-
         # Get total, average, and maximum useful duration
-        if os.path.exists(trace_name + '.timings.stats'):
-            content = []
-            with open(trace_name + '.timings.stats') as f:
-                content = f.readlines()
+        # Get total File IO, average IO, and maximum IO duration
 
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Total':
-                        raw_data['useful_tot'][trace] = float(line.split()[1])
-                    if line.split()[0] == 'Average':
-                        raw_data['useful_avg'][trace] = float(line.split()[1])
-                    if line.split()[0] == 'Maximum':
-                        raw_data['useful_max'][trace] = float(line.split()[1])
+        # Prepare POSIX-IO totals per rank for timings parser
+        posixio_totals = None
+        if os.path.exists(trace_name + '.posixio_call.stats'):
+            posixio_totals = parse_tab_total_row_values(trace_name + '.posixio_call.stats')
+
+        # Parse timings.stats once
+        if os.path.exists(trace_name + '.timings.stats'):
+            timings_data = parse_timings_stats(
+                trace_name + '.timings.stats',
+                instructions_mask=content_insttructions if procs_ins != 0 else None,
+                posixio_totals=posixio_totals,
+                has_pcf=os.path.exists(trace_name_control + '.pcf')
+            )
+
+            raw_data['useful_tot'][trace] = timings_data['useful_tot']
+            raw_data['useful_avg'][trace] = timings_data['useful_avg']
+            raw_data['useful_max'][trace] = timings_data['useful_max']
+
+            raw_data['useful_not_0_tot'][trace] = timings_data['useful_not_0_tot']
+            raw_data['useful_not_0_avg'][trace] = timings_data['useful_not_0_avg']
+            raw_data['useful_not_0_max'][trace] = timings_data['useful_not_0_max']
+
+            raw_data['io_state_tot'][trace] = timings_data['io_state_tot']
+            raw_data['io_state_avg'][trace] = timings_data['io_state_avg']
+            raw_data['io_state_max'][trace] = timings_data['io_state_max']
+
+            raw_data['useful_plus_io_avg'][trace] = timings_data['useful_plus_io_avg']
+            raw_data['useful_plus_io_max'][trace] = timings_data['useful_plus_io_max']
         else:
             raw_data['useful_tot'][trace] = 'NaN'
             raw_data['useful_avg'][trace] = 'NaN'
             raw_data['useful_max'][trace] = 'NaN'
-        f.close()
 
-        # Get total File IO, average IO, and maximum IO duration
-        dict_trace_posixio = {}
-        if os.path.exists(trace_name + '.posixio_call.stats'):
-            content = []
-            with open(trace_name + '.posixio_call.stats') as f:
-                content = f.readlines()
+            raw_data['useful_not_0_tot'][trace] = 'NaN'
+            raw_data['useful_not_0_avg'][trace] = 'NaN'
+            raw_data['useful_not_0_max'][trace] = 'NaN'
 
-                for line in content:
-                    
-                    for field in line.split("\n"):
-                        line_list = field.split("\t")
-                        if "Total" in field.split("\t"):
-                            count_procs = len(line_list[1:])
-                            list_io_tot = [float(iotime) for iotime in line_list[1:count_procs]]
-                            dict_trace_posixio[trace] = list_io_tot
-                            raw_data['io_tot'][trace] = sum(list_io_tot)
-                        elif "Average" in field.split("\t"):
-                            if count_procs != 0:
-                                raw_data['io_avg'][trace] = float(sum(list_io_tot)/count_procs)
-                                if len(list_io_tot) > 1:
-                                    variance = sum((x - raw_data['io_avg'][trace]) ** 2 for x in list_io_tot) / len(list_io_tot)
-                                    raw_data['io_std'][trace] = math.sqrt(variance)
-                                else:
-                                    raw_data['io_std'][trace] = 0.0
-                            else:
-                                raw_data['io_avg'][trace] = 0.0
-                                raw_data['io_std'][trace] = 0.0
-                        elif "Maximum" in field.split("\t"):
-                            raw_data['io_max'][trace] = max(list_io_tot)
-        else:
-            raw_data['io_tot'][trace] = 0.0
-            raw_data['io_avg'][trace] = 0.0
-            raw_data['io_max'][trace] = 0.0
-            raw_data['io_std'][trace] = 0.0
-        f.close()
+            raw_data['io_state_tot'][trace] = 'NaN'
+            raw_data['io_state_avg'][trace] = 'NaN'
+            raw_data['io_state_max'][trace] = 'NaN'
+
+            raw_data['useful_plus_io_avg'][trace] = 'NaN'
+            raw_data['useful_plus_io_max'][trace] = 'NaN'
+
 
         # Get total MPI IO, average IO, and maximum IO duration for MPI-IO
-        dict_trace_mpiio={}
         if os.path.exists(trace_name + '.mpi_io.stats') and trace_mode[trace][:12] == 'Detailed+MPI':
-            content = []
-            with open(trace_name + '.mpi_io.stats') as f:
-                content = f.readlines()
-
-                for line in content:
-                    for field in line.split("\n"):
-                        line_list = field.split("\t")
-                        if "Total" in field.split("\t"):
-                            count_procs = len(line_list[1:])
-                            list_mpiio_tot = [float(iotime) for iotime in line_list[1:count_procs]]
-                            dict_trace_mpiio[trace] = list_mpiio_tot
-                            # print(list_mpiio_tot)
-                            raw_data['mpiio_tot'][trace] = sum(list_mpiio_tot)
-                        elif "Average" in field.split("\t"):
-                            if count_procs != 0:
-                                raw_data['mpiio_avg'][trace] = sum(list_mpiio_tot)/count_procs
-                                if len(list_mpiio_tot) > 1:
-                                    variance = sum((x - raw_data['mpiio_avg'][trace]) ** 2 for x in list_mpiio_tot) / len(list_mpiio_tot)
-                                    raw_data['mpiio_std'][trace] = math.sqrt(variance)
-                                else:
-                                    raw_data['mpiio_std'][trace] = 0.0                                
-                            else:
-                                raw_data['mpiio_avg'][trace] = 0.0
-                                raw_data['mpiio_std'][trace] = 0.0
-                        elif "Maximum" in field.split("\t"):
-                            raw_data['mpiio_max'][trace] = max(list_mpiio_tot)
+            mpiio_stats = parse_tab_stats(trace_name + '.mpi_io.stats')
+            raw_data['mpiio_tot'][trace] = mpiio_stats['tot']
+            raw_data['mpiio_avg'][trace] = mpiio_stats['avg']
+            raw_data['mpiio_max'][trace] = mpiio_stats['max']
+            raw_data['mpiio_std'][trace] = mpiio_stats['std']
         else:
             raw_data['mpiio_tot'][trace] = 0.0
             raw_data['mpiio_avg'][trace] = 0.0
             raw_data['mpiio_max'][trace] = 0.0
             raw_data['mpiio_std'][trace] = 0.0
-        f.close()
 
-        # Get total State IO, average IO, and maximum IO duration
-        #print(dict_trace_mpiio)
-        if os.path.exists(trace_name + '.timings.stats'):
-            content = []
-            # io_index = " "
-            with open(trace_name + '.timings.stats') as f:
-                content = f.readlines()
-                useful_plus_io = []
-                useful_comp = []
-                io_time = []
-                count_line = 1
-                for line in content:
-                    for field in line.split("\n"):
-                        line_list = field.split("\t")
-                        # print(line_list)
-                        if count_line == 1:
-                            try:
-                                if os.path.exists(trace_name_control + '.pcf'):
-                                    io_index = line_list.index("I/O")
-                                else:
-                                    io_index = line_list.index('Unknown state 12')
-                            except:
-                                io_index = " "
-                        elif io_index != " ":
-                            if "Total" in field.split("\t"):
-                                raw_data['io_state_tot'][trace] = float(line_list[io_index])
-                            elif "Average" in field.split("\t"):
-                                raw_data['io_state_avg'][trace] = float(line_list[io_index])
-                            elif "Maximum" in field.split("\t"):
-                                raw_data['io_state_max'][trace] = float(line_list[io_index])
-                            elif "Minimum" not in line_list and "StDev" not in line_list \
-                                    and "Avg/Max" not in line_list and len(line_list) > 1:
-                                posixio_index = len(useful_plus_io)
-                                # print(dict_trace_posixio[trace][posixio_index])
-                                if len(dict_trace_posixio) != 0:
-                                    sum_aux = float(line_list[1]) + float(dict_trace_posixio[trace][posixio_index])
-                                else:
-                                    sum_aux = float(line_list[1])
-
-                                useful_plus_io.append(float(sum_aux))
-                                useful_comp.append(float(line_list[1]))
-                                io_time.append(float(line_list[io_index]))
-                        count_line += 1
-                if io_index != " ":
-                    if len(useful_plus_io) != 0:
-                        useful_io_avg = float(sum(useful_plus_io) / len(useful_plus_io))
-                    else:
-                        useful_io_avg = 0.0
-                    # print(len(useful_plus_io))
-                    # mpiio is not included in useful + IO
-                    raw_data['useful_plus_io_avg'][trace] = float(useful_io_avg)
-                    raw_data['useful_plus_io_max'][trace] = float(max(useful_plus_io))
-                else:
-                    raw_data['useful_plus_io_avg'][trace] = 0.0
-                    raw_data['useful_plus_io_max'][trace] = 0.0
-                    raw_data['io_state_tot'][trace] = 0.0
-                    raw_data['io_state_avg'][trace] = 0.0
-                    raw_data['io_state_max'][trace] = 0.0
+        # Get total serial IO, average IO, and maximum IO duration for serial-IO        
+        if os.path.exists(trace_name + '.posixio_call.stats'):
+            posix_stats = parse_tab_stats(trace_name + '.posixio_call.stats')
+            raw_data['io_tot'][trace] = posix_stats['tot']
+            raw_data['io_avg'][trace] = posix_stats['avg']
+            raw_data['io_max'][trace] = posix_stats['max']
+            raw_data['io_std'][trace] = posix_stats['std']
         else:
-            raw_data['useful_plus_io_avg'][trace] = 'NaN'
-            raw_data['useful_plus_io_max'][trace] = 'NaN'
-            raw_data['io_state_tot'][trace] = 'NaN'
-            raw_data['io_state_avg'][trace] = 'NaN'
-            raw_data['io_state_max'][trace] = 'NaN'
-        f.close()
-
+            raw_data['io_tot'][trace] = 0.0
+            raw_data['io_avg'][trace] = 0.0
+            raw_data['io_max'][trace] = 0.0
+            raw_data['io_std'][trace] = 0.0
 
         # Get runtime
         if os.path.exists(trace_name + '.runtime.stats'):
-            content = []
-            with open(trace_name + '.runtime.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Average':
-                        raw_data['runtime'][trace] = float(line.split()[1])
+            _, runtime_avg, _ = parse_total_average_max(trace_name + '.runtime.stats')
+            raw_data['runtime'][trace] = runtime_avg
         else:
             raw_data['runtime'][trace] = 'NaN'
 
         # Get total, average, and maximum outside MPI
-        # list_mpi_procs_count = []
         if os.path.exists(trace_name + '.outside_mpi.stats') and trace_mode[trace][:12] == 'Detailed+MPI':
-            content = []
-            with open(trace_name + '.outside_mpi.stats') as f:
-                content = f.readlines()
-                list_outside_mpi = []
+            outside_data = parse_outside_mpi_stats(
+                trace_name + '.outside_mpi.stats',
+                raw_data['runtime'][trace]
+            )
 
-                list_thread_outside_mpi = []
-                init_count_thread = False
-                count_threads = 1
-                for line1 in content[1:(len(content) - 8)]:
-                    line = line1.split("\t")
-                    ## print(line)
-                    if line:
-                        if line[0] != 'Num. Cells' and line[0] != 'Total' and line[0] != 'Average' \
-                                and line[0] != 'Maximum' and line[0] != 'StDev' \
-                                and line[0] != 'Avg/Max' and line[0] != '\n':
-                            # To extract the count of MPI tasks
-                            #print(line)
-                            #print(raw_data['runtime'][trace])
-                            if float(line[1]) != raw_data['runtime'][trace]:
-                                list_outside_mpi.append(float(line[1]))
-                                # To extract the count of threads per MPI task
-                                if len(list_outside_mpi) > 1:
-                                    list_thread_outside_mpi.append(count_threads)
-                                    count_threads = 1
-                            else:
-                                if len(list_outside_mpi) == 1 and not init_count_thread:
-                                    count_threads = 2
-                                    init_count_thread = True
-                                else:
-                                    count_threads += 1
+            raw_data['outsidempi_tot_diff'][trace] = outside_data['outsidempi_tot_diff']
+            raw_data['outsidempi_tot'][trace] = outside_data['outsidempi_tot']
+            raw_data['outsidempi_avg'][trace] = outside_data['outsidempi_avg']
+            raw_data['outsidempi_max'][trace] = outside_data['outsidempi_max']
+            raw_data['mpicomm_tot'][trace] = outside_data['mpicomm_tot']
 
-                list_thread_outside_mpi.append(count_threads)
-
-                count = 0
-                equal_threads = True
-                # Evaluate if the count of threads per MPI task are equal
-                while count < (len(list_thread_outside_mpi) - 1) and equal_threads:
-                    if list_thread_outside_mpi[count] != list_thread_outside_mpi[count+1]:
-                        equal_threads = False
-                    count += 1
-                rescaled_outside_mpi = []
-                # This is need to calculate the MPI_Par_Eff with the right #MPI_tasks and #threads
-                if not equal_threads:
-                    # print("\n===== Different number of threads per mpi task \n")
-                    rescaled_outside_mpi.append(list_outside_mpi[0] * (list_thread_outside_mpi[0]))
-                    # This is the sum of the outsidempi by the threads
-                    sum_outside_mpi_threads = list_thread_outside_mpi[0]
-
-                    for i in range(1,len(list_outside_mpi)):
-                        rescaled_outside_mpi.append(list_outside_mpi[i] * (list_thread_outside_mpi[i]))
-                        sum_outside_mpi_threads += list_thread_outside_mpi[i]
-                    raw_data['outsidempi_tot_diff'][trace] = sum(rescaled_outside_mpi)
-                    raw_data['outsidempi_tot'][trace] = sum(list_outside_mpi)
-                    # Only the average is updated with the rescaled outsidempi
-                    if sum(list_thread_outside_mpi) != 0:
-                        # print(list_thread_outside_mpi)
-                        raw_data['outsidempi_avg'][trace] = sum(rescaled_outside_mpi) / sum(list_thread_outside_mpi)
-                    else:
-                        raw_data['outsidempi_avg'][trace] = 'NaN'
-                    # Maximum outsidempi is the same, although the count of threads is different
-                    # because it waits that the MPI task has the max outsidempi.
-                    raw_data['outsidempi_max'][trace] = max(list_outside_mpi)
-                else:
-                    #print("\n===== Equal number of threads per mpi task \n")
-                    raw_data['outsidempi_tot_diff'][trace] = sum(list_outside_mpi)
-
-                    list_mpi_procs_count[trace] = len(list_outside_mpi)
-                    raw_data['outsidempi_tot'][trace] = sum(list_outside_mpi)
-                    if len(list_outside_mpi) != 0:
-                        raw_data['outsidempi_avg'][trace] = sum(list_outside_mpi) / len(list_outside_mpi)
-                    else:
-                        raw_data['outsidempi_avg'][trace] = 'NaN'
-                    raw_data['outsidempi_max'][trace] = max(list_outside_mpi)
-
-                for line2 in content[(len(content) - 7):]:
-                    line_aux = line2.split("\t")
-
-                    if line_aux[0] == 'Total':
-                        #print(line_aux)
-                        count_mpiop = len(line_aux[1:])
-                        list_mpi_tot = [float(mpitime) for mpitime in line_aux[2:count_mpiop]]
-                        #print(list_mpi_tot)
-                    raw_data['mpicomm_tot'][trace] = sum(list_mpi_tot)
-                #print(list_outside_mpi)
+            if outside_data['mpi_proc_count'] > 0:
+                list_mpi_procs_count[trace] = outside_data['mpi_proc_count']
         else:
+            raw_data['outsidempi_tot_diff'][trace] = 'NaN'
             raw_data['outsidempi_tot'][trace] = 'NaN'
             raw_data['outsidempi_avg'][trace] = 'NaN'
             raw_data['outsidempi_max'][trace] = 'NaN'
-            raw_data['mpicomm_tot'][trace] = 'NaN'
-        f.close()
+            raw_data['mpicomm_tot'][trace] = 'NaN'          
+
         # Get total, average, and maximum flushing duration
         if os.path.exists(trace_name + '.flushing.stats'):
-            content = []
-            with open(trace_name + '.flushing.stats') as f:
-                content = f.readlines()
-                flushing_exist = ('\tBegin\t\n' in content) or ('\tvalue 1\t\n' in content)
-
-            if flushing_exist:
-                for line in content:
-                    if line.split():
-                        if line.split()[0] == 'Total':
-                            raw_data['flushing_tot'][trace] = float(line.split()[1])
-                        if line.split()[0] == 'Average':
-                            raw_data['flushing_avg'][trace] = float(line.split()[1])
-                        if line.split()[0] == 'Maximum':
-                            raw_data['flushing_max'][trace] = float(line.split()[1])
+            if flushing_stats_has_data(trace_name + '.flushing.stats'):
+                flushing_tot, flushing_avg, flushing_max = parse_total_average_max(trace_name + '.flushing.stats')
+                raw_data['flushing_tot'][trace] = float(flushing_tot)
+                raw_data['flushing_avg'][trace] = float(flushing_avg)
+                raw_data['flushing_max'][trace] = float(flushing_max)
             else:
                 raw_data['flushing_tot'][trace] = 0.0
                 raw_data['flushing_avg'][trace] = 0.0
@@ -744,83 +993,43 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
 
         # Get total flushing cycles
         if os.path.exists(trace_name + '.flushing-cycles.stats'):
-            content = []
-            with open(trace_name + '.flushing-cycles.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Total':
-                        raw_data['flushing_cyc'][trace] = int(float(line.split()[1]))
+            raw_data['flushing_cyc'][trace] = parse_total_as_int(trace_name + '.flushing-cycles.stats')
         else:
             raw_data['flushing_cyc'][trace] = 0.0
 
         # Get total flushing instructions
         if os.path.exists(trace_name + '.flushing-inst.stats'):
-            content = []
-            with open(trace_name + '.flushing-inst.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Total':
-                        raw_data['flushing_ins'][trace] = int(float(line.split()[1]))
+            raw_data['flushing_ins'][trace] = parse_total_as_int(trace_name + '.flushing-inst.stats')
         else:
             raw_data['flushing_ins'][trace] = 0.0
 
+
         # Get total posixio cycles
         if os.path.exists(trace_name + '.posixio-cycles.stats'):
-            content = []
-            with open(trace_name + '.posixio-cycles.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Total':
-                        raw_data['io_cyc'][trace] = int(float(line.split()[1]))
+            raw_data['io_cyc'][trace] = parse_total_as_int(trace_name + '.posixio-cycles.stats')
         else:
             raw_data['io_cyc'][trace] = 0.0
 
         # Get total posixio instructions
         if os.path.exists(trace_name + '.posixio-inst.stats'):
-            content = []
-            with open(trace_name + '.posixio-inst.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Total':
-                        raw_data['io_ins'][trace] = int(float(line.split()[1]))
+            raw_data['io_ins'][trace] = parse_total_as_int(trace_name + '.posixio-inst.stats')
         else:
             raw_data['io_ins'][trace] = 0.0
 
         # Get total mpiio instructions
         if os.path.exists(trace_name + '.mpiio-cycles.stats') \
                 and trace_mode[trace][:12] == 'Detailed+MPI':
-            content = []
-            with open(trace_name + '.mpiio-cycles.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Total':
-                        raw_data['mpiio_cyc'][trace] = int(float(line.split()[1]))
+            raw_data['mpiio_cyc'][trace] = parse_total_as_int(trace_name + '.mpiio-cycles.stats')    
         else:
             raw_data['mpiio_cyc'][trace] = 0.0
 
         # Get total mpiio instructions
         if os.path.exists(trace_name + '.mpiio-inst.stats') \
                 and trace_mode[trace][:12] == 'Detailed+MPI':
-            content = []
-            with open(trace_name + '.mpiio-inst.stats') as f:
-                content = f.readlines()
-
-            for line in content:
-                if line.split():
-                    if line.split()[0] == 'Total':
-                        raw_data['mpiio_ins'][trace] = int(float(line.split()[1]))
+            raw_data['mpiio_ins'][trace] = parse_total_as_int(trace_name + '.mpiio-inst.stats')
         else:
             raw_data['mpiio_ins'][trace] = 0.0
+
 
         ####### Get  values for GPU metrics
         if trace_mode[trace] == 'Detailed+MPI+CUDA' and (cmdl_args.pop_model_to_apply == 'talp'):
@@ -832,62 +1041,33 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                 safe_id = device_id.replace(":", "_").replace("/", "_")                
                 key_device_to_replace = "useful_device_" + str(safe_id)
                 if os.path.exists(trace_name +"." + str(key_device_to_replace) + '.stats'):
-                    content = []
-                    with open(trace_name +"." + str(key_device_to_replace) + '.stats') as f:
-                        content = f.readlines()
-                        for line in content:
-                            if line.split():
-                                if line.split()[0] == 'Total':
-                                    raw_data['useful_device'][trace] += float(line.split()[1])
-                                if line.split()[0] == 'Maximum':
-                                    if float(line.split()[1]) > raw_data['useful_device_max'][trace]:
-                                        raw_data['useful_device_max'][trace] = float(line.split()[1])
+                    useful_dev_tot, _, useful_dev_max = parse_total_average_max(trace_name +"." + str(key_device_to_replace) + '.stats')
+                    raw_data['useful_device'][trace] += float(useful_dev_tot)
+                    if float(useful_dev_max) > raw_data['useful_device_max'][trace]:
+                        raw_data['useful_device_max'][trace] = float(useful_dev_max)           
                 
                 key_device_to_replace = "useful_memtransf_device_" + str(safe_id)
                 if os.path.exists(trace_name +"." + str(key_device_to_replace) + '.stats'):
-                    content = []
-                    with open(trace_name +"." + str(key_device_to_replace) + '.stats') as f:
-                        content = f.readlines()
-                        for line in content:
-                            if line.split():
-                                if line.split()[0] == 'Total':
-                                    raw_data['useful_memtransf_device'][trace] += float(line.split()[1])
-                                if line.split()[0] == 'Maximum':
-                                    if float(line.split()[1]) > raw_data['useful_memtransf_device_max'][trace]:
-                                        raw_data['useful_memtransf_device_max'][trace] = float(line.split()[1])                                       
+                    useful_memtransf_dev_tot, _, useful_memtransf_dev_max = parse_total_average_max(trace_name +"." + str(key_device_to_replace) + '.stats')
+                    raw_data['useful_memtransf_device'][trace] += float(useful_memtransf_dev_tot)
+                    if float(useful_memtransf_dev_max) > raw_data['useful_memtransf_device_max'][trace]:
+                        raw_data['useful_memtransf_device_max'][trace] = float(useful_memtransf_dev_max)
+                                      
             # Useful Total Host 
             if os.path.exists(trace_name + '.useful_host.stats'):
-                content = []
-                with open(trace_name + '.useful_host.stats') as f:
-                    content = f.readlines()  
-                
-                for line in content:
-                    if line.split():
-                        if line.split()[0] == 'Total':
-                            raw_data['useful_host'][trace] = float(line.split()[1])
+                useful_host_tot, _, _ = parse_total_average_max(trace_name + '.useful_host.stats')
+                raw_data['useful_host'][trace] = float(useful_host_tot)
             else:
                 raw_data['useful_host'][trace] = 0.0                                      
        
         ####### END Get  values for GPU metrics
         # Get Efficiencies for BurstMode
         if trace_mode[trace] == 'Burst+MPI':
-            # Get total, maximum and avg from burst useful
             if os.path.exists(trace_name + '.burst_useful.stats'):
-                content = []
-                list_burst_tot = []
-                with open(trace_name + '.burst_useful.stats') as f:
-                    content = f.readlines()
-                for line in content:
-                    for field in line.split("\n"):
-                        line_list = field.split("\t")
-                        if "Total" in field.split("\t"):
-                            count_procs = len(line_list[1:])
-                            list_burst_tot = [float(burst_time) for burst_time in line_list[1:count_procs]]
-
-                raw_data['burst_useful_tot'][trace] = sum(list_burst_tot)
-                raw_data['burst_useful_avg'][trace] = sum(list_burst_tot)/len(list_burst_tot)
-                raw_data['burst_useful_max'][trace] = max(list_burst_tot)
-
+                burst_stats = parse_burst_useful_stats(trace_name + '.burst_useful.stats')
+                raw_data['burst_useful_tot'][trace] = burst_stats['tot']
+                raw_data['burst_useful_avg'][trace] = burst_stats['avg']
+                raw_data['burst_useful_max'][trace] = burst_stats['max']
             else:
                 raw_data['burst_useful_avg'][trace] = 'NaN'
                 raw_data['burst_useful_max'][trace] = 'NaN'
@@ -899,80 +1079,36 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
 
         # Get timing for SIMULATED traces
         if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
-            or trace_mode[trace] == 'Detailed+MPI+CUDA') and (which('Dimemas') and \
+            or trace_mode[trace] == 'Detailed+MPI+CUDA') and (dimemas_available and \
                 os.path.exists(trace_name + '.outside_mpi.stats') and not cmdl_args.skip_simulation):
             # Get maximum useful duration for simulated trace
             if os.path.exists(trace_name_sim + '.timings.stats'):
-                content = []
-                with open(trace_name_sim + '.timings.stats') as f:
-                    content = f.readlines()
-
-                for line in content:
-                    if line.split():
-                        if line.split()[0] == 'Maximum':
-                            raw_data['useful_dim'][trace] = float(line.split()[1])
+                _, _, useful_dim_max = parse_total_average_max(trace_name_sim + '.timings.stats')
+                raw_data['useful_dim'][trace] = float(useful_dim_max)
             else:
                 raw_data['useful_dim'][trace] = 'NaN'
 
             # Get runtime for simulated trace
             if os.path.exists(trace_name_sim + '.runtime.stats'):
-                content = []
-                with open(trace_name_sim + '.runtime.stats') as f:
-                    content = f.readlines()
-
-                for line in content:
-                    if line.split():
-                        if line.split()[0] == 'Average':
-                            raw_data['runtime_dim'][trace] = float(line.split()[1])
+                _, runtime_sim_avg, _ = parse_total_average_max(trace_name_sim + '.runtime.stats')
+                raw_data['runtime_dim'][trace] = float(runtime_sim_avg)
             else:
                 raw_data['runtime_dim'][trace] = 'NaN'
 
             # Get outsideMPI max for simulated trace
             if os.path.exists(trace_name_sim + '.outside_mpi.stats'):
-                    with open(trace_name_sim + '.outside_mpi.stats') as f:
-                        content = f.readlines()
-                        list_outside_mpi = []
-                        list_thread_outside_mpi = []
-                        init_count_thread = False
-                        count_threads = 1
-                        for line1 in content[1:(len(content) - 8)]:
-                            line = line1.split("\t")
-                        # print(line)
-                            if line:
-                                if line[0] != 'Num. Cells' and line[0] != 'Total' and line[0] != 'Average' \
-                                           and line[0] != 'Maximum' and line[0] != 'StDev' \
-                                           and line[0] != 'Avg/Max' and line[0] != '\n':
-                                    # To extract the count of MPI tasks
-                                    if line[0].split(".")[2] == '1':
-                                        list_outside_mpi.append(float(line[1]))
-                                        # To extract the count of threads per MPI task
-                                        if len(list_outside_mpi) > 1:
-                                            list_thread_outside_mpi.append(count_threads)
-                                        count_threads = 1
-                                    else:
-                                        if len(list_outside_mpi) == 1 and not init_count_thread:
-                                            count_threads = 2
-                                            init_count_thread = True
-                                        else:
-                                            count_threads += 1
-
-                                    if line[0] == "THREAD 1.1.1":
-                                        max_time_outside_mpi = float(line[1])
-
-                        list_thread_outside_mpi.append(count_threads)
-                        if len(list_outside_mpi) != 0:
-                            raw_data['outsidempi_dim'][trace] = max(list_outside_mpi)
-                        else:
-                            raw_data['outsidempi_dim'][trace] = max_time_outside_mpi
+                outside_sim_data = parse_outside_mpi_sim_stats(trace_name_sim + '.outside_mpi.stats')
+                raw_data['outsidempi_dim'][trace] = outside_sim_data['outsidempi_dim']
             else:
-                raw_data['outsidempi_dim'][trace] = 0.0
+                raw_data['outsidempi_dim'][trace] = 0.0            
+
         else:
             raw_data['useful_dim'][trace] = 'Non-Avail'
             raw_data['runtime_dim'][trace] = 'Non-Avail'
             raw_data['outsidempi_dim'][trace] = 'Non-Avail'
 
         if (trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
-                or trace_mode[trace] == 'Detailed+MPI+CUDA') and (which('Dimemas') \
+                or trace_mode[trace] == 'Detailed+MPI+CUDA') and (dimemas_available \
                 and os.path.exists(trace_name + '.outside_mpi.stats')) and not cmdl_args.skip_simulation:
             move_files(trace_name_sim + '.timings.stats', path_dest, cmdl_args)
             move_files(trace_name_sim + '.runtime.stats', path_dest, cmdl_args)
