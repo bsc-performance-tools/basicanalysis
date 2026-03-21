@@ -18,6 +18,30 @@ import re
 from collections import defaultdict, Counter
 from typing import Dict, List, Tuple
 
+TARGET_PAIR_BURST = "40000018:2"
+# Byte markers used in PCF files
+PCF_SAMPLING = b'    30000'
+PCF_MPI = b'   500000'
+PCF_PTHREADS = b'   610000'
+PCF_OMP = b'   60000'
+PCF_OMP_EXCLUDE = b'   60000019'
+PCF_CUDA_1 = b'   630000'
+PCF_CUDA_2 = b'   631000'
+PCF_CUDA_3 = b'   632000'
+PCF_OMPSS = b'   9200001'
+PCF_OPENCL_1 = b'   642000'
+PCF_OPENCL_2 = b'   6400001'
+PCF_OPENCL_3 = b'   641000'
+
+# Regex patterns for trace fallback detection
+RX_MPI = re.compile(rb'\n2:\w+:\w+:[1-4]:1:\w+:50000\w\w\w:')
+RX_OMP = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:60000018:')
+RX_CUDA = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:630\w\w\w\w\w:')
+RX_PTHREADS = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:610000\w\w:')
+RX_OMPSS = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:9200001:')
+RX_OPENCL = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:64\w\w\w\w\w\w:')
+# RX_HIP = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:635\w\w\w\w\w:')
+
 
 def get_traces_from_args(cmdl_args):
     """Filters the given list to extract traces, i.e. matching *.prv and sorts
@@ -231,188 +255,6 @@ def get_task_per_node(prv_file):
 
     return int(task_nodes)
 
-def get_trace_mode(prv_file, cmdl_args, trace_mode):
-    """Gets the trace mode by detecting the event 40000018:2 in .prv file
-    to detect the Burst mode trace in another case is Detailed mode.
-    50000001 for MPI, 60000001 for OpenMP, 61000000 for pthreads, 63000001 for CUDA
-    """
-    mode_trace = ''
-    burst = 0
-    target_pair_burst = "40000018:2"
-    pcf_file = True
-    if prv_file[-4:] == ".prv":
-        file_pcf = prv_file[:-4] + '.pcf'
-        tracefile = open(prv_file)
-        for line in tracefile:
-            line_splitted = line.split(":")
-            if (line_splitted[0] == "2") and (len(line_splitted) > 6):  # Ensure there are at least 6 elements
-                values = line_splitted[6:]  # Get everything from the 6th value onward
-                # Check in pairs (step = 2)
-                for i in range(0, len(values) - 1, 2):
-                    pair = f"{values[i]}:{values[i + 1]}"  # Form "key:value" pair
-                    if pair == target_pair_burst:
-                        burst = 1
-                        break
-                if burst == 1:
-                   break
-        tracefile.close()
-
-    if prv_file[-7:] == ".prv.gz":
-        file_pcf = prv_file[:-7] + '.pcf'
-        with gzip.open(prv_file, 'rt') as f:
-            for line in f:
-                line_splitted = line.split(":")
-                if (line_splitted[0] == "2") and (len(line_splitted) > 6):  # Ensure there are at least 6 elements
-                    values = line_splitted[6:]  # Get everything from the 6th value onward
-                    # Check in pairs (step = 2)
-                    for i in range(0, len(values) - 1, 2):
-                        pair = f"{values[i]}:{values[i + 1]}"  # Form "key:value" pair
-                        if pair == target_pair_burst:
-                            burst = 1
-                            break
-                    if burst == 1:
-                        break
-        f.close()
-
-    if burst == 1:
-        mode_trace = 'Burst'
-    else:
-        mode_trace = 'Detailed'
-
-    if os.path.exists(file_pcf) and cmdl_args.trace_mode_detection == 'pcf':
-        with open(file_pcf, 'rb', 0) as file, \
-                mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as s:
-            #print(s.find(b'    30000'))
-            if s.find(b'    30000') != -1:
-                mode_trace = 'Sampling'
-            elif s.find(b'   500000') != -1:
-                mode_trace += '+MPI'
-                if s.find(b'   610000') != -1:
-                    mode_trace += '+Pthreads'
-                elif s.find(b'   60000') != -1:
-                    if not s.find(b'   60000019') == s.find(b'   60000'):
-                        mode_trace += '+OpenMP'
-                if s.find(b'   630000') != -1 or s.find(b'   631000') != -1 or s.find(b'   632000') != -1:
-                    mode_trace += '+CUDA'
-                if s.find(b'   9200001') != -1:
-                    mode_trace += '+OmpSs'
-                if s.find(b'   642000') != -1 or s.find(b'   6400001') != -1 or s.find(b'   641000') != -1:
-                    mode_trace += '+OpenCL'
-                # if s.find(b'   635000'):
-                #    mode_trace += '+HIP'
-            else:
-                if s.find(b'   610000') != -1:
-                    mode_trace += '+Pthreads'
-                elif s.find(b'   60000') != -1:
-                    if not s.find(b'   60000019') == s.find(b'   60000'):
-                        mode_trace += '+OpenMP'
-                if s.find(b'   630000') != -1 or s.find(b'   631000') != -1 or s.find(b'   632000') != -1:
-                    mode_trace += '+CUDA'
-                if s.find(b'   9200001') != -1:
-                    mode_trace += '+OmpSs'
-                if s.find(b'   642000') != -1 or s.find(b'   6400001') != -1 or s.find(b'   641000') != -1:
-                    mode_trace += '+OpenCL'
-                # if s.find(b'   635000'):
-                #    mode_trace += '+HIP'
-        file.close()
-    else:
-        count_mpi = 0
-        count_omp = 0
-        count_pthreads = 0
-        count_cuda = 0
-        count_ompss = 0
-        count_opencl = 0
-        if prv_file[-4:] == ".prv":
-            with open(prv_file, 'rb', 0) as file, \
-                    mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_COPY) as s:
-                # 2:cpu_id:appl_id:task_id:thread_id:time:event_type:event_value
-                # 2:1:1:1:1:841276931:63500000:11:63500005:140730628952712:63500004:67108864
-                mpi = re.compile(rb'\n2:\w+:\w+:[1-4]:1:\w+:50000\w\w\w:')
-                omp = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:60000018:')
-                cuda = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:630\w\w\w\w\w:')
-                pthreads = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:610000\w\w:')
-                ompss = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:9200001:')
-                opencl = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:64\w\w\w\w\w\w:')
-                # hip = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:635\w\w\w\w\w:')
-                
-                if mpi.search(s):
-                    count_mpi = 1
-                    mpi_trace = '+MPI'
-                if omp.search(s):
-                    count_omp = 1
-                    omp_trace = '+OpenMP'
-                elif cuda.search(s):
-                    count_cuda = 1
-                    cuda_trace = '+CUDA'
-                elif pthreads.search(s):
-                    count_pthreads = 1
-                    pthreads_trace = '+Pthreads'
-                elif ompss.search(s):
-                    count_ompss = 1
-                    ompss_trace = '+OmpSs'
-                elif opencl.search(s):
-                    count_opencl = 1
-                    opencl_trace = '+OpenCL'
-                #elif hip.search(s):
-                #    count_hip = 1
-                #    hip_trace = '+HIP'
-            file.close()
-        elif prv_file[-7:] == ".prv.gz":
-            handle = open(prv_file, "rb")
-            mapped = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
-            gzfile = gzip.GzipFile(mode="r", fileobj=mapped)
-
-            # 2:cpu_id:appl_id:task_id:thread_id:time:event_type:event_value
-            mpi = re.compile(rb'\n2:\w+:\w+:[1-4]:1:\w+:50000\w\w\w:')
-            omp = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:60000018:')
-            cuda = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:630\w\w\w\w\w:')
-            pthreads = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:610000\w\w:')
-            ompss = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:9200001:')
-            opencl = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:64\w\w\w\w\w\w:')
-            hip = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:635\w\w\w\w\w:')
-            s = gzfile.read()
-            if mpi.search(s):
-                count_mpi = 1
-                mpi_trace = '+MPI'
-            if omp.search(s):
-                count_omp = 1
-                omp_trace = '+OpenMP'
-            elif cuda.search(s):
-                count_cuda = 1
-                cuda_trace = '+CUDA'
-            elif pthreads.search(s):
-                count_pthreads = 1
-                pthreads_trace = '+Pthreads'
-            elif ompss.search(s):
-                count_ompss = 1
-                ompss_trace = '+OmpSs'
-            elif opencl.search(s):
-                count_opencl = 1
-                opencl_trace = '+OpenCL'
-            # elif hip.search(s):
-            #        count_hip = 1
-            #        hip_trace = '+HIP'
-
-            handle.close()
-        if count_mpi > 0:
-            mode_trace += mpi_trace
-        if count_omp > 0:
-            mode_trace += omp_trace
-        if count_pthreads > 0:
-            mode_trace += pthreads_trace
-        if count_ompss > 0:
-            mode_trace += ompss_trace
-        if count_cuda > 0:
-            mode_trace += cuda_trace
-        if count_opencl > 0:
-            mode_trace += opencl_trace
-        # if count_hip > 0:
-        #    mode_trace += hip_trace
-
-    trace_mode[prv_file] = mode_trace
-    #return mode_trace
-
-
 def human_readable(size, precision=1):
     """Converts a given size in bytes to the value in human readable form."""
     suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -568,4 +410,174 @@ def get_device_stream_id_mapping(
     return out
 
 
+def _open_trace_text(prv_file):
+    """Open .prv or .prv.gz as text."""
+    if prv_file.endswith(".prv"):
+        return open(prv_file, "rt")
+    if prv_file.endswith(".prv.gz"):
+        return gzip.open(prv_file, "rt")
+    raise ValueError(f"Unsupported trace format: {prv_file}")
 
+
+def _open_trace_binary(prv_file):
+    """Open .prv or .prv.gz as binary stream."""
+    if prv_file.endswith(".prv"):
+        return open(prv_file, "rb")
+    if prv_file.endswith(".prv.gz"):
+        return gzip.open(prv_file, "rb")
+    raise ValueError(f"Unsupported trace format: {prv_file}")
+
+
+def _detect_burst_mode(prv_file):
+    """
+    Detect Burst mode by scanning event pairs in the trace.
+    Returns 'Burst' or 'Detailed'.
+    """
+    with _open_trace_text(prv_file) as tracefile:
+        for line in tracefile:
+            line_splitted = line.split(":")
+            if line_splitted[0] != "2" or len(line_splitted) <= 6:
+                continue
+
+            values = line_splitted[6:]
+            for i in range(0, len(values) - 1, 2):
+                if values[i] == "40000018" and values[i + 1].strip() == "2":
+                    return "Burst"
+
+    return "Detailed"
+
+
+def _detect_mode_from_pcf(file_pcf, base_mode):
+    """
+    Detect trace programming model from .pcf file.
+    Returns a mode string like:
+    'Sampling'
+    'Detailed+MPI+CUDA'
+    'Burst+MPI+OpenMP'
+    """
+    mode_trace = base_mode
+
+    with open(file_pcf, 'rb', 0) as file_obj, \
+            mmap.mmap(file_obj.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+
+        if mm.find(PCF_SAMPLING) != -1:
+            return 'Sampling'
+
+        has_mpi = mm.find(PCF_MPI) != -1
+        has_pthreads = mm.find(PCF_PTHREADS) != -1
+        has_omp = (mm.find(PCF_OMP) != -1 and
+                   mm.find(PCF_OMP_EXCLUDE) != mm.find(PCF_OMP))
+        has_cuda = (mm.find(PCF_CUDA_1) != -1 or
+                    mm.find(PCF_CUDA_2) != -1 or
+                    mm.find(PCF_CUDA_3) != -1)
+        has_ompss = mm.find(PCF_OMPSS) != -1
+        has_opencl = (mm.find(PCF_OPENCL_1) != -1 or
+                      mm.find(PCF_OPENCL_2) != -1 or
+                      mm.find(PCF_OPENCL_3) != -1)
+
+    if has_mpi:
+        mode_trace += '+MPI'
+    if has_pthreads:
+        mode_trace += '+Pthreads'
+    elif has_omp:
+        mode_trace += '+OpenMP'
+
+    if has_cuda:
+        mode_trace += '+CUDA'
+    if has_ompss:
+        mode_trace += '+OmpSs'
+    if has_opencl:
+        mode_trace += '+OpenCL'
+    # if has_hip:
+    #     mode_trace += '+HIP'
+
+    return mode_trace
+
+
+def _detect_mode_from_trace_streaming(prv_file, base_mode, chunk_size=8 * 1024 * 1024, overlap=1024):
+    """
+    Fallback detection from the trace itself.
+    Reads .prv/.prv.gz in chunks instead of loading the whole file.
+    """
+    mode_trace = base_mode
+
+    found_mpi = False
+    found_omp = False
+    found_cuda = False
+    found_pthreads = False
+    found_ompss = False
+    found_opencl = False
+    # found_hip = False
+
+    tail = b''
+
+    with _open_trace_binary(prv_file) as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+
+            data = tail + chunk
+
+            if not found_mpi and RX_MPI.search(data):
+                found_mpi = True
+            if not found_omp and RX_OMP.search(data):
+                found_omp = True
+            if not found_cuda and RX_CUDA.search(data):
+                found_cuda = True
+            if not found_pthreads and RX_PTHREADS.search(data):
+                found_pthreads = True
+            if not found_ompss and RX_OMPSS.search(data):
+                found_ompss = True
+            if not found_opencl and RX_OPENCL.search(data):
+                found_opencl = True
+            # if not found_hip and RX_HIP.search(data):
+            #     found_hip = True
+
+            if (found_mpi and found_omp and found_cuda and found_pthreads and
+                    found_ompss and found_opencl):
+                break
+
+            tail = data[-overlap:]
+
+    if found_mpi:
+        mode_trace += '+MPI'
+    if found_pthreads:
+        mode_trace += '+Pthreads'
+    elif found_omp:
+        mode_trace += '+OpenMP'
+
+    if found_cuda:
+        mode_trace += '+CUDA'
+    if found_ompss:
+        mode_trace += '+OmpSs'
+    if found_opencl:
+        mode_trace += '+OpenCL'
+    # if found_hip:
+    #     mode_trace += '+HIP'
+
+    return mode_trace
+
+
+def get_trace_mode(prv_file, cmdl_args, trace_mode):
+    """
+    Gets the trace mode by detecting:
+      - Burst vs Detailed from trace events
+      - Programming model from .pcf if available and requested
+      - Otherwise fallback to trace-content detection
+    """
+    if prv_file.endswith(".prv"):
+        file_pcf = prv_file[:-4] + '.pcf'
+    elif prv_file.endswith(".prv.gz"):
+        file_pcf = prv_file[:-7] + '.pcf'
+    else:
+        raise ValueError(f"Unsupported trace format: {prv_file}")
+
+    base_mode = _detect_burst_mode(prv_file)
+
+    if os.path.exists(file_pcf) and cmdl_args.trace_mode_detection == 'pcf':
+        mode_trace = _detect_mode_from_pcf(file_pcf, base_mode)
+    else:
+        mode_trace = _detect_mode_from_trace_streaming(prv_file, base_mode)
+
+    trace_mode[prv_file] = mode_trace
