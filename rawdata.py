@@ -738,6 +738,10 @@ def process_one_trace(
     trace_raw_data = create_trace_raw_data()
     mpi_proc_count = None
 
+    # Create process-specific scratch directory
+    local_path_dest = os.path.join(path_dest, f"trace_{os.getpid()}")
+    os.makedirs(local_path_dest, exist_ok=True)
+
     trace_name_control, trace_name = get_trace_names(trace, trace_process_count)
 
     time_tot = time.time()
@@ -1144,50 +1148,50 @@ def process_one_trace(
     # ------------------------------------------------------------
     if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats')) and not cmdl_args.skip_simulation:
         if trace_sim != '':
-            move_files(trace_name_sim + '.timings.stats', path_dest, cmdl_args)
-            move_files(trace_name_sim + '.runtime.stats', path_dest, cmdl_args)
-            move_files(trace_name_sim + '.outside_mpi.stats', path_dest, cmdl_args)
-            move_files(trace_sim, path_dest, cmdl_args)
-            move_files(trace_sim[:-4] + '.pcf', path_dest, cmdl_args)
-            move_files(trace_sim[:-4] + '.row', path_dest, cmdl_args)
-            move_files(trace_sim[:-8] + '.dim', path_dest, cmdl_args)
+            move_files(trace_name_sim + '.timings.stats', local_path_dest, cmdl_args)
+            move_files(trace_name_sim + '.runtime.stats', local_path_dest, cmdl_args)
+            move_files(trace_name_sim + '.outside_mpi.stats', local_path_dest, cmdl_args)
+            move_files(trace_sim, local_path_dest, cmdl_args)
+            move_files(trace_sim[:-4] + '.pcf', local_path_dest, cmdl_args)
+            move_files(trace_sim[:-4] + '.row', local_path_dest, cmdl_args)
+            move_files(trace_sim[:-8] + '.dim', local_path_dest, cmdl_args)
             remove_files(trace_sim[:-8] + '.row', cmdl_args)
             remove_files(trace_sim[:-8] + '.pcf', cmdl_args)
-            move_files(trace_sim[:-8] + '.dimemas_ideal.cfg', path_dest, cmdl_args)
+            move_files(trace_sim[:-8] + '.dimemas_ideal.cfg', local_path_dest, cmdl_args)
 
             if trace.endswith(".prv.gz"):
                 remove_files(trace_name_control + '.prv', cmdl_args)
 
-    move_files(trace_name + '.timings.stats', path_dest, cmdl_args)
-    move_files(trace_name + '.runtime.stats', path_dest, cmdl_args)
-    move_files(trace_name + '.cycles.stats', path_dest, cmdl_args)
-    move_files(trace_name + '.instructions.stats', path_dest, cmdl_args)
-    move_files(trace_name + '.flushing.stats', path_dest, cmdl_args)
-    move_files(trace_name + '.posixio-cycles.stats', path_dest, cmdl_args)
-    move_files(trace_name + '.posixio-inst.stats', path_dest, cmdl_args)
-    move_files(trace_name + '.flushing-cycles.stats', path_dest, cmdl_args)
-    move_files(trace_name + '.flushing-inst.stats', path_dest, cmdl_args)
+    move_files(trace_name + '.timings.stats', local_path_dest, cmdl_args)
+    move_files(trace_name + '.runtime.stats', local_path_dest, cmdl_args)
+    move_files(trace_name + '.cycles.stats', local_path_dest, cmdl_args)
+    move_files(trace_name + '.instructions.stats', local_path_dest, cmdl_args)
+    move_files(trace_name + '.flushing.stats', local_path_dest, cmdl_args)
+    move_files(trace_name + '.posixio-cycles.stats', local_path_dest, cmdl_args)
+    move_files(trace_name + '.posixio-inst.stats', local_path_dest, cmdl_args)
+    move_files(trace_name + '.flushing-cycles.stats', local_path_dest, cmdl_args)
+    move_files(trace_name + '.flushing-inst.stats', local_path_dest, cmdl_args)
 
     if is_detailed_mpi:
-        move_files(trace_name + '.mpi_io.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.posixio_call.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.outside_mpi.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.mpiio-cycles.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.mpiio-inst.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.mpi_io.stats', local_path_dest, cmdl_args)
+        move_files(trace_name + '.posixio_call.stats', local_path_dest, cmdl_args)
+        move_files(trace_name + '.outside_mpi.stats', local_path_dest, cmdl_args)
+        move_files(trace_name + '.mpiio-cycles.stats', local_path_dest, cmdl_args)
+        move_files(trace_name + '.mpiio-inst.stats', local_path_dest, cmdl_args)
 
     if is_burst_mpi:
-        move_files(trace_name + '.2dh_BurstEff.stats', path_dest, cmdl_args)
-        move_files(trace_name + '.burst_useful.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.2dh_BurstEff.stats', local_path_dest, cmdl_args)
+        move_files(trace_name + '.burst_useful.stats', local_path_dest, cmdl_args)
 
     if is_talp_cuda and mapping_devices is not None:
-        move_files(trace_name + '.useful_host.stats', path_dest, cmdl_args)
+        move_files(trace_name + '.useful_host.stats', local_path_dest, cmdl_args)
         for device_id in mapping_devices:
             safe_id = device_id.replace(":", "_").replace("/", "_")
             key_device_to_replace = "useful_device_" + str(safe_id)
-            move_files(trace_name + "." + str(key_device_to_replace) + '.stats', path_dest, cmdl_args)
+            move_files(trace_name + "." + str(key_device_to_replace) + '.stats', local_path_dest, cmdl_args)
 
             key_device_to_replace = "useful_memtransf_device_" + str(safe_id)
-            move_files(trace_name + "." + str(key_device_to_replace) + '.stats', path_dest, cmdl_args)
+            move_files(trace_name + "." + str(key_device_to_replace) + '.stats', local_path_dest, cmdl_args)
 
     time_prs = time.time() - time_prs
     time_tot = time.time() - time_tot
@@ -1202,6 +1206,30 @@ def process_one_trace(
     }
 
 
+
+def _process_one_trace_wrapper(args):
+    return process_one_trace(*args)
+
+
+def get_available_memory_bytes():
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) * 1024
+    except OSError:
+        return None
+    return None
+
+
+def estimate_mem_per_worker(trace_path):
+    size = os.path.getsize(trace_path)
+
+    if trace_path.endswith(".prv.gz"):
+        return max(2 * 1024**3, 4 * size)
+    return max(1 * 1024**3, 2 * size)
+
+
 def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode, trace_tasks, trace_threads, cmdl_args):
     """Gathers all raw data needed to generate the model factors."""
     raw_data = create_raw_data(trace_list)
@@ -1214,23 +1242,68 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
     path_dest = create_temp_folder('scratch_out_basicanalysis', cmdl_args)
 
     results = []
+    #jobs = max(1, cmdl_args.jobs)
 
-    for trace in trace_list:
-        result = process_one_trace(
-            trace=trace,
-            trace_process_count=trace_processes[trace],
-            trace_task_per_node_value=trace_task_per_node[trace],
-            trace_mode_value=trace_mode[trace],
-            trace_tasks_value=trace_tasks[trace],
-            trace_threads_value=trace_threads[trace],
-            cmdl_args=cmdl_args,
-            cfgs=cfgs,
-            dimemas_available=dimemas_available,
-            path_dest=path_dest,
+    requested_jobs = max(1, cmdl_args.jobs)
+    core_count = os.cpu_count() or 1
+
+    available_mem = get_available_memory_bytes()
+    if available_mem is not None:
+        usable_mem = int(0.8 * available_mem)
+        estimated_per_worker = max(estimate_mem_per_worker(t) for t in trace_list)
+        memory_based_cap = max(1, usable_mem // estimated_per_worker)
+    else:
+        memory_based_cap = core_count
+
+    jobs = min(requested_jobs, len(trace_list), core_count, memory_based_cap)
+
+    if jobs < requested_jobs:
+        print(
+            f"Requested {requested_jobs} workers, using {jobs} "
+            f"(trace/core/memory limits applied)"
         )
-        results.append(result)
 
-    # Merge per-trace results into global output layout
+    if jobs == 1:
+        # --- SERIAL (debug-safe)
+        for trace in trace_list:
+            result = process_one_trace(
+                trace=trace,
+                trace_process_count=trace_processes[trace],
+                trace_task_per_node_value=trace_task_per_node[trace],
+                trace_mode_value=trace_mode[trace],
+                trace_tasks_value=trace_tasks[trace],
+                trace_threads_value=trace_threads[trace],
+                cmdl_args=cmdl_args,
+                cfgs=cfgs,
+                dimemas_available=dimemas_available,
+                path_dest=path_dest
+            )
+            results.append(result)
+
+    else:
+        from multiprocessing import Pool
+
+        print(f"Running with {jobs} parallel workers")
+
+        args_list = []
+        for trace in trace_list:
+            args_list.append((
+                trace,
+                trace_processes[trace],
+                trace_task_per_node[trace],
+                trace_mode[trace],
+                trace_tasks[trace],
+                trace_threads[trace],
+                cmdl_args,
+                cfgs,
+                dimemas_available,
+                path_dest
+            ))
+
+        with Pool(processes=jobs) as pool:
+            results = pool.map(_process_one_trace_wrapper, args_list)
+
+    # --- MERGE RESULTS (common for both modes)
     for result in results:
         trace = result["trace"]
         trace_raw_data = result["raw_data"]
@@ -1240,6 +1313,7 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
 
         if result["mpi_proc_count"] is not None:
             list_mpi_procs_count[trace] = result["mpi_proc_count"]
+    
 
     return raw_data, list_mpi_procs_count
 
