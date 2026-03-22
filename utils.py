@@ -79,7 +79,10 @@ def parse_arguments():
                         help='Select the model to compute POP metrics for MPI+GPU codes (default: classic).'
                              ' classic shows the multiplicative hybrid metrics proposed by BSC Tools group in POP2'
                              ' and talp presents the metrics proposed by TALP team in POP3.')
-    parser.add_argument('--jobs',type=int, default=1, help='Number of parallel trace analyses (default: 1)')
+    parser.add_argument('--jobs', default='1', help='Number of parallel trace analyses, or "auto" (default: 1)')
+
+    parser.add_argument('--mem-per-worker-gb', type=float, default=None,
+                       help='Estimated memory required per worker in GiB; overrides automatic heuristic')
     
 
     if len(sys.argv) == 1:

@@ -1213,21 +1213,57 @@ def _process_one_trace_wrapper(args):
 
 def get_available_memory_bytes():
     try:
-        with open("/proc/meminfo") as f:
+        with open('/proc/meminfo') as f:
             for line in f:
-                if line.startswith("MemAvailable:"):
+                if line.startswith('MemAvailable:'):
                     return int(line.split()[1]) * 1024
     except OSError:
         return None
     return None
 
+def estimate_mem_per_worker_bytes(trace_list, cmdl_args):
+    if cmdl_args.mem_per_worker_gb is not None:
+        return int(cmdl_args.mem_per_worker_gb * (1024 ** 3))
 
-def estimate_mem_per_worker(trace_path):
-    size = os.path.getsize(trace_path)
+    estimates = []
+    for trace in trace_list:
+        size = os.path.getsize(trace)
 
-    if trace_path.endswith(".prv.gz"):
-        return max(2 * 1024**3, 4 * size)
-    return max(1 * 1024**3, 2 * size)
+        if trace.endswith('.prv.gz'):
+            estimate = max(2 * 1024**3, 4 * size)
+        else:
+            estimate = max(1 * 1024**3, 2 * size)
+
+        estimates.append(estimate)
+
+    return max(estimates) if estimates else 1 * 1024**3
+
+def resolve_job_count(trace_list, cmdl_args):
+    core_count = os.cpu_count() or 1
+    trace_cap = len(trace_list)
+
+    available_mem = get_available_memory_bytes()
+    if available_mem is not None:
+        usable_mem = int(0.8 * available_mem)
+        mem_per_worker = estimate_mem_per_worker_bytes(trace_list, cmdl_args)
+        memory_cap = max(1, usable_mem // mem_per_worker)
+    else:
+        memory_cap = core_count
+
+    hard_cap = min(trace_cap, core_count, memory_cap)
+
+    if str(cmdl_args.jobs).lower() == 'auto':
+        jobs = hard_cap
+    else:
+        requested_jobs = max(1, int(cmdl_args.jobs))
+        jobs = min(requested_jobs, hard_cap)
+
+    return max(1, jobs), {
+        'trace_cap': trace_cap,
+        'core_cap': core_count,
+        'memory_cap': memory_cap,
+        'available_mem': available_mem,
+    }
 
 
 def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode, trace_tasks, trace_threads, cmdl_args):
@@ -1242,26 +1278,15 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
     path_dest = create_temp_folder('scratch_out_basicanalysis', cmdl_args)
 
     results = []
-    #jobs = max(1, cmdl_args.jobs)
 
-    requested_jobs = max(1, cmdl_args.jobs)
-    core_count = os.cpu_count() or 1
+    jobs, jobs_info = resolve_job_count(trace_list, cmdl_args)
 
-    available_mem = get_available_memory_bytes()
-    if available_mem is not None:
-        usable_mem = int(0.8 * available_mem)
-        estimated_per_worker = max(estimate_mem_per_worker(t) for t in trace_list)
-        memory_based_cap = max(1, usable_mem // estimated_per_worker)
-    else:
-        memory_based_cap = core_count
-
-    jobs = min(requested_jobs, len(trace_list), core_count, memory_based_cap)
-
-    if jobs < requested_jobs:
-        print(
-            f"Requested {requested_jobs} workers, using {jobs} "
-            f"(trace/core/memory limits applied)"
-        )
+    print(
+        f'Using {jobs} worker(s) '
+        f'(traces={jobs_info["trace_cap"]}, '
+        f'cores={jobs_info["core_cap"]}, '
+        f'memory_cap={jobs_info["memory_cap"]})'
+    )
 
     if jobs == 1:
         # --- SERIAL (debug-safe)
