@@ -8,12 +8,10 @@ import time
 import math
 import gzip
 import shutil
-import re
 from utils import which
 from collections import OrderedDict, defaultdict
-from tracemetadata import human_readable, get_tasks_threads, get_traces_from_args, get_device_count, get_device_stream_id_mapping
+from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping
 from utils import run_command, move_files,remove_files, create_temp_folder
-from typing import Dict, Tuple, List
 
 
 # Contains all raw data entries with a printable name.
@@ -73,6 +71,10 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
 
 SUMMARY_KEYS = {"Total", "Average", "Maximum", "Minimum", "StDev", "Num.", "Avg/Max", "Num. Cells"}
 
+
+# ----------------------------------------------------------------------
+# Helper functions to parser data from paramedir outputs.
+# ----------------------------------------------------------------------
 
 def iter_stats_lines(path, skip_header=False):
     with open(path) as f:
@@ -563,29 +565,6 @@ def create_raw_data(trace_list):
 
 # Functions to extract GPU IDs
 
-def format_mapping_for_cfg(
-    device_tuple: Tuple[int, List[str]],
-    decimals: int = 12,
-    trim_trailing_zeros: bool = False
-) -> str:
-    """
-    device_tuple: (count, ["002","003",...])
-    returns: "40 2.000000000000 3.000000000000 ..." (or trimmed)
-    """
-    count, ids = device_tuple
-
-    parts: List[str] = [str(count)]
-
-    if trim_trailing_zeros:
-        # Use general format to drop trailing zeros, but keep integer look (e.g., "2", "3")
-        parts.extend(f"{int(x):g}" for x in ids)
-    else:
-        # Fixed decimals like "2.000000000000"
-        fmt = f"{{:.{decimals}f}}"
-        parts.extend(fmt.format(int(x)) for x in ids)
-
-    return " ".join(parts)
-
 def create_trace_raw_data():
     """Create flat raw-data dict for a single trace."""
     return {key: 0.0 for key in raw_data_doc}
@@ -605,6 +584,444 @@ def get_trace_names(trace, trace_process_count):
     return trace_name_control, trace_name
 
 
+# ----------------------------------------------------------------------
+# GPU stream parsing and row-based device mapping
+# ----------------------------------------------------------------------
+
+def normalize_thread_object(value):
+    """
+    Normalize Paraver thread ids to the canonical form:
+        THREAD x.y.z
+
+    Examples:
+      "1.1.2"         -> "THREAD 1.1.2"
+      "THREAD 1.1.2"  -> "THREAD 1.1.2"
+    """
+    s = str(value).strip()
+    if not s.startswith("THREAD "):
+        s = f"THREAD {s}"
+    return s
+
+
+def parse_row_thread_labels(row_path):
+    """
+    Parse the LEVEL THREAD section of a .row file.
+
+    The interpretation is positional.
+
+    Example:
+        THREAD 1.1.1
+        CUDA-D1.S1-node
+        CUDA-D1.S2-node
+
+    becomes:
+        {
+            "THREAD 1.1.1": "THREAD 1.1.1",
+            "THREAD 1.1.2": "CUDA-D1.S1-node",
+            "THREAD 1.1.3": "CUDA-D1.S2-node",
+        }
+
+    Returns:
+        dict mapping Paraver thread object -> label_or_self
+    """
+    thread_to_label = {}
+
+    in_thread_section = False
+    current_prefix = None   # tuple like ("1", "1")
+    current_index = None    # integer like 1
+
+    with open(row_path) as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line.startswith("LEVEL THREAD SIZE"):
+                in_thread_section = True
+                current_prefix = None
+                current_index = None
+                continue
+
+            if in_thread_section and line.startswith("LEVEL "):
+                break
+
+            if not in_thread_section:
+                continue
+
+            if line.startswith("THREAD "):
+                obj = line.split()[1]   # e.g. 1.2.1
+                parts = obj.split('.')
+                if len(parts) != 3:
+                    continue
+
+                a, b, c = parts
+                current_prefix = (a, b)
+                try:
+                    current_index = int(c)
+                except ValueError:
+                    current_prefix = None
+                    current_index = None
+                    continue
+
+                # Header object maps to itself
+                thread_obj = f"THREAD {a}.{b}.{current_index}"
+                thread_to_label[thread_obj] = thread_obj
+
+            else:
+                # This line defines the next thread object in the same block
+                if current_prefix is None or current_index is None:
+                    continue
+
+                current_index += 1
+                a, b = current_prefix
+                thread_obj = f"THREAD {a}.{b}.{current_index}"
+                thread_to_label[thread_obj] = line
+    ## print("LABEL: ", thread_to_label)
+    return thread_to_label
+
+
+def device_key_from_row_label(label):
+    """
+    Convert:
+        CUDA-D1.S1-as02r2b20
+    into:
+        as02r2b20:D1
+
+    Returns None for non-CUDA labels such as 'THREAD 1.1.1'.
+    """
+    if not label.startswith("CUDA-"):
+        return None
+
+    parts = label.split('-')
+    if len(parts) < 3:
+        return None
+
+    ds_part = parts[1]                  # D1.S1
+    node_part = '-'.join(parts[2:])     # as02r2b20
+    device_part = ds_part.split('.')[0] # D1
+
+    return f"{node_part}:{device_part}"
+
+
+def build_thread_to_device_map_from_row(row_path):
+    """
+    Build mapping:
+        "THREAD 1.1.2" -> "as02r2b20:D1"
+    using the .row file.
+    """
+    thread_to_label = parse_row_thread_labels(row_path)
+
+    thread_to_device = {}
+    for thread_obj, label in thread_to_label.items():
+        device_key = device_key_from_row_label(label)
+        if device_key is not None:
+            thread_to_device[thread_obj] = device_key
+
+    return thread_to_device
+
+
+def parse_gpu_stream_stats(path, active_values=None, value_tol=1e-9, positive_only=False):
+    """
+    Parse a paramedir stream stats/csv file with rows like:
+        1.1.2,START,DURATION,VALUE
+    or
+        THREAD 1.1.2,START,DURATION,VALUE
+
+    Args:
+        active_values: iterable of accepted values, e.g. (3.0, 7.0)
+        positive_only: if True, keep rows with value > 0
+
+    Returns:
+        list of (thread_obj, start, end)
+    where thread_obj is normalized to:
+        "THREAD x.y.z"
+    """
+    intervals = []
+
+    with open(path) as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if '\t' in line:
+                parts = line.split('\t')
+            elif ';' in line:
+                parts = line.split(';')
+            else:
+                parts = line.split(',')
+
+            if len(parts) < 4:
+                continue
+
+            thread_obj = normalize_thread_object(parts[0].strip())
+
+            try:
+                start = float(parts[1])
+                duration = float(parts[2])
+                value = float(parts[3])
+            except ValueError:
+                continue
+
+            if duration <= 0.0:
+                continue
+
+            if positive_only:
+                if value <= 0.0:
+                    continue
+            elif active_values is not None:
+                if not any(abs(value - v) <= value_tol for v in active_values):
+                    continue
+
+            end = start + duration
+            intervals.append((thread_obj, start, end))
+
+    return intervals
+
+
+def merge_intervals(intervals):
+    """
+    intervals: list of (start, end)
+    returns a merged list of non-overlapping intervals.
+    """
+    if not intervals:
+        return []
+
+    intervals = sorted(intervals, key=lambda x: (x[0], x[1]))
+    merged = [list(intervals[0])]
+
+    for start, end in intervals[1:]:
+        last_start, last_end = merged[-1]
+
+        if start <= last_end:
+            if end > last_end:
+                merged[-1][1] = end
+        else:
+            merged.append([start, end])
+
+    return [(s, e) for s, e in merged]
+
+
+def subtract_intervals(intervals, mask_intervals):
+    """
+    Subtract mask_intervals from intervals.
+
+    Both inputs are lists of (start, end). They do not need to be merged,
+    but this function assumes normal interval semantics with start < end.
+
+    Returns:
+        list of (start, end) pieces from intervals not covered by mask_intervals
+    """
+    if not intervals:
+        return []
+
+    if not mask_intervals:
+        return list(intervals)
+
+    intervals = merge_intervals(intervals)
+    mask_intervals = merge_intervals(mask_intervals)
+
+    result = []
+    j = 0
+
+    for start, end in intervals:
+        current = start
+
+        while j < len(mask_intervals) and mask_intervals[j][1] <= current:
+            j += 1
+
+        k = j
+        while k < len(mask_intervals):
+            mstart, mend = mask_intervals[k]
+
+            if mstart >= end:
+                break
+
+            if mstart > current:
+                result.append((current, min(mstart, end)))
+
+            current = max(current, mend)
+            if current >= end:
+                break
+
+            k += 1
+
+        if current < end:
+            result.append((current, end))
+
+    return result
+
+
+def interval_union_length(intervals_a, intervals_b):
+    """
+    Return the total length of the union of two interval lists.
+    """
+    return sum_intervals(merge_intervals(list(intervals_a) + list(intervals_b)))
+
+
+def sum_intervals(intervals):
+    return sum(end - start for start, end in intervals)
+
+
+def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats_path, row_path):
+    """
+    Aggregate GPU metrics per device using the .row file as the authoritative
+    mapping from Paraver thread objects to CUDA device labels.
+
+    Definitions implemented explicitly:
+
+      useful_device:
+          flattened useful computation per device
+          = | union(useful intervals from all streams in the device) |
+
+      useful_memtransf_device:
+          useful + non-overlapped memtransfer per device
+          = |useful_flat| + |memtransfer_flat minus useful_flat|
+
+    This matches the interpretation:
+      - overlapping useful across streams is counted once
+      - transfer overlapping useful is considered computation
+      - only transfer not already covered by useful adds extra duration
+    """
+    thread_to_device = build_thread_to_device_map_from_row(row_path)
+
+    useful_rows = parse_gpu_stream_stats(useful_stats_path, positive_only=True)
+    memtransfer_rows = parse_gpu_stream_stats(memtransfer_stats_path, active_values=(3.0, 7.0))
+
+    useful_by_device = defaultdict(list)
+    memtransfer_by_device = defaultdict(list)
+
+    unknown_useful_threads = set()
+    unknown_memtransfer_threads = set()
+
+    for thread_obj, start, end in useful_rows:
+        device_key = thread_to_device.get(thread_obj)
+        if device_key is None:
+            unknown_useful_threads.add(thread_obj)
+            continue
+        useful_by_device[device_key].append((start, end))
+
+    for thread_obj, start, end in memtransfer_rows:
+        device_key = thread_to_device.get(thread_obj)
+        if device_key is None:
+            unknown_memtransfer_threads.add(thread_obj)
+            continue
+        memtransfer_by_device[device_key].append((start, end))
+
+    all_devices = sorted(set(useful_by_device.keys()) | set(memtransfer_by_device.keys()))
+
+    result = {
+        'useful_device_total': 0.0,
+        'useful_device_max': 0.0,
+        'useful_memtransf_device_total': 0.0,
+        'useful_memtransf_device_max': 0.0,
+        'per_device': {},
+        'unknown_useful_threads': sorted(unknown_useful_threads),
+        'unknown_memtransfer_threads': sorted(unknown_memtransfer_threads),
+    }
+
+    for device_key in all_devices:
+        useful_raw = useful_by_device.get(device_key, [])
+        memtransfer_raw = memtransfer_by_device.get(device_key, [])
+
+        # 1) Flatten useful per device
+        useful_flat = merge_intervals(useful_raw)
+        useful_total = sum_intervals(useful_flat)
+
+        # 2) Flatten memtransfer per device
+        memtransfer_flat = merge_intervals(memtransfer_raw)
+        memtransfer_total = sum_intervals(memtransfer_flat)
+
+        # 3) Keep only transfer not already covered by useful
+        memtransfer_only = subtract_intervals(memtransfer_flat, useful_flat)
+        memtransfer_only_total = sum_intervals(memtransfer_only)
+
+        # 4) Useful + memory transfer according to TALP explanation
+        useful_memtransf_total = useful_total + memtransfer_only_total
+
+        result['per_device'][device_key] = {
+            'useful_total': useful_total,
+            'memtransfer_total': memtransfer_total,
+            'memtransfer_only_total': memtransfer_only_total,
+            'useful_memtransf_total': useful_memtransf_total,
+            'useful_intervals_merged': useful_flat,
+            'memtransfer_intervals_merged': memtransfer_flat,
+            'memtransfer_only_intervals': memtransfer_only,
+        }
+
+        result['useful_device_total'] += useful_total
+        result['useful_memtransf_device_total'] += useful_memtransf_total
+
+        if useful_total > result['useful_device_max']:
+            result['useful_device_max'] = useful_total
+
+        if useful_memtransf_total > result['useful_memtransf_device_max']:
+            result['useful_memtransf_device_max'] = useful_memtransf_total
+
+    return result
+
+# ----------------------------------------------------------------------
+# JOBS setting depending on Memory and traces size.
+# ----------------------------------------------------------------------
+
+def get_available_memory_bytes():
+    try:
+        with open('/proc/meminfo') as f:
+            for line in f:
+                if line.startswith('MemAvailable:'):
+                    return int(line.split()[1]) * 1024
+    except OSError:
+        return None
+    return None
+
+def estimate_mem_per_worker_bytes(trace_list, cmdl_args):
+    if cmdl_args.mem_per_worker_gb is not None:
+        return int(cmdl_args.mem_per_worker_gb * (1024 ** 3))
+
+    estimates = []
+    for trace in trace_list:
+        size = os.path.getsize(trace)
+
+        if trace.endswith('.prv.gz'):
+            estimate = max(2 * 1024**3, 4 * size)
+        else:
+            estimate = max(1 * 1024**3, 2 * size)
+
+        estimates.append(estimate)
+
+    return max(estimates) if estimates else 1 * 1024**3
+
+def resolve_job_count(trace_list, cmdl_args):
+    core_count = os.cpu_count() or 1
+    trace_cap = len(trace_list)
+
+    available_mem = get_available_memory_bytes()
+    if available_mem is not None:
+        usable_mem = int(0.8 * available_mem)
+        mem_per_worker = estimate_mem_per_worker_bytes(trace_list, cmdl_args)
+        memory_cap = max(1, usable_mem // mem_per_worker)
+    else:
+        memory_cap = core_count
+
+    hard_cap = min(trace_cap, core_count, memory_cap)
+
+    if str(cmdl_args.jobs).lower() == 'auto':
+        jobs = hard_cap
+    else:
+        requested_jobs = max(1, int(cmdl_args.jobs))
+        jobs = min(requested_jobs, hard_cap)
+
+    return max(1, jobs), {
+        'trace_cap': trace_cap,
+        'core_cap': core_count,
+        'memory_cap': memory_cap,
+        'available_mem': available_mem,
+    }
+
+
+# ----------------------------------------------------------------------
+# Main functions to processes rawdata.
+# ----------------------------------------------------------------------
 def init_cfgs():
     """Build cfg dictionary once."""
     cfgs = {}
@@ -625,93 +1042,12 @@ def init_cfgs():
     cfgs['flushing_inst'] = os.path.join(cfgs['root_dir'], 'flushing-inst.cfg')
     cfgs['burst_useful'] = os.path.join(cfgs['root_dir'], 'burst_useful.cfg')
     cfgs['useful_host'] = os.path.join(cfgs['root_dir'], 'useful_host.cfg')
-    cfgs['useful_device'] = os.path.join(cfgs['root_dir'], 'kernels-x-Tasks-in-Device_app.cfg')
-    cfgs['useful_memtransf_device'] = os.path.join(cfgs['root_dir'], 'kernelsPlusMemTransfer-x-Tasks-in-Device_app.cfg')
+
+    # New global GPU stream extractors
+    cfgs['useful_streams'] = os.path.join(cfgs['root_dir'], 'useful_streams.cfg')
+    cfgs['memtransfer_streams'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams.cfg')
+
     return cfgs
-
-def write_cfg_for_device(
-    template_path: str,
-    out_path: str,
-    device_tuple: Tuple[int, List[str]],
-    decimals: int = 12,
-    trim_trailing_zeros: bool = False,
-    placeholder: str = "REPLACE_BY_GPU_MAPPING"
-):
-    """
-    Replace the placeholder in the template with the formatted mapping and write to out_path.
-    """
-    with open(template_path, "r", encoding="utf-8") as f:
-        text = f.read()
-
-    replacement = format_mapping_for_cfg(device_tuple, decimals, trim_trailing_zeros)
-
-    # Replace just inside the specific line; safe even if there are spaces
-    pattern = re.compile(rf"({re.escape(placeholder)})")
-    new_text = pattern.sub(replacement, text, count=1)
-
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(new_text)
-
-def write_all_device_cfgs_useful(
-    cfgs: dict,
-    mapping: Dict[str, Tuple[int, List[str]]],
-    template_key: str = "useful_device",
-    output_basename: str = "kernels-x-Tasks-in-Device_app"
-):
-    """
-    Convenience wrapper:
-    - cfgs[template_key] should point to your template cfg file (with REPLACE_BY_GPU_MAPPING).
-    - Creates one cfg file per device: ...-D1.cfg, ...-D2.cfg, ...
-    - Stores the file paths in cfgs as 'useful_device_D1', 'useful_device_D2', ...
-    """
-    template_path = cfgs[template_key]
-    #root = cfgs["root_dir"]
-    root = "scratch_out_basicanalysis"
-    for dev, dev_tuple in mapping.items():
-        safe_id = dev.replace(":", "_").replace("/", "_")
-        out_path = os.path.join(root, f"{output_basename}-{safe_id}.cfg")
-        # choose decimals vs trimming here:
-        write_cfg_for_device(
-            template_path,
-            out_path,
-            dev_tuple,
-            decimals=12,                # exact 12-decimal output
-            trim_trailing_zeros=False   # set True if you want "2 3 8 9 ..." instead
-        )
-        cfgs[f"useful_device_{safe_id}"] = out_path
-
-def write_all_device_cfgs_useful_plus_memtransfer(
-    cfgs: dict,
-    mapping: Dict[str, Tuple[int, List[str]]],
-    template_key: str = "useful_memtransf_device",
-    output_basename: str = "kernelsPlusMemTransfer-x-Tasks-in-Device_app"
-):
-    """
-    Convenience wrapper:
-    - cfgs[template_key] should point to your template cfg file (with REPLACE_BY_GPU_MAPPING).
-    - Creates one cfg file per device: ...-D1.cfg, ...-D2.cfg, ...
-    - Stores the file paths in cfgs as 'useful_device_D1', 'useful_device_D2', ...
-    """
-    template_path = cfgs[template_key]
-    #root = cfgs["root_dir"]
-    root = "scratch_out_basicanalysis"
-
-    for dev, dev_tuple in mapping.items():
-        safe_id = dev.replace(":", "_").replace("/", "_")
-        out_path = os.path.join(root, f"{output_basename}-{safe_id}.cfg")
-        # choose decimals vs trimming here:
-        write_cfg_for_device(
-            template_path,
-            out_path,
-            dev_tuple,
-            decimals=12,                # exact 12-decimal output
-            trim_trailing_zeros=False   # set True if you want "2 3 8 9 ..." instead
-        )
-        cfgs[f"useful_memtransf_device_{safe_id}"] = out_path
-
-
-###############################
 
 def process_one_trace(
     trace,
@@ -743,6 +1079,7 @@ def process_one_trace(
     os.makedirs(local_path_dest, exist_ok=True)
 
     trace_name_control, trace_name = get_trace_names(trace, trace_process_count)
+    row_path = trace_name_control + '.row'
 
     time_tot = time.time()
 
@@ -765,54 +1102,52 @@ def process_one_trace(
     mapping_devices = None
     trace_sim = ''
     trace_name_sim = ''
-
+    
+    gpu_useful_stats = None
+    gpu_memtransfer_stats = None
+    time_pmd_sim = 0.0
     # ------------------------------------------------------------
     # 1) Run paramedir on original trace
     # ------------------------------------------------------------
-    time_pmd = time.time()
+    cmd_base = ['paramedir', trace]
 
-    cmd_normal = ['paramedir', trace]
-    cmd_normal.extend([cfgs['timings'], trace_name + '.timings.stats'])
-    cmd_normal.extend([cfgs['runtime'], trace_name + '.runtime.stats'])
-    cmd_normal.extend([cfgs['cycles'], trace_name + '.cycles.stats'])
-    cmd_normal.extend([cfgs['instructions'], trace_name + '.instructions.stats'])
-    cmd_normal.extend([cfgs['flushing'], trace_name + '.flushing.stats'])
-    cmd_normal.extend([cfgs['io_call'], trace_name + '.posixio_call.stats'])
-    cmd_normal.extend([cfgs['io_cycles'], trace_name + '.posixio-cycles.stats'])
-    cmd_normal.extend([cfgs['io_inst'], trace_name + '.posixio-inst.stats'])
-    cmd_normal.extend([cfgs['flushing_cycles'], trace_name + '.flushing-cycles.stats'])
-    cmd_normal.extend([cfgs['flushing_inst'], trace_name + '.flushing-inst.stats'])
+    cmd_base.extend([cfgs['timings'], trace_name + '.timings.stats'])
+    cmd_base.extend([cfgs['runtime'], trace_name + '.runtime.stats'])
+    cmd_base.extend([cfgs['cycles'], trace_name + '.cycles.stats'])
+    cmd_base.extend([cfgs['instructions'], trace_name + '.instructions.stats'])
+    cmd_base.extend([cfgs['flushing'], trace_name + '.flushing.stats'])
+    cmd_base.extend([cfgs['io_call'], trace_name + '.posixio_call.stats'])
+    cmd_base.extend([cfgs['io_cycles'], trace_name + '.posixio-cycles.stats'])
+    cmd_base.extend([cfgs['io_inst'], trace_name + '.posixio-inst.stats'])
+    cmd_base.extend([cfgs['flushing_cycles'], trace_name + '.flushing-cycles.stats'])
+    cmd_base.extend([cfgs['flushing_inst'], trace_name + '.flushing-inst.stats'])
 
     if is_detailed_mpi:
-        cmd_normal.extend([cfgs['mpi_io'], trace_name + '.mpi_io.stats'])
-        cmd_normal.extend([cfgs['outside_mpi'], trace_name + '.outside_mpi.stats'])
-        cmd_normal.extend([cfgs['mpiio_cycles'], trace_name + '.mpiio-cycles.stats'])
-        cmd_normal.extend([cfgs['mpiio_inst'], trace_name + '.mpiio-inst.stats'])
+        cmd_base.extend([cfgs['mpi_io'], trace_name + '.mpi_io.stats'])
+        cmd_base.extend([cfgs['outside_mpi'], trace_name + '.outside_mpi.stats'])
+        cmd_base.extend([cfgs['mpiio_cycles'], trace_name + '.mpiio-cycles.stats'])
+        cmd_base.extend([cfgs['mpiio_inst'], trace_name + '.mpiio-inst.stats'])
 
     if is_burst_mpi:
-        cmd_normal.extend([cfgs['burst_useful'], trace_name + '.burst_useful.stats'])
+        cmd_base.extend([cfgs['burst_useful'], trace_name + '.burst_useful.stats'])
 
     if is_talp_cuda:
-        cmd_normal.extend([cfgs['useful_host'], trace_name + '.useful_host.stats'])
+        cmd_base.extend([cfgs['useful_host'], trace_name + '.useful_host.stats'])
 
         mapping_devices = get_device_stream_id_mapping(trace)
         gpu_devices = len(mapping_devices)
         trace_raw_data['count_devices'] = gpu_devices
         print("==> Count of devices: ", gpu_devices)
 
-        write_all_device_cfgs_useful(cfgs, mapping_devices)
-        for device_id in mapping_devices:
-            safe_id = device_id.replace(":", "_").replace("/", "_")
-            key_device_to_replace = "useful_device_" + str(safe_id)
-            cmd_normal.extend([cfgs[key_device_to_replace], trace_name + "." + str(key_device_to_replace) + '.stats'])
+        gpu_useful_stats = trace_name + '.useful_streams.stats.csv'
+        gpu_memtransfer_stats = trace_name + '.memtransfer_streams.stats.csv'
 
-        write_all_device_cfgs_useful_plus_memtransfer(cfgs, mapping_devices)
-        for device_id in mapping_devices:
-            safe_id = device_id.replace(":", "_").replace("/", "_")
-            key_device_to_replace = "useful_memtransf_device_" + str(safe_id)
-            cmd_normal.extend([cfgs[key_device_to_replace], trace_name + "." + str(key_device_to_replace) + '.stats'])
+        cmd_base.extend([cfgs['useful_streams'], gpu_useful_stats])
+        cmd_base.extend([cfgs['memtransfer_streams'], gpu_memtransfer_stats])
 
-    run_command(cmd_normal, cmdl_args)
+    time_base = time.time()
+    run_command(cmd_base, cmdl_args)
+    time_base = time.time() - time_base
 
     # ------------------------------------------------------------
     # 2) Optional Dimemas simulation
@@ -846,10 +1181,13 @@ def process_one_trace(
             cmd_ideal.extend([cfgs['timings'], trace_name_sim + '.timings.stats'])
             cmd_ideal.extend([cfgs['runtime'], trace_name_sim + '.runtime.stats'])
             cmd_ideal.extend([cfgs['outside_mpi'], trace_name_sim + '.outside_mpi.stats'])
+
+            time_pmd_sim = time.time()
             run_command(cmd_ideal, cmdl_args)
-
-    time_pmd = time.time() - time_pmd
-
+            time_pmd_sim = time.time() - time_pmd_sim
+            #print(f'Simulated trace analyzed with paramedir in: {time_pmd_sim:.1f} s')
+                    
+ 
     # ------------------------------------------------------------
     # 3) Validate generated files
     # ------------------------------------------------------------
@@ -887,7 +1225,7 @@ def process_one_trace(
     if error_timing or error_counters or error_ideal:
         print('Failed to analyze trace with paramedir')
     else:
-        print('Successfully analyzed trace with paramedir in {0:.1f} seconds.'.format(time_pmd))
+        print('Successfully analyzed trace with paramedir in {0:.1f} seconds.'.format(time_base + time_pmd_sim))
 
     # ------------------------------------------------------------
     # 4) Parse output files
@@ -1036,30 +1374,45 @@ def process_one_trace(
         trace_raw_data['mpiio_std'] = 0.0
 
     # GPU metrics
-    if is_talp_cuda and mapping_devices is not None:
+    time_gpu_agg = 0.0
+    if is_talp_cuda and os.path.exists(row_path):
         trace_raw_data['useful_device'] = 0.0
         trace_raw_data['useful_device_max'] = 0.0
         trace_raw_data['useful_memtransf_device'] = 0.0
         trace_raw_data['useful_memtransf_device_max'] = 0.0
 
-        for device_id in mapping_devices:
-            safe_id = device_id.replace(":", "_").replace("/", "_")
+        if gpu_useful_stats and gpu_memtransfer_stats and \
+           os.path.exists(gpu_useful_stats) and os.path.exists(gpu_memtransfer_stats):
+            time_gpu_agg = time.time()
+            gpu_agg = aggregate_gpu_metrics_from_stream_stats(
+                gpu_useful_stats,
+                gpu_memtransfer_stats,
+                row_path
+            )
+            time_gpu_agg = time.time() - time_gpu_agg
+            print('Successfully aggregated GPU time in {0:.1f} seconds.'.format(time_gpu_agg))
+            
+            if cmdl_args.debug:
+                for dev, vals in gpu_agg['per_device'].items():
+                    print(
+                        f'==DEBUG== {dev}: '
+                        f'useful={vals["useful_total"]:.2f}, '
+                        f'memtransfer={vals["memtransfer_total"]:.2f}, '
+                        f'memtransfer_only={vals["memtransfer_only_total"]:.2f}, '
+                        f'useful_plus_memtransfer={vals["useful_memtransf_total"]:.2f}')
 
-            key_device_to_replace = "useful_device_" + str(safe_id)
-            device_stats_path = trace_name + "." + str(key_device_to_replace) + '.stats'
-            if os.path.exists(device_stats_path):
-                useful_dev_tot, _, useful_dev_max = parse_total_average_max(device_stats_path)
-                trace_raw_data['useful_device'] += float(useful_dev_tot)
-                if float(useful_dev_max) > trace_raw_data['useful_device_max']:
-                    trace_raw_data['useful_device_max'] = float(useful_dev_max)
+            trace_raw_data['useful_device'] = gpu_agg['useful_device_total']
+            trace_raw_data['useful_device_max'] = gpu_agg['useful_device_max']
+            trace_raw_data['useful_memtransf_device'] = gpu_agg['useful_memtransf_device_total']
+            trace_raw_data['useful_memtransf_device_max'] = gpu_agg['useful_memtransf_device_max']
 
-            key_device_to_replace = "useful_memtransf_device_" + str(safe_id)
-            device_mem_stats_path = trace_name + "." + str(key_device_to_replace) + '.stats'
-            if os.path.exists(device_mem_stats_path):
-                useful_memtransf_dev_tot, _, useful_memtransf_dev_max = parse_total_average_max(device_mem_stats_path)
-                trace_raw_data['useful_memtransf_device'] += float(useful_memtransf_dev_tot)
-                if float(useful_memtransf_dev_max) > trace_raw_data['useful_memtransf_device_max']:
-                    trace_raw_data['useful_memtransf_device_max'] = float(useful_memtransf_dev_max)
+            if gpu_agg['unknown_useful_threads']:
+                print('==WARNING== Unknown useful thread ids: ' +
+                      ', '.join(gpu_agg['unknown_useful_threads'][:10]))
+
+            if gpu_agg['unknown_memtransfer_threads']:
+                print('==WARNING== Unknown memtransfer thread ids: ' +
+                      ', '.join(gpu_agg['unknown_memtransfer_threads'][:10]))
 
         if os.path.exists(trace_name + '.useful_host.stats'):
             useful_host_tot, _, _ = parse_total_average_max(trace_name + '.useful_host.stats')
@@ -1183,20 +1536,15 @@ def process_one_trace(
         move_files(trace_name + '.2dh_BurstEff.stats', local_path_dest, cmdl_args)
         move_files(trace_name + '.burst_useful.stats', local_path_dest, cmdl_args)
 
-    if is_talp_cuda and mapping_devices is not None:
+    if is_talp_cuda and os.path.exists(row_path):
         move_files(trace_name + '.useful_host.stats', local_path_dest, cmdl_args)
-        for device_id in mapping_devices:
-            safe_id = device_id.replace(":", "_").replace("/", "_")
-            key_device_to_replace = "useful_device_" + str(safe_id)
-            move_files(trace_name + "." + str(key_device_to_replace) + '.stats', local_path_dest, cmdl_args)
-
-            key_device_to_replace = "useful_memtransf_device_" + str(safe_id)
-            move_files(trace_name + "." + str(key_device_to_replace) + '.stats', local_path_dest, cmdl_args)
+        move_files(trace_name + '.useful_streams.stats.csv', local_path_dest, cmdl_args)
+        move_files(trace_name + '.memtransfer_streams.stats.csv', local_path_dest, cmdl_args)
 
     time_prs = time.time() - time_prs
     time_tot = time.time() - time_tot
 
-    print('Finished successfully in {0:.1f} seconds.'.format(time_tot))
+    print('Finished successfully in {0:.1f} seconds.'.format(time_tot+time_gpu_agg))
     print('')
 
     return {
@@ -1206,64 +1554,9 @@ def process_one_trace(
     }
 
 
-
+# Function use in Multiprocessing Pool (Parallel traces processing)
 def _process_one_trace_wrapper(args):
     return process_one_trace(*args)
-
-
-def get_available_memory_bytes():
-    try:
-        with open('/proc/meminfo') as f:
-            for line in f:
-                if line.startswith('MemAvailable:'):
-                    return int(line.split()[1]) * 1024
-    except OSError:
-        return None
-    return None
-
-def estimate_mem_per_worker_bytes(trace_list, cmdl_args):
-    if cmdl_args.mem_per_worker_gb is not None:
-        return int(cmdl_args.mem_per_worker_gb * (1024 ** 3))
-
-    estimates = []
-    for trace in trace_list:
-        size = os.path.getsize(trace)
-
-        if trace.endswith('.prv.gz'):
-            estimate = max(2 * 1024**3, 4 * size)
-        else:
-            estimate = max(1 * 1024**3, 2 * size)
-
-        estimates.append(estimate)
-
-    return max(estimates) if estimates else 1 * 1024**3
-
-def resolve_job_count(trace_list, cmdl_args):
-    core_count = os.cpu_count() or 1
-    trace_cap = len(trace_list)
-
-    available_mem = get_available_memory_bytes()
-    if available_mem is not None:
-        usable_mem = int(0.8 * available_mem)
-        mem_per_worker = estimate_mem_per_worker_bytes(trace_list, cmdl_args)
-        memory_cap = max(1, usable_mem // mem_per_worker)
-    else:
-        memory_cap = core_count
-
-    hard_cap = min(trace_cap, core_count, memory_cap)
-
-    if str(cmdl_args.jobs).lower() == 'auto':
-        jobs = hard_cap
-    else:
-        requested_jobs = max(1, int(cmdl_args.jobs))
-        jobs = min(requested_jobs, hard_cap)
-
-    return max(1, jobs), {
-        'trace_cap': trace_cap,
-        'core_cap': core_count,
-        'memory_cap': memory_cap,
-        'available_mem': available_mem,
-    }
 
 
 def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode, trace_tasks, trace_threads, cmdl_args):

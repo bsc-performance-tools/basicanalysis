@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import argparse
 import shutil
+import time
 from datetime import datetime
 
 try:
@@ -38,8 +39,8 @@ except ImportError:
 __author__ = "Sandra Mendez"
 __copyright__ = "Copyright 2019, Barcelona Supercomputing Center (BSC)"
 __version_major__ = 0
-__version_minor__ = 4
-__version_micro__ = 1
+__version_minor__ = 5
+__version_micro__ = 0
 __version__ = f"{__version_major__}.{__version_minor__}.{__version_micro__}"
 
 
@@ -75,7 +76,7 @@ def parse_arguments():
                                                           '(default: disable).', action="store_true")
     parser.add_argument("-scuda", "--simulation_cuda", help='CUDA events will be simulated '
                                                          '(default: disable).', action="store_true")
-    parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='classic',
+    parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='talp',
                         help='Select the model to compute POP metrics for MPI+GPU codes (default: classic).'
                              ' classic shows the multiplicative hybrid metrics proposed by BSC Tools group in POP2'
                              ' and talp presents the metrics proposed by TALP team in POP3.')
@@ -83,6 +84,7 @@ def parse_arguments():
 
     parser.add_argument('--mem-per-worker-gb', type=float, default=None,
                        help='Estimated memory required per worker in GiB; overrides automatic heuristic')
+
     
 
     if len(sys.argv) == 1:
@@ -188,8 +190,10 @@ def run_command(cmd, cmdl_args):
         trace_path = cmd[1]
         trace_base = os.path.splitext(os.path.basename(trace_path))[0]
 
-        std_output = f"{cmd[0]}stdout_{trace_base}.out"
-        err_error  = f"{cmd[0]}error_{trace_base}.err"
+        unique_id = f"{os.getpid()}_{time.time_ns()}"
+
+        std_output = f"{cmd[0]}stdout_{trace_base}_{unique_id}.out"
+        err_error  = f"{cmd[0]}error_{trace_base}_{unique_id}.err"
 
         with open(std_output, "w") as out, open(err_error, "w") as err:
             return_value = subprocess.call(cmd, stdout=out, stderr=err)
@@ -197,12 +201,19 @@ def run_command(cmd, cmdl_args):
     # Remove temp files if everything went well
     if return_value == 0:
         if "Dimemas" in cmd:
-            os.remove(dimemas_output)
-            os.remove(dimemas_error)
+            if os.path.exists(dimemas_output):
+                os.remove(dimemas_output)
+
+            if os.path.exists(dimemas_error):
+                os.remove(dimemas_error)
             print("")
         else:
-            os.remove(std_output)
-            os.remove(err_error)
+            if os.path.exists(std_output):
+                os.remove(std_output)
+
+            if os.path.exists(err_error):
+                os.remove(err_error)
+
     else:
         if return_value != ERROR_SIMULATION_INCOMPLETE and "Dimemas" not in cmd:
             print('==ERROR== ' + ' '.join(cmd) + ' failed with return value ' + str(return_value) + '!')
