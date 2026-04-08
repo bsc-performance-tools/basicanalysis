@@ -1089,6 +1089,11 @@ def process_one_trace(
     Returns:
       {
         "trace": trace,
+        "trace_mode": trace_mode_value,
+        "trace_process_count": trace_process_count,
+        "trace_task_per_node": trace_task_per_node_value,
+        "trace_tasks": trace_tasks_value,
+        "trace_threads": trace_threads_value,
         "raw_data": trace_raw_data,
         "mpi_proc_count": int or None,
       }
@@ -1571,9 +1576,15 @@ def process_one_trace(
 
     return {
         "trace": trace,
+        "trace_mode": trace_mode_value,
+        "trace_process_count": trace_process_count,
+        "trace_task_per_node": trace_task_per_node_value,
+        "trace_tasks": trace_tasks_value,
+        "trace_threads": trace_threads_value,
         "raw_data": trace_raw_data,
         "mpi_proc_count": mpi_proc_count,
     }
+
 
 
 # Function use in Multiprocessing Pool (Parallel traces processing)
@@ -1683,7 +1694,7 @@ def run_trace_analyses_to_files(trace_list, trace_processes, trace_task_per_node
 def merge_trace_result_files(result_paths, trace_list):
     results = [load_trace_result(path) for path in result_paths]
     return merge_trace_results(results, trace_list)
-    
+
 ###############################
 
 def gather_raw_data(trace_list, trace_processes, trace_task_per_node,
