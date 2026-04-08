@@ -1558,16 +1558,28 @@ def process_one_trace(
 def _process_one_trace_wrapper(args):
     return process_one_trace(*args)
 
-
-def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode, trace_tasks, trace_threads, cmdl_args):
-    """Gathers all raw data needed to generate the model factors."""
+# Helper to distributed analysis
+def merge_trace_results(results, trace_list):
     raw_data = create_raw_data(trace_list)
-    global list_mpi_procs_count
-    list_mpi_procs_count = dict()
+    list_mpi_procs_count = {}
 
+    for result in results:
+        trace = result["trace"]
+        trace_raw_data = result["raw_data"]
+
+        for key in raw_data_doc:
+            raw_data[key][trace] = trace_raw_data[key]
+
+        if result["mpi_proc_count"] is not None:
+            list_mpi_procs_count[trace] = result["mpi_proc_count"]
+
+    return raw_data, list_mpi_procs_count
+
+
+def run_trace_analyses_locally(trace_list, trace_processes, trace_task_per_node,
+                               trace_mode, trace_tasks, trace_threads, cmdl_args):
     dimemas_available = which('Dimemas') is not None
     cfgs = init_cfgs()
-
     path_dest = create_temp_folder('scratch_out_basicanalysis', cmdl_args)
 
     results = []
@@ -1575,14 +1587,13 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
     jobs, jobs_info = resolve_job_count(trace_list, cmdl_args)
 
     print(
-        f'Using {jobs} worker(s) '
-        f'(traces={jobs_info["trace_cap"]}, '
-        f'cores={jobs_info["core_cap"]}, '
-        f'memory_cap={jobs_info["memory_cap"]})'
+        f"Using {jobs} worker(s) "
+        f"(traces={jobs_info['trace_cap']}, "
+        f"cores={jobs_info['core_cap']}, "
+        f"memory_cap={jobs_info['memory_cap']})"
     )
 
     if jobs == 1:
-        # --- SERIAL (debug-safe)
         for trace in trace_list:
             result = process_one_trace(
                 trace=trace,
@@ -1597,7 +1608,6 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
                 path_dest=path_dest
             )
             results.append(result)
-
     else:
         from multiprocessing import Pool
 
@@ -1621,20 +1631,21 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node, trace_mode
         with Pool(processes=jobs) as pool:
             results = pool.map(_process_one_trace_wrapper, args_list)
 
-    # --- MERGE RESULTS (common for both modes)
-    for result in results:
-        trace = result["trace"]
-        trace_raw_data = result["raw_data"]
+    return results
+###############################
 
-        for key in raw_data_doc:
-            raw_data[key][trace] = trace_raw_data[key]
-
-        if result["mpi_proc_count"] is not None:
-            list_mpi_procs_count[trace] = result["mpi_proc_count"]
-    
-
-    return raw_data, list_mpi_procs_count
-
+def gather_raw_data(trace_list, trace_processes, trace_task_per_node,
+                    trace_mode, trace_tasks, trace_threads, cmdl_args):
+    results = run_trace_analyses_locally(
+        trace_list,
+        trace_processes,
+        trace_task_per_node,
+        trace_mode,
+        trace_tasks,
+        trace_threads,
+        cmdl_args,
+    )
+    return merge_trace_results(results, trace_list)
 
 def create_ideal_trace(trace, processes, task_per_node, trace_mode,trace_tasks, trace_threads, cmdl_args):
     """Runs prv2dim and dimemas with ideal configuration for given trace."""
