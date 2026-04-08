@@ -1695,6 +1695,34 @@ def merge_trace_result_files(result_paths, trace_list):
     results = [load_trace_result(path) for path in result_paths]
     return merge_trace_results(results, trace_list)
 
+
+def reconstruct_trace_metadata(results):
+    """Rebuild trace metadata dictionaries from serialized per-trace results."""
+    trace_list = []
+    trace_processes = {}
+    trace_tasks = {}
+    trace_threads = {}
+    trace_task_per_node = {}
+    trace_mode = {}
+
+    for result in results:
+        trace = result["trace"]
+        trace_list.append(trace)
+        trace_processes[trace] = result["trace_process_count"]
+        trace_tasks[trace] = result["trace_tasks"]
+        trace_threads[trace] = result["trace_threads"]
+        trace_task_per_node[trace] = result["trace_task_per_node"]
+        trace_mode[trace] = result["trace_mode"]
+
+    return (
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_task_per_node,
+        trace_mode,
+    )
+
 ###############################
 
 def gather_raw_data(trace_list, trace_processes, trace_task_per_node,
