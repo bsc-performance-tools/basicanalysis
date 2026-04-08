@@ -8,6 +8,7 @@ import time
 import math
 import gzip
 import shutil
+import json
 from utils import which
 from collections import OrderedDict, defaultdict
 from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping
@@ -71,6 +72,27 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
 
 SUMMARY_KEYS = {"Total", "Average", "Maximum", "Minimum", "StDev", "Num.", "Avg/Max", "Num. Cells"}
 
+# ----------------------------------------------------------------------
+# Helper functions to adding serialization for distributed analysis.
+# ----------------------------------------------------------------------
+
+def save_trace_result(result, output_path):
+    with open(output_path, 'w') as f:
+        json.dump(result, f, indent=2, sort_keys=True)
+
+
+def load_trace_result(input_path):
+    with open(input_path) as f:
+        return json.load(f)
+
+
+def get_trace_result_path(output_dir, trace):
+    base = os.path.basename(trace)
+    if base.endswith('.prv.gz'):
+        base = base[:-7]
+    elif base.endswith('.prv'):
+        base = base[:-4]
+    return os.path.join(output_dir, base + '.rawdata.json')
 
 # ----------------------------------------------------------------------
 # Helper functions to parser data from paramedir outputs.
@@ -1576,6 +1598,7 @@ def merge_trace_results(results, trace_list):
     return raw_data, list_mpi_procs_count
 
 
+
 def run_trace_analyses_locally(trace_list, trace_processes, trace_task_per_node,
                                trace_mode, trace_tasks, trace_threads, cmdl_args):
     dimemas_available = which('Dimemas') is not None
@@ -1632,6 +1655,35 @@ def run_trace_analyses_locally(trace_list, trace_processes, trace_task_per_node,
             results = pool.map(_process_one_trace_wrapper, args_list)
 
     return results
+
+def run_trace_analyses_to_files(trace_list, trace_processes, trace_task_per_node,
+                                trace_mode, trace_tasks, trace_threads, cmdl_args,
+                                output_dir):
+    results = run_trace_analyses_locally(
+        trace_list,
+        trace_processes,
+        trace_task_per_node,
+        trace_mode,
+        trace_tasks,
+        trace_threads,
+        cmdl_args,
+    )
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    paths = []
+    for result in results:
+        path = get_trace_result_path(output_dir, result["trace"])
+        save_trace_result(result, path)
+        paths.append(path)
+
+    return paths
+
+
+def merge_trace_result_files(result_paths, trace_list):
+    results = [load_trace_result(path) for path in result_paths]
+    return merge_trace_results(results, trace_list)
+    
 ###############################
 
 def gather_raw_data(trace_list, trace_processes, trace_task_per_node,
