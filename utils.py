@@ -44,19 +44,18 @@ __version_micro__ = 0
 __version__ = f"{__version_major__}.{__version_minor__}.{__version_micro__}"
 
 
-def parse_arguments():
-    """Parses the command line arguments.
-    Currently the script only accepts one parameter list, which is the list of
-    traces that are processed. This can be a regex and only valid trace files
-    are kept at the end.
-    """
-    parser = argparse.ArgumentParser(description='Generates performance metrics from a set of Paraver traces.')
+
+def build_argument_parser():
+    parser = argparse.ArgumentParser(
+        description='Generates performance metrics from a set of Paraver traces.'
+    )
     parser.add_argument('trace_list', nargs='*',
                         help='list of traces to process. Accepts wild cards and automatically filters for '
-                             'valid traces'),
+                             'valid traces')
     parser.add_argument("-m", "--metrics", choices=['simple', 'hybrid'], default='hybrid',
                         help='select the kind of efficiency metrics (single parallelism or hybrid, default: hybrid)')
-    parser.add_argument("-v", "--version", action='version', version='%(prog)s {version}'.format(version=__version__))
+    parser.add_argument("-v", "--version", action='version',
+                        version='%(prog)s {version}'.format(version=__version__))
     parser.add_argument("-d", "--debug", help="increase output verbosity to debug level", action="store_true")
     parser.add_argument("-s", "--scaling",
                         help="define whether the measurements are weak or strong scaling (default: auto)",
@@ -65,7 +64,8 @@ def parse_arguments():
                                         '(default: max processes of the trace list )')
     parser.add_argument("-ms", "--max_trace_size", help='set the maximum trace size in MiB allowed.'
                                                         ' (default: 1024 MiB )', default=1024.0)
-    parser.add_argument("-skip-simul", "--skip-simulation", help="Skip running the dimemas simulation", action="store_true")
+    parser.add_argument("-skip-simul", "--skip-simulation",
+                        help="Skip running the dimemas simulation", action="store_true")
     parser.add_argument("-tmd", "--trace_mode_detection", choices=['pcf', 'prv'], default='pcf',
                         help='select .prv or .pcf file for trace mode detection. '
                              'For customized traces, i.e. cut, filtered and so on, you must select'
@@ -81,22 +81,13 @@ def parse_arguments():
                              ' classic shows the multiplicative hybrid metrics proposed by BSC Tools group in POP2'
                              ' and talp presents the metrics proposed by TALP team in POP3.')
     parser.add_argument('--jobs', default='1', help='Number of parallel trace analyses, or "auto" (default: 1)')
-
     parser.add_argument('--mem-per-worker-gb', type=float, default=None,
                        help='Estimated memory required per worker in GiB; overrides automatic heuristic')
+    return parser
 
-    
 
-    if len(sys.argv) == 1:
-        parser.print_help()
-        sys.exit(1)
-
-    cmdl_args = parser.parse_args()
-
-    if cmdl_args.debug:
-        print('==DEBUG== Running in debug mode.')
-
-    return cmdl_args
+def parse_arguments():
+    return build_argument_parser().parse_args()
 
 
 def which(cmd):
