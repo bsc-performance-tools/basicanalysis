@@ -218,12 +218,9 @@ def run_command(cmd, cmdl_args):
 
 
 def create_temp_folder(folder_name, cmdl_args):
-    path_output_aux = os.getcwd() + '/' + folder_name
-
-    if os.path.exists(path_output_aux):
-        shutil.rmtree(path_output_aux)
-    os.makedirs(path_output_aux)
-    return (path_output_aux)
+    path_output_aux = os.path.join(os.getcwd(), folder_name)
+    os.makedirs(path_output_aux, exist_ok=True)
+    return path_output_aux
 
 
 def move_files(path_source, path_dest, cmdl_args):

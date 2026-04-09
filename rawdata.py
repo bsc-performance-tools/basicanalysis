@@ -76,6 +76,15 @@ SUMMARY_KEYS = {"Total", "Average", "Maximum", "Minimum", "StDev", "Num.", "Avg/
 # Helper functions to adding serialization for distributed analysis.
 # ----------------------------------------------------------------------
 
+def get_trace_output_dir(path_dest, trace):
+    """Return a stable per-trace output directory."""
+    base = os.path.basename(trace)
+    if base.endswith(".prv.gz"):
+        base = base[:-7]
+    elif base.endswith(".prv"):
+        base = base[:-4]
+    return os.path.join(path_dest, base)
+
 def save_trace_result(result, output_path):
     with open(output_path, 'w') as f:
         json.dump(result, f, indent=2, sort_keys=True)
@@ -1102,7 +1111,13 @@ def process_one_trace(
     mpi_proc_count = None
 
     # Create process-specific scratch directory
-    local_path_dest = os.path.join(path_dest, f"trace_{os.getpid()}")
+    base_name = os.path.basename(trace)
+    if base_name.endswith(".prv.gz"):
+        base_name = base_name[:-7]
+    elif base_name.endswith(".prv"):
+        base_name = base_name[:-4]
+
+    local_path_dest = os.path.join(path_dest, base_name)
     os.makedirs(local_path_dest, exist_ok=True)
 
     trace_name_control, trace_name = get_trace_names(trace, trace_process_count)
