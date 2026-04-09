@@ -1696,8 +1696,11 @@ def merge_trace_result_files(result_paths, trace_list):
     return merge_trace_results(results, trace_list)
 
 
-def reconstruct_trace_metadata(results):
+def reconstruct_trace_metadata(results, order_traces='yes'):
     """Rebuild trace metadata dictionaries from serialized per-trace results."""
+    if order_traces == 'yes':
+        results = sorted(results, key=lambda r: r["trace_process_count"])
+
     trace_list = []
     trace_processes = {}
     trace_tasks = {}

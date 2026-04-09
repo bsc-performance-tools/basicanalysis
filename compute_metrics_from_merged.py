@@ -6,8 +6,9 @@ from __future__ import print_function, division
 
 import json
 
-from pipeline import count_hybrid_traces, compute_metrics, generate_reports
+from pipeline import count_hybrid_traces, compute_metrics, generate_reports, generate_plots
 from utils import build_argument_parser
+
 
 
 def parse_args():
@@ -70,6 +71,17 @@ def main():
     )
 
     generate_reports(
+        metrics_result,
+        analysis_result,
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        cmdl_args,
+    )
+
+    generate_plots(
         metrics_result,
         analysis_result,
         trace_list,

@@ -29,6 +29,12 @@ def parse_args():
         default="merged_rawdata.json",
         help="Output merged JSON file (default: merged_rawdata.json)"
     )
+    parser.add_argument(
+        "-ord", "--order_traces",
+        choices=['yes', 'not'],
+        default='yes',
+        help='Order the trace list based on the numbers of processes'
+    )
     return parser.parse_args()
 
 
@@ -44,7 +50,7 @@ def main():
         trace_threads,
         trace_task_per_node,
         trace_mode,
-    ) = reconstruct_trace_metadata(results)
+    ) = reconstruct_trace_metadata(results, order_traces=args.order_traces)
 
     raw_data, list_mpi_procs_count = merge_trace_results(results, trace_list)
 

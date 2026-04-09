@@ -173,7 +173,7 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
         mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes, trace_mode
     )
     print_mod_factors_csv(mod_factors, trace_list, trace_processes)
-    print_efficiency_table(mod_factors, trace_list, trace_processes)
+    print_efficiency_table(mod_factors, trace_list, trace_processes) 
 
 
 def can_plot_tables():
