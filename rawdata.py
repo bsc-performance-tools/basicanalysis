@@ -351,8 +351,10 @@ def parse_outside_mpi_stats(path, runtime_value):
         'mpicomm_tot': 'NaN',
         'mpi_proc_count': 0,
     }
-
+    
+    # a list of outsidempi of MPI processes
     list_outside_mpi = []
+    # a list of number of threads per MPI process
     list_thread_outside_mpi = []
 
     init_count_thread = False
@@ -388,7 +390,7 @@ def parse_outside_mpi_stats(path, runtime_value):
 
             # Original logic:
             # - values different from runtime_value are "outside MPI" representative rows
-            # - values equal to runtime_value count extra threads of the current MPI task
+            # - values equal to runtime_value count extra threads of the current MPI task, because this means it is a thread.
             if value != runtime_value:
                 list_outside_mpi.append(value)
 
@@ -421,6 +423,7 @@ def parse_outside_mpi_stats(path, runtime_value):
             result['outsidempi_tot'] = sum(list_outside_mpi)
 
             total_threads = sum(list_thread_outside_mpi)
+            
             if total_threads != 0:
                 result['outsidempi_avg'] = sum(rescaled_outside_mpi) / total_threads
             else:
@@ -438,7 +441,8 @@ def parse_outside_mpi_stats(path, runtime_value):
 
             result['outsidempi_max'] = max(list_outside_mpi)
             result['mpi_proc_count'] = len(list_outside_mpi)
-
+        
+        
     # MPI communication total from Total row
     if total_row is not None and len(total_row) > 2:
         list_mpi_tot = [float(x) for x in total_row[2:] if x != '']
