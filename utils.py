@@ -83,6 +83,9 @@ def build_argument_parser():
     parser.add_argument('--jobs', default='1', help='Number of parallel trace analyses, or "auto" (default: 1)')
     parser.add_argument('--mem-per-worker-gb', type=float, default=None,
                        help='Estimated memory required per worker in GiB; overrides automatic heuristic')
+    parser.add_argument('--ideal-omp', action='store_true', help='Ignores the duration of OpenMP runtime events. Any remaining '
+         'duration is due to implicit synchronization.'
+)
     return parser
 
 

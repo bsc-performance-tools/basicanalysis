@@ -632,10 +632,13 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             elif trace_mode[trace] == 'Detailed+MPI+CUDA':
                 device_factors['dev_parallel_eff'][trace] = 100 * (float(raw_data['useful_device'][trace])\
                 /(int(raw_data['count_devices'][trace])*float(raw_data['runtime'][trace])))
+
                 device_factors['dev_load_balance'][trace] = 100 * ( (float(raw_data['useful_device'][trace])/int(raw_data['count_devices'][trace]))\
                 /float(raw_data['useful_device_max'][trace]) )
+
                 device_factors['dev_comm_eff'][trace] = 100 * ( float(raw_data['useful_device_max'][trace])\
                 /float(raw_data['useful_memtransf_device_max'][trace]) )
+                
                 device_factors['dev_orches_eff'][trace] = 100 * ( float(raw_data['useful_memtransf_device_max'][trace]) \
                 / float(raw_data['runtime'][trace]) )
             else:
@@ -644,10 +647,14 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 device_factors['dev_comm_eff'][trace] = 'N/A'
                 device_factors['dev_orches_eff'][trace] = 'N/A'   
         except:
-            device_factors['dev_parallel_eff'][trace] = 'NaN'
-            device_factors['dev_load_balance'][trace] = 'NaN'
-            device_factors['dev_comm_eff'][trace] = 'NaN'
-            device_factors['dev_orches_eff'][trace] = 'NaN'           
+            if (raw_data['count_devices'][trace] <= 0 and raw_data['runtime'][trace] <= 0.0):
+                device_factors['dev_parallel_eff'][trace] = 'NaN'
+            if (raw_data['count_devices'][trace] <= 0):
+                device_factors['dev_load_balance'][trace] = 'NaN'
+            if (raw_data['useful_memtransf_device_max'][trace]<= 0.0):
+                device_factors['dev_comm_eff'][trace] = 'NaN'
+            if (raw_data['runtime'][trace] <= 0.0):
+                device_factors['dev_orches_eff'][trace] = 'NaN'           
         
         # Device Computation Scalability
         try:  # except NaN
@@ -738,6 +745,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                            / float(raw_data['useful_not_0_tot'][trace]) / 1000
         except:
             other_metrics['freq'][trace] = 'NaN'
+
         try:  # except NaN
             if len(trace_list) > 1:
                 if trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':

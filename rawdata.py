@@ -899,6 +899,17 @@ def sum_intervals(intervals):
 
 
 def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats_path, row_path):
+    thread_to_device = build_thread_to_device_map_from_row(row_path)
+
+    useful_rows = parse_gpu_stream_stats(useful_stats_path, positive_only=True)
+
+    if memtransfer_stats_path and os.path.exists(memtransfer_stats_path):
+        memtransfer_rows = parse_gpu_stream_stats(memtransfer_stats_path, active_values=(3.0, 7.0))
+    else:
+        memtransfer_rows = []
+
+
+def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats_path, row_path):
     """
     Aggregate GPU metrics per device using the .row file as the authoritative
     mapping from Paraver thread objects to CUDA device labels.
@@ -921,7 +932,11 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
     thread_to_device = build_thread_to_device_map_from_row(row_path)
 
     useful_rows = parse_gpu_stream_stats(useful_stats_path, positive_only=True)
-    memtransfer_rows = parse_gpu_stream_stats(memtransfer_stats_path, active_values=(3.0, 7.0))
+
+    if memtransfer_stats_path and os.path.exists(memtransfer_stats_path):
+        memtransfer_rows = parse_gpu_stream_stats(memtransfer_stats_path, active_values=(3.0, 7.0))
+    else:
+        memtransfer_rows = []
 
     useful_by_device = defaultdict(list)
     memtransfer_by_device = defaultdict(list)
@@ -1427,8 +1442,7 @@ def process_one_trace(
         trace_raw_data['useful_memtransf_device'] = 0.0
         trace_raw_data['useful_memtransf_device_max'] = 0.0
 
-        if gpu_useful_stats and gpu_memtransfer_stats and \
-           os.path.exists(gpu_useful_stats) and os.path.exists(gpu_memtransfer_stats):
+        if gpu_useful_stats and os.path.exists(gpu_useful_stats):
             time_gpu_agg = time.time()
             gpu_agg = aggregate_gpu_metrics_from_stream_stats(
                 gpu_useful_stats,
@@ -1436,7 +1450,7 @@ def process_one_trace(
                 row_path
             )
             time_gpu_agg = time.time() - time_gpu_agg
-            print('Successfully aggregated GPU time in {0:.1f} seconds.'.format(time_gpu_agg))
+            print('Successfully aggregated GPU time in {0:.1f} seconds.'.format(time_gpu_agg))    
             
             if cmdl_args.debug:
                 for dev, vals in gpu_agg['per_device'].items():
@@ -1582,10 +1596,13 @@ def process_one_trace(
         move_files(trace_name + '.2dh_BurstEff.stats', local_path_dest, cmdl_args)
         move_files(trace_name + '.burst_useful.stats', local_path_dest, cmdl_args)
 
-    if is_talp_cuda and os.path.exists(row_path):
-        move_files(trace_name + '.useful_host.stats', local_path_dest, cmdl_args)
-        move_files(trace_name + '.useful_streams.stats.csv', local_path_dest, cmdl_args)
-        move_files(trace_name + '.memtransfer_streams.stats.csv', local_path_dest, cmdl_args)
+    if is_talp_cuda:
+        if os.path.exists(trace_name + '.useful_host.stats'):
+            move_files(trace_name + '.useful_host.stats', local_path_dest, cmdl_args)
+        if os.path.exists(trace_name + '.useful_streams.stats.csv'):
+            move_files(trace_name + '.useful_streams.stats.csv', local_path_dest, cmdl_args)
+        if os.path.exists(trace_name + '.memtransfer_streams.stats.csv'):
+            move_files(trace_name + '.memtransfer_streams.stats.csv', local_path_dest, cmdl_args)
 
     time_prs = time.time() - time_prs
     time_tot = time.time() - time_tot
@@ -1829,7 +1846,10 @@ def create_ideal_trace(trace, processes, task_per_node, trace_mode,trace_tasks, 
             cmd = ['Dimemas', '-S', '32k', '--disable-cuda', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
                + 'P' + '.dimemas_ideal.cfg']
     elif trace_mode == 'Detailed+MPI+OpenMP':
-        if cmdl_args.simulation_openmp:
+        if cmdl_args.simulation_openmp and cmdl_args.ideal_omp :
+            cmd = ['Dimemas', '-S', '32k', '--ideal-openmp', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+               + 'P' + '.dimemas_ideal.cfg']
+        elif cmdl_args.simulation_openmp:
             cmd = ['Dimemas', '-S', '32k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
                + 'P' + '.dimemas_ideal.cfg']
         else:
@@ -1851,7 +1871,10 @@ def create_ideal_trace(trace, processes, task_per_node, trace_mode,trace_tasks, 
                 cmd = ['Dimemas', '-S', '256k', '--disable-cuda', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
                 + 'P' + '.dimemas_ideal.cfg']
         elif trace_mode == 'Detailed+MPI+OpenMP':
-            if cmdl_args.simulation_openmp:
+            if cmdl_args.simulation_openmp and cmdl_args.ideal_omp :
+                cmd = ['Dimemas', '-S', '256k', '--ideal-openmp', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
+               + 'P' + '.dimemas_ideal.cfg']
+            elif cmdl_args.simulation_openmp:
                 cmd = ['Dimemas', '-S', '256k', '--dim', trace_dim, '-p', trace_sim, trace_name + '_' + str(processes) \
                 + 'P' + '.dimemas_ideal.cfg']
             else:
