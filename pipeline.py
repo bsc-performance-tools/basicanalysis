@@ -69,7 +69,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
     list_mpi_procs_count = analysis_result["list_mpi_procs_count"]
 
     if cmdl_args.metrics == 'hybrid' and trace_metrics > 0:
-        mod_factors, mod_factors_scale_plus_io, hybrid_factors, other_metrics, device_factors, host_factors = \
+        mod_factors, mod_factors_scale_plus_io, hybrid_factors, hyb_comm_omp_factors, other_metrics, device_factors,host_factors = \
             hybridmetrics.compute_model_factors(
                 raw_data,
                 trace_list,
@@ -84,6 +84,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
             "mod_factors": mod_factors,
             "mod_factors_scale_plus_io": mod_factors_scale_plus_io,
             "hybrid_factors": hybrid_factors,
+            "hyb_comm_omp_factors": hyb_comm_omp_factors,
             "other_metrics": other_metrics,
             "device_factors": device_factors,
             "host_factors": host_factors,
@@ -115,6 +116,7 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
         mod_factors = metrics_result["mod_factors"]
         mod_factors_scale_plus_io = metrics_result["mod_factors_scale_plus_io"]
         hybrid_factors = metrics_result["hybrid_factors"]
+        hyb_comm_omp_factors = metrics_result["hyb_comm_omp_factors"]
         other_metrics = metrics_result["other_metrics"]
         device_factors = metrics_result["device_factors"]
         host_factors = metrics_result["host_factors"]
@@ -144,20 +146,15 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
             )
         else:
             hybridmetrics.print_mod_factors_table(
-                mod_factors,
-                other_metrics,
-                mod_factors_scale_plus_io,
-                hybrid_factors,
-                device_factors,
-                trace_list,
-                trace_processes,
-                trace_tasks,
-                trace_threads,
-                trace_mode,
-                raw_data,
+                mod_factors, other_metrics, mod_factors_scale_plus_io,
+                hybrid_factors, hyb_comm_omp_factors, device_factors,
+                trace_list, trace_processes, trace_tasks, trace_threads,
+                trace_mode, raw_data, cmdl_args
             )
             hybridmetrics.print_efficiency_table(
-                mod_factors, hybrid_factors, trace_list, trace_processes, trace_tasks, trace_threads, trace_mode
+                mod_factors, hybrid_factors, hyb_comm_omp_factors,
+                trace_list, trace_processes, trace_tasks, trace_threads,
+                trace_mode, cmdl_args
             )
 
         hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
@@ -169,11 +166,9 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
 
     print_other_metrics_table(other_metrics, trace_list, trace_processes)
     print_other_metrics_csv(other_metrics, trace_list, trace_processes)
-    print_mod_factors_table(
-        mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes, trace_mode
-    )
+    print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes, trace_mode)
     print_mod_factors_csv(mod_factors, trace_list, trace_processes)
-    print_efficiency_table(mod_factors, trace_list, trace_processes) 
+    print_efficiency_table(mod_factors, trace_list, trace_processes)
 
 
 def can_plot_tables():

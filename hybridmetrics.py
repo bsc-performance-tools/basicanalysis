@@ -74,11 +74,15 @@ mod_hybrid_factors_doc = OrderedDict([
                                ('mpi_parallel_eff', '   -- MPI Parallel efficiency'),
                                ('mpi_load_balance', '      -- MPI Load balance'),
                                ('mpi_comm_eff', '      -- MPI Communication efficiency'),
-                               ('serial_eff', '         -- Serialization efficiency'),
-                               ('transfer_eff', '         -- Transfer efficiency'),
+                               ('serial_eff', '         -- MPI Serialization efficiency'),
+                               ('transfer_eff', '         -- MPI Transfer efficiency'),
                                ('omp_parallel_eff', '   -- OpenMP Parallel efficiency'),
                                ('omp_load_balance', '      -- OpenMP Load balance'),
                                ('omp_comm_eff', '      -- OpenMP Communication efficiency')])
+
+mod_hyb_comm_omp_factors_doc = OrderedDict([
+                               ('omp_serial_eff', '         -- OpenMP Serialization efficiency'),
+                               ('omp_transfer_eff', '         -- OpenMP Transfer efficiency'),])
 
 mod_device_factors_doc = OrderedDict([
                                ('dev_global_eff', 'DEVICE Global efficiency'),
@@ -134,7 +138,7 @@ def create_mod_factors_scale_io(trace_list):
 
 def create_hybrid_mod_factors(trace_list):
     """Creates 2D dictionary of the hybrid model factors and initializes with an empty
-    string. The hybrid_factors dictionary has the format: [mod factor key][trace].
+    string. The hybrid_factors dictionary has the format: [factor key][trace].
     """
     global mod_hybrid_factors_doc
     hybrid_factors = {}
@@ -146,9 +150,23 @@ def create_hybrid_mod_factors(trace_list):
 
     return hybrid_factors
 
+def create_hyb_comm_omp_factors(trace_list):
+    """Creates 2D dictionary of the hybrid OpenMP communication submetrics factors and initializes with an empty
+    string. The hyb_comm_omp_factors_doc dictionary has the format: [factor key][trace].
+    """
+    global mod_hyb_comm_omp_factors_doc
+    hyb_comm_omp_factors = {}
+    for key in mod_hyb_comm_omp_factors_doc:
+        trace_dict = {}
+        for trace_name in trace_list:
+            trace_dict[trace_name] = 0.0
+        hyb_comm_omp_factors[key] = trace_dict
+
+    return hyb_comm_omp_factors
+
 def create_mod_device_factors(trace_list):
-    """Creates 2D dictionary of the hybrid model factors at device level and initializes with an empty
-    string. The hybrid_factors dictionary has the format: [mod factor key][trace].
+    """Creates 2D dictionary of the device factors at device level and initializes with an empty
+    string. The device_factors dictionary has the format: [factor key][trace].
     """
     global mod_device_factors_doc
     device_factors = {}
@@ -161,8 +179,8 @@ def create_mod_device_factors(trace_list):
     return device_factors
 
 def create_mod_host_factors(trace_list):
-    """Creates 2D dictionary of the hybrid model factors at device level and initializes with an empty
-    string. The hybrid_factors dictionary has the format: [mod factor key][trace].
+    """Creates 2D dictionary of the host factors at host level and initializes with an empty
+    string. The host_factors dictionary has the format: [factor key][trace].
     """
     global mod_host_factors_doc
     host_factors = {}
@@ -177,7 +195,7 @@ def create_mod_host_factors(trace_list):
 
 def create_other_metrics(trace_list):
     """Creates 2D dictionary of the other metrics and initializes with an empty
-    string. The other_metrics dictionary has the format: [mod factor key][trace].
+    string. The other_metrics dictionary has the format: [factor key][trace].
     """
     global other_metrics_doc
     other_metrics = {}
@@ -286,6 +304,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     mod_factors_scale_plus_io = create_mod_factors_scale_io(trace_list)
     device_factors = create_mod_device_factors(trace_list)
     host_factors = create_mod_host_factors(trace_list)
+    hyb_comm_omp_factors = create_hyb_comm_omp_factors(trace_list)
     # Guess the weak or strong scaling
     scaling = get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args)
 
@@ -458,6 +477,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             if (not outmpi_measures) or cmdl_args.skip_simulation:
                 hybrid_factors['serial_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace] == "Detailed+MPI+OpenMP" and cmdl_args.hyb_mpiomp:
+                mod_factors['serial_eff'][trace] = float(raw_data['hybrid_useful_dim'][trace]) \
+                                                   / float(raw_data['hybrid_runtime_dim'][trace]) * 100.0
+                hybrid_factors['serial_eff'][trace] = float(raw_data['outsidempi_dim'][trace]) \
+                / float(raw_data['runtime_dim'][trace]) * 100.0           
             elif trace_mode[trace] == "Detailed+MPI+OpenMP" \
                         or trace_mode[trace] == 'Detailed+MPI+CUDA':
                 hybrid_factors['serial_eff'][trace] = float(raw_data['outsidempi_dim'][trace]) \
@@ -486,7 +510,12 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             if (not outmpi_measures) or cmdl_args.skip_simulation:
                 hybrid_factors['transfer_eff'][trace] = 'Non-Avail'
             elif hybrid_factors['serial_eff'][trace] != 'Warning!':
-                if trace_mode[trace] == "Detailed+MPI+OpenMP" \
+                if trace_mode[trace] == "Detailed+MPI+OpenMP" and cmdl_args.hyb_mpiomp:
+                    mod_factors['transfer_eff'][trace] = float(mod_factors['comm_eff'][trace]) \
+                    / float(mod_factors['serial_eff'][trace]) * 100.0
+                    hybrid_factors['transfer_eff'][trace] = float(hybrid_factors['mpi_comm_eff'][trace]) \
+                    / float(hybrid_factors['serial_eff'][trace]) * 100.0                   
+                elif trace_mode[trace] == "Detailed+MPI+OpenMP" \
                         or trace_mode[trace] == 'Detailed+MPI+CUDA':
                     hybrid_factors['transfer_eff'][trace] = float(hybrid_factors['mpi_comm_eff'][trace]) \
                                                         / float(hybrid_factors['serial_eff'][trace]) * 100.0
@@ -510,6 +539,22 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     or trace_mode[trace] == 'Detailed+MPI+CUDA':
                 if hybrid_factors['transfer_eff'][trace] != 'N/A' and hybrid_factors['transfer_eff'][trace] != 'Non-Avail':
                     hybrid_factors['transfer_eff'][trace] = 'NaN'
+
+        # submetrics communication openmp part in hybrid codes
+        try:  # except NaN
+            if (not outmpi_measures) or cmdl_args.skip_simulation:
+                hyb_comm_omp_factors['omp_transfer_eff'][trace] = 'Non-Avail'
+                hyb_comm_omp_factors['omp_serial_eff'][trace] = 'Non-Avail'
+            elif trace_mode[trace] == "Detailed+MPI+OpenMP" and cmdl_args.hyb_mpiomp:
+                hyb_comm_omp_factors['omp_serial_eff'][trace] = mod_factors['serial_eff'][trace]/hybrid_factors['serial_eff'][trace] * 100.0
+                hyb_comm_omp_factors['omp_transfer_eff'][trace] = mod_factors['transfer_eff'][trace]/hybrid_factors['transfer_eff'][trace] * 100.0
+            else:
+                hyb_comm_omp_factors['omp_transfer_eff'][trace] = 'Non-Avail'
+                hyb_comm_omp_factors['omp_serial_eff'][trace] = 'Non-Avail'            
+        except:
+            hyb_comm_omp_factors['omp_transfer_eff'][trace] = 'NaN'
+            hyb_comm_omp_factors['omp_serial_eff'][trace] = 'NaN' 
+
 
         # --------------> END MPI communication sub-metrics
         try:  # except NaN
@@ -563,7 +608,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             hybrid_factors['omp_parallel_eff'][trace] = 'NaN'
 
-# ------->  HOST metrics
+  # ------->  HOST metrics
         try:  # except NaN
             if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA'):
                 host_factors['mpi_parallel_eff'][trace] = hybrid_factors['mpi_parallel_eff'][trace]
@@ -578,7 +623,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             host_factors['mpi_comm_eff'][trace] = 'NaN'
             host_factors['mpi_load_balance'][trace] = 'NaN'
 
-# ------------> BEGIN MPI communication sub-metrics HOST
+    # ------------> BEGIN MPI communication sub-metrics HOST
         try:  # except NaN
             if not outmpi_measures or cmdl_args.skip_simulation:
                 host_factors['serial_eff'][trace] = 'Non-Avail'
@@ -621,7 +666,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             host_factors['host_parallel_eff'][trace] = 'NaN'    
 
-# ------->  Devices metrics
+    # ------->  Devices metrics
         try:  # except NaN
             if not outmpi_measures:
                 device_factors['dev_parallel_eff'][trace] = 'Non-Avail'
@@ -681,7 +726,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             device_factors['dev_global_eff'][trace] = 'NaN'
 
-# ------->  Global Hybrid Metric
+    # ------->  Global Hybrid Metric
         try:  # except NaN
             if not outmpi_measures:
                 hybrid_factors['hybrid_eff'][trace] = 'Non-Avail'
@@ -741,8 +786,9 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             if (raw_data['useful_cyc'][trace] == 0):
                 other_metrics['freq'][trace] = 'Non-Avail'
             else:
-                other_metrics['freq'][trace] = float(raw_data['useful_cyc'][trace]) \
-                                           / float(raw_data['useful_not_0_tot'][trace]) / 1000
+                #other_metrics['freq'][trace] = float(raw_data['useful_cyc'][trace]) \
+                #                           / float(raw_data['useful_not_0_tot'][trace]) / 1000
+                other_metrics['freq'][trace] = float(raw_data['frequency'][trace]) / 1000
         except:
             other_metrics['freq'][trace] = 'NaN'
 
@@ -897,13 +943,18 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             other_metrics['efficiency'][trace] = 'NaN'
 
-    return mod_factors, mod_factors_scale_plus_io, hybrid_factors, other_metrics, device_factors, host_factors
+    return (mod_factors, mod_factors_scale_plus_io, hybrid_factors, hyb_comm_omp_factors, other_metrics, device_factors,host_factors)
 
-
-def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors,device_factors , trace_list,
-                            trace_processes, trace_tasks, trace_threads, trace_mode, raw_data):
+def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io,
+                            hybrid_factors, hyb_comm_omp_factors, device_factors,
+                            trace_list, trace_processes, trace_tasks, trace_threads,
+                            trace_mode, raw_data, cmdl_args):
     """Prints the model factors table in human readable form on stdout."""
-    global mod_factors_doc, mod_hybrid_factors_doc, mod_device_factors_doc
+    global mod_factors_doc, mod_hybrid_factors_doc, mod_hyb_comm_omp_factors_doc, mod_device_factors_doc
+
+    show_hyb_comm_omp = cmdl_args.hyb_mpiomp and any(
+        trace_mode[trace] == "Detailed+MPI+OpenMP" for trace in trace_list
+    )
 
     warning_io = []
     warning_flush = []
@@ -933,9 +984,9 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
 
     if count_mode == len(trace_list):
         del(mod_factors['serial_eff'])
-        del (mod_factors['transfer_eff'])
+        del(mod_factors['transfer_eff'])
         del(mod_factors_doc['serial_eff'])
-        del (mod_factors_doc['transfer_eff'])
+        del(mod_factors_doc['transfer_eff'])
 
     # Update the hybrid parallelism mode
     trace_mode_doc = trace_mode[trace_list[0]]
@@ -946,21 +997,20 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
                                                      trace_mode_doc[len("Detailed+MPI+"):] + " Load Balance"
         mod_hybrid_factors_doc['omp_comm_eff'] = "      -- " + \
                                                  trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
-    
-    # print('')
+
     print('\n Overview of the Efficiency metrics:')
 
     longest_name = len(sorted(mod_hybrid_factors_doc.values(), key=len)[-1])
-    
+    if show_hyb_comm_omp:
+        longest_name = max(longest_name, len(sorted(mod_hyb_comm_omp_factors_doc.values(), key=len)[-1]))
+
     if trace_mode[trace] == "Detailed+MPI+CUDA":
         line = '#Procs(ProcsxThreads)(#GPUs)[TraceOrder]'.rjust(longest_name)
     else:
         line = '#Procs(ProcsxThreads)[TraceOrder]'.rjust(longest_name)
 
-
-
-    
     line_trace_mode = 'Trace mode'.rjust(longest_name)
+
     if len(trace_list) == 1:
         limit_min = trace_processes[trace_list[0]]
         limit_max = trace_processes[trace_list[0]]
@@ -988,16 +1038,14 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
     for index, trace in enumerate(trace_list):
         tasks = trace_tasks[trace]
         threads = trace_threads[trace]
-        #if limit_min == limit_max and same_procs and len(trace_list) > 1:
-        #    s_xtics = (str(trace_processes[trace]) + '[' + str(index+1) + ']')
-        #else:
         if trace_mode[trace] == "Detailed+MPI+CUDA":
-            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'+'(#'+ str(raw_data['count_devices'][trace]))+')'
+            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')' +
+                       '(#' + str(raw_data['count_devices'][trace]) + ')')
         elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
             s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
         else:
-            s_xtics = (str(trace_processes[trace]))
-        #if s_xtics in procs_header:
+            s_xtics = str(trace_processes[trace])
+
         s_xtics += '[' + str(index + 1) + ']'
         procs_header.append(s_xtics)
 
@@ -1019,20 +1067,19 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         line_trace_mode += ' | '
         tasks = trace_tasks[trace]
         threads = trace_threads[trace]
-        #if limit_min == limit_max and same_procs and len(trace_list) > 1:
-        #    s_xtics = (str(trace_processes[trace]) + '[' + str(index+1) + ']')
-        #else:
+
         if trace_mode[trace] == "Detailed+MPI+CUDA":
-            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'+'(#'+ str(raw_data['count_devices'][trace]))+')'
+            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')' +
+                       '(#' + str(raw_data['count_devices'][trace]) + ')')
         elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
             s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
         else:
-            s_xtics = (str(trace_processes[trace]))
-        #if s_xtics in label_xtics:
+            s_xtics = str(trace_processes[trace])
+
         s_xtics += '[' + str(index + 1) + ']'
         label_xtics.append(s_xtics)
         line += s_xtics.rjust(value_to_adjust)
-        # For trace mode
+
         if trace_mode[trace][0:len("Detailed")] == "Detailed":
             mode_string = trace_mode[trace][len("Detailed+"):]
         elif trace_mode[trace][0:len("Burst")] == "Burst":
@@ -1053,7 +1100,7 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         line = mod_factors_doc[mod_key].ljust(longest_name)
         for trace in trace_list:
             line += ' | '
-            try:  # except NaN
+            try:
                 line += ('{0:.2f}%'.format(mod_factors[mod_key][trace])).rjust(value_to_adjust)
             except ValueError:
                 line += ('{}'.format(mod_factors[mod_key][trace])).rjust(value_to_adjust)
@@ -1072,7 +1119,7 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
             line = mod_factors_scale_plus_io_doc[mod_key].ljust(longest_name)
             for trace in trace_list:
                 line += ' | '
-                try:  # except NaN
+                try:
                     line += ('{0:.2f}%'.format(mod_factors_scale_plus_io[mod_key][trace])).rjust(value_to_adjust)
                 except ValueError:
                     line += ('{}'.format(mod_factors_scale_plus_io[mod_key][trace])).rjust(value_to_adjust)
@@ -1080,12 +1127,12 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         print(''.ljust(len(line_procs_factors), '='))
     else:
         print(''.ljust(len(line_procs_factors), '-'))
-        
+
     for mod_key in mod_hybrid_factors_doc:
         line = mod_hybrid_factors_doc[mod_key].ljust(longest_name)
         for trace in trace_list:
             line += ' | '
-            try:  # except NaN
+            try:
                 if str(hybrid_factors[mod_key][trace]) != 'nan':
                     line += ('{0:.2f}%'.format(hybrid_factors[mod_key][trace])).rjust(value_to_adjust)
                 elif str(hybrid_factors[mod_key][trace]) == 'nan':
@@ -1096,12 +1143,29 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
                 line += ('{}'.format(hybrid_factors[mod_key][trace])).rjust(value_to_adjust)
         print(line)
 
-#####
+    if show_hyb_comm_omp:
+        #print(''.ljust(len(line_procs_factors), '-'))
+        for mod_key in mod_hyb_comm_omp_factors_doc:
+            line = mod_hyb_comm_omp_factors_doc[mod_key].ljust(longest_name)
+            for trace in trace_list:
+                line += ' | '
+                try:
+                    if str(hyb_comm_omp_factors[mod_key][trace]) != 'nan':
+                        line += ('{0:.2f}%'.format(hyb_comm_omp_factors[mod_key][trace])).rjust(value_to_adjust)
+                    elif str(hyb_comm_omp_factors[mod_key][trace]) == 'nan':
+                        line += ('{}'.format('NaN')).rjust(value_to_adjust)
+                    else:
+                        line += ('{}'.format(hyb_comm_omp_factors[mod_key][trace])).rjust(value_to_adjust)
+                except ValueError:
+                    line += ('{}'.format(hyb_comm_omp_factors[mod_key][trace])).rjust(value_to_adjust)
+            print(line)
+
     print(''.ljust(len(line_procs_factors), '='))
     if len(warning_simulation) > 0:
         print("===> Warning! Metrics obtained from simulated traces exceed 100%. "
               "Please review original and simulated traces.")
     print('')
+
 
 #### TALP metrics
 def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors,device_factors, host_factors , trace_list,
@@ -1473,11 +1537,18 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes, trace_
     # print('')
 
 
-def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_processes, trace_tasks, trace_threads, trace_mode):
-    """Prints the model factors table in human readable form on stdout."""
-    global mod_factors_doc, mod_hybrid_factors_doc
+def print_efficiency_table(mod_factors, hybrid_factors, hyb_comm_omp_factors,
+                           trace_list, trace_processes, trace_tasks, trace_threads,
+                           trace_mode, cmdl_args):
+    """Prints the model factors table in a csv file for the efficiency heatmaps."""
+    global mod_factors_doc, mod_hybrid_factors_doc, mod_hyb_comm_omp_factors_doc
+
+    show_hyb_comm_omp = cmdl_args.hyb_mpiomp and any(
+        trace_mode[trace] == "Detailed+MPI+OpenMP" for trace in trace_list
+    )
 
     delimiter = ','
+
     # To control same number of processes for the header on plots and table
     same_procs = True
     procs_trace_prev = trace_processes[trace_list[0]]
@@ -1512,8 +1583,8 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
             if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
             else:
-                s_xtics = (str(trace_processes[trace]))
-            #if s_xtics in label_xtics:
+                s_xtics = str(trace_processes[trace])
+
             s_xtics += '[' + str(index + 1) + ']'
             label_xtics.append(s_xtics)
             line += s_xtics
@@ -1524,13 +1595,14 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
             if mod_key not in ['speedup', 'ipc', 'freq', 'elapsed_time', 'efficiency', 'flushing', 'io_mpiio', 'io_posix']:
                 if mod_key in ['parallel_eff', 'comp_scale']:
                     line = "\"" + mod_factors_doc[mod_key].replace('  ', '', 2) + "\""
-                elif mod_key in ['load_balance', 'comm_eff','ipc_scale', 'inst_scale','freq_scale']:
+                elif mod_key in ['load_balance', 'comm_eff', 'ipc_scale', 'inst_scale', 'freq_scale']:
                     line = "\"" + mod_factors_doc[mod_key].replace('     ', '', 2) + "\""
                 else:
                     line = "\"" + mod_factors_doc[mod_key] + "\""
+
                 for trace in trace_list:
                     line += delimiter
-                    try:  # except NaN
+                    try:
                         if mod_factors[mod_key][trace] == "Non-Avail" or mod_factors[mod_key][trace] == "Warning!":
                             line += '0.00'
                         else:
@@ -1547,9 +1619,7 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
             content = f.readlines()
 
         limit_procs = 500 + len(trace_list) * 65
-        ## print(limit_procs)
 
-        # Replace xrange
         content = [line.replace('#REPLACE_BY_SIZE', ''.join(['set terminal pngcairo enhanced dashed crop size ',
                                                              str(limit_procs), ',460 font "Latin Modern Roman,14"']))
                    for line in content]
@@ -1557,12 +1627,10 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
         file_path = os.path.join(os.getcwd(), 'efficiency_table_global.gp')
         with open(file_path, 'w') as f:
             f.writelines(content)
-        # print('======== Plot (gnuplot File): EFFICIENCY Table ========')
+
         if len(trace_list) > 1:
             print('Global Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.gp')
-        # print('')
 
-    delimiter = ','
     file_path = os.path.join(os.getcwd(), 'efficiency_table_hybrid.csv')
     with open(file_path, 'w') as output:
         line = '\"Number of processes\"'
@@ -1571,14 +1639,12 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
             line += delimiter
             tasks = trace_tasks[trace]
             threads = trace_threads[trace]
-            #if limit_min == limit_max and same_procs and len(trace_list) > 1:
-            #    s_xtics = (str(trace_processes[trace]) + '[' + str(index + 1) + ']')
-            #else:
+
             if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
             else:
-                s_xtics = (str(trace_processes[trace]))
-            #if s_xtics in label_xtics:
+                s_xtics = str(trace_processes[trace])
+
             s_xtics += '[' + str(index + 1) + ']'
             label_xtics.append(s_xtics)
             line += s_xtics
@@ -1587,15 +1653,16 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
         for mod_key in mod_hybrid_factors_doc:
             if mod_key in ['mpi_parallel_eff', 'omp_parallel_eff']:
                 line = "\"" + mod_hybrid_factors_doc[mod_key].replace('     ', '', 2) + "\""
-            elif mod_key in ['mpi_load_balance', 'mpi_comm_eff','omp_load_balance', 'omp_comm_eff']:
+            elif mod_key in ['mpi_load_balance', 'mpi_comm_eff', 'omp_load_balance', 'omp_comm_eff']:
                 line = "\"" + mod_hybrid_factors_doc[mod_key].replace('       ', '', 2) + "\""
             elif mod_key in ['serial_eff', 'transfer_eff']:
-                line = "\"" + mod_hybrid_factors_doc[mod_key].replace('         ', '          ', 2) + "\""
+                line = "\"" + mod_hybrid_factors_doc[mod_key] + "\""
             else:
                 line = "\"" + mod_hybrid_factors_doc[mod_key] + "\""
+
             for trace in trace_list:
                 line += delimiter
-                try:  # except NaN
+                try:
                     if hybrid_factors[mod_key][trace] == "Non-Avail" or hybrid_factors[mod_key][trace] == "Warning!":
                         line += '0.00'
                     else:
@@ -1603,6 +1670,21 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
                 except ValueError:
                     line += '{}'.format(hybrid_factors[mod_key][trace])
             output.write(line + '\n')
+
+        if show_hyb_comm_omp:
+            for mod_key in mod_hyb_comm_omp_factors_doc:
+                line = "\"" + mod_hyb_comm_omp_factors_doc[mod_key] + "\""
+                for trace in trace_list:
+                    line += delimiter
+                    try:
+                        if hyb_comm_omp_factors[mod_key][trace] == "Non-Avail" or \
+                           hyb_comm_omp_factors[mod_key][trace] == "Warning!":
+                            line += '0.00'
+                        else:
+                            line += '{0:.2f}'.format(hyb_comm_omp_factors[mod_key][trace])
+                    except ValueError:
+                        line += '{}'.format(hyb_comm_omp_factors[mod_key][trace])
+                output.write(line + '\n')
 
         # Create Gnuplot file for efficiency plot
         gp_template = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', 'efficiency_table_hybrid.gp')
@@ -1613,7 +1695,6 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
 
         limit_procs = 510 + len(trace_list) * 80
 
-        # Replace xrange
         content = [line.replace('#REPLACE_BY_SIZE', ''.join(['set terminal pngcairo enhanced dashed crop size ',
                                                              str(limit_procs), ',460 font "Latin Modern Roman,14"']))
                    for line in content]
@@ -1621,10 +1702,9 @@ def print_efficiency_table(mod_factors, hybrid_factors, trace_list, trace_proces
         file_path = os.path.join(os.getcwd(), 'efficiency_table_hybrid.gp')
         with open(file_path, 'w') as f:
             f.writelines(content)
-        # print('======== Plot (gnuplot File): EFFICIENCY Table ========')
+
         if len(trace_list) > 1:
             print('Hybrid Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.gp')
-        #print('')
 
 
 def print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes):

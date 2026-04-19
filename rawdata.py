@@ -20,15 +20,19 @@ from utils import run_command, move_files,remove_files, create_temp_folder
 # should be added here, too.
 raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('runtime_dim', 'Runtime (ideal)'),
+                            ('hybrid_runtime_dim', 'Hybrid Runtime (ideal)'),
                             ('useful_avg', 'Useful duration (average)'),
                             ('useful_max', 'Useful duration (maximum)'),
                             ('useful_tot', 'Useful duration (total)'),
                             ('useful_dim', 'Useful duration (ideal, max)'),
+                            ('hybrid_useful_dim', 'Hybrid Useful duration (ideal, max)'),
                             ('useful_ins', 'Useful instructions (total)'),
                             ('useful_cyc', 'Useful cycles (total)'),
+                            ('frequency', 'Frequency in Useful (avg)'),
                             ('outsidempi_avg', 'Outside MPI duration (average)'),
                             ('outsidempi_max', 'Outside MPI duration (maximum)'),
                             ('outsidempi_dim', 'Outside MPI duration (ideal,maximum)'),
+                            ('hybrid_outsidempi_dim', 'Hybrid Outside MPI duration (ideal,maximum)'),
                             ('outsidempi_tot', 'Outside MPI duration (total)'),
                             ('mpicomm_tot', 'Communication MPI duration (total)'),
                             ('outsidempi_tot_diff', 'Outside MPI duration rescaled (total*threads)'),
@@ -1080,6 +1084,7 @@ def init_cfgs():
     cfgs['runtime'] = os.path.join(cfgs['root_dir'], 'runtime_app.cfg')
     cfgs['cycles'] = os.path.join(cfgs['root_dir'], 'cycles.cfg')
     cfgs['instructions'] = os.path.join(cfgs['root_dir'], 'instructions.cfg')
+    cfgs['frequency'] = os.path.join(cfgs['root_dir'], 'frequency.cfg')
     cfgs['flushing'] = os.path.join(cfgs['root_dir'], 'flushing.cfg')
     cfgs['mpi_io'] = os.path.join(cfgs['root_dir'], 'mpi-io-reverse.cfg')
     cfgs['outside_mpi'] = os.path.join(cfgs['root_dir'], 'mpi-call-outside.cfg')
@@ -1182,6 +1187,7 @@ def process_one_trace(
     cmd_base.extend([cfgs['io_inst'], trace_name + '.posixio-inst.stats'])
     cmd_base.extend([cfgs['flushing_cycles'], trace_name + '.flushing-cycles.stats'])
     cmd_base.extend([cfgs['flushing_inst'], trace_name + '.flushing-inst.stats'])
+    cmd_base.extend([cfgs['frequency'], trace_name + '.frequency.stats'])
 
     if is_detailed_mpi:
         cmd_base.extend([cfgs['mpi_io'], trace_name + '.mpi_io.stats'])
@@ -1235,6 +1241,30 @@ def process_one_trace(
                 print('Successfully created simulated trace with Dimemas in {0:.1f} seconds.'.format(time_dim))
             else:
                 print('Failed to create simulated trace with Dimemas.')
+            
+            if cmdl_args.hyb_mpiomp and trace_mode_value == 'Detailed+MPI+OpenMP':
+                time_dim = time.time()
+                cmdl_args.ideal_omp = True
+                cmdl_args.simulation_openmp = True
+                hybrid_trace_sim = create_ideal_trace(
+                    trace,
+                    trace_process_count,
+                    trace_task_per_node_value,
+                    trace_mode_value,
+                    trace_tasks_value,
+                    trace_threads_value,
+                    cmdl_args,
+                    "_hybrid"
+                )
+
+                if hybrid_trace_sim:
+                    hybrid_trace_name_sim = hybrid_trace_sim[:-4]
+
+                time_dim = time.time() - time_dim
+                if hybrid_trace_sim != '':
+                    print('Successfully created Hybrid simulated trace with Dimemas in {0:.1f} seconds.'.format(time_dim))
+                else:
+                    print('Failed to create Hybrid simulated trace with Dimemas.')
 
     if dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats') and not cmdl_args.skip_simulation:
         if is_detailed_mpi_family and trace_sim != '':
@@ -1247,14 +1277,26 @@ def process_one_trace(
             run_command(cmd_ideal, cmdl_args)
             time_pmd_sim = time.time() - time_pmd_sim
             #print(f'Simulated trace analyzed with paramedir in: {time_pmd_sim:.1f} s')
+        
+        if cmdl_args.hyb_mpiomp and trace_mode_value == 'Detailed+MPI+OpenMP':
+            if is_detailed_mpi_family and hybrid_trace_sim != '':
+                cmd_ideal = ['paramedir', hybrid_trace_sim]
+                cmd_ideal.extend([cfgs['timings'], hybrid_trace_name_sim + '.timings.stats'])
+                cmd_ideal.extend([cfgs['runtime'], hybrid_trace_name_sim + '.runtime.stats'])
+                cmd_ideal.extend([cfgs['outside_mpi'], hybrid_trace_name_sim + '.outside_mpi.stats'])
+
+                time_pmd_sim_hybrid = time.time()
+                run_command(cmd_ideal, cmdl_args)
+                time_pmd_sim = time_pmd_sim + (time.time() - time_pmd_sim_hybrid)
+
                     
- 
     # ------------------------------------------------------------
     # 3) Validate generated files
     # ------------------------------------------------------------
     error_timing = 0
     error_counters = 0
     error_ideal = 0
+    error_ideal_hybrid = 0
 
     if not os.path.exists(trace_name + '.timings.stats') or \
             not os.path.exists(trace_name + '.runtime.stats'):
@@ -1280,10 +1322,20 @@ def process_one_trace(
                 print('==ERROR== Failed to compute simulated timing information with paramedir.')
                 error_ideal = 1
                 trace_sim = ''
+            
+            if cmdl_args.hyb_mpiomp and trace_mode_value == 'Detailed+MPI+OpenMP':
+                if hybrid_trace_sim == '' or \
+                        not os.path.exists(hybrid_trace_name_sim + '.timings.stats') or \
+                        not os.path.exists(hybrid_trace_name_sim + '.runtime.stats') or \
+                        not os.path.exists(hybrid_trace_name_sim + '.outside_mpi.stats'):
+                    print('==ERROR== Failed to compute simulated timing information with paramedir.')
+                    error_ideal_hybrid = 1
+                    hybrid_trace_sim = ''
     else:
         error_ideal = 0
+        error_ideal_hybrid = 0
 
-    if error_timing or error_counters or error_ideal:
+    if error_timing or error_counters or error_ideal or error_ideal_hybrid:
         print('Failed to analyze trace with paramedir')
     else:
         print('Successfully analyzed trace with paramedir in {0:.1f} seconds.'.format(time_base + time_pmd_sim))
@@ -1298,6 +1350,14 @@ def process_one_trace(
         trace_raw_data['useful_cyc'] = parse_positive_value_sum(trace_name + '.cycles.stats', skip_header=True)
     else:
         trace_raw_data['useful_cyc'] = 'NaN'
+
+    # runtime
+    if os.path.exists(trace_name + '.frequency.stats'):
+        _, frequency_avg, _ = parse_total_average_max(trace_name + '.frequency.stats')
+        trace_raw_data['frequency'] = frequency_avg
+    else:
+        trace_raw_data['frequency'] = 'NaN'
+
 
     # useful_ins + procs_ins + instructions mask
     procs_ins = 0
@@ -1556,10 +1616,70 @@ def process_one_trace(
         trace_raw_data['runtime_dim'] = 'Non-Avail'
         trace_raw_data['outsidempi_dim'] = 'Non-Avail'
 
+
+    # HYBRID Simulated trace metrics 
+    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats') and not cmdl_args.skip_simulation):
+        if cmdl_args.hyb_mpiomp and trace_mode_value == 'Detailed+MPI+OpenMP':        
+            if os.path.exists(hybrid_trace_name_sim + '.timings.stats'):
+                _, _, useful_dim_max = parse_total_average_max(hybrid_trace_name_sim + '.timings.stats')
+                trace_raw_data['hybrid_useful_dim'] = float(useful_dim_max)
+            else:
+                trace_raw_data['hybrid_useful_dim'] = 'NaN'
+
+            if os.path.exists(hybrid_trace_name_sim + '.runtime.stats'):
+                _, runtime_sim_avg, _ = parse_total_average_max(hybrid_trace_name_sim + '.runtime.stats')
+                trace_raw_data['hybrid_runtime_dim'] = float(runtime_sim_avg)
+            else:
+                trace_raw_data['hybrid_runtime_dim'] = 'NaN'
+
+            if os.path.exists(hybrid_trace_name_sim + '.outside_mpi.stats'):
+                # keep current logic for now; refactor later if desired
+                with open(hybrid_trace_name_sim + '.outside_mpi.stats') as f:
+                    content = f.readlines()
+                    list_outside_mpi = []
+                    init_count_thread = False
+                    count_threads = 1
+                    max_time_outside_mpi = 0.0
+
+                    for line1 in content[1:(len(content) - 8)]:
+                        line_parts = line1.split("\t")
+                        if line_parts:
+                            if line_parts[0] != 'Num. Cells' and line_parts[0] != 'Total' and line_parts[0] != 'Average' \
+                                    and line_parts[0] != 'Maximum' and line_parts[0] != 'StDev' \
+                                    and line_parts[0] != 'Avg/Max' and line_parts[0] != '\n':
+                                if line_parts[0].split(".")[2] == '1':
+                                    list_outside_mpi.append(float(line_parts[1]))
+                                    if len(list_outside_mpi) > 1:
+                                        pass
+                                    count_threads = 1
+                                else:
+                                    if len(list_outside_mpi) == 1 and not init_count_thread:
+                                        count_threads = 2
+                                        init_count_thread = True
+                                    else:
+                                        count_threads += 1
+
+                                if line_parts[0] == "THREAD 1.1.1":
+                                    max_time_outside_mpi = float(line_parts[1])
+
+                    if len(list_outside_mpi) != 0:
+                        trace_raw_data['hybrid_outsidempi_dim'] = max(list_outside_mpi)
+                    else:
+                        trace_raw_data['hybrid_outsidempi_dim'] = max_time_outside_mpi
+            else:
+                trace_raw_data['hybrid_outsidempi_dim'] = 0.0
+    else:
+        trace_raw_data['hybrid_useful_dim'] = 'Non-Avail'
+        trace_raw_data['hybrid_runtime_dim'] = 'Non-Avail'
+        trace_raw_data['hybrid_outsidempi_dim'] = 'Non-Avail'
+
+
     # ------------------------------------------------------------
     # 5) Move generated files
     # ------------------------------------------------------------
     if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats')) and not cmdl_args.skip_simulation:
+        move_files(trace_name + '.dimemas_ideal.cfg', local_path_dest, cmdl_args)
+        move_files(trace_name + '.dim', local_path_dest, cmdl_args)
         if trace_sim != '':
             move_files(trace_name_sim + '.timings.stats', local_path_dest, cmdl_args)
             move_files(trace_name_sim + '.runtime.stats', local_path_dest, cmdl_args)
@@ -1567,14 +1687,23 @@ def process_one_trace(
             move_files(trace_sim, local_path_dest, cmdl_args)
             move_files(trace_sim[:-4] + '.pcf', local_path_dest, cmdl_args)
             move_files(trace_sim[:-4] + '.row', local_path_dest, cmdl_args)
-            move_files(trace_sim[:-8] + '.dim', local_path_dest, cmdl_args)
-            remove_files(trace_sim[:-8] + '.row', cmdl_args)
-            remove_files(trace_sim[:-8] + '.pcf', cmdl_args)
-            move_files(trace_sim[:-8] + '.dimemas_ideal.cfg', local_path_dest, cmdl_args)
 
             if trace.endswith(".prv.gz"):
                 remove_files(trace_name_control + '.prv', cmdl_args)
+        if cmdl_args.hyb_mpiomp and trace_mode_value == 'Detailed+MPI+OpenMP':
+            if hybrid_trace_sim != '':
+                move_files(hybrid_trace_name_sim + '.timings.stats', local_path_dest, cmdl_args)
+                move_files(hybrid_trace_name_sim + '.runtime.stats', local_path_dest, cmdl_args)
+                move_files(hybrid_trace_name_sim + '.outside_mpi.stats', local_path_dest, cmdl_args)
+                move_files(hybrid_trace_sim, local_path_dest, cmdl_args)
+                move_files(hybrid_trace_sim[:-4] + '.pcf', local_path_dest, cmdl_args)
+                move_files(hybrid_trace_sim[:-4] + '.row', local_path_dest, cmdl_args)          
 
+                if trace.endswith(".prv.gz"):
+                    remove_files(trace_name_control + '.prv', cmdl_args)            
+    
+    remove_files(trace_name + '.row', cmdl_args)
+    remove_files(trace_name + '.pcf', cmdl_args)
     move_files(trace_name + '.timings.stats', local_path_dest, cmdl_args)
     move_files(trace_name + '.runtime.stats', local_path_dest, cmdl_args)
     move_files(trace_name + '.cycles.stats', local_path_dest, cmdl_args)
@@ -1584,6 +1713,7 @@ def process_one_trace(
     move_files(trace_name + '.posixio-inst.stats', local_path_dest, cmdl_args)
     move_files(trace_name + '.flushing-cycles.stats', local_path_dest, cmdl_args)
     move_files(trace_name + '.flushing-inst.stats', local_path_dest, cmdl_args)
+    move_files(trace_name + '.frequency.stats', local_path_dest, cmdl_args)
 
     if is_detailed_mpi:
         move_files(trace_name + '.mpi_io.stats', local_path_dest, cmdl_args)
@@ -1777,19 +1907,21 @@ def gather_raw_data(trace_list, trace_processes, trace_task_per_node,
     )
     return merge_trace_results(results, trace_list)
 
-def create_ideal_trace(trace, processes, task_per_node, trace_mode,trace_tasks, trace_threads, cmdl_args):
+def create_ideal_trace(trace, processes, task_per_node, trace_mode,trace_tasks, trace_threads, cmdl_args, suffix=''):
     """Runs prv2dim and dimemas with ideal configuration for given trace."""
     if trace[-4:] == ".prv":
+        base = trace[:-4] + '_' + str(processes) + 'P' + suffix
         trace_dim = trace[:-4] + '_' + str(processes) + 'P' + '.dim'
-        trace_sim = trace[:-4] + '_' + str(processes) + 'P' + '.sim.prv'
+        trace_sim = base + '.sim.prv'       
         trace_name = trace[:-4]
         cmd = ['prv2dim', trace, trace_dim]
     elif trace[-7:] == ".prv.gz":
         with gzip.open(trace, 'rb') as f_in:
             with open(trace[:-7] + '.prv', 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
+        base = trace[:-7] + '_' + str(processes) + 'P' + suffix
         trace_dim = trace[:-7] + '_' + str(processes) + 'P' + '.dim'
-        trace_sim = trace[:-7] + '_' + str(processes) + 'P' + '.sim.prv'
+        trace_sim = base + '.sim.prv'
         trace_name = trace[:-7]
         trace_unzip = trace[:-3]
         cmd = ['prv2dim', trace_unzip, trace_dim]
