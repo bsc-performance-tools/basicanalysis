@@ -420,8 +420,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             if (raw_data['useful_cyc'][trace] == 0):
                 other_metrics['freq'][trace] = 'Non-Avail'
             else:
-                other_metrics['freq'][trace] = float(raw_data['useful_cyc'][trace]) \
-                                       / float(raw_data['useful_not_0_tot'][trace]) / 1000
+                other_metrics['freq'][trace] = float(raw_data['frequency'][trace]) / 1000
         except:
             other_metrics['freq'][trace] = 'NaN'
 
