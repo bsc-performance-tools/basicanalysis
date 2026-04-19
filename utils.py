@@ -75,11 +75,12 @@ def build_argument_parser():
     parser.add_argument("-somp", "--simulation_openmp", help='OpenMP events will be simulated '
                                                           '(default: disable).', action="store_true")
     parser.add_argument("-scuda", "--simulation_cuda", help='CUDA events will be simulated '
-                                                         '(default: disable).', action="store_true")
+                                                         '(default: disable).', action="store_true")                                                   
     parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='talp',
                         help='Select the model to compute POP metrics for MPI+GPU codes (default: classic).'
                              ' classic shows the multiplicative hybrid metrics proposed by BSC Tools group in POP2'
                              ' and talp presents the metrics proposed by TALP team in POP3.')
+    parser.add_argument('--hyb-mpiomp', action='store_true', help='Compute Serialization and Transfer for MPI+OpenMP codes.')
     parser.add_argument('--jobs', default='1', help='Number of parallel trace analyses, or "auto" (default: 1)')
     parser.add_argument('--mem-per-worker-gb', type=float, default=None,
                        help='Estimated memory required per worker in GiB; overrides automatic heuristic')
@@ -227,12 +228,24 @@ def create_temp_folder(folder_name, cmdl_args):
 
 
 def move_files(path_source, path_dest, cmdl_args):
-    """Wraps os.remove with a try clause."""
+    """Move file to destination directory, replacing existing file if needed."""
     try:
-        shutil.move(path_source, path_dest)
-    except:
+        if not os.path.exists(path_source):
+            return
+
+        os.makedirs(path_dest, exist_ok=True)
+
+        dst_file = os.path.join(path_dest, os.path.basename(path_source))
+
+        if os.path.exists(dst_file):
+            os.remove(dst_file)
+
+        shutil.move(path_source, dst_file)
+
+    except Exception as e:
         if cmdl_args.debug:
-            print('==DEBUG== Failed to move ' + path_source + '!')
+            print('==DEBUG== Failed to move ' + path_source + ' to ' + path_dest + '!')
+            print('==DEBUG== ' + str(e))
 
 
 def remove_files(path,cmdl_args):
