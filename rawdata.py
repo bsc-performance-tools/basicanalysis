@@ -1259,6 +1259,8 @@ def process_one_trace(
 
                 if hybrid_trace_sim:
                     hybrid_trace_name_sim = hybrid_trace_sim[:-4]
+                else:
+                    hybrid_trace_name_sim = ""
 
                 time_dim = time.time() - time_dim
                 if hybrid_trace_sim != '':
@@ -2026,6 +2028,9 @@ def create_ideal_trace(trace, processes, task_per_node, trace_mode,trace_tasks, 
     else:
         if (result_exit_code_command == 1001):
             print('==ERROR== ' + trace_sim + ' is incomplete.')
+            remove_files(trace_sim, cmdl_args)
+            remove_files(trace_sim[:-4] + '.pcf', cmdl_args)
+            remove_files(trace_sim[:-4] + '.row', cmdl_args)          
         else:
             print('==ERROR== ' + trace_sim + ' could not be created.')
         return ''
