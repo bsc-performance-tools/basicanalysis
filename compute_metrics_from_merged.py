@@ -8,14 +8,9 @@ import json
 
 from pipeline import count_hybrid_traces, compute_metrics, generate_reports, generate_plots
 from utils import build_argument_parser
-
-
+from argparse import SUPPRESS
 
 def parse_args():
-    """
-    Reuse the main BasicAnalysis parser and add one extra argument for the
-    merged rawdata JSON file.
-    """
     parser = build_argument_parser()
     parser.description = "Compute metrics from merged rawdata JSON."
 
@@ -25,9 +20,21 @@ def parse_args():
         help="Merged rawdata JSON file"
     )
 
+    hidden_options = [
+        "--jobs",
+        "--mem-per-worker-gb",
+        "--simulation_openmp",
+        "--simulation_cuda",
+        "--ideal-omp",
+        "--max_trace_size",
+    ]
+
+    for action in parser._actions:
+        if any(opt in hidden_options for opt in action.option_strings):
+            action.help = SUPPRESS
+
     args = parser.parse_args()
 
-    # This script does not consume trace files directly.
     if len(args.trace_list) != 0:
         parser.error(
             "compute_metrics_from_merged.py does not accept trace arguments. "

@@ -77,16 +77,15 @@ def build_argument_parser():
     parser.add_argument("-scuda", "--simulation_cuda", help='CUDA events will be simulated '
                                                          '(default: disable).', action="store_true")                                                   
     parser.add_argument("-pop-model", "--pop_model_to_apply", choices=['classic', 'talp'], default='talp',
-                        help='Select the model to compute POP metrics for MPI+GPU codes (default: classic).'
+                        help='Select the model to compute POP metrics for MPI+GPU codes (default: talp).'
                              ' classic shows the multiplicative hybrid metrics proposed by BSC Tools group in POP2'
                              ' and talp presents the metrics proposed by TALP team in POP3.')
-    parser.add_argument('--hyb-mpiomp', action='store_true', help='Compute Serialization and Transfer for MPI+OpenMP codes.')
     parser.add_argument('--jobs', default='1', help='Number of parallel trace analyses, or "auto" (default: 1)')
     parser.add_argument('--mem-per-worker-gb', type=float, default=None,
                        help='Estimated memory required per worker in GiB; overrides automatic heuristic')
-    parser.add_argument('--ideal-omp', action='store_true', help='Ignores the duration of OpenMP runtime events. Any remaining '
-         'duration is due to implicit synchronization.'
-)
+    parser.add_argument('--ideal-omp', action='store_true', help='In simulation of MPI+OpenMP codes, it ignores the duration'
+    ' of OpenMP runtime events. Any remaining duration is due to implicit synchronization.')
+    parser.add_argument('--hyb-mpiomp', action='store_true', help='Compute Serialization and Transfer at OpenMP level for MPI+OpenMP codes.')
     return parser
 
 

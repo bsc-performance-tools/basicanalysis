@@ -20,9 +20,9 @@ def parse_args():
         description="Merge serialized per-trace rawdata results."
     )
     parser.add_argument(
-        "inputs",
+        "JSON file",
         nargs="+",
-        help="Input per-trace JSON files"
+        help="Per-trace JSON files"
     )
     parser.add_argument(
         "--output",
