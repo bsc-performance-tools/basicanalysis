@@ -8,7 +8,7 @@ It supports several parallel programming models such as:
 * Pure OpenMP applications
 * Hybrid applications such as MPI+OpenMP and MPI+CUDA
 
-The tool extracts raw performance data from Paraver traces, computes performance metrics, and optionally generates tables, CSV files, and plots.
+The tool extracts raw performance data from Paraver traces, computes performance metrics, and generates tables, CSV files, and plots.
 
 ## Prerequisites
 
@@ -175,7 +175,244 @@ Depending on the trace type and execution mode, BasicAnalysis can generate:
 * The generated plots depend on the availability of the required Python modules.
 
 
+# Step-by-step workflow
+
+BasicAnalysis from version 0.5.0 can be executed in three independent stages:
+
+- Trace analysis: analyze each trace and generate rawdata JSON files.
+- Merge: merge several rawdata JSON files into a single merged file.
+- Metrics computation: compute metrics, reports, and plots from the merged rawdata JSON.
+
+This workflow is useful when processing many traces, especially if some analyses fail. In that case, users can rerun only the failed traces, then merge the results and compute the final metrics.
+
+## 1. Trace analysis step
+Command:
+
+``` analyze_traces.py [options] [trace_list ...] ```
+
+Analyze traces and generate per-trace rawdata JSON files.
+
+This step parses each input trace, detects its programming model,
+extracts raw performance data, and optionally runs Dimemas simulations
+when required by the selected metric model.
+
+The generated rawdata JSON files can later be merged and reused for
+metrics computation without repeating the analysis step.
+
+### Help Contents
+
+#### Positional arguments:
+
+```
+  trace_list
+      List of traces to process. Wildcards are accepted and only valid
+      traces are analyzed.
+```
+
+#### Main options:
+
+``` 
+  -h, --help
+      Show this help message and exit.
+
+  -v, --version
+      Show program version and exit.
+
+  -d, --debug
+      Increase output verbosity to debug level.
+
+  -m {simple,hybrid}, --metrics {simple,hybrid}
+      Select the kind of efficiency metrics to prepare rawdata for
+      (single parallelism or hybrid, default: hybrid).
+
+  -s {weak,strong,auto}, --scaling {weak,strong,auto}
+      Define whether the measurements correspond to weak scaling,
+      strong scaling, or let the tool detect it automatically
+      (default: auto).
+
+  -tmd {pcf,prv}, --trace_mode_detection {pcf,prv}
+      Select whether the trace mode is detected from the .pcf file
+      or from the .prv file. For customized traces such as cut or
+      filtered traces, use the .prv file (default: pcf).
+
+  -ord {yes,not}, --order_traces {yes,not}
+      Order the trace list based on the number of processes.
+```
+
+#### Simulation options (it is needed for communications sub-metrics):
+
+```
+  -skip-simul, --skip-simulation
+      Skip running Dimemas simulation.
+
+  -somp, --simulation_openmp
+      Enable OpenMP event simulation.
+
+  -scuda, --simulation_cuda
+      Enable CUDA event simulation.
+
+  --ideal-omp
+      In simulation of MPI+OpenMP codes, ignore the duration of OpenMP
+      runtime events. Any remaining duration is due to implicit
+      synchronization.
+
+  --hyb-mpiomp
+      Compute Serialization and Transfer submetrics at the OpenMP level
+      for MPI+OpenMP codes.
+```
+
+#### Resource options:
+
+```
+  --jobs JOBS
+      Number of parallel trace analyses, or "auto" (default: 1).
+
+  --mem-per-worker-gb MEM_PER_WORKER_GB
+      Estimated memory required per worker in GiB; overrides the
+      automatic heuristic.
+
+  -ms MAX_TRACE_SIZE, --max_trace_size MAX_TRACE_SIZE
+      Maximum allowed trace size in MiB (default: 1024 MiB).
+```
+#### Output:
+
+- This step generates one rawdata JSON file per analyzed trace.
+- These files can be merged later with merge_rawdata.py.
+
+## 2. Merge step
+
+Command:
+
+```
+merge_rawdata.py --output merged_rawdata.json rawdata_list.json
+```
+### Help contents
+
+Merge per-trace rawdata JSON files into a single merged rawdata JSON file.
+
+This step combines the results produced by the analysis step into one
+merged file that can later be used for metrics computation, reporting,
+and plot generation.
+
+This is useful when traces are analyzed in separate runs, or when only
+failed traces need to be reanalyzed and merged again afterward.
+
+#### Positional arguments:
+
+```
+  rawdata_files
+      List of per-trace rawdata JSON files to merge.
+```
+
+#### Options:
+
+```
+  -h, --help
+      Show this help message and exit.
+
+  -v, --version
+      Show program version and exit.
+
+  -d, --debug
+      Increase output verbosity to debug level.
+
+  --output OUTPUT
+      Output merged rawdata JSON file.
+```
+
+#### Notes:
+
+The merged file preserves:
+
+  - trace list
+  - trace metadata
+  - raw performance data
+  - MPI process count information
+
+The merged output can be passed directly to compute_metrics_from_merged.py.
+
+## 3. Metrics computation step
+
+Command
+
+```
+compute_metrics_from_merged.py --merged-input merged_rawdata.json [options]
+
+```
+
+### Help Contents
+
+Compute metrics, reports, and plots from merged rawdata JSON.
+
+This step reads a merged rawdata JSON file produced by the merge step
+and computes the final efficiency metrics without reanalyzing the
+original traces.
+
+This is useful when trace analysis has already been completed and only
+the final metrics, tables, CSV files, and plots need to be generated.
 
 
+#### Options:
 
+```
+  -h, --help
+      Show this help message and exit.
+
+  -v, --version
+      Show program version and exit.
+
+  -d, --debug
+      Increase output verbosity to debug level.
+
+  --merged-input MERGED_INPUT
+      Merged rawdata JSON file.
+
+  -m {simple,hybrid}, --metrics {simple,hybrid}
+      Select the kind of efficiency metrics to compute
+      (single parallelism or hybrid, default: hybrid).
+
+  -s {weak,strong,auto}, --scaling {weak,strong,auto}
+      Define whether the measurements correspond to weak scaling,
+      strong scaling, or let the tool detect it automatically
+      (default: auto).
+
+  --limit LIMIT
+      Limit number of cores for the plots
+      (default: maximum process count in the merged input).
+
+  -ord {yes,not}, --order_traces {yes,not}
+      Order traces based on the number of processes.
+
+  -pop-model {classic,talp}, --pop_model_to_apply {classic,talp}
+      Select the metric model for MPI+GPU codes (default: talp).
+      classic shows the multiplicative hybrid metrics proposed by
+      BSC Tools in POP2, while talp shows the metrics proposed
+      by the TALP team in POP3.
+
+```
+
+#### Notes:
+  - This step does not analyze traces directly. It only consumes the merged rawdata JSON file.
+  - Use the analysis step first if rawdata has not been generated yet.
+
+## Short Workflow example
+
+#### 1. Analyze traces
+
+```
+analyze_traces.py trace1.prv trace2.prv trace3.prv
+```
+
+#### 2. Merge rawdata
+
+```
+merge_rawdata.py --output merged_rawdata.json *.rawdata.json
+```
+
+
+#### 3. Compute metrics from merged data
+
+```
+compute_metrics_from_merged.py --merged-input merged_rawdata.json
+```
 
