@@ -650,14 +650,16 @@ def parse_row_thread_labels(row_path):
 
     Example:
         THREAD 1.1.1
-        CUDA-D1.S1-node
-        CUDA-D1.S2-node
+        GPU_a2f80454.1
+        GPU_a2f80454.2
+        GPU_a2f80454.3
 
     becomes:
         {
             "THREAD 1.1.1": "THREAD 1.1.1",
-            "THREAD 1.1.2": "CUDA-D1.S1-node",
-            "THREAD 1.1.3": "CUDA-D1.S2-node",
+            "THREAD 1.1.2": "GPU_a2f80454.1",
+            "THREAD 1.1.3": "GPU_a2f80454.2",
+            "THREAD 1.1.4": "GPU_a2f80454.3",
         }
 
     Returns:
@@ -718,46 +720,109 @@ def parse_row_thread_labels(row_path):
     ## print("LABEL: ", thread_to_label)
     return thread_to_label
 
+def parse_row_cpu_nodes(row_path):
+    """
+    Parse LEVEL CPU section of a .row file.
 
-def device_key_from_row_label(label):
+    Returns:
+        dict mapping CPU index (1-based) -> node name
+    """
+    cpu_to_node = {}
+
+    in_cpu_section = False
+    cpu_index = 0
+
+    with open(row_path) as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line.startswith("LEVEL CPU SIZE"):
+                in_cpu_section = True
+                cpu_index = 0
+                continue
+
+            if in_cpu_section and line.startswith("LEVEL "):
+                break
+
+            if not in_cpu_section:
+                continue
+
+            cpu_index += 1
+
+            if "." in line:
+                _, node = line.split(".", 1)
+                cpu_to_node[cpu_index] = node.strip()
+
+    return cpu_to_node
+
+
+def device_uuid_from_row_label(label):
     """
     Convert:
-        CUDA-D1.S1-as02r2b20
+        GPU_a2f80454.1
     into:
-        as02r2b20:D1
+        a2f80454
 
-    Returns None for non-CUDA labels such as 'THREAD 1.1.1'.
+    Returns None for non-GPU labels such as 'THREAD 1.1.1'.
     """
-    if not label.startswith("CUDA-"):
+    label = label.strip()
+
+    if not label.startswith("GPU_"):
         return None
 
-    parts = label.split('-')
-    if len(parts) < 3:
+    body = label[len("GPU_"):]  # a2f80454.1
+
+    if "." in body:
+        gpu_uuid, _stream_id = body.split(".", 1)
+    else:
+        gpu_uuid = body
+
+    gpu_uuid = gpu_uuid.strip()
+    return gpu_uuid if gpu_uuid else None
+
+
+def node_from_thread_object(thread_obj, cpu_to_node):
+    """
+    Infer node from Paraver thread object:
+        THREAD 1.3.2
+    """
+    try:
+        obj = thread_obj.split()[1]
+        parts = obj.split(".")
+        if len(parts) != 3:
+            return None
+
+        _app, task_idx, _thread_idx = parts
+        task_idx = int(task_idx)
+    except (IndexError, ValueError):
         return None
 
-    ds_part = parts[1]                  # D1.S1
-    node_part = '-'.join(parts[2:])     # as02r2b20
-    device_part = ds_part.split('.')[0] # D1
-
-    return f"{node_part}:{device_part}"
+    return cpu_to_node.get(task_idx)
 
 
 def build_thread_to_device_map_from_row(row_path):
     """
     Build mapping:
-        "THREAD 1.1.2" -> "as02r2b20:D1"
-    using the .row file.
+        "THREAD 1.1.2" -> "as07r1b02:db340227"
     """
     thread_to_label = parse_row_thread_labels(row_path)
+    cpu_to_node = parse_row_cpu_nodes(row_path)
 
     thread_to_device = {}
     for thread_obj, label in thread_to_label.items():
-        device_key = device_key_from_row_label(label)
-        if device_key is not None:
-            thread_to_device[thread_obj] = device_key
+        gpu_uuid = device_uuid_from_row_label(label)
+        if gpu_uuid is None:
+            continue
+
+        node = node_from_thread_object(thread_obj, cpu_to_node)
+        if node is None:
+            continue
+
+        thread_to_device[thread_obj] = f"{node}:{gpu_uuid}"
 
     return thread_to_device
-
 
 def parse_gpu_stream_stats(path, active_values=None, value_tol=1e-9, positive_only=False):
     """

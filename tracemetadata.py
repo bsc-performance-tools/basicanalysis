@@ -16,7 +16,8 @@ import threading
 from multiprocessing import Process
 import re
 from collections import defaultdict, Counter
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple, List, Optional
+
 
 TARGET_PAIR_BURST = "40000018:2"
 # Byte markers used in PCF files
@@ -351,6 +352,65 @@ def _iter_thread_section_lines(prv_file):
             if s:  # skip empty
                 yield s
 
+
+def _parse_row_cpu_nodes(prv_file: str) -> Dict[int, str]:
+    """
+    Parse LEVEL CPU section from the .row file associated with prv_file.
+
+    Returns:
+        { cpu_index: node_name }
+    """
+    row_file = prv_file[:-4] + ".row" if prv_file.endswith(".prv") else prv_file[:-7] + ".row"
+
+    cpu_to_node: Dict[int, str] = {}
+    in_cpu_section = False
+    cpu_index = 0
+
+    with open(row_file) as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line.startswith("LEVEL CPU SIZE"):
+                in_cpu_section = True
+                cpu_index = 0
+                continue
+
+            if in_cpu_section and line.startswith("LEVEL "):
+                break
+
+            if not in_cpu_section:
+                continue
+
+            cpu_index += 1
+
+            # Examples:
+            #   1.as07r1b02
+            #   01.as07r4b27
+            if "." in line:
+                _, node = line.split(".", 1)
+                cpu_to_node[cpu_index] = node.strip()
+
+    return cpu_to_node
+
+
+def _node_from_thread_label(thread_label: str, cpu_to_node: Dict[int, str]) -> Optional[str]:
+    """
+    From:
+        THREAD 1.3.1
+    infer:
+        task_idx = 3
+    and return the node for that task.
+    """
+    m = re.match(r"^THREAD\s+(\d+)\.(\d+)\.(\d+)\s*$", thread_label)
+    if not m:
+        return None
+
+    task_idx = int(m.group(2))
+    return cpu_to_node.get(task_idx)
+
+
 def get_device_stream_id_mapping(
     prv_file,
     start_id: int = 1,
@@ -359,56 +419,57 @@ def get_device_stream_id_mapping(
     """
     Number entries in the THREAD section sequentially:
       - THREAD line -> consumes an ID (ignored for per-device counts)
-      - each CUDA line -> consumes an ID and is counted for its (node,device)
+      - each GPU line -> consumes an ID and is counted for its (node,gpu_uuid)
 
     Returns:
-        { "node:Dev": (count, [id_str...]) }
+        { "node:gpu_uuid": (count, [id_str...]) }
       where id_str are zero-padded IDs (e.g., '002').
     """
 
-    # NEW: capture device and node
-    #  CUDA-D1.S2-as04r1b15
-    #       ^^^       ^^^^^
-    DEV_RE    = re.compile(r"CUDA-(D\d+)\.[^-]*-([^\s]+)")
-    THREAD_RE = re.compile(r"^THREAD\s+\d+\.\d+\.\d+\s*$")  # "THREAD 1.20.1"
+    THREAD_RE = re.compile(r"^THREAD\s+\d+\.\d+\.\d+\s*$")
+    GPU_RE = re.compile(r"^GPU_([^.]+)(?:\.(\d+))?\s*$")
 
     dev_to_ids: Dict[str, List[str]] = defaultdict(list)
     next_id = start_id
 
+    cpu_to_node = _parse_row_cpu_nodes(prv_file)
+    current_thread = None
+
     def fmt(n: int) -> str:
         return str(n).zfill(pad)
 
-    # (tracefile variable not needed here; we reuse _iter_thread_section_lines)
     for s in _iter_thread_section_lines(prv_file):
+        s = s.strip()
+
         if THREAD_RE.match(s):
-            # Assign an ID to the THREAD itself (not counted per device)
-            _ = fmt(next_id)
+            current_thread = s
+            _ = fmt(next_id)   # THREAD line consumes an ID
             next_id += 1
             continue
 
-        m = DEV_RE.search(s)
+        m = GPU_RE.match(s)
         if m:
-            dev  = m.group(1)  # "D1"
-            node = m.group(2)  # "as04r1b15"
-            key = f"{node}:{dev}"
-            dev_to_ids[key].append(fmt(next_id))  # count only CUDA lines
+            gpu_uuid = m.group(1)
+
+            node = _node_from_thread_label(current_thread, cpu_to_node) if current_thread else None
+            if node is not None:
+                key = f"{node}:{gpu_uuid}"
+                dev_to_ids[key].append(fmt(next_id))
+
             next_id += 1
 
-    # Sort devices and their IDs:
-    #   first by node name, then by numeric device index
     out: Dict[str, Tuple[int, List[str]]] = {}
 
     def dev_sort_key(k: str):
-        # k example: "as04r1b15:D1"
-        node, d = k.split(":")
-        return (node, int(d[1:]))  # ('as04r1b15', 1)
+        # k example: "as07r4b27:a2f80454"
+        node, gpu_uuid = k.split(":", 1)
+        return (node, gpu_uuid)
 
     for key in sorted(dev_to_ids.keys(), key=dev_sort_key):
         ids_sorted = sorted(dev_to_ids[key], key=lambda x: int(x))
         out[key] = (len(ids_sorted), ids_sorted)
 
     return out
-
 
 def _open_trace_text(prv_file):
     """Open .prv or .prv.gz as text."""
