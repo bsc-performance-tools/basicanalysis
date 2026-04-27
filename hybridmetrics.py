@@ -673,7 +673,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 device_factors['dev_load_balance'][trace] = 'Non-Avail'
                 device_factors['dev_comm_eff'][trace] = 'Non-Avail'
                 device_factors['dev_orches_eff'][trace] = 'Non-Avail'
-                device_factors['dev_offload_eff'][trace] = 'Non-Avail'
+                host_factors['dev_offload_eff'][trace] = 'Non-Avail'
             elif trace_mode[trace] == 'Detailed+MPI+CUDA':
                 device_factors['dev_parallel_eff'][trace] = 100 * (float(raw_data['useful_device'][trace])\
                 /(int(raw_data['count_devices'][trace])*float(raw_data['runtime'][trace])))
