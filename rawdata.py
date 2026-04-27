@@ -1242,34 +1242,37 @@ def process_one_trace(
     # ------------------------------------------------------------
     cmd_base = ['paramedir', trace]
 
-    cmd_base.extend([cfgs['timings'], trace_name + '.timings.stats'])
-    cmd_base.extend([cfgs['runtime'], trace_name + '.runtime.stats'])
-    cmd_base.extend([cfgs['cycles'], trace_name + '.cycles.stats'])
-    cmd_base.extend([cfgs['instructions'], trace_name + '.instructions.stats'])
-    cmd_base.extend([cfgs['flushing'], trace_name + '.flushing.stats'])
-    cmd_base.extend([cfgs['io_call'], trace_name + '.posixio_call.stats'])
-    cmd_base.extend([cfgs['io_cycles'], trace_name + '.posixio-cycles.stats'])
-    cmd_base.extend([cfgs['io_inst'], trace_name + '.posixio-inst.stats'])
-    cmd_base.extend([cfgs['flushing_cycles'], trace_name + '.flushing-cycles.stats'])
-    cmd_base.extend([cfgs['flushing_inst'], trace_name + '.flushing-inst.stats'])
-    cmd_base.extend([cfgs['frequency'], trace_name + '.frequency.stats'])
+    cmd_base.extend([cfgs['timings'], trace_name + '.timings.stats.csv'])
+    cmd_base.extend([cfgs['runtime'], trace_name + '.runtime.stats.csv'])
+    cmd_base.extend([cfgs['cycles'], trace_name + '.cycles.stats.csv'])
+    cmd_base.extend([cfgs['instructions'], trace_name + '.instructions.stats.csv'])
+    cmd_base.extend([cfgs['flushing'], trace_name + '.flushing.stats.csv'])
+    cmd_base.extend([cfgs['io_call'], trace_name + '.posixio_call.stats.csv'])
+    cmd_base.extend([cfgs['io_cycles'], trace_name + '.posixio-cycles.stats.csv'])
+    cmd_base.extend([cfgs['io_inst'], trace_name + '.posixio-inst.stats.csv'])
+    cmd_base.extend([cfgs['flushing_cycles'], trace_name + '.flushing-cycles.stats.csv'])
+    cmd_base.extend([cfgs['flushing_inst'], trace_name + '.flushing-inst.stats.csv'])
+    cmd_base.extend([cfgs['frequency'], trace_name + '.frequency.stats.csv'])
 
     if is_detailed_mpi:
-        cmd_base.extend([cfgs['mpi_io'], trace_name + '.mpi_io.stats'])
-        cmd_base.extend([cfgs['outside_mpi'], trace_name + '.outside_mpi.stats'])
-        cmd_base.extend([cfgs['mpiio_cycles'], trace_name + '.mpiio-cycles.stats'])
-        cmd_base.extend([cfgs['mpiio_inst'], trace_name + '.mpiio-inst.stats'])
+        cmd_base.extend([cfgs['mpi_io'], trace_name + '.mpi_io.stats.csv'])
+        cmd_base.extend([cfgs['outside_mpi'], trace_name + '.outside_mpi.stats.csv'])
+        cmd_base.extend([cfgs['mpiio_cycles'], trace_name + '.mpiio-cycles.stats.csv'])
+        cmd_base.extend([cfgs['mpiio_inst'], trace_name + '.mpiio-inst.stats.csv'])
 
     if is_burst_mpi:
-        cmd_base.extend([cfgs['burst_useful'], trace_name + '.burst_useful.stats'])
+        cmd_base.extend([cfgs['burst_useful'], trace_name + '.burst_useful.stats.csv'])
 
     if is_talp_cuda:
-        cmd_base.extend([cfgs['useful_host'], trace_name + '.useful_host.stats'])
+        cmd_base.extend([cfgs['useful_host'], trace_name + '.useful_host.stats.csv'])
 
         mapping_devices = get_device_stream_id_mapping(trace)
         gpu_devices = len(mapping_devices)
         trace_raw_data['count_devices'] = gpu_devices
         print("==> Count of devices: ", gpu_devices)
+
+        # gpu_useful_stats = trace_name + '.useful_streams.stats.csv'
+        # gpu_memtransfer_stats = trace_name + '.memtransfer_streams.stats.csv'
 
         gpu_useful_stats = trace_name + '.useful_streams.stats.csv'
         gpu_memtransfer_stats = trace_name + '.memtransfer_streams.stats.csv'
@@ -1285,7 +1288,7 @@ def process_one_trace(
     # 2) Optional Dimemas simulation
     # ------------------------------------------------------------
     if dimemas_available and not cmdl_args.skip_simulation:
-        if is_detailed_mpi_family and os.path.exists(trace_name + '.outside_mpi.stats'):
+        if is_detailed_mpi_family and os.path.exists(trace_name + '.outside_mpi.stats.csv'):
             time_dim = time.time()
 
             trace_sim = create_ideal_trace(
@@ -1333,12 +1336,12 @@ def process_one_trace(
                 else:
                     print('Failed to create Hybrid simulated trace with Dimemas.')
 
-    if dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats') and not cmdl_args.skip_simulation:
+    if dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats.csv') and not cmdl_args.skip_simulation:
         if is_detailed_mpi_family and trace_sim != '':
             cmd_ideal = ['paramedir', trace_sim]
-            cmd_ideal.extend([cfgs['timings'], trace_name_sim + '.timings.stats'])
-            cmd_ideal.extend([cfgs['runtime'], trace_name_sim + '.runtime.stats'])
-            cmd_ideal.extend([cfgs['outside_mpi'], trace_name_sim + '.outside_mpi.stats'])
+            cmd_ideal.extend([cfgs['timings'], trace_name_sim + '.timings.stats.csv'])
+            cmd_ideal.extend([cfgs['runtime'], trace_name_sim + '.runtime.stats.csv'])
+            cmd_ideal.extend([cfgs['outside_mpi'], trace_name_sim + '.outside_mpi.stats.csv'])
 
             time_pmd_sim = time.time()
             run_command(cmd_ideal, cmdl_args)
@@ -1348,9 +1351,9 @@ def process_one_trace(
         if cmdl_args.hyb_mpiomp and trace_mode_value == 'Detailed+MPI+OpenMP':
             if is_detailed_mpi_family and hybrid_trace_sim != '':
                 cmd_ideal = ['paramedir', hybrid_trace_sim]
-                cmd_ideal.extend([cfgs['timings'], hybrid_trace_name_sim + '.timings.stats'])
-                cmd_ideal.extend([cfgs['runtime'], hybrid_trace_name_sim + '.runtime.stats'])
-                cmd_ideal.extend([cfgs['outside_mpi'], hybrid_trace_name_sim + '.outside_mpi.stats'])
+                cmd_ideal.extend([cfgs['timings'], hybrid_trace_name_sim + '.timings.stats.csv'])
+                cmd_ideal.extend([cfgs['runtime'], hybrid_trace_name_sim + '.runtime.stats.csv'])
+                cmd_ideal.extend([cfgs['outside_mpi'], hybrid_trace_name_sim + '.outside_mpi.stats.csv'])
 
                 time_pmd_sim_hybrid = time.time()
                 run_command(cmd_ideal, cmdl_args)
@@ -1365,36 +1368,36 @@ def process_one_trace(
     error_ideal = 0
     error_ideal_hybrid = 0
 
-    if not os.path.exists(trace_name + '.timings.stats') or \
-            not os.path.exists(trace_name + '.runtime.stats'):
+    if not os.path.exists(trace_name + '.timings.stats.csv') or \
+            not os.path.exists(trace_name + '.runtime.stats.csv'):
         print('==ERROR== Failed to compute timing information with paramedir.')
         error_timing = 1
 
-    if not os.path.exists(trace_name + '.outside_mpi.stats') and trace_mode_value[:5] != 'Burst' \
+    if not os.path.exists(trace_name + '.outside_mpi.stats.csv') and trace_mode_value[:5] != 'Burst' \
             and 'MPI' in trace_mode_value:
         print('==ERROR== Failed to compute outside MPI timing information with paramedir.')
         error_timing = 1
 
-    if not os.path.exists(trace_name + '.cycles.stats') or \
-            not os.path.exists(trace_name + '.instructions.stats'):
+    if not os.path.exists(trace_name + '.cycles.stats.csv') or \
+            not os.path.exists(trace_name + '.instructions.stats.csv'):
         print('==ERROR== Failed to compute counter information with paramedir.')
         error_counters = 1
 
     if dimemas_available and not cmdl_args.skip_simulation:
-        if is_detailed_mpi_family and os.path.exists(trace_name + '.outside_mpi.stats'):
+        if is_detailed_mpi_family and os.path.exists(trace_name + '.outside_mpi.stats.csv'):
             if trace_sim == '' or \
-                    not os.path.exists(trace_name_sim + '.timings.stats') or \
-                    not os.path.exists(trace_name_sim + '.runtime.stats') or \
-                    not os.path.exists(trace_name_sim + '.outside_mpi.stats'):
+                    not os.path.exists(trace_name_sim + '.timings.stats.csv') or \
+                    not os.path.exists(trace_name_sim + '.runtime.stats.csv') or \
+                    not os.path.exists(trace_name_sim + '.outside_mpi.stats.csv'):
                 print('==ERROR== Failed to compute simulated timing information with paramedir.')
                 error_ideal = 1
                 trace_sim = ''
             
             if cmdl_args.hyb_mpiomp and trace_mode_value == 'Detailed+MPI+OpenMP':
                 if hybrid_trace_sim == '' or \
-                        not os.path.exists(hybrid_trace_name_sim + '.timings.stats') or \
-                        not os.path.exists(hybrid_trace_name_sim + '.runtime.stats') or \
-                        not os.path.exists(hybrid_trace_name_sim + '.outside_mpi.stats'):
+                        not os.path.exists(hybrid_trace_name_sim + '.timings.stats.csv') or \
+                        not os.path.exists(hybrid_trace_name_sim + '.runtime.stats.csv') or \
+                        not os.path.exists(hybrid_trace_name_sim + '.outside_mpi.stats.csv'):
                     print('==ERROR== Failed to compute simulated timing information with paramedir.')
                     error_ideal_hybrid = 1
                     hybrid_trace_sim = ''
@@ -1413,14 +1416,14 @@ def process_one_trace(
     time_prs = time.time()
 
     # useful_cyc
-    if os.path.exists(trace_name + '.cycles.stats'):
-        trace_raw_data['useful_cyc'] = parse_positive_value_sum(trace_name + '.cycles.stats', skip_header=True)
+    if os.path.exists(trace_name + '.cycles.stats.csv'):
+        trace_raw_data['useful_cyc'] = parse_positive_value_sum(trace_name + '.cycles.stats.csv', skip_header=True)
     else:
         trace_raw_data['useful_cyc'] = 'NaN'
 
     # runtime
-    if os.path.exists(trace_name + '.frequency.stats'):
-        _, frequency_avg, _ = parse_total_average_max(trace_name + '.frequency.stats')
+    if os.path.exists(trace_name + '.frequency.stats.csv'):
+        _, frequency_avg, _ = parse_total_average_max(trace_name + '.frequency.stats.csv')
         trace_raw_data['frequency'] = frequency_avg
     else:
         trace_raw_data['frequency'] = 'NaN'
@@ -1429,9 +1432,9 @@ def process_one_trace(
     # useful_ins + procs_ins + instructions mask
     procs_ins = 0
     content_insttructions = []
-    if os.path.exists(trace_name + '.instructions.stats'):
+    if os.path.exists(trace_name + '.instructions.stats.csv'):
         useful_ins, procs_ins, content_insttructions = parse_positive_value_sum_and_mask(
-            trace_name + '.instructions.stats',
+            trace_name + '.instructions.stats.csv',
             skip_header=True
         )
         trace_raw_data['procs_ins'] = procs_ins
@@ -1441,9 +1444,9 @@ def process_one_trace(
 
     # POSIX-IO aggregates
     posixio_totals = None
-    if os.path.exists(trace_name + '.posixio_call.stats'):
-        posixio_totals = parse_tab_total_row_values(trace_name + '.posixio_call.stats')
-        posix_stats = parse_tab_stats(trace_name + '.posixio_call.stats')
+    if os.path.exists(trace_name + '.posixio_call.stats.csv'):
+        posixio_totals = parse_tab_total_row_values(trace_name + '.posixio_call.stats.csv')
+        posix_stats = parse_tab_stats(trace_name + '.posixio_call.stats.csv')
         trace_raw_data['io_tot'] = posix_stats['tot']
         trace_raw_data['io_avg'] = posix_stats['avg']
         trace_raw_data['io_max'] = posix_stats['max']
@@ -1455,9 +1458,9 @@ def process_one_trace(
         trace_raw_data['io_std'] = 0.0
 
     # timings.stats
-    if os.path.exists(trace_name + '.timings.stats'):
+    if os.path.exists(trace_name + '.timings.stats.csv'):
         timings_data = parse_timings_stats(
-            trace_name + '.timings.stats',
+            trace_name + '.timings.stats.csv',
             instructions_mask=content_insttructions if procs_ins != 0 else None,
             posixio_totals=posixio_totals,
             has_pcf=os.path.exists(trace_name_control + '.pcf')
@@ -1488,16 +1491,16 @@ def process_one_trace(
         trace_raw_data['useful_plus_io_max'] = 'NaN'
 
     # runtime
-    if os.path.exists(trace_name + '.runtime.stats'):
-        _, runtime_avg, _ = parse_total_average_max(trace_name + '.runtime.stats')
+    if os.path.exists(trace_name + '.runtime.stats.csv'):
+        _, runtime_avg, _ = parse_total_average_max(trace_name + '.runtime.stats.csv')
         trace_raw_data['runtime'] = runtime_avg
     else:
         trace_raw_data['runtime'] = 'NaN'
 
     # outside_mpi
-    if os.path.exists(trace_name + '.outside_mpi.stats') and is_detailed_mpi:
+    if os.path.exists(trace_name + '.outside_mpi.stats.csv') and is_detailed_mpi:
         outside_data = parse_outside_mpi_stats(
-            trace_name + '.outside_mpi.stats',
+            trace_name + '.outside_mpi.stats.csv',
             trace_raw_data['runtime']
         )
         trace_raw_data['outsidempi_tot_diff'] = outside_data['outsidempi_tot_diff']
@@ -1515,13 +1518,13 @@ def process_one_trace(
         trace_raw_data['mpicomm_tot'] = 'NaN'
 
     # flushing
-    if os.path.exists(trace_name + '.flushing.stats'):
-        with open(trace_name + '.flushing.stats') as f:
+    if os.path.exists(trace_name + '.flushing.stats.csv'):
+        with open(trace_name + '.flushing.stats.csv') as f:
             content = f.readlines()
             flushing_exist = ('\tBegin\t\n' in content) or ('\tvalue 1\t\n' in content)
 
         if flushing_exist:
-            flushing_tot, flushing_avg, flushing_max = parse_total_average_max(trace_name + '.flushing.stats')
+            flushing_tot, flushing_avg, flushing_max = parse_total_average_max(trace_name + '.flushing.stats.csv')
             trace_raw_data['flushing_tot'] = float(flushing_tot)
             trace_raw_data['flushing_avg'] = float(flushing_avg)
             trace_raw_data['flushing_max'] = float(flushing_max)
@@ -1535,22 +1538,22 @@ def process_one_trace(
         trace_raw_data['flushing_max'] = 0.0
 
     # total-only counters
-    trace_raw_data['flushing_cyc'] = parse_total_as_int(trace_name + '.flushing-cycles.stats') \
-        if os.path.exists(trace_name + '.flushing-cycles.stats') else 0.0
-    trace_raw_data['flushing_ins'] = parse_total_as_int(trace_name + '.flushing-inst.stats') \
-        if os.path.exists(trace_name + '.flushing-inst.stats') else 0.0
-    trace_raw_data['io_cyc'] = parse_total_as_int(trace_name + '.posixio-cycles.stats') \
-        if os.path.exists(trace_name + '.posixio-cycles.stats') else 0.0
-    trace_raw_data['io_ins'] = parse_total_as_int(trace_name + '.posixio-inst.stats') \
-        if os.path.exists(trace_name + '.posixio-inst.stats') else 0.0
-    trace_raw_data['mpiio_cyc'] = parse_total_as_int(trace_name + '.mpiio-cycles.stats') \
-        if os.path.exists(trace_name + '.mpiio-cycles.stats') and is_detailed_mpi else 0.0
-    trace_raw_data['mpiio_ins'] = parse_total_as_int(trace_name + '.mpiio-inst.stats') \
-        if os.path.exists(trace_name + '.mpiio-inst.stats') and is_detailed_mpi else 0.0
+    trace_raw_data['flushing_cyc'] = parse_total_as_int(trace_name + '.flushing-cycles.stats.csv') \
+        if os.path.exists(trace_name + '.flushing-cycles.stats.csv') else 0.0
+    trace_raw_data['flushing_ins'] = parse_total_as_int(trace_name + '.flushing-inst.stats.csv') \
+        if os.path.exists(trace_name + '.flushing-inst.stats.csv') else 0.0
+    trace_raw_data['io_cyc'] = parse_total_as_int(trace_name + '.posixio-cycles.stats.csv') \
+        if os.path.exists(trace_name + '.posixio-cycles.stats.csv') else 0.0
+    trace_raw_data['io_ins'] = parse_total_as_int(trace_name + '.posixio-inst.stats.csv') \
+        if os.path.exists(trace_name + '.posixio-inst.stats.csv') else 0.0
+    trace_raw_data['mpiio_cyc'] = parse_total_as_int(trace_name + '.mpiio-cycles.stats.csv') \
+        if os.path.exists(trace_name + '.mpiio-cycles.stats.csv') and is_detailed_mpi else 0.0
+    trace_raw_data['mpiio_ins'] = parse_total_as_int(trace_name + '.mpiio-inst.stats.csv') \
+        if os.path.exists(trace_name + '.mpiio-inst.stats.csv') and is_detailed_mpi else 0.0
 
     # mpi_io aggregates
-    if os.path.exists(trace_name + '.mpi_io.stats') and is_detailed_mpi:
-        mpiio_stats = parse_tab_stats(trace_name + '.mpi_io.stats')
+    if os.path.exists(trace_name + '.mpi_io.stats.csv') and is_detailed_mpi:
+        mpiio_stats = parse_tab_stats(trace_name + '.mpi_io.stats.csv')
         trace_raw_data['mpiio_tot'] = mpiio_stats['tot']
         trace_raw_data['mpiio_avg'] = mpiio_stats['avg']
         trace_raw_data['mpiio_max'] = mpiio_stats['max']
@@ -1601,16 +1604,16 @@ def process_one_trace(
                 print('==WARNING== Unknown memtransfer thread ids: ' +
                       ', '.join(gpu_agg['unknown_memtransfer_threads'][:10]))
 
-        if os.path.exists(trace_name + '.useful_host.stats'):
-            useful_host_tot, _, _ = parse_total_average_max(trace_name + '.useful_host.stats')
+        if os.path.exists(trace_name + '.useful_host.stats.csv'):
+            useful_host_tot, _, _ = parse_total_average_max(trace_name + '.useful_host.stats.csv')
             trace_raw_data['useful_host'] = float(useful_host_tot)
         else:
             trace_raw_data['useful_host'] = 0.0
 
     # burst mode
     if trace_mode_value == 'Burst+MPI':
-        if os.path.exists(trace_name + '.burst_useful.stats'):
-            totals = parse_tab_total_row_values(trace_name + '.burst_useful.stats')
+        if os.path.exists(trace_name + '.burst_useful.stats.csv'):
+            totals = parse_tab_total_row_values(trace_name + '.burst_useful.stats.csv')
             if totals:
                 trace_raw_data['burst_useful_tot'] = sum(totals)
                 trace_raw_data['burst_useful_avg'] = sum(totals) / len(totals)
@@ -1629,22 +1632,22 @@ def process_one_trace(
         trace_raw_data['burst_useful_tot'] = 0.0
 
     # simulated trace metrics
-    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats') and not cmdl_args.skip_simulation):
-        if os.path.exists(trace_name_sim + '.timings.stats'):
-            _, _, useful_dim_max = parse_total_average_max(trace_name_sim + '.timings.stats')
+    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats.csv') and not cmdl_args.skip_simulation):
+        if os.path.exists(trace_name_sim + '.timings.stats.csv'):
+            _, _, useful_dim_max = parse_total_average_max(trace_name_sim + '.timings.stats.csv')
             trace_raw_data['useful_dim'] = float(useful_dim_max)
         else:
             trace_raw_data['useful_dim'] = 'NaN'
 
-        if os.path.exists(trace_name_sim + '.runtime.stats'):
-            _, runtime_sim_avg, _ = parse_total_average_max(trace_name_sim + '.runtime.stats')
+        if os.path.exists(trace_name_sim + '.runtime.stats.csv'):
+            _, runtime_sim_avg, _ = parse_total_average_max(trace_name_sim + '.runtime.stats.csv')
             trace_raw_data['runtime_dim'] = float(runtime_sim_avg)
         else:
             trace_raw_data['runtime_dim'] = 'NaN'
 
-        if os.path.exists(trace_name_sim + '.outside_mpi.stats'):
+        if os.path.exists(trace_name_sim + '.outside_mpi.stats.csv'):
             # keep current logic for now; refactor later if desired
-            with open(trace_name_sim + '.outside_mpi.stats') as f:
+            with open(trace_name_sim + '.outside_mpi.stats.csv') as f:
                 content = f.readlines()
                 list_outside_mpi = []
                 init_count_thread = False
@@ -1685,23 +1688,23 @@ def process_one_trace(
 
 
     # HYBRID Simulated trace metrics 
-    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats') and not cmdl_args.skip_simulation):
+    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats.csv') and not cmdl_args.skip_simulation):
         if cmdl_args.hyb_mpiomp and trace_mode_value == 'Detailed+MPI+OpenMP':        
-            if os.path.exists(hybrid_trace_name_sim + '.timings.stats'):
-                _, _, useful_dim_max = parse_total_average_max(hybrid_trace_name_sim + '.timings.stats')
+            if os.path.exists(hybrid_trace_name_sim + '.timings.stats.csv'):
+                _, _, useful_dim_max = parse_total_average_max(hybrid_trace_name_sim + '.timings.stats.csv')
                 trace_raw_data['hybrid_useful_dim'] = float(useful_dim_max)
             else:
                 trace_raw_data['hybrid_useful_dim'] = 'NaN'
 
-            if os.path.exists(hybrid_trace_name_sim + '.runtime.stats'):
-                _, runtime_sim_avg, _ = parse_total_average_max(hybrid_trace_name_sim + '.runtime.stats')
+            if os.path.exists(hybrid_trace_name_sim + '.runtime.stats.csv'):
+                _, runtime_sim_avg, _ = parse_total_average_max(hybrid_trace_name_sim + '.runtime.stats.csv')
                 trace_raw_data['hybrid_runtime_dim'] = float(runtime_sim_avg)
             else:
                 trace_raw_data['hybrid_runtime_dim'] = 'NaN'
 
-            if os.path.exists(hybrid_trace_name_sim + '.outside_mpi.stats'):
+            if os.path.exists(hybrid_trace_name_sim + '.outside_mpi.stats.csv'):
                 # keep current logic for now; refactor later if desired
-                with open(hybrid_trace_name_sim + '.outside_mpi.stats') as f:
+                with open(hybrid_trace_name_sim + '.outside_mpi.stats.csv') as f:
                     content = f.readlines()
                     list_outside_mpi = []
                     init_count_thread = False
@@ -1744,13 +1747,13 @@ def process_one_trace(
     # ------------------------------------------------------------
     # 5) Move generated files
     # ------------------------------------------------------------
-    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats')) and not cmdl_args.skip_simulation:
+    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats.csv')) and not cmdl_args.skip_simulation:
         move_files(trace_name + '.dimemas_ideal.cfg', local_path_dest, cmdl_args)
         move_files(trace_name + '.dim', local_path_dest, cmdl_args)
         if trace_sim != '':
-            move_files(trace_name_sim + '.timings.stats', local_path_dest, cmdl_args)
-            move_files(trace_name_sim + '.runtime.stats', local_path_dest, cmdl_args)
-            move_files(trace_name_sim + '.outside_mpi.stats', local_path_dest, cmdl_args)
+            move_files(trace_name_sim + '.timings.stats.csv', local_path_dest, cmdl_args)
+            move_files(trace_name_sim + '.runtime.stats.csv', local_path_dest, cmdl_args)
+            move_files(trace_name_sim + '.outside_mpi.stats.csv', local_path_dest, cmdl_args)
             move_files(trace_sim, local_path_dest, cmdl_args)
             move_files(trace_sim[:-4] + '.pcf', local_path_dest, cmdl_args)
             move_files(trace_sim[:-4] + '.row', local_path_dest, cmdl_args)
@@ -1759,9 +1762,9 @@ def process_one_trace(
                 remove_files(trace_name_control + '.prv', cmdl_args)
         if cmdl_args.hyb_mpiomp and trace_mode_value == 'Detailed+MPI+OpenMP':
             if hybrid_trace_sim != '':
-                move_files(hybrid_trace_name_sim + '.timings.stats', local_path_dest, cmdl_args)
-                move_files(hybrid_trace_name_sim + '.runtime.stats', local_path_dest, cmdl_args)
-                move_files(hybrid_trace_name_sim + '.outside_mpi.stats', local_path_dest, cmdl_args)
+                move_files(hybrid_trace_name_sim + '.timings.stats.csv', local_path_dest, cmdl_args)
+                move_files(hybrid_trace_name_sim + '.runtime.stats.csv', local_path_dest, cmdl_args)
+                move_files(hybrid_trace_name_sim + '.outside_mpi.stats.csv', local_path_dest, cmdl_args)
                 move_files(hybrid_trace_sim, local_path_dest, cmdl_args)
                 move_files(hybrid_trace_sim[:-4] + '.pcf', local_path_dest, cmdl_args)
                 move_files(hybrid_trace_sim[:-4] + '.row', local_path_dest, cmdl_args)          
@@ -1771,35 +1774,39 @@ def process_one_trace(
     
     remove_files(trace_name + '.row', cmdl_args)
     remove_files(trace_name + '.pcf', cmdl_args)
-    move_files(trace_name + '.timings.stats', local_path_dest, cmdl_args)
-    move_files(trace_name + '.runtime.stats', local_path_dest, cmdl_args)
-    move_files(trace_name + '.cycles.stats', local_path_dest, cmdl_args)
-    move_files(trace_name + '.instructions.stats', local_path_dest, cmdl_args)
-    move_files(trace_name + '.flushing.stats', local_path_dest, cmdl_args)
-    move_files(trace_name + '.posixio-cycles.stats', local_path_dest, cmdl_args)
-    move_files(trace_name + '.posixio-inst.stats', local_path_dest, cmdl_args)
-    move_files(trace_name + '.flushing-cycles.stats', local_path_dest, cmdl_args)
-    move_files(trace_name + '.flushing-inst.stats', local_path_dest, cmdl_args)
-    move_files(trace_name + '.frequency.stats', local_path_dest, cmdl_args)
+    move_files(trace_name + '.timings.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.runtime.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.cycles.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.instructions.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.flushing.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.posixio-cycles.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.posixio-inst.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.flushing-cycles.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.flushing-inst.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.frequency.stats.csv', local_path_dest, cmdl_args)
 
     if is_detailed_mpi:
-        move_files(trace_name + '.mpi_io.stats', local_path_dest, cmdl_args)
-        move_files(trace_name + '.posixio_call.stats', local_path_dest, cmdl_args)
-        move_files(trace_name + '.outside_mpi.stats', local_path_dest, cmdl_args)
-        move_files(trace_name + '.mpiio-cycles.stats', local_path_dest, cmdl_args)
-        move_files(trace_name + '.mpiio-inst.stats', local_path_dest, cmdl_args)
+        move_files(trace_name + '.mpi_io.stats.csv', local_path_dest, cmdl_args)
+        move_files(trace_name + '.posixio_call.stats.csv', local_path_dest, cmdl_args)
+        move_files(trace_name + '.outside_mpi.stats.csv', local_path_dest, cmdl_args)
+        move_files(trace_name + '.mpiio-cycles.stats.csv', local_path_dest, cmdl_args)
+        move_files(trace_name + '.mpiio-inst.stats.csv', local_path_dest, cmdl_args)
 
     if is_burst_mpi:
-        move_files(trace_name + '.2dh_BurstEff.stats', local_path_dest, cmdl_args)
-        move_files(trace_name + '.burst_useful.stats', local_path_dest, cmdl_args)
+        move_files(trace_name + '.2dh_BurstEff.stats.csv', local_path_dest, cmdl_args)
+        move_files(trace_name + '.burst_useful.stats.csv', local_path_dest, cmdl_args)
 
     if is_talp_cuda:
-        if os.path.exists(trace_name + '.useful_host.stats'):
-            move_files(trace_name + '.useful_host.stats', local_path_dest, cmdl_args)
+        if os.path.exists(trace_name + '.useful_host.stats.csv'):
+            move_files(trace_name + '.useful_host.stats.csv', local_path_dest, cmdl_args)
         if os.path.exists(trace_name + '.useful_streams.stats.csv'):
             move_files(trace_name + '.useful_streams.stats.csv', local_path_dest, cmdl_args)
+        if os.path.exists(trace_name + '.useful_streams.stats.legend.csv'):
+            move_files(trace_name + '.useful_streams.stats.legend.csv', local_path_dest, cmdl_args)
         if os.path.exists(trace_name + '.memtransfer_streams.stats.csv'):
             move_files(trace_name + '.memtransfer_streams.stats.csv', local_path_dest, cmdl_args)
+        if os.path.exists(trace_name + '.memtransfer_streams.stats.legend.csv'):
+            move_files(trace_name + '.memtransfer_streams.stats.legend.csv', local_path_dest, cmdl_args)
 
     time_prs = time.time() - time_prs
     time_tot = time.time() - time_tot
