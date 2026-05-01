@@ -27,6 +27,21 @@ error_import_matplotlib = False
 error_import_scipy = False
 error_import_numpy = False
 
+error_import_plotly = False
+
+error_import_interactiveplots = False
+
+try:
+    import interactiveplots
+except ImportError:
+    error_import_interactiveplots = True
+
+
+try:
+    import plotly.graph_objects as go
+except ImportError:
+    error_import_plotly = True
+
 try:
     import pandas as pd
 except ImportError:
@@ -216,6 +231,43 @@ def generate_hybrid_plots(metrics_result, analysis_result, trace_list, trace_pro
                 trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args
             )
 
+        if not error_import_interactiveplots:
+            if (cmdl_args.pop_model_to_apply == 'talp') and (trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"):
+                interactiveplots.plot_talp_efficiency_interactive(
+                    metrics_result,
+                    analysis_result,
+                    trace_list,
+                    trace_processes,
+                    trace_tasks,
+                    trace_threads,
+                    trace_mode,
+                    cmdl_args,
+                )
+            else:
+                interactiveplots.plot_hybrid_efficiency_interactive(
+                    metrics_result,
+                    trace_list,
+                    trace_processes,
+                    trace_tasks,
+                    trace_threads,
+                    trace_mode,
+                    cmdl_args,
+                )
+            
+            interactiveplots.plot_basicanalysis_interactive_report(
+                metrics_result,
+                analysis_result,
+                trace_list,
+                trace_processes,
+                trace_tasks,
+                trace_threads,
+                trace_mode,
+                cmdl_args,
+            )
+        else:
+            print('Plotly/interactiveplots module not available. '
+                 'Skipping interactive HTML report.')            
+
         if len(trace_list) > 1:
             if cmdl_args.pop_model_to_apply == 'classic':
                 hybridmetrics.plots_modelfactors_matplot(
@@ -248,7 +300,7 @@ def generate_hybrid_plots(metrics_result, analysis_result, trace_list, trace_pro
         subprocess.check_output(["rm", "efficiency_table_hybrid.gp"])
 
 
-def generate_simple_plots(metrics_result, trace_list, trace_processes,
+def generate_simple_plots(metrics_result, analysis_result, trace_list, trace_processes,
                           trace_tasks, trace_threads, trace_mode, cmdl_args):
     """Generate plots for simple metrics."""
     mod_factors = metrics_result["mod_factors"]
@@ -271,6 +323,31 @@ def generate_simple_plots(metrics_result, trace_list, trace_processes,
 
     if not error_plot_table:
         plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, cmdl_args)
+        if not error_import_interactiveplots:
+            interactiveplots.plot_simple_efficiency_interactive(
+                metrics_result,
+                trace_list,
+                trace_processes,
+                trace_tasks,
+                trace_threads,
+                trace_mode,
+                cmdl_args,
+            )
+
+            interactiveplots.plot_basicanalysis_interactive_report(
+                metrics_result,
+                analysis_result,
+                trace_list,
+                trace_processes,
+                trace_tasks,
+                trace_threads,
+                trace_mode,
+                cmdl_args,
+            )
+        else:
+            print('Plotly/interactiveplots module not available. '
+                      'Skipping interactive HTML report.')
+
         if len(trace_list) > 1:
             plots_modelfactors_matplot(
                 trace_list, trace_mode, trace_processes, trace_tasks, trace_threads, cmdl_args
@@ -307,6 +384,7 @@ def generate_plots(metrics_result, analysis_result, trace_list, trace_processes,
     else:
         generate_simple_plots(
             metrics_result,
+            analysis_result,
             trace_list,
             trace_processes,
             trace_tasks,
