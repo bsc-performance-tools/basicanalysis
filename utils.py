@@ -39,8 +39,8 @@ except ImportError:
 __author__ = "Sandra Mendez"
 __copyright__ = "Copyright 2019, Barcelona Supercomputing Center (BSC)"
 __version_major__ = 0
-__version_minor__ = 5
-__version_micro__ = 1
+__version_minor__ = 6
+__version_micro__ = 0
 __version__ = f"{__version_major__}.{__version_minor__}.{__version_micro__}"
 
 

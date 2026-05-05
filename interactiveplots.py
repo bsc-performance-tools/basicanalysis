@@ -721,6 +721,7 @@ def _plot_efficiency_heatmap_interactive(metric_keys, metric_info, metric_source
                 bgcolor="white",
                 bordercolor="#aaa",
                 font=dict(color="#222", size=12),
+                align="left",
             ),
         )
     )
@@ -911,6 +912,7 @@ def _build_efficiency_heatmap_div(metric_keys, metric_info, metric_sources,
                 bgcolor="white",
                 bordercolor="#aaa",
                 font=dict(color="#222", size=12),
+                align="left",
             ),
         )
     )
