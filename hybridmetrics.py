@@ -608,6 +608,68 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             hybrid_factors['omp_parallel_eff'][trace] = 'NaN'
 
+
+        # -------> Classic MPI+GPU model using flattened devices
+        if (
+            outmpi_measures
+            and trace_mode[trace] == 'Detailed+MPI+CUDA'
+            and cmdl_args.pop_model_to_apply == 'classic'
+        ):
+            try:
+                p = int(raw_data['procs_ins'][trace])
+                d = int(raw_data['count_devices'][trace])
+                runtime = float(raw_data['runtime'][trace])
+
+                useful_host = float(raw_data['useful_host'][trace])
+                useful_host_max = float(raw_data['useful_host_max'][trace])
+
+                useful_device = float(raw_data['useful_device'][trace])
+                useful_device_max = float(raw_data['useful_device_max'][trace])
+
+                parallel_units = p + d
+                useful_total = useful_host + useful_device
+                useful_max = max(useful_host_max, useful_device_max)
+
+                hybrid_parallel_eff = (
+                    useful_total / (parallel_units * runtime) * 100.0
+                )
+
+                hybrid_load_balance = (
+                    (useful_total / parallel_units) / useful_max * 100.0
+                )
+
+                hybrid_comm_eff = (
+                    useful_max / runtime * 100.0
+                )
+
+                hybrid_factors['hybrid_eff'][trace] = hybrid_parallel_eff
+
+                hybrid_factors['omp_parallel_eff'][trace] = (
+                    hybrid_parallel_eff
+                    / float(hybrid_factors['mpi_parallel_eff'][trace])
+                    * 100.0
+                )
+
+                hybrid_factors['omp_load_balance'][trace] = (
+                    hybrid_load_balance
+                    / float(hybrid_factors['mpi_load_balance'][trace])
+                    * 100.0
+                )
+
+                hybrid_factors['omp_comm_eff'][trace] = (
+                    hybrid_comm_eff
+                    / float(hybrid_factors['mpi_comm_eff'][trace])
+                    * 100.0
+                )
+
+            except Exception:
+                hybrid_factors['hybrid_eff'][trace] = 'NaN'
+                hybrid_factors['omp_parallel_eff'][trace] = 'NaN'
+                hybrid_factors['omp_load_balance'][trace] = 'NaN'
+                hybrid_factors['omp_comm_eff'][trace] = 'NaN'
+
+
+
   # ------->  HOST metrics
         try:  # except NaN
             if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA'):
@@ -730,15 +792,19 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             if not outmpi_measures:
                 hybrid_factors['hybrid_eff'][trace] = 'Non-Avail'
+
+            elif (trace_mode[trace] == 'Detailed+MPI+CUDA' and cmdl_args.pop_model_to_apply == 'classic'):
+                # Already computed directly from host useful time + flattened device useful time.
+                pass
             elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 hybrid_factors['hybrid_eff'][trace] = float(hybrid_factors['mpi_parallel_eff'][trace]) \
-                                               * float(hybrid_factors['omp_parallel_eff'][trace]) / 100.0
+                                            * float(hybrid_factors['omp_parallel_eff'][trace]) / 100.0
             else:
                 hybrid_factors['hybrid_eff'][trace] = 'N/A'
         except:
             hybrid_factors['hybrid_eff'][trace] = 'NaN'
 
-        # Basic scalability factors - Computational
+    # Basic scalability factors - Computational
         # IPC Scalability
         try:  # except NaN
             other_metrics['ipc'][trace] = float(raw_data['useful_ins'][trace]) \

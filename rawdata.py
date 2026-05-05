@@ -66,6 +66,10 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_not_0_tot', 'Useful duration not 0 inst (total)'),
                             ('procs_ins', 'Procs with instructions (total)'),
                             ('useful_host', 'Useful Total duration on the Host'),
+                            ('useful_host_max', 'Useful duration on the Host (maximum)'),
+                            ('useful_hybrid_gpu_tot', 'Hybrid MPI+GPU useful duration (total)'),
+                            ('useful_hybrid_gpu_avg', 'Hybrid MPI+GPU useful duration (average)'),
+                            ('useful_hybrid_gpu_max', 'Hybrid MPI+GPU useful duration (maximum)'),
                             ('useful_device', 'Useful duration on the device'),
                             ('useful_device_max', 'Useful duration on the device (maximum)'),
                             ('useful_memtransf_device', 'Useful+MemoryTransfer on the device'),
@@ -580,6 +584,12 @@ def parse_burst_useful_stats(path):
 
     return result
 
+def parse_tab_total_row_values_or_empty(path):
+    if os.path.exists(path):
+        return parse_tab_total_row_values(path)
+    return []
+
+
 def flushing_stats_has_data(path):
     with open(path) as f:
         for line in f:
@@ -626,6 +636,21 @@ def get_trace_names(trace, trace_process_count):
 # ----------------------------------------------------------------------
 # GPU stream parsing and row-based device mapping
 # ----------------------------------------------------------------------
+def mpi_rank_from_thread_object(thread_obj):
+    """
+    Extract MPI rank/task index from Paraver thread object:
+        THREAD app.task.thread
+    Returns zero-based rank index.
+    """
+    try:
+        obj = thread_obj.split()[1]
+        parts = obj.split(".")
+        if len(parts) != 3:
+            return None
+        task_idx = int(parts[1])
+        return task_idx - 1
+    except Exception:
+        return None
 
 def normalize_thread_object(value):
     """
@@ -801,28 +826,24 @@ def node_from_thread_object(thread_obj, cpu_to_node):
 
     return cpu_to_node.get(task_idx)
 
-
 def build_thread_to_device_map_from_row(row_path):
-    """
-    Build mapping:
-        "THREAD 1.1.2" -> "as07r1b02:db340227"
-    """
     thread_to_label = parse_row_thread_labels(row_path)
     cpu_to_node = parse_row_cpu_nodes(row_path)
 
     thread_to_device = {}
+
     for thread_obj, label in thread_to_label.items():
-        gpu_uuid = device_uuid_from_row_label(label)
-        if gpu_uuid is None:
-            continue
+        device_key = device_key_from_row_label(
+            label,
+            thread_obj=thread_obj,
+            cpu_to_node=cpu_to_node
+        )
 
-        node = node_from_thread_object(thread_obj, cpu_to_node)
-        if node is None:
-            continue
-
-        thread_to_device[thread_obj] = f"{node}:{gpu_uuid}"
+        if device_key is not None:
+            thread_to_device[thread_obj] = device_key
 
     return thread_to_device
+
 
 def parse_gpu_stream_stats(path, active_values=None, value_tol=1e-9, positive_only=False):
     """
@@ -967,15 +988,45 @@ def sum_intervals(intervals):
     return sum(end - start for start, end in intervals)
 
 
-def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats_path, row_path):
-    thread_to_device = build_thread_to_device_map_from_row(row_path)
+def device_key_from_row_label(label, thread_obj=None, cpu_to_node=None):
+    """
+    Support both legacy and UUID-based GPU labels.
 
-    useful_rows = parse_gpu_stream_stats(useful_stats_path, positive_only=True)
+    Legacy:
+        CUDA-D1.S1-as07r1b02 -> as07r1b02:D1
 
-    if memtransfer_stats_path and os.path.exists(memtransfer_stats_path):
-        memtransfer_rows = parse_gpu_stream_stats(memtransfer_stats_path, active_values=(3.0, 7.0))
-    else:
-        memtransfer_rows = []
+    New:
+        GPU_a2f80454.1 -> <node>:a2f80454
+    """
+    label = label.strip()
+
+    # New UUID-based format
+    if label.startswith("GPU_"):
+        body = label[len("GPU_"):]
+        gpu_uuid = body.split(".", 1)[0]
+
+        node = None
+        if thread_obj is not None and cpu_to_node is not None:
+            node = node_from_thread_object(thread_obj, cpu_to_node)
+
+        if node is None:
+            return None
+
+        return f"{node}:{gpu_uuid}"
+
+    # Legacy CUDA-Dx format
+    if label.startswith("CUDA-"):
+        parts = label.split("-")
+        if len(parts) < 3:
+            return None
+
+        ds_part = parts[1]                  # D1.S1
+        node_part = "-".join(parts[2:])     # node
+        device_part = ds_part.split(".")[0] # D1
+
+        return f"{node_part}:{device_part}"
+
+    return None
 
 
 def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats_path, row_path):
@@ -1002,6 +1053,8 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
 
     useful_rows = parse_gpu_stream_stats(useful_stats_path, positive_only=True)
 
+    useful_by_rank = defaultdict(list)
+
     if memtransfer_stats_path and os.path.exists(memtransfer_stats_path):
         memtransfer_rows = parse_gpu_stream_stats(memtransfer_stats_path, active_values=(3.0, 7.0))
     else:
@@ -1018,7 +1071,13 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
         if device_key is None:
             unknown_useful_threads.add(thread_obj)
             continue
+
         useful_by_device[device_key].append((start, end))
+
+        rank_id = mpi_rank_from_thread_object(thread_obj)
+        if rank_id is not None:
+            useful_by_rank[rank_id].append((start, end))
+
 
     for thread_obj, start, end in memtransfer_rows:
         device_key = thread_to_device.get(thread_obj)
@@ -1035,9 +1094,11 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
         'useful_memtransf_device_total': 0.0,
         'useful_memtransf_device_max': 0.0,
         'per_device': {},
+        'useful_device_by_rank': {},
         'unknown_useful_threads': sorted(unknown_useful_threads),
         'unknown_memtransfer_threads': sorted(unknown_memtransfer_threads),
     }
+
 
     for device_key in all_devices:
         useful_raw = useful_by_device.get(device_key, [])
@@ -1076,6 +1137,15 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
 
         if useful_memtransf_total > result['useful_memtransf_device_max']:
             result['useful_memtransf_device_max'] = useful_memtransf_total
+
+    # ------------------------------------------------------------
+    # Rank-level GPU useful aggregation.
+    # This is used by the classic MPI+GPU hybrid model:
+    # Useful_hybrid_rank[i] = Useful_host_rank[i] + Useful_device_rank[i]
+    # ------------------------------------------------------------
+    for rank_id, intervals in useful_by_rank.items():
+        useful_rank_flat = merge_intervals(intervals)
+        result['useful_device_by_rank'][rank_id] = sum_intervals(useful_rank_flat)
 
     return result
 
@@ -1228,7 +1298,10 @@ def process_one_trace(
         'Detailed+MPI+OpenMP',
         'Detailed+MPI+CUDA',
     )
+    
+
     is_talp_cuda = (trace_mode_value == 'Detailed+MPI+CUDA' and cmdl_args.pop_model_to_apply == 'talp')
+    is_mpi_gpu = (trace_mode_value == 'Detailed+MPI+CUDA')
 
     mapping_devices = None
     trace_sim = ''
@@ -1263,7 +1336,7 @@ def process_one_trace(
     if is_burst_mpi:
         cmd_base.extend([cfgs['burst_useful'], trace_name + '.burst_useful.stats.csv'])
 
-    if is_talp_cuda:
+    if is_talp_cuda or is_mpi_gpu:
         cmd_base.extend([cfgs['useful_host'], trace_name + '.useful_host.stats.csv'])
 
         mapping_devices = get_device_stream_id_mapping(trace)
@@ -1566,12 +1639,13 @@ def process_one_trace(
 
     # GPU metrics
     time_gpu_agg = 0.0
-    if is_talp_cuda and os.path.exists(row_path):
+    if (is_mpi_gpu and os.path.exists(row_path)):
         trace_raw_data['useful_device'] = 0.0
         trace_raw_data['useful_device_max'] = 0.0
         trace_raw_data['useful_memtransf_device'] = 0.0
         trace_raw_data['useful_memtransf_device_max'] = 0.0
-
+        gpu_agg = {}
+        
         if gpu_useful_stats and os.path.exists(gpu_useful_stats):
             time_gpu_agg = time.time()
             gpu_agg = aggregate_gpu_metrics_from_stream_stats(
@@ -1604,12 +1678,25 @@ def process_one_trace(
                 print('==WARNING== Unknown memtransfer thread ids: ' +
                       ', '.join(gpu_agg['unknown_memtransfer_threads'][:10]))
 
+
+        ## host_useful_values = []
+
         if os.path.exists(trace_name + '.useful_host.stats.csv'):
-            useful_host_tot, _, _ = parse_total_average_max(trace_name + '.useful_host.stats.csv')
-            trace_raw_data['useful_host'] = float(useful_host_tot)
+            useful_host_total, _, useful_host_max = parse_total_average_max(
+                trace_name + '.useful_host.stats.csv'
+            )
+
+            if useful_host_total is not None and useful_host_max is not None:
+                trace_raw_data['useful_host'] = float(useful_host_total)
+                trace_raw_data['useful_host_max'] = float(useful_host_max)
+            else:
+                trace_raw_data['useful_host'] = 0.0
+                trace_raw_data['useful_host_max'] = 0.0
         else:
             trace_raw_data['useful_host'] = 0.0
-
+            trace_raw_data['useful_host_max'] = 0.0
+        
+    
     # burst mode
     if trace_mode_value == 'Burst+MPI':
         if os.path.exists(trace_name + '.burst_useful.stats.csv'):
@@ -1796,7 +1883,7 @@ def process_one_trace(
         move_files(trace_name + '.2dh_BurstEff.stats.csv', local_path_dest, cmdl_args)
         move_files(trace_name + '.burst_useful.stats.csv', local_path_dest, cmdl_args)
 
-    if is_talp_cuda:
+    if is_mpi_gpu:
         if os.path.exists(trace_name + '.useful_host.stats.csv'):
             move_files(trace_name + '.useful_host.stats.csv', local_path_dest, cmdl_args)
         if os.path.exists(trace_name + '.useful_streams.stats.csv'):
