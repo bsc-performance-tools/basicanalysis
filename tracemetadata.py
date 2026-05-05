@@ -418,16 +418,30 @@ def get_device_stream_id_mapping(
 ) -> Dict[str, Tuple[int, List[str]]]:
     """
     Number entries in the THREAD section sequentially:
-      - THREAD line -> consumes an ID (ignored for per-device counts)
-      - each GPU line -> consumes an ID and is counted for its (node,gpu_uuid)
+      - THREAD line -> consumes an ID
+      - GPU/CUDA line -> consumes an ID and is counted for its device
+
+    Supports both row formats:
+
+      Legacy:
+        CUDA-D1.S1-as07r1b02
+        -> as07r1b02:D1
+
+      New UUID-based:
+        GPU_a2f80454.1
+        -> as07r4b27:a2f80454
 
     Returns:
-        { "node:gpu_uuid": (count, [id_str...]) }
-      where id_str are zero-padded IDs (e.g., '002').
+        { "node:device_id": (count, [id_str...]) }
     """
 
     THREAD_RE = re.compile(r"^THREAD\s+\d+\.\d+\.\d+\s*$")
+
+    # New format: GPU_<uuid>.<stream>
     GPU_RE = re.compile(r"^GPU_([^.]+)(?:\.(\d+))?\s*$")
+
+    # Legacy format: CUDA-D1.S2-as04r1b15
+    CUDA_RE = re.compile(r"^CUDA-(D\d+)\.[^-]*-([^\s]+)\s*$")
 
     dev_to_ids: Dict[str, List[str]] = defaultdict(list)
     next_id = start_id
@@ -443,33 +457,65 @@ def get_device_stream_id_mapping(
 
         if THREAD_RE.match(s):
             current_thread = s
-            _ = fmt(next_id)   # THREAD line consumes an ID
+            _ = fmt(next_id)  # THREAD line consumes an ID
             next_id += 1
             continue
 
-        m = GPU_RE.match(s)
-        if m:
-            gpu_uuid = m.group(1)
+        # --------------------------------------------------------
+        # New UUID-based format:
+        #   GPU_a2f80454.1
+        # Node is inferred from the current THREAD line.
+        # --------------------------------------------------------
+        m_gpu = GPU_RE.match(s)
+        if m_gpu:
+            gpu_uuid = m_gpu.group(1)
 
-            node = _node_from_thread_label(current_thread, cpu_to_node) if current_thread else None
+            node = (
+                _node_from_thread_label(current_thread, cpu_to_node)
+                if current_thread else None
+            )
+
             if node is not None:
                 key = f"{node}:{gpu_uuid}"
                 dev_to_ids[key].append(fmt(next_id))
 
             next_id += 1
+            continue
+
+        # --------------------------------------------------------
+        # Legacy format:
+        #   CUDA-D1.S2-as04r1b15
+        # Node is encoded directly in the CUDA label.
+        # --------------------------------------------------------
+        m_cuda = CUDA_RE.match(s)
+        if m_cuda:
+            dev = m_cuda.group(1)   # D1
+            node = m_cuda.group(2)  # as04r1b15
+
+            key = f"{node}:{dev}"
+            dev_to_ids[key].append(fmt(next_id))
+
+            next_id += 1
+            continue
 
     out: Dict[str, Tuple[int, List[str]]] = {}
 
     def dev_sort_key(k: str):
-        # k example: "as07r4b27:a2f80454"
-        node, gpu_uuid = k.split(":", 1)
-        return (node, gpu_uuid)
+        node, dev = k.split(":", 1)
+
+        # Legacy devices: D1, D2, ...
+        if re.match(r"^D\d+$", dev):
+            return (node, 0, int(dev[1:]))
+
+        # UUID devices
+        return (node, 1, dev)
 
     for key in sorted(dev_to_ids.keys(), key=dev_sort_key):
         ids_sorted = sorted(dev_to_ids[key], key=lambda x: int(x))
         out[key] = (len(ids_sorted), ids_sorted)
 
     return out
+
 
 def _open_trace_text(prv_file):
     """Open .prv or .prv.gz as text."""
