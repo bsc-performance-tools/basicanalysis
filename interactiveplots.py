@@ -6,6 +6,8 @@ from __future__ import print_function, division
 
 import os
 import math
+import json
+import html
 
 import plotly.graph_objects as go
 
@@ -173,7 +175,7 @@ METRIC_INFO = {
         "meaning": "Inner-level load-balance contribution in the hybrid decomposition.",
         "low": "Low values may indicate thread-level imbalance, but interpretation depends on the hybrid decomposition.",
         "above100": "Values above 100% indicate that the inner level compensates load imbalance observed at the MPI level.",
-        "action": "Use this as a compensation indicator. For OpenMP-only diagnosis, use an isolated OpenMP view.",
+        "action": "Use this as a compensation indicator. For inner level only diagnosis, use an isolated inner level view.",
     },
     "omp_comm_eff": {
         "label": "      -- OpenMP Communication efficiency",
@@ -182,7 +184,7 @@ METRIC_INFO = {
         "meaning": "Inner-level synchronization/runtime-overhead contribution in the hybrid decomposition.",
         "low": "Low values indicate relevant inner-level synchronization or runtime overhead.",
         "above100": "Values above 100% indicate a compensation or amplification effect in the hybrid decomposition.",
-        "action": "Inspect OpenMP serialization and transfer efficiency.",
+        "action": "Inspect inner level serialization and transfer efficiency.",
     },
     "omp_serial_eff": {
         "label": "         -- OpenMP Serialization efficiency",
@@ -378,6 +380,73 @@ OVERVIEW_LABELS = {
     "ipc": "Average IPC (inst/cycle)",
     "freq": "Average frequency (GHz)",
 }
+
+
+def _tree_node(metric_key, children=None):
+    return {"metric": metric_key, "children": children or []}
+
+
+GLOBAL_TREE = [
+    _tree_node("global_eff", [
+        _tree_node("parallel_eff", [
+            _tree_node("load_balance"),
+            _tree_node("comm_eff", [
+                _tree_node("serial_eff"),
+                _tree_node("transfer_eff"),
+            ]),
+        ]),
+        _tree_node("comp_scale", [
+            _tree_node("ipc_scale"),
+            _tree_node("inst_scale"),
+            _tree_node("freq_scale"),
+        ]),
+    ])
+]
+
+HYBRID_TREE = [
+    _tree_node("hybrid_eff", [
+        _tree_node("mpi_parallel_eff", [
+            _tree_node("mpi_load_balance"),
+            _tree_node("mpi_comm_eff", [
+                _tree_node("serial_eff"),
+                _tree_node("transfer_eff"),
+            ]),
+        ]),
+        _tree_node("omp_parallel_eff", [
+            _tree_node("omp_load_balance"),
+            _tree_node("omp_comm_eff", [
+                _tree_node("omp_serial_eff"),
+                _tree_node("omp_transfer_eff"),
+            ]),
+        ]),
+    ])
+]
+
+TALP_TREE = [
+    _tree_node("host_global_eff", [
+        _tree_node("host_parallel_eff", [
+            _tree_node("mpi_parallel_eff", [
+                _tree_node("mpi_load_balance"),
+                _tree_node("mpi_comm_eff", [
+                    _tree_node("serial_eff"),
+                    _tree_node("transfer_eff"),
+                ]),
+            ]),
+            _tree_node("dev_offload_eff"),
+        ]),
+        _tree_node("host_comp_scale"),
+    ]),
+    _tree_node("dev_global_eff", [
+        _tree_node("dev_parallel_eff", [
+            _tree_node("dev_load_balance"),
+            _tree_node("dev_comm_eff"),
+            _tree_node("dev_orches_eff"),
+        ]),
+        _tree_node("dev_comp_scale"),
+    ]),
+]
+
+
 
 
 def _format_overview_value(key, value):
@@ -655,6 +724,140 @@ def _build_trace_config_table_html(analysis_result, trace_list, trace_processes,
     return "\n".join(html)
 
 
+def _clean_metric_label(label):
+    """Remove visual hierarchy markers from labels for the info panel."""
+    return label.replace("-", "").replace("=", "").replace("*", "").strip()
+
+
+def _metric_info_json(metric_keys, metric_info):
+    """Build JSON metadata used by the clickable metric tree."""
+    data = {}
+
+    for key in metric_keys:
+        info = metric_info.get(key, {})
+        label = _clean_metric_label(info.get("label", key))
+
+        data[key] = {
+            "title": label,
+            "type": info.get("type", "Metric"),
+            "meaning": info.get("meaning", ""),
+            "low": info.get("low", ""),
+            "above100": info.get("above100", ""),
+            "action": info.get("action", ""),
+        }
+
+    return json.dumps(data)
+
+
+def _metric_button(metric_key, metric_info, section_id):
+    info = metric_info.get(metric_key, {})
+    label = _clean_metric_label(info.get("label", metric_key))
+
+    return (
+        '<button class="metric-tree-button" '
+        'data-metric-key="{metric_key}" '
+        'onclick="selectMetric(\'{section_id}\', \'{metric_key}\')">'
+        '{label}</button>'
+    ).format(
+        section_id=section_id,
+        metric_key=metric_key,
+        label=html.escape(label),
+    )
+
+
+def _render_tree_node(node, key_set, metric_info, section_id):
+    metric_key = node["metric"]
+
+    if metric_key not in key_set:
+        return ""
+
+    children = [
+        _render_tree_node(child, key_set, metric_info, section_id)
+        for child in node.get("children", [])
+    ]
+    children = [child for child in children if child]
+
+    info = metric_info.get(metric_key, {})
+    label = _clean_metric_label(info.get("label", metric_key))
+
+    if children:
+        return (
+            "<details open>"
+            "<summary class='metric-tree-summary' "
+            "data-metric-key='{metric_key}' "
+            "onclick=\"selectMetric('{section_id}', '{metric_key}')\">"
+            "{label}</summary>"
+            "<div class='metric-tree-children'>{children}</div>"
+            "</details>"
+        ).format(
+            section_id=section_id,
+            metric_key=metric_key,
+            label=html.escape(label),
+            children="\n".join(children),
+        )
+
+    return _metric_button(metric_key, metric_info, section_id)
+
+def _build_metric_tree_html(metric_keys, metric_info, section_id, tree_kind):
+    key_set = set(metric_keys)
+
+    if tree_kind == "global":
+        tree = GLOBAL_TREE
+    elif tree_kind == "hybrid":
+        tree = HYBRID_TREE
+    elif tree_kind == "talp":
+        tree = TALP_TREE
+    else:
+        tree = []
+
+    return "\n".join(
+        _render_tree_node(node, key_set, metric_info, section_id)
+        for node in tree
+    )
+
+
+def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
+                                       trace_list, trace_processes, trace_tasks,
+                                       trace_threads, trace_mode, title,
+                                       section_id, tree_kind=None):
+    heatmap_html = _build_efficiency_heatmap_div(
+        metric_keys=metric_keys,
+        metric_info=metric_info,
+        metric_sources=metric_sources,
+        trace_list=trace_list,
+        trace_processes=trace_processes,
+        trace_tasks=trace_tasks,
+        trace_threads=trace_threads,
+        trace_mode=trace_mode,
+        title=title,
+        section_id=section_id,
+    )
+
+    info_json = _metric_info_json(metric_keys, metric_info)
+
+    return """
+    <script>
+    window.metricInfo_{section_id} = {info_json};
+    </script>
+
+    <div class="metric-info-panel" id="{section_id}-info-panel">
+        <h3 id="{section_id}-info-title">Select a metric</h3>
+        <p id="{section_id}-info-type" class="metric-info-type"></p>
+        <p id="{section_id}-info-meaning">Click a cell in the table to see its value, description, and diagnostic hints.</p>
+        <p id="{section_id}-info-interpretation"></p>
+        <p id="{section_id}-info-action"></p>
+    </div>
+
+    <div class="metric-heatmap">
+        {heatmap_html}
+    </div>
+    """.format(
+        section_id=section_id,
+        info_json=info_json,
+        heatmap_html=heatmap_html,
+    )
+
+
 def _plot_efficiency_heatmap_interactive(metric_keys, metric_info, metric_sources,
                                          trace_list, trace_processes, trace_tasks,
                                          trace_threads, trace_mode, cmdl_args,
@@ -860,7 +1063,8 @@ def _plot_efficiency_heatmap_interactive(metric_keys, metric_info, metric_source
 
 def _build_efficiency_heatmap_div(metric_keys, metric_info, metric_sources,
                                   trace_list, trace_processes, trace_tasks,
-                                  trace_threads, trace_mode, title):
+                                  trace_threads, trace_mode, title,
+                                  section_id=None):
     """Build a Plotly heatmap div for embedding inside the unified HTML report."""
 
     y_values = list(range(len(metric_keys)))
@@ -875,15 +1079,17 @@ def _build_efficiency_heatmap_div(metric_keys, metric_info, metric_sources,
     z_values = []
     text_values = []
     hover_values = []
+    custom_values = []
 
     for key in metric_keys:
         z_row = []
         text_row = []
         hover_row = []
+        custom_row = []
 
         source = metric_sources[key]
 
-        for trace in trace_list:
+        for index, trace in enumerate(trace_list):
             raw_value = _read_metric(source, key, trace)
             value = _clean_value(raw_value)
 
@@ -891,9 +1097,16 @@ def _build_efficiency_heatmap_div(metric_keys, metric_info, metric_sources,
             text_row.append("" if value is None else "{:.2f}".format(value))
             hover_row.append(_hover_text_from_info(metric_info, key, value, raw_value))
 
+            custom_row.append([
+                key,
+                metric_info[key]["label"],
+                x_labels[index],
+            ])
+
         z_values.append(z_row)
         text_values.append(text_row)
         hover_values.append(hover_row)
+        custom_values.append(custom_row)
 
     fig = go.Figure(
         data=go.Heatmap(
@@ -901,19 +1114,14 @@ def _build_efficiency_heatmap_div(metric_keys, metric_info, metric_sources,
             x=x_labels,
             y=y_values,
             text=hover_values,
-            hoverinfo="text",
+            customdata=custom_values,
+            hoverinfo="none",
             zmin=0,
             zmax=100,
             colorscale=_seaborn_rdylgn_center75_colorscale(),
             colorbar=dict(title="Percentage(%)"),
             xgap=1,
             ygap=1,
-            hoverlabel=dict(
-                bgcolor="white",
-                bordercolor="#aaa",
-                font=dict(color="#222", size=12),
-                align="left",
-            ),
         )
     )
 
@@ -928,6 +1136,7 @@ def _build_efficiency_heatmap_div(metric_keys, metric_info, metric_sources,
         autosize=True,
         height=max(520, 42 * len(metric_keys)),
         margin=dict(l=40, r=80, t=80, b=40),
+        clickmode="event",
     )
 
     fig.update_yaxes(
@@ -944,7 +1153,7 @@ def _build_efficiency_heatmap_div(metric_keys, metric_info, metric_sources,
         domain=[desktop_domain_left, 0.86],
     )
 
-    # Left-aligned metric labels
+    # Left-side metric labels
     for i, label in enumerate(metric_labels):
         fig.add_annotation(
             xref="paper",
@@ -959,7 +1168,7 @@ def _build_efficiency_heatmap_div(metric_keys, metric_info, metric_sources,
             font=dict(size=13),
         )
 
-    # Centered cell values with contrast-aware text color
+    # Cell values
     for i, row in enumerate(text_values):
         for j, text in enumerate(row):
             if text == "":
@@ -980,11 +1189,31 @@ def _build_efficiency_heatmap_div(metric_keys, metric_info, metric_sources,
                 ),
             )
 
+    plot_div_id = title.lower().replace(" ", "-").replace(":", "").replace("/", "-")
+
+    click_script = """
+    <script>
+    document.getElementById("{plot_div_id}").on('plotly_click', function(data) {{
+        var point = data.points[0];
+        var metricKey = point.customdata[0];
+        var metricLabel = point.customdata[1];
+        var traceLabel = point.customdata[2];
+        var value = point.z;
+
+        selectMetricCell("{section_id}", metricKey, metricLabel, traceLabel, value);
+    }});
+    </script>
+    """.format(
+        plot_div_id=plot_div_id,
+        section_id=section_id,
+    )
+
     return fig.to_html(
         full_html=False,
         include_plotlyjs=False,
+        div_id=plot_div_id,
         config={"responsive": True},
-    )
+    ) + click_script
 
 
 def plot_hybrid_efficiency_interactive(metrics_result, trace_list, trace_processes,
@@ -1236,7 +1465,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
     global_sources = {key: mod_factors for key in global_filtered_keys}
 
-    global_html = _build_efficiency_heatmap_div(
+    global_html = _build_metric_tree_heatmap_section(
         metric_keys=global_filtered_keys,
         metric_info=SIMPLE_METRIC_INFO,
         metric_sources=global_sources,
@@ -1246,6 +1475,8 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         trace_threads=trace_threads,
         trace_mode=trace_mode,
         title="Global metrics",
+        section_id="global",
+        tree_kind="global",
     )
 
 
@@ -1261,8 +1492,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             hybrid_sources[key] = hybrid_factors
         for key in OMP_COMM_ORDER:
             hybrid_sources[key] = hyb_comm_omp_factors
-
-        hybrid_html = _build_efficiency_heatmap_div(
+        hybrid_html = _build_metric_tree_heatmap_section(
             metric_keys=hybrid_keys,
             metric_info=hybrid_metric_info,
             metric_sources=hybrid_sources,
@@ -1272,15 +1502,17 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             trace_threads=trace_threads,
             trace_mode=trace_mode,
             title="Hybrid model: MPI + {}".format(inner_model),
+            section_id="hybrid",
+            tree_kind="hybrid",
         )
     else:
         hybrid_html = "<p>Hybrid model metrics are not available for simple traces.</p>"
 
     # ---- TALP model tab
+
     if (
-        metrics_result["kind"] == "hybrid"
-        and cmdl_args.pop_model_to_apply == "talp"
-        and trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"
+    metrics_result["kind"] == "hybrid"
+    and trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"
     ):
         host_factors = metrics_result["host_factors"]
         device_factors = metrics_result["device_factors"]
@@ -1322,8 +1554,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                 if _clean_value(_read_metric(source, key, trace)) is not None:
                     talp_filtered_keys.append(key)
                     break
-
-        talp_html = _build_efficiency_heatmap_div(
+        talp_html = _build_metric_tree_heatmap_section(
             metric_keys=talp_filtered_keys,
             metric_info=TALP_METRIC_INFO,
             metric_sources=talp_sources,
@@ -1333,6 +1564,8 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             trace_threads=trace_threads,
             trace_mode=trace_mode,
             title="TALP model: host/device decomposition",
+            section_id="talp",
+            tree_kind="talp",
         )
     else:
         talp_html = (
@@ -1364,6 +1597,94 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         <title>BasicAnalysis Interactive Report</title>
         <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
         <style>
+        .metric-tree-children {
+            margin-left: 14px;
+        }
+
+        .metric-tree-summary {
+            cursor: pointer;
+            font-weight: bold;
+            padding: 6px 8px;
+            background: #f4f4f4;
+        }
+
+        .metric-tree-summary:hover {
+            background: #eef4ff;
+        }
+
+        .metric-info-panel {
+            border: 1px solid #ccc;
+            background: #f8f8f8;
+            padding: 14px 18px;
+            margin-bottom: 18px;
+            max-width: 1100px;
+        }
+
+        .metric-info-panel h3 {
+            margin-top: 0;
+            margin-bottom: 6px;
+        }
+
+        .metric-info-type {
+            font-weight: bold;
+            color: #555;
+        }
+
+        .metric-layout {
+            display: grid;
+            grid-template-columns: 260px minmax(500px, 1fr);
+            gap: 20px;
+            align-items: start;
+        }
+
+        .metric-tree {
+            border: 1px solid #ddd;
+            background: #fafafa;
+            padding: 12px;
+            font-size: 14px;
+        }
+
+        .metric-tree details {
+            margin-bottom: 8px;
+        }
+
+        .metric-tree summary {
+            cursor: pointer;
+            font-weight: bold;
+            margin-bottom: 6px;
+            height: 39px;
+        line-height: 39px;
+        }
+
+        .metric-tree-button {
+            display: block;
+            width: 100%;
+            text-align: left;
+            border: none;
+            background: white;
+            border-left: 3px solid transparent;
+            cursor: pointer;
+            color: #123;
+            height: 39px;
+            line-height: 27px;
+            padding: 6px 8px;
+            margin: 0;
+        }
+
+        .metric-tree-button:hover {
+            background: #eef4ff;
+        }
+
+        .metric-tree-button.active {
+            border-left-color: #123;
+            background: #e6eef8;
+            font-weight: bold;
+        }
+
+        .metric-heatmap {
+            min-width: 0;
+        }
+
         .metric-table {
             border-collapse: collapse;
             margin-top: 16px;
@@ -1447,6 +1768,82 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             document.getElementById(tabId).classList.add("active");
             document.getElementById(tabId + "-button").classList.add("active");
         }
+
+        function selectMetric(sectionId, metricKey) {
+            const infoDict = window["metricInfo_" + sectionId];
+            if (!infoDict || !infoDict[metricKey]) {
+                return;
+            }
+
+            const info = infoDict[metricKey];
+
+            document.getElementById(sectionId + "-info-title").innerText = info.title;
+            document.getElementById(sectionId + "-info-type").innerText = info.type;
+            document.getElementById(sectionId + "-info-meaning").innerText = info.meaning;
+            document.getElementById(sectionId + "-info-interpretation").innerText =
+                "Low values: " + info.low + " Above 100%: " + info.above100;
+            document.getElementById(sectionId + "-info-action").innerText =
+                "Suggested action: " + info.action;
+
+            const buttons = document.querySelectorAll(
+                "#" + sectionId + " .metric-tree-button"
+            );
+
+            for (let i = 0; i < buttons.length; i++) {
+                buttons[i].classList.remove("active");
+            }
+
+            if (event && event.target) {
+                event.target.classList.add("active");
+            }
+        }
+
+        function selectMetricCell(sectionId, metricKey, metricLabel, traceLabel, value) {
+            const infoDict = window["metricInfo_" + sectionId];
+            if (!infoDict || !infoDict[metricKey]) {
+                return;
+            }
+
+            const info = infoDict[metricKey];
+            const valueText = value === null || value === undefined ? "Non-Avail" : value.toFixed(2) + "%";
+
+            document.getElementById(sectionId + "-info-title").innerText =
+                info.title + " — " + traceLabel;
+
+            document.getElementById(sectionId + "-info-type").innerText =
+                info.type + " | Value: " + valueText;
+
+            document.getElementById(sectionId + "-info-meaning").innerText =
+                info.meaning;
+
+            if (value !== null && value !== undefined && value < 80.0) {
+                document.getElementById(sectionId + "-info-interpretation").innerText =
+                    "Interpretation: " + info.low;
+            } else if (value !== null && value !== undefined && value > 100.0) {
+                document.getElementById(sectionId + "-info-interpretation").innerText =
+                    "Interpretation: " + info.above100;
+            } else {
+                document.getElementById(sectionId + "-info-interpretation").innerText =
+                    "Interpretation: This component is probably not the dominant bottleneck.";
+            }
+
+            document.getElementById(sectionId + "-info-action").innerText =
+                "Suggested action: " + info.action;
+
+
+            const buttons = document.querySelectorAll(
+                "#" + sectionId + " .metric-tree-button"
+            );
+
+            for (let i = 0; i < buttons.length; i++) {
+                buttons[i].classList.remove("active");
+
+                if (buttons[i].getAttribute("data-metric-key") === metricKey) {
+                    buttons[i].classList.add("active");
+                }
+            }
+        }
+
         </script>
         </head>
 

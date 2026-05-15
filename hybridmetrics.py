@@ -300,11 +300,13 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     according dictionary of model factors."""
     mod_factors = create_mod_factors(trace_list)
     hybrid_factors = create_hybrid_mod_factors(trace_list)
+    hybrid_gpu_factors = create_hybrid_mod_factors(trace_list)
     other_metrics = create_other_metrics(trace_list)
     mod_factors_scale_plus_io = create_mod_factors_scale_io(trace_list)
     device_factors = create_mod_device_factors(trace_list)
     host_factors = create_mod_host_factors(trace_list)
     hyb_comm_omp_factors = create_hyb_comm_omp_factors(trace_list)
+    
     # Guess the weak or strong scaling
     scaling = get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args)
 
@@ -642,31 +644,36 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     useful_max / runtime * 100.0
                 )
 
-                hybrid_factors['hybrid_eff'][trace] = hybrid_parallel_eff
+                hybrid_gpu_factors['hybrid_eff'][trace] = hybrid_parallel_eff
 
-                hybrid_factors['omp_parallel_eff'][trace] = (
+                hybrid_gpu_factors['mpi_parallel_eff'][trace] = hybrid_factors['mpi_parallel_eff'][trace]
+                hybrid_gpu_factors['mpi_load_balance'][trace] = hybrid_factors['mpi_load_balance'][trace]
+                hybrid_gpu_factors['mpi_comm_eff'][trace] = hybrid_factors['mpi_comm_eff'][trace]
+                hybrid_gpu_factors['serial_eff'][trace] = hybrid_factors['serial_eff'][trace]
+                hybrid_gpu_factors['transfer_eff'][trace] = hybrid_factors['transfer_eff'][trace]
+
+                hybrid_gpu_factors['omp_parallel_eff'][trace] = (
                     hybrid_parallel_eff
                     / float(hybrid_factors['mpi_parallel_eff'][trace])
                     * 100.0
                 )
 
-                hybrid_factors['omp_load_balance'][trace] = (
+                hybrid_gpu_factors['omp_load_balance'][trace] = (
                     hybrid_load_balance
                     / float(hybrid_factors['mpi_load_balance'][trace])
                     * 100.0
                 )
 
-                hybrid_factors['omp_comm_eff'][trace] = (
+                hybrid_gpu_factors['omp_comm_eff'][trace] = (
                     hybrid_comm_eff
                     / float(hybrid_factors['mpi_comm_eff'][trace])
                     * 100.0
                 )
-
             except Exception:
-                hybrid_factors['hybrid_eff'][trace] = 'NaN'
-                hybrid_factors['omp_parallel_eff'][trace] = 'NaN'
-                hybrid_factors['omp_load_balance'][trace] = 'NaN'
-                hybrid_factors['omp_comm_eff'][trace] = 'NaN'
+                hybrid_gpu_factors['hybrid_eff'][trace] = 'NaN'
+                hybrid_gpu_factors['omp_parallel_eff'][trace] = 'NaN'
+                hybrid_gpu_factors['omp_load_balance'][trace] = 'NaN'
+                hybrid_gpu_factors['omp_comm_eff'][trace] = 'NaN'
 
 
 
@@ -794,6 +801,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 hybrid_factors['hybrid_eff'][trace] = 'Non-Avail'
 
             elif (trace_mode[trace] == 'Detailed+MPI+CUDA' and cmdl_args.pop_model_to_apply == 'classic'):
+                hybrid_factors['hybrid_eff'][trace] = hybrid_gpu_factors['hybrid_eff'][trace]
                 # Already computed directly from host useful time + flattened device useful time.
                 pass
             elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
@@ -1009,7 +1017,16 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             other_metrics['efficiency'][trace] = 'NaN'
 
-    return (mod_factors, mod_factors_scale_plus_io, hybrid_factors, hyb_comm_omp_factors, other_metrics, device_factors,host_factors)
+    return (
+    mod_factors,
+    mod_factors_scale_plus_io,
+    hybrid_factors,
+    hyb_comm_omp_factors,
+    other_metrics,
+    device_factors,
+    host_factors,
+    hybrid_gpu_factors
+    )
 
 def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io,
                             hybrid_factors, hyb_comm_omp_factors, device_factors,

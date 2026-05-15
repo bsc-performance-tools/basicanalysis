@@ -84,7 +84,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
     list_mpi_procs_count = analysis_result["list_mpi_procs_count"]
 
     if cmdl_args.metrics == 'hybrid' and trace_metrics > 0:
-        mod_factors, mod_factors_scale_plus_io, hybrid_factors, hyb_comm_omp_factors, other_metrics, device_factors,host_factors = \
+        mod_factors, mod_factors_scale_plus_io, hybrid_factors, hyb_comm_omp_factors, other_metrics, device_factors,host_factors, hybrid_gpu_factors = \
             hybridmetrics.compute_model_factors(
                 raw_data,
                 trace_list,
