@@ -688,6 +688,52 @@ def _build_hybrid_metric_info(inner_model):
     return metric_info
 
 
+def _build_resources_table_html(report):
+    resources = report.get("resources", [])
+
+    if not resources:
+        return "<p>No trace resources available.</p>"
+
+    html_lines = []
+    html_lines.append("<table class='metric-table'>")
+    html_lines.append("<thead><tr>")
+    html_lines.append("<th>Trace</th>")
+    html_lines.append("<th>Recommended view</th>")
+    html_lines.append("<th>Action</th>")
+    html_lines.append("</tr></thead>")
+    html_lines.append("<tbody>")
+
+    for item in resources:
+        trace_path = item.get("prv", "")
+        trace_name = os.path.basename(trace_path)
+        cfg_path = item.get("overview_cfg", "")
+
+        command = 'wxparaver "{}" "{}"'.format(trace_path, cfg_path)
+        command_js = html.escape(command, quote=True)
+
+        html_lines.append("<tr>")
+        html_lines.append("<td><code>{}</code></td>".format(trace_name))
+        html_lines.append("<td>Useful Duration timeline</td>")
+        html_lines.append(
+            "<td>"
+            "<button class='copy-btn' onclick=\"copyCommand('{}')\">"
+            "Copy Paraver command"
+            "</button>"
+            "</td>".format(command_js)
+        )
+        html_lines.append("</tr>")
+
+    html_lines.append("</tbody>")
+    html_lines.append("</table>")
+
+    html_lines.append(
+        "<p><b>Default Paraver view:</b> Useful Duration timeline. "
+        "Click the button to copy the command, then paste it in a terminal.</p>"
+    )
+
+    return "\n".join(html_lines)
+
+
 def _build_trace_config_table_html(analysis_result, trace_list, trace_processes,
                                    trace_tasks, trace_threads, trace_mode):
     raw_data = analysis_result.get("raw_data", {})
@@ -1414,6 +1460,7 @@ def plot_talp_efficiency_interactive(metrics_result, analysis_result, trace_list
     )
 
 def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
+                                          report,
                                           trace_list, trace_processes,
                                           trace_tasks, trace_threads,
                                           trace_mode, cmdl_args):
@@ -1587,7 +1634,8 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         trace_threads,
         trace_mode,
     )
-
+    
+    resources_html = _build_resources_table_html(report)
 
     html_content = """
         <!DOCTYPE html>
@@ -1751,6 +1799,19 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         .tab-content.active {
             display: block;
         }
+
+        .copy-btn {
+            padding: 6px 10px;
+            border: 1px solid #999;
+            background: #f5f5f5;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .copy-btn:hover {
+            background: #e8eef8;
+        }
+
         </style>
 
         <script>
@@ -1844,6 +1905,12 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             }
         }
 
+        function copyCommand(cmd) {
+            navigator.clipboard.writeText(cmd).then(function() {
+                alert("Paraver command copied to clipboard.");
+            });
+        }
+
         </script>
         </head>
 
@@ -1865,6 +1932,9 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
             <h3>Trace configuration</h3>
             {trace_config_html}
+
+            <h3>Open traces in Paraver</h3>
+            {resources_html}
 
             <h3>General metrics</h3>
             {overview_html}
@@ -1900,6 +1970,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     html_content = html_content.replace("{hybrid_html}", hybrid_html)
     html_content = html_content.replace("{talp_html}", talp_html)
     html_content = html_content.replace("{isolated_inner_html}", isolated_inner_html)
+    html_content = html_content.replace("{resources_html}", resources_html)
 
 
     with open(output_html, "w") as f:

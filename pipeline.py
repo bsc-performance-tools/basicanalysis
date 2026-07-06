@@ -8,6 +8,8 @@ import subprocess
 
 import hybridmetrics
 import plots
+import reportdata
+
 from simplemetrics import (
     compute_model_factors,
     print_efficiency_table,
@@ -195,9 +197,10 @@ def can_plot_lineal():
     """Check whether line plotting is available."""
     return not (error_import_numpy or error_import_scipy)
 
-
-def generate_hybrid_plots(metrics_result, analysis_result, trace_list, trace_processes,
-                          trace_tasks, trace_threads, trace_mode, cmdl_args):
+def generate_hybrid_plots(metrics_result, analysis_result, report,
+                          trace_list, trace_processes,
+                          trace_tasks, trace_threads,
+                          trace_mode, cmdl_args):
     """Generate plots for hybrid metrics."""
     raw_data = analysis_result["raw_data"]
     mod_factors = metrics_result["mod_factors"]
@@ -257,6 +260,7 @@ def generate_hybrid_plots(metrics_result, analysis_result, trace_list, trace_pro
             interactiveplots.plot_basicanalysis_interactive_report(
                 metrics_result,
                 analysis_result,
+                report,
                 trace_list,
                 trace_processes,
                 trace_tasks,
@@ -264,6 +268,7 @@ def generate_hybrid_plots(metrics_result, analysis_result, trace_list, trace_pro
                 trace_mode,
                 cmdl_args,
             )
+
         else:
             print('Plotly/interactiveplots module not available. '
                  'Skipping interactive HTML report.')            
@@ -300,7 +305,8 @@ def generate_hybrid_plots(metrics_result, analysis_result, trace_list, trace_pro
         subprocess.check_output(["rm", "efficiency_table_hybrid.gp"])
 
 
-def generate_simple_plots(metrics_result, analysis_result, trace_list, trace_processes,
+def generate_simple_plots(metrics_result, analysis_result, report,
+                          trace_list, trace_processes,
                           trace_tasks, trace_threads, trace_mode, cmdl_args):
     """Generate plots for simple metrics."""
     mod_factors = metrics_result["mod_factors"]
@@ -337,6 +343,7 @@ def generate_simple_plots(metrics_result, analysis_result, trace_list, trace_pro
             interactiveplots.plot_basicanalysis_interactive_report(
                 metrics_result,
                 analysis_result,
+                report,
                 trace_list,
                 trace_processes,
                 trace_tasks,
@@ -344,6 +351,8 @@ def generate_simple_plots(metrics_result, analysis_result, trace_list, trace_pro
                 trace_mode,
                 cmdl_args,
             )
+
+
         else:
             print('Plotly/interactiveplots module not available. '
                       'Skipping interactive HTML report.')
@@ -370,10 +379,28 @@ def generate_simple_plots(metrics_result, analysis_result, trace_list, trace_pro
 def generate_plots(metrics_result, analysis_result, trace_list, trace_processes,
                    trace_tasks, trace_threads, trace_mode, cmdl_args):
     """Generate all plots."""
+
+    report = reportdata.build_report(
+        metrics_result,
+        analysis_result,
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        cmdl_args,
+    )
+
+    if cmdl_args.debug:
+        print("==DEBUG== Report data model created")
+        print("==DEBUG== Report traces:", len(report["traces"]))
+        print("==DEBUG== Report resources:", len(report["resources"]))
+
     if metrics_result["kind"] == "hybrid":
         generate_hybrid_plots(
             metrics_result,
             analysis_result,
+            report,
             trace_list,
             trace_processes,
             trace_tasks,
