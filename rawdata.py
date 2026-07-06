@@ -74,7 +74,11 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_device_max', 'Useful duration on the device (maximum)'),
                             ('useful_memtransf_device', 'Useful+MemoryTransfer on the device'),
                             ('useful_memtransf_device_max', 'Useful+MemoryTransfer on the device (maximum)'),
-                            ('count_devices', 'Count of Devices')
+                            ('count_devices', 'Count of Devices'),
+                            ('time_no_omp', 'Useful outside OpenMP parallel regions + MPI time.'),
+                            ('time_omp_imbalance', 'Time lost due to load imbalance among OpenMP threads.'),
+                            ('time_omp_schedule', 'Time spent in OpenMP scheduling and fork/join overhead.'),
+                            ('time_omp_serial', 'Serial OpenMP loss from inactive threads outside parallel regions.')
                             ])
 
 
@@ -1237,7 +1241,85 @@ def init_cfgs():
     cfgs['useful_streams'] = os.path.join(cfgs['root_dir'], 'useful_streams.cfg')
     cfgs['memtransfer_streams'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams.cfg')
 
+    # OpenMP TALP-style timing extractors
+    cfgs['omp_useful_regions'] = os.path.join(cfgs['root_dir'], '2d-Useful-duration-in-parallelregion.cfg')
+    cfgs['mpi_time'] = os.path.join(cfgs['root_dir'], 'mpi-time.cfg')
+    cfgs['omp_sched_fork_join'] = os.path.join(cfgs['root_dir'], 'sched_fork_join.cfg')
+    cfgs['useful_duration'] = os.path.join(cfgs['root_dir'], 'useful-duration.cfg')
+    cfgs['useful_outside_omp'] = os.path.join(cfgs['root_dir'], 'useful_outside_omp.cfg')
+
     return cfgs
+
+def parse_omp_region_imbalance(path):
+    """
+    Parse a table where:
+      rows    = OpenMP threads
+      columns = OpenMP parallel regions
+      values  = useful time per thread in each region
+
+    Returns:
+      {
+        'useful_in_regions': total useful time inside OpenMP regions,
+        'imbalance': total imbalance time across regions,
+      }
+    """
+    rows = []
+
+    with open(path) as f:
+        for raw_line in f:
+            line = raw_line.rstrip('\n')
+            parts = line.split('\t')
+
+            if not parts:
+                continue
+
+            key = parts[0].strip()
+
+            if key in SUMMARY_KEYS:
+                continue
+
+            if not key.startswith('THREAD '):
+                continue
+
+            values = []
+            for value in parts[1:]:
+                if value == '':
+                    continue
+                try:
+                    values.append(float(value))
+                except ValueError:
+                    pass
+
+            if values:
+                rows.append(values)
+
+    if not rows:
+        return {
+            'useful_in_regions': 0.0,
+            'imbalance': 0.0,
+        }
+
+    ncols = max(len(row) for row in rows)
+
+    useful_total = 0.0
+    imbalance_total = 0.0
+
+    for col in range(ncols):
+        col_values = []
+        for row in rows:
+            if col < len(row):
+                col_values.append(row[col])
+            else:
+                col_values.append(0.0)
+
+        max_value = max(col_values)
+        useful_total += sum(col_values)
+        imbalance_total += sum(max_value - value for value in col_values)
+
+    return {
+        'useful_in_regions': useful_total,
+        'imbalance': imbalance_total,
+    }
 
 def process_one_trace(
     trace,
@@ -1298,7 +1380,7 @@ def process_one_trace(
         'Detailed+MPI+OpenMP',
         'Detailed+MPI+CUDA',
     )
-    
+    is_mpi_omp = (trace_mode_value == 'Detailed+MPI+OpenMP')    
 
     is_talp_cuda = (trace_mode_value == 'Detailed+MPI+CUDA' and cmdl_args.pop_model_to_apply == 'talp')
     is_mpi_gpu = (trace_mode_value == 'Detailed+MPI+CUDA')
@@ -1352,6 +1434,26 @@ def process_one_trace(
 
         cmd_base.extend([cfgs['useful_streams'], gpu_useful_stats])
         cmd_base.extend([cfgs['memtransfer_streams'], gpu_memtransfer_stats])
+    
+    if is_mpi_omp:
+        cmd_base.extend([cfgs['omp_useful_regions'],trace_name + '.omp_useful_regions.stats.csv'])
+        cmd_base.extend([
+            cfgs['mpi_time'],
+            trace_name + '.mpi_time.stats.csv'
+        ])
+        cmd_base.extend([
+            cfgs['omp_sched_fork_join'],
+            trace_name + '.omp_sched_fork_join.stats.csv'
+        ])
+        cmd_base.extend([
+            cfgs['useful_duration'],
+            trace_name + '.useful_duration.stats.csv'
+        ])
+        cmd_base.extend([
+            cfgs['useful_outside_omp'],
+            trace_name + '.useful_outside_omp.stats.csv'
+        ])
+
 
     time_base = time.time()
     run_command(cmd_base, cmdl_args)
@@ -1695,8 +1797,55 @@ def process_one_trace(
         else:
             trace_raw_data['useful_host'] = 0.0
             trace_raw_data['useful_host_max'] = 0.0
-        
-    
+          
+    # OpenMP TALP-style raw timings
+    if is_mpi_omp:
+        # Useful inside OpenMP parallel regions + imbalance
+        if os.path.exists(trace_name + '.omp_useful_regions.stats.csv'):
+            omp_region_data = parse_omp_region_imbalance(
+                trace_name + '.omp_useful_regions.stats.csv'
+            )
+            trace_raw_data['time_omp_imbalance'] = omp_region_data['imbalance']
+        else:
+            trace_raw_data['time_omp_imbalance'] = 'NaN'
+
+        # OpenMP scheduling/fork-join overhead
+        if os.path.exists(trace_name + '.omp_sched_fork_join.stats.csv'):
+            sched_stats = parse_tab_stats(trace_name + '.omp_sched_fork_join.stats.csv')
+            trace_raw_data['time_omp_schedule'] = sched_stats['tot']
+        else:
+            trace_raw_data['time_omp_schedule'] = 'NaN'
+
+        # Useful outside OpenMP parallel regions
+        if os.path.exists(trace_name + '.useful_outside_omp.stats.csv'):
+            useful_outside_stats = parse_tab_stats(
+                trace_name + '.useful_outside_omp.stats.csv'
+            )
+            useful_outside_omp = useful_outside_stats['tot']
+        else:
+            useful_outside_omp = 0.0
+
+        # MPI time
+        if os.path.exists(trace_name + '.mpi_time.stats.csv'):
+            mpi_time_stats = parse_tab_stats(trace_name + '.mpi_time.stats.csv')
+            mpi_time = mpi_time_stats['tot']
+        else:
+            mpi_time = 0.0
+
+        # TALP notation: T_noOMP = useful outside OMP + MPI time
+        trace_raw_data['time_no_omp'] = useful_outside_omp + mpi_time
+
+        # Serial OpenMP loss: active outside-OMP time projected to inactive workers
+        trace_raw_data['time_omp_serial'] = (
+            trace_raw_data['time_no_omp'] * max(int(trace_threads_value) - 1, 0)
+        )
+
+    else:
+        trace_raw_data['time_no_omp'] = 'Non-Avail'
+        trace_raw_data['time_omp_imbalance'] = 'Non-Avail'
+        trace_raw_data['time_omp_schedule'] = 'Non-Avail'
+        trace_raw_data['time_omp_serial'] = 'Non-Avail'
+
     # burst mode
     if trace_mode_value == 'Burst+MPI':
         if os.path.exists(trace_name + '.burst_useful.stats.csv'):
@@ -1894,6 +2043,19 @@ def process_one_trace(
             move_files(trace_name + '.memtransfer_streams.stats.csv', local_path_dest, cmdl_args)
         if os.path.exists(trace_name + '.memtransfer_streams.stats.legend.csv'):
             move_files(trace_name + '.memtransfer_streams.stats.legend.csv', local_path_dest, cmdl_args)
+
+    if is_mpi_omp:
+        if os.path.exists(trace_name + '.omp_useful_regions.stats.csv'):
+            move_files(trace_name + '.omp_useful_regions.stats.csv', local_path_dest, cmdl_args)
+        if os.path.exists(trace_name + '.mpi_time.stats.csv'):
+            move_files(trace_name + '.mpi_time.stats.csv', local_path_dest, cmdl_args)
+        if os.path.exists(trace_name + '.omp_sched_fork_join.stats.csv'):
+            move_files(trace_name + '.omp_sched_fork_join.stats.csv', local_path_dest, cmdl_args)
+        if os.path.exists(trace_name + '.useful_duration.stats.csv'):
+            move_files(trace_name + '.useful_duration.stats.csv', local_path_dest, cmdl_args)
+        if os.path.exists(trace_name + '.useful_outside_omp.stats.csv'):
+            move_files(trace_name + '.useful_outside_omp.stats.csv', local_path_dest, cmdl_args)
+
 
     time_prs = time.time() - time_prs
     time_tot = time.time() - time_tot
