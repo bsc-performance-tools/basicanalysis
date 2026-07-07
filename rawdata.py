@@ -75,9 +75,9 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_memtransf_device', 'Useful+MemoryTransfer on the device'),
                             ('useful_memtransf_device_max', 'Useful+MemoryTransfer on the device (maximum)'),
                             ('count_devices', 'Count of Devices'),
-                            ('time_no_omp', 'Useful outside OpenMP parallel regions + MPI time.'),
+                            ('time_no_omp', 'Useful + MPI time.'),
                             ('time_omp_imbalance', 'Time lost due to load imbalance among OpenMP threads.'),
-                            ('time_omp_schedule', 'Time spent in OpenMP scheduling and fork/join overhead.'),
+                            ('time_omp_schedule', 'Time spent in OpenMP scheduling and fork/join.'),
                             ('time_omp_serial', 'Serial OpenMP loss from inactive threads outside parallel regions.')
                             ])
 
@@ -1321,6 +1321,64 @@ def parse_omp_region_imbalance(path):
         'imbalance': imbalance_total,
     }
 
+
+def parse_master_thread_values(path, skip_header=True):
+    """
+    Parse per-thread stats and return values only for OpenMP master threads.
+
+    Master thread convention:
+        THREAD app.task.1
+
+    Returns:
+        dict mapping task id -> value
+        example: {"1": 212540.69, "2": 90248.95}
+    """
+    values = {}
+
+    with open(path) as f:
+        if skip_header:
+            next(f, None)
+
+        for raw_line in f:
+            line = raw_line.rstrip('\n')
+            parts = line.split('\t')
+
+            if not parts:
+                continue
+
+            key = parts[0].strip()
+
+            if key in SUMMARY_KEYS:
+                continue
+
+            if not key.startswith("THREAD "):
+                continue
+
+            thread_id = key.split()[1]
+            thread_parts = thread_id.split(".")
+
+            if len(thread_parts) != 3:
+                continue
+
+            app_id, task_id, thread_idx = thread_parts
+
+            if thread_idx != "1":
+                continue
+
+            value = 0.0
+            for field in parts[1:]:
+                if field == "":
+                    continue
+                try:
+                    value += float(field)
+                except ValueError:
+                    pass
+
+            values[task_id] = value
+
+    return values
+
+
 def process_one_trace(
     trace,
     trace_process_count,
@@ -1799,7 +1857,7 @@ def process_one_trace(
             trace_raw_data['useful_host_max'] = 0.0
           
     # OpenMP TALP-style raw timings
-    if is_mpi_omp:
+    if is_mpi_omp:      
         # Useful inside OpenMP parallel regions + imbalance
         if os.path.exists(trace_name + '.omp_useful_regions.stats.csv'):
             omp_region_data = parse_omp_region_imbalance(
@@ -1832,14 +1890,39 @@ def process_one_trace(
         else:
             mpi_time = 0.0
 
-        # TALP notation: T_noOMP = useful outside OMP + MPI time
-        trace_raw_data['time_no_omp'] = useful_outside_omp + mpi_time
+        # T_no_OMP = all useful computation + MPI time
+        useful_total = float(trace_raw_data['useful_tot'])
+        trace_raw_data['time_no_omp'] = useful_total + mpi_time
 
-        # Serial OpenMP loss: active outside-OMP time projected to inactive workers
-        trace_raw_data['time_omp_serial'] = (
-            trace_raw_data['time_no_omp'] * max(int(trace_threads_value) - 1, 0)
-        )
+        # Serial OpenMP loss:
+        # for each MPI rank, useful/MPI time executed by the master thread
+        # outside OpenMP parallel regions is projected to inactive worker threads.
 
+        useful_outside_by_master = {}
+        if os.path.exists(trace_name + '.useful_outside_omp.stats.csv'):
+            useful_outside_by_master = parse_master_thread_values(
+                trace_name + '.useful_outside_omp.stats.csv'
+            )
+
+        mpi_by_master = {}
+        if os.path.exists(trace_name + '.mpi_time.stats.csv'):
+            mpi_by_master = parse_master_thread_values(
+                trace_name + '.mpi_time.stats.csv'
+            )
+
+        threads_per_rank = max(int(trace_threads_value), 1)
+
+        time_omp_serial = 0.0
+        all_task_ids = set(useful_outside_by_master.keys()) | set(mpi_by_master.keys())
+
+        for task_id in all_task_ids:
+            useful_outside_value = useful_outside_by_master.get(task_id, 0.0)
+            mpi_value = mpi_by_master.get(task_id, 0.0)
+
+            serial_active = useful_outside_value + mpi_value
+            time_omp_serial += serial_active * max(threads_per_rank - 1, 0)
+
+        trace_raw_data['time_omp_serial'] = time_omp_serial
     else:
         trace_raw_data['time_no_omp'] = 'Non-Avail'
         trace_raw_data['time_omp_imbalance'] = 'Non-Avail'

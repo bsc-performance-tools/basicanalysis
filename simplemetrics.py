@@ -244,11 +244,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 mod_factors['load_balance'][trace] = float(raw_data['burst_useful_avg'][trace]) \
                                                      / float(raw_data['burst_useful_max'][trace]) * 100.0
             else:
-                if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
-                    mod_factors['load_balance'][trace] = raw_data['useful_plus_io_avg'][trace] \
-                                                     / raw_data['useful_plus_io_max'][trace] * 100.0
-                else:
-                    mod_factors['load_balance'][trace] = raw_data['useful_avg'][trace] \
+                #if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
+                #    mod_factors['load_balance'][trace] = raw_data['useful_plus_io_avg'][trace] \
+                #                                     / raw_data['useful_plus_io_max'][trace] * 100.0
+                #else:
+                mod_factors['load_balance'][trace] = raw_data['useful_avg'][trace] \
                                                  / raw_data['useful_max'][trace] * 100.0
         except:
             mod_factors['load_balance'][trace] = 'NaN'
@@ -256,14 +256,13 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             if trace_mode[trace] == 'Burst+MPI':
                 mod_factors['comm_eff'][trace] = float(raw_data['burst_useful_max'][trace]) \
-                                                 / raw_data['runtime'][trace] * 100.0
+                / float(raw_data['runtime'][trace]) * 100.0
             else:
-                if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
-                    mod_factors['comm_eff'][trace] = raw_data['useful_plus_io_max'][trace] \
-                                                 / raw_data['runtime'][trace] * 100.0
-                else:
-                    mod_factors['comm_eff'][trace] = raw_data['useful_max'][trace] \
-                                                     / raw_data['runtime'][trace] * 100.0
+                #if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
+                #    mod_factors['comm_eff'][trace] = raw_data['useful_plus_io_max'][trace] \
+                #                                 / raw_data['runtime'][trace] * 100.0
+                #else:
+                mod_factors['comm_eff'][trace] = raw_data['useful_max'][trace] / raw_data['runtime'][trace] * 100.0
         except:
             mod_factors['comm_eff'][trace] = 'NaN'
 
@@ -297,6 +296,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                      / float(raw_data['runtime'][trace]) * 100.0
                 
                 if round(mod_factors['transfer_eff'][trace]) > 100:
+                    print("Transfer Warning: ", mod_factors['transfer_eff'][trace])
                     mod_factors['transfer_eff'][trace] = 'Warning!'
         except:
             mod_factors['transfer_eff'][trace] = 'NaN'
@@ -307,11 +307,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 mod_factors['parallel_eff'][trace] = float(raw_data['burst_useful_avg'][trace]) \
                                                      / float(raw_data['runtime'][trace]) * 100.0
             else:
-                if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
-                    mod_factors['parallel_eff'][trace] = float(raw_data['useful_plus_io_avg'][trace]) \
-                                                     / float(raw_data['runtime'][trace]) * 100.0
-                else:
-                    mod_factors['parallel_eff'][trace] = mod_factors['load_balance'][trace] \
+                #if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
+                #    mod_factors['parallel_eff'][trace] = float(raw_data['useful_plus_io_avg'][trace]) \
+                #                                     / float(raw_data['runtime'][trace]) * 100.0
+                #else:
+                mod_factors['parallel_eff'][trace] = mod_factors['load_balance'][trace] \
                                                      * mod_factors['comm_eff'][trace] / 100.0
         except:
             mod_factors['parallel_eff'][trace] = 'NaN'

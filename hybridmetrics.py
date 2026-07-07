@@ -106,6 +106,27 @@ mod_host_factors_doc = OrderedDict([
                                ('host_inst_scale', '   == Instruction scalability'),
                                ('host_freq_scale', '   == Frequency scalability')])
 
+
+mod_omp_factors_doc = OrderedDict([
+                                ('omp_talp_parallel_eff', '-- OpenMP Parallel Efficiency'),
+                                ('omp_talp_serial_eff', '   -- OpenMP Serial Efficiency'),
+                                ('omp_talp_load_balance', '   -- OpenMP Load Balance'),
+                                ('omp_talp_scheduling_eff', '   -- OpenMP Scheduling Efficiency'),
+                            ])
+
+
+def safe_float_for_plot(value):
+    """
+    Convert metric values to float for plotting.
+
+    Non-numeric values such as 'Warning!', 'Non-Avail', 'N/A', or 'NaN'
+    are mapped to 0.0 so matplotlib can still render the table.
+    """
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
 def create_mod_factors(trace_list):
     """Creates 2D dictionary of the model factors and initializes with an empty
     string. The mod_factors dictionary has the format: [mod factor key][trace].
@@ -207,6 +228,17 @@ def create_other_metrics(trace_list):
 
     return other_metrics
 
+def create_omp_talp_factors(trace_list):
+    global mod_omp_factors_doc
+
+    omp_talp_factors = {}
+    for key in mod_omp_factors_doc:
+        trace_dict = {}
+        for trace_name in trace_list:
+            trace_dict[trace_name] = 0.0
+        omp_talp_factors[key] = trace_dict
+
+    return omp_talp_factors
 
 def get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args):
     """Guess the scaling type (weak/strong) based on the useful instructions.
@@ -306,7 +338,9 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     device_factors = create_mod_device_factors(trace_list)
     host_factors = create_mod_host_factors(trace_list)
     hyb_comm_omp_factors = create_hyb_comm_omp_factors(trace_list)
-    
+    omp_talp_factors = create_omp_talp_factors(trace_list)
+
+
     # Guess the weak or strong scaling
     scaling = get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args)
 
@@ -314,7 +348,14 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     for trace in trace_list:
 
         proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
+   
         total_procs = trace_processes[trace]
+
+        # Control OutMPI values no availables
+        if math.isnan(float(raw_data['outsidempi_avg'][trace])) or math.isnan(float(raw_data['outsidempi_max'][trace])):
+            outmpi_measures = False
+        else:
+            outmpi_measures = True
 
         # Flushing measurements
         try:  # except NaN
@@ -355,32 +396,31 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         # Basic efficiency factors
         try:  # except NaN
-            if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
-                mod_factors['load_balance'][trace] = float(raw_data['useful_plus_io_avg'][trace]) \
-                                                     / float(raw_data['useful_plus_io_max'][trace]) * 100.0
-            else:
-                mod_factors['load_balance'][trace] = float(raw_data['useful_avg'][trace]) \
+            #if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
+            #    mod_factors['load_balance'][trace] = float(raw_data['useful_plus_io_avg'][trace]) \
+            #                                         / float(raw_data['useful_plus_io_max'][trace]) * 100.0
+            #else:
+            mod_factors['load_balance'][trace] = float(raw_data['useful_avg'][trace]) \
                                                  / float(raw_data['useful_max'][trace]) * 100.0
         except:
             mod_factors['load_balance'][trace] = 'NaN'
 
         try:  # except NaN
-            if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
-                mod_factors['comm_eff'][trace] = float(raw_data['useful_plus_io_max'][trace] \
-                                                 / raw_data['runtime'][trace] * 100.0)
-            else:
-                mod_factors['comm_eff'][trace] = float(raw_data['useful_max'][trace] \
-                                                     / raw_data['runtime'][trace] * 100.0)
+            #if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
+            #    mod_factors['comm_eff'][trace] = float(raw_data['useful_plus_io_max'][trace] \
+            #                                     / raw_data['runtime'][trace] * 100.0)
+            #else:
+            mod_factors['comm_eff'][trace] = float(raw_data['useful_max'][trace] / raw_data['runtime'][trace] * 100.0)
         except:
             mod_factors['comm_eff'][trace] = 'NaN'
 
         try:  # except NaN
             if trace_mode[trace][0:len("Burst")] != 'Burst':
-                if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
-                    mod_factors['parallel_eff'][trace] = float(raw_data['useful_plus_io_avg'][trace]) \
-                                                     / float(raw_data['runtime'][trace]) * 100.0
-                else:
-                    mod_factors['parallel_eff'][trace] = float(mod_factors['load_balance'][trace]) \
+                #if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
+                #    mod_factors['parallel_eff'][trace] = float(raw_data['useful_plus_io_avg'][trace]) \
+                #                                     / float(raw_data['runtime'][trace]) * 100.0
+                #else:
+                mod_factors['parallel_eff'][trace] = float(mod_factors['load_balance'][trace]) \
                                                      * float(mod_factors['comm_eff'][trace]) / 100.0
             elif trace_mode[trace] == 'Burst+MPI':
                 mod_factors['parallel_eff'][trace] = float(raw_data['burst_useful_avg'][trace]) \
@@ -401,6 +441,14 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                    * proc_ratio * 100.0
                     else:
                         mod_factors['comp_scale'][trace] = 100.0
+                elif outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA'):
+                    if scaling == 'strong':
+                        host_factors['host_comp_scale'][trace] = float(raw_data['useful_host'][trace_list[0]]) \
+                                                    / float(raw_data['useful_host'][trace]) * 100.0
+                    else:
+                        host_factors['host_comp_scale'][trace] = float(raw_data['useful_host'][trace_list[0]]) \
+                                                    / float(raw_data['useful_host'][trace]) * proc_ratio * 100.0
+                    mod_factors['comp_scale'][trace] = host_factors['host_comp_scale'][trace]
                 else:
                     if scaling == 'strong':
                         mod_factors['comp_scale'][trace] = float(raw_data['useful_tot'][trace_list[0]]) \
@@ -446,12 +494,6 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             mod_factors['global_eff'][trace] = 'NaN'
 
         # Hybrid metrics calculation
-        # Control OutMPI values no availables
-        if math.isnan(float(raw_data['outsidempi_avg'][trace])) or math.isnan(float(raw_data['outsidempi_max'][trace])):
-            outmpi_measures = False
-        else:
-            outmpi_measures = True
-
             # ------->  MPI metrics
         try:  # except NaN
             if not outmpi_measures:
@@ -610,6 +652,56 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             hybrid_factors['omp_parallel_eff'][trace] = 'NaN'
 
+
+        # -------> Isolated OpenMP metrics, TALP-style timing model
+        try:
+            if trace_mode[trace] == 'Detailed+MPI+OpenMP':
+                t_no_omp = float(raw_data['time_no_omp'][trace])
+                t_serial = float(raw_data['time_omp_serial'][trace])
+                t_imbal = float(raw_data['time_omp_imbalance'][trace])
+                t_sched = float(raw_data['time_omp_schedule'][trace])
+
+                t_after_serial = t_no_omp + t_serial
+                t_after_lb = t_after_serial + t_imbal
+                t_total = t_after_lb + t_sched
+
+                if t_total > 0.0:
+                    omp_talp_factors['omp_talp_parallel_eff'][trace] = (
+                        t_no_omp / t_total * 100.0
+                    )
+                else:
+                    omp_talp_factors['omp_talp_parallel_eff'][trace] = 'NaN'
+
+                if t_after_serial > 0.0:
+                    omp_talp_factors['omp_talp_serial_eff'][trace] = (
+                        t_no_omp / t_after_serial * 100.0
+                    )
+                else:
+                    omp_talp_factors['omp_talp_serial_eff'][trace] = 'NaN'
+
+                if t_after_lb > 0.0:
+                    omp_talp_factors['omp_talp_load_balance'][trace] = (
+                        t_after_serial / t_after_lb * 100.0
+                    )
+                else:
+                    omp_talp_factors['omp_talp_load_balance'][trace] = 'NaN'
+
+                if t_total > 0.0:
+                    omp_talp_factors['omp_talp_scheduling_eff'][trace] = (
+                        t_after_lb / t_total * 100.0
+                    )
+                else:
+                    omp_talp_factors['omp_talp_scheduling_eff'][trace] = 'NaN'
+            else:
+                omp_talp_factors['omp_talp_parallel_eff'][trace] = 'Non-Avail'
+                omp_talp_factors['omp_talp_serial_eff'][trace] = 'Non-Avail'
+                omp_talp_factors['omp_talp_load_balance'][trace] = 'Non-Avail'
+                omp_talp_factors['omp_talp_scheduling_eff'][trace] = 'Non-Avail'
+        except:
+            omp_talp_factors['omp_talp_parallel_eff'][trace] = 'NaN'
+            omp_talp_factors['omp_talp_serial_eff'][trace] = 'NaN'
+            omp_talp_factors['omp_talp_load_balance'][trace] = 'NaN'
+            omp_talp_factors['omp_talp_scheduling_eff'][trace] = 'NaN'
 
         # -------> Classic MPI+GPU model using flattened devices
         if (
@@ -813,7 +905,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             hybrid_factors['hybrid_eff'][trace] = 'NaN'
 
     # Basic scalability factors - Computational
-        # IPC Scalability
+        # IPC
         try:  # except NaN
             other_metrics['ipc'][trace] = float(raw_data['useful_ins'][trace]) \
                                         / float(raw_data['useful_cyc'][trace])
@@ -822,11 +914,17 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 other_metrics['ipc'][trace] = 'Non-Avail'
             else:
                 other_metrics['ipc'][trace] = 'NaN'
+    
+        # IPC Scalability
         try:  # except NaN
             if len(trace_list) > 1:
                 if trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':
                     mod_factors['ipc_scale'][trace] = float(other_metrics['ipc'][trace]) \
                                               / float(other_metrics['ipc'][trace_list[0]]) * 100.0
+                    if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA'):
+                        host_factors['host_ipc_scale'][trace] = mod_factors['ipc_scale'][trace]
+                    else:
+                        host_factors['host_ipc_scale'][trace] = 'Non-Avail'           
                 else:
                     mod_factors['ipc_scale'][trace] = 'Non-Avail'
             else:
@@ -871,6 +969,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 if trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':
                     mod_factors['freq_scale'][trace] = float(other_metrics['freq'][trace]) \
                                                / float(other_metrics['freq'][trace_list[0]]) * 100.0
+                    if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA'):
+                        host_factors['host_freq_scale'][trace] = mod_factors['freq_scale'][trace]
+                    else:
+                        host_factors['host_freq_scale'][trace] = 'Non-Avail'
                 else:
                     mod_factors['freq_scale'][trace] = 'Non-Avail'
             else:
@@ -917,6 +1019,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
                                                    / float(raw_data['useful_ins'][trace]) \
                                                            * procs_ratio_ins * 100.0
+                    
+                    if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA'):
+                        host_factors['host_inst_scale'][trace] = mod_factors['inst_scale'][trace]
+                    else:
+                        host_factors['host_inst_scale'][trace] = 'Non-Avail'
                 else:
                     mod_factors['inst_scale'][trace] = 'Non-Avail'
             else:
@@ -950,29 +1057,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             mod_factors_scale_plus_io['inst_scale'][trace] = 'NaN'
 
-        ### Host Computational Metrics
-        try:  # except NaN
-            if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA') and (len(trace_list) > 1):
-                if scaling == 'strong':
-                    host_factors['host_comp_scale'][trace] = float(raw_data['useful_not_0_tot'][trace_list[0]]) \
-                                                   / float(raw_data['useful_not_0_tot'][trace]) * 100.0
-                else:
-                    host_factors['host_comp_scale'][trace] = float(raw_data['useful_not_0_tot'][trace_list[0]]) \
-                                                   / float(raw_data['useful_not_0_tot'][trace]) * proc_ratio * 100.0
-                host_factors['host_ipc_scale'][trace] = mod_factors['ipc_scale'][trace]
-                host_factors['host_inst_scale'][trace] = mod_factors['inst_scale'][trace]
-                host_factors['host_freq_scale'][trace] = mod_factors['freq_scale'][trace]
-            else:
-                host_factors['host_comp_scale'][trace] = 'Non-Avail'
-                host_factors['host_ipc_scale'][trace] = 'Non-Avail'
-                host_factors['host_inst_scale'][trace] = 'Non-Avail'
-                host_factors['host_freq_scale'][trace] = 'Non-Avail'
-        except:
-            host_factors['host_comp_scale'][trace] = 'NaN'
-            host_factors['host_ipc_scale'][trace] = 'NaN'
-            host_factors['host_inst_scale'][trace] = 'NaN'
-            host_factors['host_freq_scale'][trace] = 'NaN'
-        
+       
         try:  # except NaN
             if outmpi_measures and (trace_mode[trace] == 'Detailed+MPI+CUDA'):
                 if len(trace_list) > 1:
@@ -1018,14 +1103,15 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             other_metrics['efficiency'][trace] = 'NaN'
 
     return (
-    mod_factors,
-    mod_factors_scale_plus_io,
-    hybrid_factors,
-    hyb_comm_omp_factors,
-    other_metrics,
-    device_factors,
-    host_factors,
-    hybrid_gpu_factors
+        mod_factors,
+        mod_factors_scale_plus_io,
+        hybrid_factors,
+        hyb_comm_omp_factors,
+        other_metrics,
+        device_factors,
+        host_factors,
+        hybrid_gpu_factors,
+        omp_talp_factors
     )
 
 def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io,
@@ -2512,7 +2598,7 @@ def plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks
             if pd.isna(value) or value == 0.0:
                 list_temp.append(np.nan)
             else:
-                list_temp.append(float(value))
+                list_temp.append(safe_float_for_plot(value))
         list_data.append(list_temp)
 
     list_np = np.array(list_data)
@@ -2568,3 +2654,48 @@ def plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks
     ax.yaxis.set_tick_params(pad=len_pad + 164)
 
     plt.savefig('efficiency_table_talp_matplot.png', bbox_inches='tight')
+
+
+def print_omp_talp_metrics_csv(omp_talp_factors, trace_list, trace_processes,
+                               trace_tasks, trace_threads, trace_mode):
+    """Print isolated OpenMP TALP-style metrics for validation."""
+    global mod_omp_factors_doc
+
+    delimiter = ';'
+    file_path = os.path.join(os.getcwd(), 'omp_talp_metrics.csv')
+
+    with open(file_path, 'w') as output:
+        line = '"Number of processes"'
+        for trace in trace_list:
+            if trace_mode[trace] == "Detailed+MPI+OpenMP":
+                label = "{}({}x{})".format(
+                    trace_processes[trace],
+                    trace_tasks[trace],
+                    trace_threads[trace],
+                )
+            else:
+                label = str(trace_processes[trace])
+
+            line += delimiter + label
+
+        output.write(line + '\n')
+
+        for mod_key in mod_omp_factors_doc:
+            line = '"' + mod_omp_factors_doc[mod_key] + '"'
+
+            for trace in trace_list:
+                line += delimiter
+                value = omp_talp_factors[mod_key][trace]
+
+                try:
+                    line += '{0:.6f}'.format(value)
+                except (ValueError, TypeError):
+                    line += '{}'.format(value)
+
+            output.write(line + '\n')
+
+        output.write('#\n')
+
+    print('')
+    print('======== Output File: Isolated OpenMP Metrics ========')
+    print('OpenMP TALP-style metrics written to ' + file_path)

@@ -86,8 +86,17 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
     list_mpi_procs_count = analysis_result["list_mpi_procs_count"]
 
     if cmdl_args.metrics == 'hybrid' and trace_metrics > 0:
-        mod_factors, mod_factors_scale_plus_io, hybrid_factors, hyb_comm_omp_factors, other_metrics, device_factors,host_factors, hybrid_gpu_factors = \
-            hybridmetrics.compute_model_factors(
+        (
+            mod_factors,
+            mod_factors_scale_plus_io,
+            hybrid_factors,
+            hyb_comm_omp_factors,
+            other_metrics,
+            device_factors,
+            host_factors,
+            hybrid_gpu_factors,
+            omp_talp_factors,
+        ) = hybridmetrics.compute_model_factors(
                 raw_data,
                 trace_list,
                 trace_processes,
@@ -105,6 +114,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
             "other_metrics": other_metrics,
             "device_factors": device_factors,
             "host_factors": host_factors,
+            "omp_talp_factors": omp_talp_factors,
         }
 
     mod_factors, mod_factors_scale_plus_io, other_metrics = compute_model_factors(
@@ -137,6 +147,7 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
         other_metrics = metrics_result["other_metrics"]
         device_factors = metrics_result["device_factors"]
         host_factors = metrics_result["host_factors"]
+        omp_talp_factors = metrics_result["omp_talp_factors"]
 
         hybridmetrics.print_other_metrics_table(
             other_metrics, trace_list, trace_processes, trace_tasks, trace_threads, trace_mode
@@ -175,6 +186,9 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
             )
 
         hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
+        hybridmetrics.print_omp_talp_metrics_csv(omp_talp_factors, trace_list, trace_processes, trace_tasks,\
+         trace_threads, trace_mode)
+        
         return
 
     mod_factors = metrics_result["mod_factors"]
