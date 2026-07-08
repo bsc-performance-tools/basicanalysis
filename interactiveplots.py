@@ -345,6 +345,44 @@ TALP_METRIC_INFO = {
     },
 }
 
+OPENMP_METRIC_INFO = {
+    "omp_talp_parallel_eff": {
+        "label": "OpenMP Parallel efficiency",
+        "short_label": "OMP PE",
+        "type": "OpenMP metric",
+        "meaning": "Efficiency of the OpenMP execution considering idle OpenMP-thread time as loss.",
+        "low": "Low values indicate relevant OpenMP inefficiency.",
+        "above100": "Values above 100% are unexpected and should be checked.",
+        "action": "Inspect OpenMP Serial, Load Balance, and Scheduling efficiencies.",
+    },
+    "omp_talp_serial_eff": {
+        "label": "  -- OpenMP Serial efficiency",
+        "short_label": "OMP Serial",
+        "type": "OpenMP sub-metric",
+        "meaning": "Efficiency loss caused by time outside OpenMP parallel regions.",
+        "low": "Low values indicate that a relevant part of the execution is not parallelized with OpenMP.",
+        "above100": "Values above 100% are unexpected and should be checked.",
+        "action": "Inspect useful computation and MPI time outside OpenMP parallel regions.",
+    },
+    "omp_talp_load_balance": {
+        "label": "  -- OpenMP Load balance",
+        "short_label": "OMP LB",
+        "type": "OpenMP sub-metric",
+        "meaning": "Efficiency loss caused by imbalance among OpenMP threads inside parallel regions.",
+        "low": "Low values indicate that some OpenMP threads wait while others continue useful computation.",
+        "above100": "Values above 100% are unexpected and should be checked.",
+        "action": "Inspect useful duration per OpenMP thread and per parallel region.",
+    },
+    "omp_talp_scheduling_eff": {
+        "label": "  -- OpenMP Scheduling efficiency",
+        "short_label": "OMP Sched",
+        "type": "OpenMP sub-metric",
+        "meaning": "Efficiency loss caused by OpenMP scheduling and fork/join overhead.",
+        "low": "Low values indicate relevant OpenMP runtime overhead.",
+        "above100": "Values above 100% are unexpected and should be checked.",
+        "action": "Inspect scheduling and fork/join states in the OpenMP regions.",
+    },
+}
 
 HYBRID_ORDER = [
     "hybrid_eff",
@@ -380,6 +418,14 @@ OVERVIEW_LABELS = {
     "ipc": "Average IPC (inst/cycle)",
     "freq": "Average frequency (GHz)",
 }
+
+
+OPENMP_ORDER = [
+    "omp_talp_parallel_eff",
+    "omp_talp_serial_eff",
+    "omp_talp_load_balance",
+    "omp_talp_scheduling_eff",
+]
 
 
 def _tree_node(metric_key, children=None):
@@ -446,6 +492,13 @@ TALP_TREE = [
     ]),
 ]
 
+OPENMP_TREE = [
+    _tree_node("omp_talp_parallel_eff", [
+        _tree_node("omp_talp_serial_eff"),
+        _tree_node("omp_talp_load_balance"),
+        _tree_node("omp_talp_scheduling_eff"),
+    ])
+]
 
 
 
@@ -853,6 +906,8 @@ def _build_metric_tree_html(metric_keys, metric_info, section_id, tree_kind):
         tree = HYBRID_TREE
     elif tree_kind == "talp":
         tree = TALP_TREE
+    elif tree_kind == "openmp":
+        tree = OPENMP_TREE      
     else:
         tree = []
 
@@ -1548,12 +1603,12 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             trace_tasks=trace_tasks,
             trace_threads=trace_threads,
             trace_mode=trace_mode,
-            title="Hybrid model: MPI + {}".format(inner_model),
+            title="Parallel Programming Model: MPI + {}".format(inner_model),
             section_id="hybrid",
             tree_kind="hybrid",
         )
     else:
-        hybrid_html = "<p>Hybrid model metrics are not available for simple traces.</p>"
+        hybrid_html = "<p>Parallel programming model metrics are not available for simple traces.</p>"
 
     # ---- TALP model tab
 
@@ -1610,21 +1665,61 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             trace_tasks=trace_tasks,
             trace_threads=trace_threads,
             trace_mode=trace_mode,
-            title="TALP model: host/device decomposition",
+            title="Host/Device Efficiency Metrics",
             section_id="talp",
             tree_kind="talp",
         )
     else:
-        talp_html = (
-            "<p>TALP metrics are only available for MPI+GPU traces "
-            "with the TALP model.</p>"
+        talp_html = ("<p>Host/Device metrics are only available for MPI+GPU traces.</p>")
+
+
+    # ---- OpenMP Efficiency Metrics tab
+    if (
+        metrics_result["kind"] == "hybrid"
+        and "omp_talp_factors" in metrics_result
+    ):
+        omp_talp_factors = metrics_result["omp_talp_factors"]
+
+        openmp_filtered_keys = []
+        for key in OPENMP_ORDER:
+            if key not in omp_talp_factors:
+                continue
+
+            for trace in trace_list:
+                if _clean_value(_read_metric(omp_talp_factors, key, trace)) is not None:
+                    openmp_filtered_keys.append(key)
+                    break
+
+        if openmp_filtered_keys:
+            openmp_sources = {
+                key: omp_talp_factors for key in openmp_filtered_keys
+            }
+
+            openmp_html = _build_metric_tree_heatmap_section(
+                metric_keys=openmp_filtered_keys,
+                metric_info=OPENMP_METRIC_INFO,
+                metric_sources=openmp_sources,
+                trace_list=trace_list,
+                trace_processes=trace_processes,
+                trace_tasks=trace_tasks,
+                trace_threads=trace_threads,
+                trace_mode=trace_mode,
+                title="OpenMP Efficiency Metrics",
+                section_id="openmp",
+                tree_kind="openmp",
+            )
+        else:
+            openmp_html = (
+                "<p>OpenMP efficiency metrics are not available for this trace configuration.</p>"
+            )
+    else:
+        openmp_html = (
+            "<p>OpenMP efficiency metrics are only available for MPI+OpenMP traces.</p>"
         )
 
-    # ---- Isolated inner level tab
-    isolated_inner_html = (
-        "<p>Isolated inner-level metrics are not available yet. "
-        "This section will show OpenMP/CUDA metrics without hybrid compensation effects.</p>"
-    )
+
+
+
 
     trace_config_html = _build_trace_config_table_html(
         analysis_result,
@@ -1922,9 +2017,9 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         <div class="tab-bar">
             <button id="overview-button" class="tab-button" onclick="showTab('overview')">Overview</button>
             <button id="global-button" class="tab-button" onclick="showTab('global')">Global metrics</button>
-            <button id="hybrid-button" class="tab-button" onclick="showTab('hybrid')">Hybrid model</button>
-            <button id="talp-button" class="tab-button" onclick="showTab('talp')">TALP model</button>
-            <button id="isolated-inner-button" class="tab-button" onclick="showTab('isolated-inner')">Isolated inner level</button>
+            <button id="hybrid-button" class="tab-button" onclick="showTab('hybrid')">Programming Model</button>
+            <button id="talp-button" class="tab-button" onclick="showTab('talp')">Host/Device</button>
+            <button id="isolated-inner-button" class="tab-button" onclick="showTab('isolated-inner')">OpenMP</button>
         </div>
 
         <div id="overview" class="tab-content">
@@ -1946,19 +2041,19 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         </div>
 
         <div id="hybrid" class="tab-content">
-            <h2>Hybrid model</h2>
+            <h2>Parallel Programming Model Efficiency Metrics</h2>
             {hybrid_html}
         </div>
 
         <div id="talp" class="tab-content">
-            <h2>TALP model</h2>
+            <h2>Host/Device Efficiency Metrics</h2>
             {talp_html}
         </div>
 
         <div id="isolated-inner" class="tab-content">
-            <h2>Isolated inner level</h2>
-            {isolated_inner_html}
-        </div>
+            <h2>OpenMP Efficiency Metrics</h2>
+            {openmp_html}
+        </div>        
 
         </body>
         </html>
@@ -1969,8 +2064,8 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     html_content = html_content.replace("{global_html}", global_html)
     html_content = html_content.replace("{hybrid_html}", hybrid_html)
     html_content = html_content.replace("{talp_html}", talp_html)
-    html_content = html_content.replace("{isolated_inner_html}", isolated_inner_html)
-    html_content = html_content.replace("{resources_html}", resources_html)
+    html_content = html_content.replace("{openmp_html}", openmp_html)
+    html_content = html_content.replace("{resources_html}", resources_html)    
 
 
     with open(output_html, "w") as f:
