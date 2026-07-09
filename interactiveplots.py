@@ -8,6 +8,7 @@ import os
 import math
 import json
 import html
+import observations
 
 import plotly.graph_objects as go
 
@@ -227,7 +228,7 @@ TALP_METRIC_INFO = {
         "action": "Inspect MPI and offload efficiency.",
     },
     "mpi_parallel_eff": {
-        "label": "   -- MPI Parallel efficiency",
+        "label": "   == MPI Parallel efficiency",
         "short_label": " -- MPI PE",
         "type": "MPI host metric",
         "meaning": "MPI efficiency on the host side.",
@@ -936,10 +937,58 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
 
     info_json = _metric_info_json(metric_keys, metric_info)
 
+    tree = []
+    if tree_kind == "global":
+        tree = GLOBAL_TREE
+    elif tree_kind == "hybrid":
+        tree = HYBRID_TREE
+    elif tree_kind == "talp":
+        tree = TALP_TREE
+    elif tree_kind == "openmp":
+        tree = OPENMP_TREE
+
+    if tree:
+        diagnosis_lines = observations.build_tree_diagnosis_observations(
+            tree=tree,
+            metric_info=metric_info,
+            metric_sources=metric_sources,
+            trace_list=trace_list,
+        )
+
+        trend_lines = observations.build_scaling_trend_lines(
+            metric_keys=metric_keys,
+            metric_info=metric_info,
+            metric_sources=metric_sources,
+            trace_list=trace_list,
+            max_items=4,
+        )
+
+        observations_html = observations.build_tree_diagnosis_html(
+            diagnosis_lines,
+            trend_lines=trend_lines,
+            title="Analysis summary",
+        )
+    else:
+        observation_groups = observations.build_threshold_observations(
+            metric_keys=metric_keys,
+            metric_info=metric_info,
+            metric_sources=metric_sources,
+            trace_list=trace_list,
+            max_attention=5,
+            max_trends=4,
+        )
+
+        observations_html = observations.build_threshold_observation_html(
+            observation_groups,
+            title="Analysis summary",
+        )
+
     return """
     <script>
     window.metricInfo_{section_id} = {info_json};
     </script>
+
+    {observations_html}
 
     <div class="metric-info-panel" id="{section_id}-info-panel">
         <h3 id="{section_id}-info-title">Select a metric</h3>
@@ -955,6 +1004,7 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
     """.format(
         section_id=section_id,
         info_json=info_json,
+        observations_html=observations_html,
         heatmap_html=heatmap_html,
     )
 
@@ -1514,6 +1564,52 @@ def plot_talp_efficiency_interactive(metrics_result, analysis_result, trace_list
         trace_summary=trace_summary,
     )
 
+
+def _has_mode(trace_mode, trace_list, token):
+    for trace in trace_list:
+        if token in trace_mode[trace]:
+            return True
+    return False
+
+
+def _report_execution_model(trace_mode, trace_list, metrics_result):
+    is_hybrid = metrics_result.get("kind") == "hybrid"
+    has_mpi = _has_mode(trace_mode, trace_list, "MPI")
+    has_omp = _has_mode(trace_mode, trace_list, "OpenMP")
+    has_cuda = _has_mode(trace_mode, trace_list, "CUDA")
+
+    return {
+        "is_hybrid": is_hybrid,
+        "has_mpi": has_mpi,
+        "has_omp": has_omp,
+        "has_cuda": has_cuda,
+    }
+
+
+def _build_report_tabs(model):
+    tabs = [
+        ("overview", "Overview"),
+        ("global", "Global metrics"),
+    ]
+
+    if model["is_hybrid"]:
+        tabs.append(("hybrid", "Hybrid metrics"))
+
+        if model["has_cuda"]:
+            tabs.append(("talp", "Host/Device"))
+
+        if model["has_omp"]:
+            tabs.append(("openmp", "OpenMP"))
+
+    else:
+        if model["has_omp"]:
+            tabs.append(("openmp", "OpenMP"))
+        else:
+            tabs.append(("simple", "Simple metrics"))
+
+    return tabs
+
+
 def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                                           report,
                                           trace_list, trace_processes,
@@ -1524,6 +1620,9 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     output_html = os.path.join(os.getcwd(), "basicanalysis_interactive_report.html")
 
     other_metrics = metrics_result["other_metrics"]
+
+    model = _report_execution_model(trace_mode, trace_list, metrics_result)
+    tabs = _build_report_tabs(model)
 
     overview_html = _build_overview_table_html(
         other_metrics,
@@ -1718,9 +1817,6 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         )
 
 
-
-
-
     trace_config_html = _build_trace_config_table_html(
         analysis_result,
         trace_list,
@@ -1731,6 +1827,21 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     )
     
     resources_html = _build_resources_table_html(report)
+
+
+    show_simple = (
+        not model["is_hybrid"]
+        and model["has_mpi"]
+        and not model["has_omp"]
+        and not model["has_cuda"]
+    )
+
+    show_hybrid = model["is_hybrid"]
+
+    show_hostdevice = model["has_cuda"]
+
+    show_openmp = model["has_omp"]
+
 
     html_content = """
         <!DOCTYPE html>
@@ -1907,6 +2018,32 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             background: #e8eef8;
         }
 
+        .observation-box {
+            border: 1px solid #c8d6e5;
+            background: #f4f8fc;
+            padding: 14px 18px;
+            margin-bottom: 18px;
+            max-width: 1100px;
+        }
+
+        .observation-box h3 {
+            margin-top: 0;
+        }
+
+        .observation-box ul {
+            margin-bottom: 8px;
+        }
+
+        .tree-diagnosis {
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
+        .tree-diagnosis div {
+            margin-bottom: 3px;
+        }
+
+
         </style>
 
         <script>
@@ -2044,7 +2181,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             <h2>Parallel Programming Model Efficiency Metrics</h2>
             {hybrid_html}
         </div>
-
+    
         <div id="talp" class="tab-content">
             <h2>Host/Device Efficiency Metrics</h2>
             {talp_html}
@@ -2059,14 +2196,47 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         </html>
         """
     
+   
+    if not show_hybrid:
+        html_content = html_content.replace(
+            '<button id="hybrid-button" class="tab-button" onclick="showTab(\'hybrid\')">Programming Model</button>',
+            ""
+        )
+
+        html_content = html_content.replace(
+            '<div id="hybrid" class="tab-content">',
+            '<div id="hybrid" class="tab-content" style="display:none;">'
+        )   
+
+
+    if not show_hostdevice:
+        html_content = html_content.replace(
+            '<button id="talp-button" class="tab-button" onclick="showTab(\'talp\')">Host/Device</button>',
+            ""
+        )
+
+        html_content = html_content.replace(
+            '<div id="talp" class="tab-content">',
+            '<div id="talp" class="tab-content" style="display:none;">'
+        )
+
+    if not show_openmp:
+        html_content = html_content.replace(
+            '<button id="isolated-inner-button" class="tab-button" onclick="showTab(\'isolated-inner\')">OpenMP</button>',
+            ""
+        )
+        html_content = html_content.replace(
+            '<div id="isolated-inner" class="tab-content">',
+            '<div id="isolated-inner" class="tab-content" style="display:none;">'
+        )
+ 
     html_content = html_content.replace("{trace_config_html}", trace_config_html)
     html_content = html_content.replace("{overview_html}", overview_html)
     html_content = html_content.replace("{global_html}", global_html)
     html_content = html_content.replace("{hybrid_html}", hybrid_html)
     html_content = html_content.replace("{talp_html}", talp_html)
     html_content = html_content.replace("{openmp_html}", openmp_html)
-    html_content = html_content.replace("{resources_html}", resources_html)    
-
+    html_content = html_content.replace("{resources_html}", resources_html)
 
     with open(output_html, "w") as f:
         f.write(html_content)

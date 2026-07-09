@@ -426,6 +426,7 @@ def generate_plots(metrics_result, analysis_result, trace_list, trace_processes,
         generate_simple_plots(
             metrics_result,
             analysis_result,
+            report,
             trace_list,
             trace_processes,
             trace_tasks,
@@ -433,3 +434,4 @@ def generate_plots(metrics_result, analysis_result, trace_list, trace_processes,
             trace_mode,
             cmdl_args,
         )
+
