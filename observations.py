@@ -78,6 +78,25 @@ def _trend_type(values, stable_threshold=2.0):
     return "stable"
 
 
+def _trend_direction(values):
+    """Return a simplified trend direction."""
+    trend = _trend_type(values)
+
+    if trend in ("decreasing", "non_monotonic_decrease"):
+        return "decreasing"
+
+    if trend in ("increasing", "non_monotonic_increase"):
+        return "increasing"
+
+    return "stable"
+
+
+def _trend_delta(values):
+    if len(values) < 2:
+        return 0.0
+
+    return values[-1] - values[0]
+
 def _severity(delta):
     """Classify degradation magnitude."""
     if delta <= -15.0:
@@ -844,10 +863,9 @@ def build_observation_html(observations, title="Analysis summary"):
 
     return "\n".join(html)
 
-def build_analysis_summary_html(performance_html, trend_lines=None,
+def build_analysis_summary_html(performance_html,
+                                scaling_html="",
                                 title="Analysis summary"):
-    trend_lines = trend_lines or []
-
     html = []
 
     html.append("<div class='observation-box'>")
@@ -855,17 +873,243 @@ def build_analysis_summary_html(performance_html, trend_lines=None,
 
     html.append(performance_html)
 
-    if trend_lines:
-        html.append("<div class='scaling-interpretation'>")
-        html.append("<h3>Scaling trends</h3>")
-        html.append("<ul>")
-
-        for line in trend_lines:
-            html.append("<li>{}</li>".format(line))
-
-        html.append("</ul>")
-        html.append("</div>")
+    if scaling_html:
+        html.append(scaling_html)
 
     html.append("</div>")
 
     return "\n".join(html)
+
+
+def _metric_trend_data(metric_key, metric_info, metric_sources, trace_list):
+    values = _metric_series(
+        metric_sources,
+        metric_key,
+        trace_list,
+    )
+
+    if len(values) < 2:
+        return None
+
+    return {
+        "metric": metric_key,
+        "label": _clean_label(metric_info, metric_key),
+        "values": values,
+        "first": values[0],
+        "final": values[-1],
+        "delta": _trend_delta(values),
+        "direction": _trend_direction(values),
+        "status": _metric_status(values[-1]),
+    }
+
+
+def build_scaling_interpretation(tree, metric_info, metric_sources,
+                                 trace_list):
+    """
+    Build hierarchy-aware scaling interpretation.
+
+    The analysis compares the trend of each parent metric with the trends
+    of its direct children.
+    """
+
+    if len(trace_list) < 2:
+        return []
+
+    interpretations = []
+
+    def visit(node):
+        metric_key = node["metric"]
+        children = node.get("children", [])
+
+        parent = _metric_trend_data(
+            metric_key,
+            metric_info,
+            metric_sources,
+            trace_list,
+        )
+
+        if parent is None:
+            return
+
+        child_data = []
+
+        for child in children:
+            data = _metric_trend_data(
+                child["metric"],
+                metric_info,
+                metric_sources,
+                trace_list,
+            )
+
+            if data is not None:
+                child_data.append(data)
+
+        if children and child_data:
+            text = _build_parent_child_scaling_text(
+                parent,
+                child_data,
+            )
+
+            if text:
+                interpretations.append({
+                    "metric": metric_key,
+                    "text": text,
+                    "final": parent["final"],
+                    "delta": parent["delta"],
+                })
+
+        for child in children:
+            visit(child)
+
+    for root in tree:
+        visit(root)
+
+    return interpretations
+
+
+def _build_parent_child_scaling_text(parent, children):
+    parent_label = parent["label"]
+    parent_direction = parent["direction"]
+
+    degrading_children = [
+        child
+        for child in children
+        if child["direction"] == "decreasing"
+    ]
+
+    improving_low_children = [
+        child
+        for child in children
+        if (
+            child["direction"] == "increasing"
+            and child["final"] < ATTENTION_THRESHOLD
+        )
+    ]
+
+    healthy_children = [
+        child
+        for child in children
+        if child["final"] >= ATTENTION_THRESHOLD
+    ]
+
+    # Acceptable but degrading
+    if (
+        parent_direction == "decreasing"
+        and parent["final"] >= ATTENTION_THRESHOLD
+    ):
+        return (
+            "{} remains acceptable but decreases with scale and may become "
+            "relevant at larger scale."
+        ).format(parent_label)
+
+    # Parent degradation
+    if parent_direction == "decreasing":
+        text = "{} decreases with scale".format(parent_label)
+
+        if degrading_children:
+            degrading_children.sort(
+                key=lambda child: child["delta"]
+            )
+
+            main_child = degrading_children[0]
+
+            text += (
+                ", following the degradation of {}"
+            ).format(main_child["label"])
+
+            other_degrading = [
+                child["label"]
+                for child in degrading_children[1:]
+                if child["delta"] <= -5.0
+            ]
+
+            if other_degrading:
+                text += (
+                    "; {} also degrade{} with scale"
+                ).format(
+                    _join_metric_names(other_degrading),
+                    "" if len(other_degrading) > 1 else "s",
+                )
+
+        elif improving_low_children:
+            improving_low_children.sort(
+                key=lambda child: child["final"]
+            )
+
+            main_child = improving_low_children[0]
+
+            text += (
+                ". Although {} improves with scale, it remains below the "
+                "acceptable threshold and continues to limit the parent metric"
+            ).format(main_child["label"])
+
+        text += "."
+
+        healthy_names = [
+            child["label"]
+            for child in healthy_children
+            if (
+                child["direction"] != "decreasing"
+                or child["delta"] > -5.0
+            )
+        ]
+
+        if healthy_names:
+            text += (
+                " {} remain{} at acceptable levels and are unlikely "
+                "to explain the observed scaling loss."
+            ).format(
+                _join_metric_names(healthy_names),
+                "" if len(healthy_names) > 1 else "s",
+            )
+
+        return text
+
+    # Improving but still low
+    if (
+        parent_direction == "increasing"
+        and parent["final"] < ATTENTION_THRESHOLD
+    ):
+        text = (
+            "{} improves with scale but remains below the acceptable threshold"
+        ).format(parent_label)
+
+        low_children = [
+            child
+            for child in children
+            if child["final"] < ATTENTION_THRESHOLD
+        ]
+
+        if low_children:
+            low_children.sort(
+                key=lambda child: child["final"]
+            )
+
+            text += (
+                ", with {} remaining the main limiting child metric"
+            ).format(low_children[0]["label"])
+
+        return text + "."
+
+    return None
+
+
+def build_scaling_interpretation_html(interpretations):
+    """Render hierarchy-aware scaling interpretation."""
+
+    if not interpretations:
+        return ""
+
+    paragraphs = [
+        item["text"]
+        for item in interpretations
+    ]
+
+    return (
+        "<div class='scaling-interpretation'>"
+        "<h3>Scaling trends</h3>"
+        "<p>{}</p>"
+        "</div>"
+    ).format(
+        " ".join(paragraphs)
+    )

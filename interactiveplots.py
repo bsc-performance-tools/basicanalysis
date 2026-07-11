@@ -1086,17 +1086,22 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
             )
         )
 
-        trend_lines = observations.build_scaling_trend_lines(
-            metric_keys=metric_keys,
+        scaling_interpretation = observations.build_scaling_interpretation(
+            tree=tree,
             metric_info=metric_info,
             metric_sources=metric_sources,
             trace_list=trace_list,
-            max_items=4,
+        )
+
+        scaling_interpretation_html = (
+            observations.build_scaling_interpretation_html(
+                scaling_interpretation
+            )
         )
 
         observations_html = observations.build_analysis_summary_html(
             performance_html=performance_interpretation_html,
-            trend_lines=trend_lines,
+            scaling_html=scaling_interpretation_html,
             title="Analysis summary",
         )
     else:
