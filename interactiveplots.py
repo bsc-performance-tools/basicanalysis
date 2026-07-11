@@ -814,6 +814,62 @@ def _build_resources_table_html(report):
     return "\n".join(html_lines)
 
 
+def _build_efficiency_scale_html():
+    """Build the common efficiency interpretation scale."""
+
+    return """
+    <div class="efficiency-scale-panel">
+        <div class="efficiency-scale-header">
+            <h3>Efficiency interpretation</h3>
+            <p>
+                Use the efficiency scale to identify the metrics requiring
+                closer analysis.
+            </p>
+        </div>
+
+        <div class="efficiency-gradient-container">
+            <div class="efficiency-gradient"></div>
+
+            <div class="efficiency-gradient-markers">
+                <span style="left: 0%;">0%</span>
+                <span style="left: 60%;">60%</span>
+                <span style="left: 85%;">85%</span>
+                <span style="left: 100%;">100%</span>
+            </div>
+        </div>
+
+        <div class="efficiency-scale-ranges">
+            <div class="scale-range scale-range-critical">
+                <strong>Critical</strong>
+                <span>&lt; 60%</span>
+            </div>
+
+            <div class="scale-range scale-range-attention">
+                <strong>Attention</strong>
+                <span>60% – 85%</span>
+            </div>
+
+            <div class="scale-range scale-range-good">
+                <strong>Good</strong>
+                <span>85% – 100%</span>
+            </div>
+        </div>
+
+        <p class="efficiency-above-reference">
+            <strong>Above reference (&gt; 100%):</strong>
+            values are displayed using the upper end of the color scale and
+            should be interpreted according to the selected metric.
+        </p>
+
+        <p class="efficiency-scale-guidance">
+            <strong>Analysis guidance:</strong>
+            Start with the lowest-efficiency metrics and follow their child
+            metrics to identify the main factor contributing to the efficiency loss.
+        </p>
+    </div>
+    """
+
+
 def _build_trace_config_table_html(analysis_result, trace_list, trace_processes,
                                    trace_tasks, trace_threads, trace_mode):
     raw_data = analysis_result.get("raw_data", {})
@@ -1010,6 +1066,7 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
         tree=tree,
     )
 
+    efficiency_scale_html = _build_efficiency_scale_html()
 
     info_json = _metric_info_json(metric_keys, metric_info)
 
@@ -1053,8 +1110,11 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
     <script>
     window.metricInfo_{section_id} = {info_json};
     </script>
+    {efficiency_scale_html}
 
-    {observations_html}
+    <div class="metric-table-card">
+        {efficiency_table_html}
+    </div>    
 
     <div class="metric-info-panel" id="{section_id}-info-panel">
         <h3 id="{section_id}-info-title">Select a metric</h3>
@@ -1064,13 +1124,12 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
         <p id="{section_id}-info-action"></p>
     </div>
 
-    <div class="metric-table-card">
-        {efficiency_table_html}
-    </div>
+    {observations_html}
 
     """.format(
         section_id=section_id,
         info_json=info_json,
+        efficiency_scale_html=efficiency_scale_html,
         observations_html=observations_html,
         efficiency_table_html=efficiency_table_html,
     )
@@ -3107,6 +3166,195 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             padding-left: calc(
                 16px + (var(--metric-depth, 0) * 22px)
             ) !important;
+        }
+
+        /* -------------------------------------------------- */
+        /* Efficiency interpretation scale                     */
+        /* -------------------------------------------------- */
+
+        .efficiency-scale-panel {
+            margin-bottom: 22px;
+            padding: 20px 22px;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: #ffffff;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .efficiency-scale-header h3 {
+            margin: 0 0 4px;
+            color: var(--primary);
+            font-size: 18px;
+        }
+
+        .efficiency-scale-header p {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* Gradient */
+
+        .efficiency-gradient-container {
+            position: relative;
+            margin: 24px 8px 30px;
+        }
+
+        .efficiency-gradient {
+            width: 100%;
+            height: 18px;
+
+            border: 1px solid rgba(30, 50, 70, 0.14);
+            border-radius: 999px;
+
+            background: linear-gradient(
+                to right,
+                #b2182b 0%,
+                #ef6548 20%,
+                #fdbb84 40%,
+                #fee8a8 60%,
+                #ffffbf 75%,
+                #d9ef8b 85%,
+                #b8e186 92%,
+                #4dac26 100%
+            );
+        }
+
+        .efficiency-gradient-markers {
+            position: relative;
+            height: 18px;
+            margin-top: 6px;
+
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .efficiency-gradient-markers span {
+            position: absolute;
+            transform: translateX(-50%);
+        }
+
+        .efficiency-gradient-markers span:first-child {
+            transform: none;
+        }
+
+        .efficiency-gradient-markers span:last-child {
+            transform: translateX(-100%);
+        }
+
+        /* Semantic ranges */
+
+        .efficiency-scale-ranges {
+            display: grid;
+            grid-template-columns: 60fr 25fr 15fr;
+
+            overflow: hidden;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+
+            background: var(--surface-soft);
+        }
+
+        .scale-range {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+
+            padding: 10px 14px;
+
+            border-right: 1px solid var(--border);
+
+            font-size: 13px;
+        }
+
+        .scale-range:last-child {
+            border-right: 0;
+        }
+
+        .scale-range strong {
+            color: #243b58;
+        }
+
+        .scale-range span {
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .scale-range-critical {
+            border-top: 3px solid #d94841;
+        }
+
+        .scale-range-attention {
+            border-top: 3px solid #fee08b;
+        }
+
+        .scale-range-good {
+            border-top: 3px solid #6dbb4f;
+        }
+
+        .efficiency-above-reference {
+            margin: 14px 0 0;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .efficiency-scale-guidance {
+            margin: 16px 0 0;
+            padding-top: 14px;
+
+            border-top: 1px solid var(--border);
+
+            color: #40546b;
+            font-size: 14px;
+        }
+
+        /* Responsive */
+
+        @media (max-width: 700px) {
+            .efficiency-scale-ranges {
+                display: block;
+            }
+
+            .scale-range {
+                border-right: 0;
+                border-bottom: 1px solid var(--border);
+            }
+
+            .scale-range:last-child {
+                border-bottom: 0;
+            }
+
+            .scale-range-critical,
+            .scale-range-attention,
+            .scale-range-good {
+                border-top: 0;
+                border-left-width: 4px;
+                border-left-style: solid;
+            }
+
+            .scale-range-critical {
+                border-left-color: #d94841;
+            }
+
+            .scale-range-attention {
+                border-left-color: #fee08b;
+            }
+
+            .scale-range-good {
+                border-left-color: #6dbb4f;
+            }
+        }
+
+        /* -------------------------------------------------- */
+        /* END Efficiency interpretation scale                */
+        /* -------------------------------------------------- */
+
+        .metric-table-card {
+            margin-bottom: 22px;
         }
 
         </style>
