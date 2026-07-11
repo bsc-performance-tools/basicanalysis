@@ -1071,11 +1071,19 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
     info_json = _metric_info_json(metric_keys, metric_info)
 
     if tree:
-        diagnosis_lines = observations.build_tree_diagnosis_observations(
-            tree=tree,
-            metric_info=metric_info,
-            metric_sources=metric_sources,
-            trace_list=trace_list,
+        performance_interpretation = (
+            observations.build_performance_interpretation(
+                tree=tree,
+                metric_info=metric_info,
+                metric_sources=metric_sources,
+                trace_list=trace_list,
+            )
+        )
+
+        performance_interpretation_html = (
+            observations.build_performance_interpretation_html(
+                performance_interpretation
+            )
         )
 
         trend_lines = observations.build_scaling_trend_lines(
@@ -1086,8 +1094,8 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
             max_items=4,
         )
 
-        observations_html = observations.build_tree_diagnosis_html(
-            diagnosis_lines,
+        observations_html = observations.build_analysis_summary_html(
+            performance_html=performance_interpretation_html,
             trend_lines=trend_lines,
             title="Analysis summary",
         )
@@ -3355,6 +3363,27 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
         .metric-table-card {
             margin-bottom: 22px;
+        }
+
+        /* -------------------------------------------------- */
+        /* Performance Interpretation                */
+        /* -------------------------------------------------- */
+        .performance-interpretation h3,
+        .scaling-interpretation h3 {
+            margin: 16px 0 10px;
+            color: var(--primary);
+            font-size: 17px;
+        }
+
+        .performance-interpretation h3 {
+            margin-top: 0;
+        }
+
+        .performance-interpretation p {
+            margin: 0;
+            color: #31465d;
+            font-size: 14px;
+            line-height: 1.7;
         }
 
         </style>

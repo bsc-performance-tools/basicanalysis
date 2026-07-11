@@ -113,6 +113,200 @@ def _status_text(value):
     return "acceptable"
 
 
+def _metric_status(value):
+    if value is None:
+        return "unavailable"
+
+    if value < CRITICAL_THRESHOLD:
+        return "critical"
+
+    if value < ATTENTION_THRESHOLD:
+        return "attention"
+
+    return "good"
+
+
+def _metric_last_values(metric_sources, metric_key, trace_list):
+    values = _metric_series(
+        metric_sources,
+        metric_key,
+        trace_list,
+    )
+
+    if not values:
+        return None, []
+
+    return values[-1], values
+
+
+def _clean_label(metric_info, metric_key):
+    info = metric_info.get(metric_key, {})
+    label = info.get("label", metric_key)
+
+    return (
+        label
+        .replace("-", "")
+        .replace("=", "")
+        .replace("*", "")
+        .strip()
+    )
+
+def _join_metric_names(names):
+    if not names:
+        return ""
+
+    if len(names) == 1:
+        return names[0]
+
+    if len(names) == 2:
+        return "{} and {}".format(
+            names[0],
+            names[1],
+        )
+
+    return "{}, and {}".format(
+        ", ".join(names[:-1]),
+        names[-1],
+    )
+
+def build_performance_interpretation(tree, metric_info, metric_sources,
+                                     trace_list):
+    """
+    Build a hierarchy-aware interpretation of the efficiency metrics.
+
+    The interpretation explains which direct child metrics are most likely
+    to account for a low parent metric. It does not infer root causes.
+    """
+
+    interpretations = []
+
+    def visit(node):
+        metric_key = node["metric"]
+        children = node.get("children", [])
+
+        parent_value, _ = _metric_last_values(
+            metric_sources,
+            metric_key,
+            trace_list,
+        )
+
+        if parent_value is None:
+            return
+
+        if parent_value < ATTENTION_THRESHOLD and children:
+            child_data = []
+
+            for child in children:
+                child_key = child["metric"]
+
+                child_value, _ = _metric_last_values(
+                    metric_sources,
+                    child_key,
+                    trace_list,
+                )
+
+                if child_value is None:
+                    continue
+
+                child_data.append({
+                    "metric": child_key,
+                    "label": _clean_label(
+                        metric_info,
+                        child_key,
+                    ),
+                    "value": child_value,
+                    "status": _metric_status(child_value),
+                })
+
+            if child_data:
+                limiting_children = [
+                    child
+                    for child in child_data
+                    if child["value"] < ATTENTION_THRESHOLD
+                ]
+
+                healthy_children = [
+                    child
+                    for child in child_data
+                    if child["value"] >= ATTENTION_THRESHOLD
+                ]
+
+                limiting_children.sort(
+                    key=lambda child: child["value"]
+                )
+
+                parent_label = _clean_label(
+                    metric_info,
+                    metric_key,
+                )
+
+                if limiting_children:
+                    main_child = limiting_children[0]
+
+                    text = (
+                        "{} is mainly limited by {}"
+                    ).format(
+                        parent_label,
+                        main_child["label"],
+                    )
+
+                    if healthy_children:
+                        healthy_names = [
+                            child["label"]
+                            for child in healthy_children
+                        ]
+
+                        text += (
+                            ", while {} remain{} at acceptable levels"
+                        ).format(
+                            _join_metric_names(healthy_names),
+                            "" if len(healthy_names) > 1 else "s",
+                        )
+
+                    text += "."
+
+                    interpretations.append({
+                        "metric": metric_key,
+                        "value": parent_value,
+                        "text": text,
+                    })
+
+        for child in children:
+            visit(child)
+
+    for root in tree:
+        visit(root)
+
+    return interpretations
+
+
+def build_performance_interpretation_html(interpretations):
+    """Render hierarchy-aware metric interpretation."""
+
+    if not interpretations:
+        return (
+            "<div class='performance-interpretation'>"
+            "<h3>Performance interpretation</h3>"
+            "<p>"
+            "The analyzed metric hierarchy does not show a dominant "
+            "efficiency factor below the attention threshold."
+            "</p>"
+            "</div>"
+        )
+
+    sentences = [
+        item["text"]
+        for item in interpretations
+    ]
+
+    return (
+        "<div class='performance-interpretation'>"
+        "<h3>Performance interpretation</h3>"
+        "<p>{}</p>"
+        "</div>"
+    ).format(" ".join(sentences))
+
+
 def build_scaling_trend_lines(metric_keys, metric_info, metric_sources,
                               trace_list, max_items=4):
     """
@@ -645,6 +839,32 @@ def build_observation_html(observations, title="Analysis summary"):
         html.append("<li>{}</li>".format(obs["text"]))
 
     html.append("</ul>")
+
+    html.append("</div>")
+
+    return "\n".join(html)
+
+def build_analysis_summary_html(performance_html, trend_lines=None,
+                                title="Analysis summary"):
+    trend_lines = trend_lines or []
+
+    html = []
+
+    html.append("<div class='observation-box'>")
+    html.append("<h3>{}</h3>".format(title))
+
+    html.append(performance_html)
+
+    if trend_lines:
+        html.append("<div class='scaling-interpretation'>")
+        html.append("<h3>Scaling trends</h3>")
+        html.append("<ul>")
+
+        for line in trend_lines:
+            html.append("<li>{}</li>".format(line))
+
+        html.append("</ul>")
+        html.append("</div>")
 
     html.append("</div>")
 
