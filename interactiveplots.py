@@ -12,6 +12,17 @@ import observations
 
 import plotly.graph_objects as go
 
+EFFICIENCY_COLOR_SCALE = [
+    (0.00, "#b2182b"),
+    (0.20, "#ef6548"),
+    (0.40, "#fdbb84"),
+    (0.60, "#fee8a8"),
+    (0.75, "#ffffbf"),
+    (0.85, "#d9ef8b"),
+    (0.92, "#b8e186"),
+    (1.00, "#4dac26"),
+]
+
 SIMPLE_METRIC_INFO = {
     "global_eff": {
         "label": "Global efficiency",
@@ -346,6 +357,14 @@ TALP_METRIC_INFO = {
     },
 }
 
+for key in ("ipc_scale", "inst_scale", "freq_scale"):
+    TALP_METRIC_INFO[key] = dict(SIMPLE_METRIC_INFO[key])
+
+TALP_METRIC_INFO["ipc_scale"]["type"] = "Host scalability sub-metric"
+TALP_METRIC_INFO["inst_scale"]["type"] = "Host scalability sub-metric"
+TALP_METRIC_INFO["freq_scale"]["type"] = "Host scalability sub-metric"
+
+
 OPENMP_METRIC_INFO = {
     "omp_talp_parallel_eff": {
         "label": "OpenMP Parallel efficiency",
@@ -481,7 +500,11 @@ TALP_TREE = [
             ]),
             _tree_node("dev_offload_eff"),
         ]),
-        _tree_node("host_comp_scale"),
+        _tree_node("host_comp_scale", [
+            _tree_node("ipc_scale"),
+            _tree_node("inst_scale"),
+            _tree_node("freq_scale"),
+        ]),
     ]),
     _tree_node("dev_global_eff", [
         _tree_node("dev_parallel_eff", [
@@ -501,6 +524,19 @@ OPENMP_TREE = [
     ])
 ]
 
+
+GLOBAL_GPU_TREE = [
+    _tree_node("global_eff", [
+        _tree_node("parallel_eff", [
+            _tree_node("load_balance"),
+            _tree_node("comm_eff", [
+                _tree_node("serial_eff"),
+                _tree_node("transfer_eff"),
+            ]),
+        ]),
+        _tree_node("comp_scale"),
+    ])
+]
 
 
 def _format_overview_value(key, value):
@@ -593,7 +629,7 @@ def _hover_text(metric_key, value, raw_value):
 
     if value > 100.0:
         interpretation = info.get("above100", "Value above 100%. Interpret carefully.")
-    elif value < 80.0:
+    elif value < 85.0:
         interpretation = info.get("low", "Low value. Potential optimization opportunity.")
     else:
         interpretation = "Value is relatively high. This component is probably not the dominant bottleneck."
@@ -637,17 +673,7 @@ def _read_metric(metrics_dict, metric_key, trace):
 
 
 def _seaborn_rdylgn_center75_colorscale():
-    """Softer RdYlGn-like scale, centered around 75%."""
-    return [
-        [0.00, "#b2182b"],
-        [0.20, "#ef6548"],
-        [0.40, "#fdbb84"],
-        [0.60, "#fee8a8"],
-        [0.75, "#ffffbf"],
-        [0.85, "#d9ef8b"],
-        [0.92, "#b8e186"],
-        [1.00, "#4dac26"],
-    ]
+    return EFFICIENCY_COLOR_SCALE
 
 def _plotly_label(label):
     """Preserve indentation using HTML non-breaking spaces."""
@@ -690,7 +716,7 @@ def _hover_text_from_info(metric_info, metric_key, value, raw_value):
 
     if value > 100.0:
         interpretation = info.get("above100", "Value above 100%. Interpret carefully.")
-    elif value < 80.0:
+    elif value < 85.0:
         interpretation = info.get("low", "Low value. Potential optimization opportunity.")
     else:
         interpretation = "Value is relatively high. This component is probably not the dominant bottleneck."
@@ -865,6 +891,40 @@ def _metric_button(metric_key, metric_info, section_id):
     )
 
 
+def _metric_value_color(value):
+    """Return interpolated color from the efficiency scale."""
+    if value is None:
+        return "#f0f2f5"
+
+    normalized = max(0.0, min(float(value), 100.0)) / 100.0
+
+    for index in range(len(EFFICIENCY_COLOR_SCALE) - 1):
+        lower_position, lower_color = EFFICIENCY_COLOR_SCALE[index]
+        upper_position, upper_color = EFFICIENCY_COLOR_SCALE[index + 1]
+
+        if lower_position <= normalized <= upper_position:
+            fraction = (
+                (normalized - lower_position)
+                / (upper_position - lower_position)
+            )
+
+            return _interpolate_color(
+                lower_color,
+                upper_color,
+                fraction,
+            )
+
+    return EFFICIENCY_COLOR_SCALE[-1][1]
+
+def _metric_value_text_color(value):
+    if value is None:
+        return "#7a8490"
+
+    if value < 25.0 or value >= 95.0:
+        return "#ffffff"
+
+    return "#263238"    
+
 def _render_tree_node(node, key_set, metric_info, section_id):
     metric_key = node["metric"]
 
@@ -908,7 +968,9 @@ def _build_metric_tree_html(metric_keys, metric_info, section_id, tree_kind):
     elif tree_kind == "talp":
         tree = TALP_TREE
     elif tree_kind == "openmp":
-        tree = OPENMP_TREE      
+        tree = OPENMP_TREE 
+    elif tree_kind == "global_gpu":
+        tree = GLOBAL_GPU_TREE             
     else:
         tree = []
 
@@ -922,7 +984,20 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
                                        trace_list, trace_processes, trace_tasks,
                                        trace_threads, trace_mode, title,
                                        section_id, tree_kind=None):
-    heatmap_html = _build_efficiency_heatmap_div(
+    tree = []
+
+    if tree_kind == "global":
+        tree = GLOBAL_TREE
+    elif tree_kind == "global_gpu":
+        tree = GLOBAL_GPU_TREE
+    elif tree_kind == "hybrid":
+        tree = HYBRID_TREE
+    elif tree_kind == "talp":
+        tree = TALP_TREE
+    elif tree_kind == "openmp":
+        tree = OPENMP_TREE
+
+    efficiency_table_html = _build_efficiency_table_html(
         metric_keys=metric_keys,
         metric_info=metric_info,
         metric_sources=metric_sources,
@@ -931,21 +1006,12 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
         trace_tasks=trace_tasks,
         trace_threads=trace_threads,
         trace_mode=trace_mode,
-        title=title,
         section_id=section_id,
+        tree=tree,
     )
 
-    info_json = _metric_info_json(metric_keys, metric_info)
 
-    tree = []
-    if tree_kind == "global":
-        tree = GLOBAL_TREE
-    elif tree_kind == "hybrid":
-        tree = HYBRID_TREE
-    elif tree_kind == "talp":
-        tree = TALP_TREE
-    elif tree_kind == "openmp":
-        tree = OPENMP_TREE
+    info_json = _metric_info_json(metric_keys, metric_info)
 
     if tree:
         diagnosis_lines = observations.build_tree_diagnosis_observations(
@@ -998,14 +1064,15 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
         <p id="{section_id}-info-action"></p>
     </div>
 
-    <div class="metric-heatmap">
-        {heatmap_html}
+    <div class="metric-table-card">
+        {efficiency_table_html}
     </div>
+
     """.format(
         section_id=section_id,
         info_json=info_json,
         observations_html=observations_html,
-        heatmap_html=heatmap_html,
+        efficiency_table_html=efficiency_table_html,
     )
 
 
@@ -1304,19 +1371,46 @@ def _build_efficiency_heatmap_div(metric_keys, metric_info, metric_sources,
         domain=[desktop_domain_left, 0.86],
     )
 
-    # Left-side metric labels
-    for i, label in enumerate(metric_labels):
+    # Left-side metric labels with family and hierarchy styling
+    for i, key in enumerate(metric_keys):
+        raw_label = metric_info[key]["label"]
+        clean_label = _clean_metric_label(raw_label)
+
+        family_style = _metric_family_style(key, raw_label)
+        level = _metric_level(raw_label)
+
+        if level == "main":
+            display_label = "<b>{}</b>".format(clean_label)
+            x_position = 0.02
+            font_size = 13
+        elif level == "child":
+            display_label = "↳ {}".format(clean_label)
+            x_position = 0.045
+            font_size = 12
+        else:
+            display_label = "↳ {}".format(clean_label)
+            x_position = 0.075
+            font_size = 12
+
         fig.add_annotation(
             xref="paper",
-            x=0.02,
+            x=x_position,
             yref="y",
             y=i,
-            text=label,
+            text=display_label,
             showarrow=False,
             xanchor="left",
             yanchor="middle",
             align="left",
-            font=dict(size=13),
+            font=dict(
+                size=font_size,
+                color="#20344d",
+            ),
+            bgcolor=family_style["background"],
+            bordercolor=family_style["border"],
+            borderwidth=1,
+            borderpad=5,
+            opacity=1.0,
         )
 
     # Cell values
@@ -1507,7 +1601,11 @@ def plot_talp_efficiency_interactive(metrics_result, analysis_result, trace_list
         "transfer_eff",
         "dev_offload_eff",
         "host_comp_scale",
+        "ipc_scale",
+        "inst_scale",
+        "freq_scale",
     ]
+
 
     device_keys = [
         "dev_global_eff",
@@ -1609,6 +1707,306 @@ def _build_report_tabs(model):
 
     return tabs
 
+def _metric_family(metric_key, label=""):
+    label_lower = label.lower()
+    key = metric_key.lower()
+
+    if "cuda" in label_lower:
+        return "cuda"
+
+    if "openmp" in label_lower:
+        return "openmp"
+
+    if key == "dev_offload_eff":
+        return "host"
+
+    if "mpi " in label_lower or key.startswith("mpi_"):
+        return "mpi"
+
+    if "host " in label_lower or key.startswith("host_"):
+        return "host"
+
+    if "device " in label_lower or key.startswith("dev_"):
+        return "device"
+
+    return "global"
+
+def _metric_family_style(metric_key, label):
+    """Return Plotly annotation styling for a metric family."""
+    family = _metric_family(metric_key, label)
+
+    styles = {
+        "global": {
+            "background": "#eef2f7",
+            "border": "#66788a",
+        },
+        "mpi": {
+            "background": "#eaf3ff",
+            "border": "#4f86c6",
+        },
+        "openmp": {
+            "background": "#ecf8ef",
+            "border": "#4f9d69",
+        },
+        "cuda": {
+            "background": "#fff1e7",
+            "border": "#d9823b",
+        },
+        "host": {
+            "background": "#f2edff",
+            "border": "#8066bf",
+        },
+        "device": {
+            "background": "#e9f7f5",
+            "border": "#318c82",
+        },
+    }
+
+    return styles.get(family, styles["global"])
+
+
+def _metric_level(label):
+    stripped = label.lstrip()
+    indentation = len(label) - len(stripped)
+
+    if indentation >= 6:
+        return "grandchild"
+
+    if indentation >= 2:
+        return "child"
+
+    return "main"
+
+
+def _hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip("#")
+    return tuple(
+        int(hex_color[i:i + 2], 16)
+        for i in (0, 2, 4)
+    )
+
+
+def _rgb_to_hex(rgb):
+    return "#{:02x}{:02x}{:02x}".format(
+        int(round(rgb[0])),
+        int(round(rgb[1])),
+        int(round(rgb[2])),
+    )
+
+
+def _interpolate_color(color_a, color_b, fraction):
+    fraction = max(0.0, min(1.0, fraction))
+
+    rgb_a = _hex_to_rgb(color_a)
+    rgb_b = _hex_to_rgb(color_b)
+
+    rgb = tuple(
+        a + (b - a) * fraction
+        for a, b in zip(rgb_a, rgb_b)
+    )
+
+    return _rgb_to_hex(rgb)
+
+
+def _metric_value_class(value):
+    if value is None:
+        return "metric-unavailable"
+
+    if value > 100.0:
+        return "metric-above-reference"
+
+    if value < 60.0:
+        return "metric-critical"
+
+    if value < 85.0:
+        return "metric-warning"
+
+    return "metric-good"
+
+
+def _metric_value_html(value):
+    if value is None:
+        return (
+            "<span class='metric-value metric-unavailable'>"
+            "N/A"
+            "</span>"
+        )
+
+    css_class = _metric_value_class(value)
+
+    return (
+        "<span class='metric-value {}'>{:.2f}%</span>"
+    ).format(css_class, value)
+
+
+def _metric_name_html(metric_key, metric_info, depth=0):
+    info = metric_info.get(metric_key, {})
+    raw_label = info.get("label", metric_key)
+
+    family = _metric_family(metric_key, raw_label)
+    clean_label = _clean_metric_label(raw_label)
+
+    if depth == 0:
+        display_label = "<strong>{}</strong>".format(
+            html.escape(clean_label)
+        )
+    else:
+        display_label = "↳ {}".format(
+            html.escape(clean_label)
+        )
+
+    return (
+        "<td class='metric-name-cell metric-family-{family}' "
+        "style='--metric-depth: {depth};'>"
+        "{label}"
+        "</td>"
+    ).format(
+        family=family,
+        depth=depth,
+        label=display_label,
+    )
+
+
+def _build_metric_depth_map(tree):
+    """Return metric hierarchy depth from a metric tree."""
+    depth_map = {}
+
+    def visit(node, depth):
+        metric = node["metric"]
+        depth_map[metric] = depth
+
+        for child in node.get("children", []):
+            visit(child, depth + 1)
+
+    for root in tree:
+        visit(root, 0)
+
+    return depth_map
+
+
+def _build_efficiency_table_html(metric_keys, metric_info, metric_sources,
+                                 trace_list, trace_processes, trace_tasks,
+                                 trace_threads, trace_mode, section_id,
+                                 tree=None):
+    """Build an interactive HTML efficiency metrics table."""
+
+    depth_map = _build_metric_depth_map(tree or [])
+    headers = [
+        _trace_label(
+            trace,
+            index,
+            trace_processes,
+            trace_tasks,
+            trace_threads,
+            trace_mode,
+        )
+        for index, trace in enumerate(trace_list)
+    ]
+
+    lines = []
+
+    lines.append("<div class='efficiency-table-wrapper'>")
+    lines.append("<table class='efficiency-table'>")
+
+    # --------------------------------------------------
+    # Header
+    # --------------------------------------------------
+
+    lines.append("<thead>")
+    lines.append("<tr>")
+    lines.append("<th class='metric-column-header'>Metric</th>")
+
+    for header in headers:
+        lines.append(
+            "<th>{}</th>".format(html.escape(header))
+        )
+
+    lines.append("</tr>")
+    lines.append("</thead>")
+
+    # --------------------------------------------------
+    # Body
+    # --------------------------------------------------
+
+    lines.append("<tbody>")
+
+    for metric_key in metric_keys:
+        info = metric_info.get(metric_key, {})
+        raw_label = info.get("label", metric_key)
+        clean_label = _clean_metric_label(raw_label)
+
+        source = metric_sources.get(metric_key, {})
+
+        lines.append("<tr>")
+
+        # Metric name
+        depth = depth_map.get(metric_key, 0)
+
+        lines.append(
+            _metric_name_html(
+                metric_key,
+                metric_info,
+                depth=depth,
+            )
+        )
+
+        # Values per trace
+        for index, trace in enumerate(trace_list):
+            raw_value = _read_metric(
+                source,
+                metric_key,
+                trace,
+            )
+
+            value = _clean_value(raw_value)
+            trace_label = headers[index]
+
+            if value is None:
+                display_value = "N/A"
+                js_value = "null"
+            else:
+                display_value = "{:.2f}%".format(value)
+                js_value = "{:.10f}".format(value)
+
+            value_class = _metric_value_class(value)
+            background_color = _metric_value_color(value)
+            text_color = _cell_text_color(value)
+
+            lines.append(
+                "<td class='metric-value-cell'>"
+                "<button "
+                "type='button' "
+                "class='metric-value' "
+                "style='background:{background}; color:{text_color};' "
+                "onclick=\"selectMetricCell("
+                "'{section_id}', "
+                "'{metric_key}', "
+                "'{metric_label}', "
+                "'{trace_label}', "
+                "{value}"
+                ")\">"
+                "{display_value}"
+                "</button>"
+                "</td>".format(
+                    background=background_color,
+                    text_color=text_color,
+                    section_id=html.escape(section_id, quote=True),
+                    metric_key=html.escape(metric_key, quote=True),
+                    metric_label=html.escape(clean_label, quote=True),
+                    trace_label=html.escape(trace_label, quote=True),
+                    value=js_value,
+                    display_value=display_value,
+                )
+            )
+
+        lines.append("</tr>")
+
+    lines.append("</tbody>")
+    lines.append("</table>")
+    lines.append("</div>")
+
+    return "\n".join(lines)
+
 
 def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                                           report,
@@ -1640,18 +2038,34 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     inner_model = _inner_model_name(trace_mode, trace_list)
     hybrid_metric_info = _build_hybrid_metric_info(inner_model)
 
-    global_keys = [
-        "global_eff",
-        "parallel_eff",
-        "load_balance",
-        "comm_eff",
-        "serial_eff",
-        "transfer_eff",
-        "comp_scale",
-        "ipc_scale",
-        "inst_scale",
-        "freq_scale",
-    ]
+
+    if model["has_cuda"]:
+        global_keys = [
+            "global_eff",
+            "parallel_eff",
+            "load_balance",
+            "comm_eff",
+            "serial_eff",
+            "transfer_eff",
+            "comp_scale",
+        ]
+
+        global_tree_kind = "global_gpu"
+    else:
+        global_keys = [
+            "global_eff",
+            "parallel_eff",
+            "load_balance",
+            "comm_eff",
+            "serial_eff",
+            "transfer_eff",
+            "comp_scale",
+            "ipc_scale",
+            "inst_scale",
+            "freq_scale",
+        ]
+
+        global_tree_kind = "global"
 
 
     global_filtered_keys = []
@@ -1677,7 +2091,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         trace_mode=trace_mode,
         title="Global metrics",
         section_id="global",
-        tree_kind="global",
+        tree_kind=global_tree_kind,
     )
 
 
@@ -1728,7 +2142,11 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             "transfer_eff",
             "dev_offload_eff",
             "host_comp_scale",
+            "ipc_scale",
+            "inst_scale",
+            "freq_scale",
         ]
+
 
         device_keys = [
             "dev_global_eff",
@@ -1742,10 +2160,15 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         talp_keys = host_keys + device_keys
 
         talp_sources = {}
+
         for key in host_keys:
-            talp_sources[key] = host_factors
+            if key in ("ipc_scale", "inst_scale", "freq_scale"):
+                talp_sources[key] = mod_factors
+            else:
+                talp_sources[key] = host_factors
         for key in device_keys:
             talp_sources[key] = device_factors
+
 
         # Remove rows that are unavailable for all traces
         talp_filtered_keys = []
@@ -2044,6 +2467,648 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         }
 
 
+        :root {
+            --background: #f4f7fb;
+            --surface: #ffffff;
+            --surface-soft: #f8fafc;
+
+            --primary: #17365d;
+            --primary-light: #e8f0fa;
+            --primary-hover: #244d7e;
+
+            --text: #172033;
+            --text-secondary: #5c677a;
+            --border: #dce3ec;
+
+            --info-bg: #eef6ff;
+            --info-border: #8bb8e8;
+
+            --summary-bg: #f4f8ff;
+            --summary-border: #b7cbe3;
+
+            --shadow-sm: 0 2px 8px rgba(20, 38, 63, 0.06);
+            --shadow-md: 0 8px 24px rgba(20, 38, 63, 0.09);
+
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+        }
+
+        /* -------------------------------------------------- */
+        /* Page                                                */
+        /* -------------------------------------------------- */
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--background);
+            color: var(--text);
+            font-family:
+                Inter,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                Roboto,
+                Helvetica,
+                Arial,
+                sans-serif;
+            line-height: 1.55;
+        }
+
+        .report-header {
+            background: linear-gradient(135deg, #122a49 0%, #1e4b78 100%);
+            color: white;
+            padding: 30px 24px;
+            box-shadow: var(--shadow-md);
+        }
+
+        .report-header-content {
+            max-width: 1440px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+        }
+
+        .report-brand {
+            margin-bottom: 4px;
+            color: #a9c9ea;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .report-header h1 {
+            margin: 0;
+            color: white;
+            font-size: 30px;
+            line-height: 1.2;
+        }
+
+        .subtitle {
+            margin: 8px 0 0;
+            color: #d8e7f5;
+            font-size: 15px;
+        }
+
+        .report-badge {
+            flex: 0 0 auto;
+            padding: 8px 13px;
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.10);
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .report-container {
+            width: min(1440px, calc(100% - 40px));
+            margin: 28px auto 48px;
+        }
+
+        h2 {
+            margin: 0 0 22px;
+            color: var(--primary);
+            font-size: 25px;
+        }
+
+        h3 {
+            margin-top: 28px;
+            margin-bottom: 12px;
+            color: #243b58;
+            font-size: 18px;
+        }
+
+        /* -------------------------------------------------- */
+        /* Navigation                                          */
+        /* -------------------------------------------------- */
+
+        .tab-bar {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px;
+
+            margin-bottom: 24px;
+            padding: 8px;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: rgba(255, 255, 255, 0.96);
+            box-shadow: var(--shadow-sm);
+            backdrop-filter: blur(8px);
+        }
+
+        .tab-button {
+            padding: 10px 16px;
+            border: 0;
+            border-radius: var(--radius-sm);
+            background: transparent;
+            color: var(--text-secondary);
+
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+
+            transition:
+                background 0.18s ease,
+                color 0.18s ease,
+                transform 0.18s ease;
+        }
+
+        .tab-button:hover {
+            background: var(--primary-light);
+            color: var(--primary);
+        }
+
+        .tab-button.active {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 3px 10px rgba(23, 54, 93, 0.22);
+        }
+
+        .tab-content {
+            display: none;
+            padding: 26px;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* -------------------------------------------------- */
+        /* Tables                                              */
+        /* -------------------------------------------------- */
+
+        .metric-table {
+            width: 100%;
+            margin-top: 12px;
+            overflow: hidden;
+
+            border-collapse: separate;
+            border-spacing: 0;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: white;
+
+            font-size: 14px;
+        }
+
+        .metric-table th,
+        .metric-table td {
+            padding: 11px 14px;
+            border: 0;
+            border-bottom: 1px solid var(--border);
+            text-align: right;
+        }
+
+        .metric-table th {
+            background: #edf3f9;
+            color: #29435f;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .metric-table td:first-child,
+        .metric-table th:first-child {
+            text-align: left;
+        }
+
+        .metric-table tbody tr:last-child td {
+            border-bottom: 0;
+        }
+
+        .metric-table tbody tr:hover td {
+            background: #f8fbff;
+        }
+
+        .metric-table td[colspan] {
+            background: #f0f4f8 !important;
+            color: var(--primary);
+            font-weight: 700 !important;
+            letter-spacing: 0.01em;
+        }
+
+        /* -------------------------------------------------- */
+        /* Analysis summary                                    */
+        /* -------------------------------------------------- */
+
+        .observation-box {
+            max-width: none;
+            margin-bottom: 22px;
+            padding: 20px 22px;
+
+            border: 1px solid var(--summary-border);
+            border-left: 5px solid #4c83bd;
+            border-radius: var(--radius-md);
+            background: linear-gradient(135deg, #f7faff 0%, #eef5fc 100%);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .observation-box h3 {
+            margin: 0 0 14px;
+            color: var(--primary);
+            font-size: 18px;
+        }
+
+        .observation-box p {
+            margin: 10px 0;
+        }
+
+        .observation-box ul {
+            margin: 8px 0 0;
+            padding-left: 22px;
+        }
+
+        .observation-box li {
+            margin-bottom: 7px;
+        }
+
+        .tree-diagnosis {
+            padding: 12px 14px;
+            border-radius: var(--radius-sm);
+            background: rgba(255, 255, 255, 0.75);
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        .tree-diagnosis div {
+            margin-bottom: 4px;
+        }
+
+        /* -------------------------------------------------- */
+        /* Metric details                                      */
+        /* -------------------------------------------------- */
+
+        .metric-info-panel {
+            position: relative;
+            max-width: none;
+            min-height: 145px;
+            margin-bottom: 22px;
+            padding: 20px 22px;
+
+            border: 1px solid var(--info-border);
+            border-left: 5px solid #2374b8;
+            border-radius: var(--radius-md);
+            background: var(--info-bg);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .metric-info-panel::before {
+            content: "Metric details";
+            display: block;
+            margin-bottom: 8px;
+
+            color: #527397;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .metric-info-panel h3 {
+            margin: 0 0 8px;
+            color: var(--primary);
+            font-size: 19px;
+        }
+
+        .metric-info-panel p {
+            margin: 7px 0;
+        }
+
+        .metric-info-type {
+            display: inline-block;
+            padding: 4px 9px;
+
+            border-radius: 999px;
+            background: #dcecff;
+            color: #245a8d;
+
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        /* -------------------------------------------------- */
+        /* Heatmap                                             */
+        /* -------------------------------------------------- */
+
+        .metric-heatmap {
+            min-width: 0;
+            overflow: hidden;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: white;
+            box-shadow: var(--shadow-sm);
+        }
+
+        /* -------------------------------------------------- */
+        /* Buttons                                             */
+        /* -------------------------------------------------- */
+
+        .copy-btn {
+            padding: 8px 12px;
+            border: 1px solid #2d669d;
+            border-radius: 7px;
+            background: #2d669d;
+            color: white;
+
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+
+            transition:
+                background 0.18s ease,
+                transform 0.18s ease,
+                box-shadow 0.18s ease;
+        }
+
+        .copy-btn:hover {
+            background: #214f7b;
+            box-shadow: 0 4px 10px rgba(33, 79, 123, 0.20);
+            transform: translateY(-1px);
+        }
+
+        code {
+            padding: 3px 6px;
+            border-radius: 5px;
+            background: #eef2f6;
+            color: #33465c;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+            font-size: 12px;
+        }
+
+        /* -------------------------------------------------- */
+        /* Responsive                                          */
+        /* -------------------------------------------------- */
+
+        @media (max-width: 800px) {
+            .report-header-content {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .report-badge {
+                display: none;
+            }
+
+            .report-container {
+                width: min(100% - 20px, 1440px);
+                margin-top: 16px;
+            }
+
+            .tab-content {
+                padding: 18px 14px;
+            }
+
+            .tab-bar {
+                position: static;
+            }
+
+            .metric-table {
+                display: block;
+                overflow-x: auto;
+                white-space: nowrap;
+            }
+
+            .report-header h1 {
+                font-size: 24px;
+            }
+        }
+
+        .report-section {
+            margin-bottom: 34px;
+        }
+
+        .report-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .section-description {
+            max-width: 850px;
+            margin-top: -4px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: tabFadeIn 0.22s ease;
+        }
+
+        @keyframes tabFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(4px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Metric-family styling */
+
+        .metric-family-global {
+            background: #eef2f7;
+            border-left: 4px solid #66788a;
+        }
+
+        .metric-family-mpi {
+            background: #eaf3ff;
+            border-left: 4px solid #4f86c6;
+        }
+
+        .metric-family-openmp {
+            background: #ecf8ef;
+            border-left: 4px solid #4f9d69;
+        }
+
+        .metric-family-cuda {
+            background: #fff1e7;
+            border-left: 4px solid #d9823b;
+        }
+
+        .metric-family-host {
+            background: #f2edff;
+            border-left: 4px solid #8066bf;
+        }
+
+        .metric-family-device {
+            background: #e9f7f5;
+            border-left: 4px solid #318c82;
+        }
+
+        .metric-main {
+            font-weight: 700;
+        }
+
+        .metric-child {
+            padding-left: 28px !important;
+        }
+
+        .metric-grandchild {
+            padding-left: 48px !important;
+        }
+
+
+        /* Severity badges */
+
+        .metric-value {
+            display: inline-block;
+            min-width: 78px;
+            padding: 6px 10px;
+
+            border: 1px solid rgba(30, 50, 70, 0.14);
+            border-radius: 999px;
+
+            cursor: pointer;
+
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+
+            transition:
+                transform 0.15s ease,
+                box-shadow 0.15s ease,
+                filter 0.15s ease;
+        }
+
+        .metric-value:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 9px rgba(20, 38, 63, 0.16);
+            filter: brightness(0.97);
+        }
+
+        .metric-above-reference {
+            background: #e7f0fb;
+            color: #245887;
+            border: 1px solid #abc7e4;
+        }
+
+        .metric-unavailable {
+            background: #f0f2f5;
+            color: #7a8490;
+            border: 1px solid #d7dce2;
+        }
+
+        /* -------------------------------------------------- */
+        /* Efficiency metrics table                            */
+        /* -------------------------------------------------- */
+
+        .metric-table-card {
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: white;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .efficiency-table-wrapper {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        .efficiency-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: white;
+            font-size: 14px;
+        }
+
+        .efficiency-table th,
+        .efficiency-table td {
+            padding: 11px 14px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .efficiency-table thead th {
+            background: #edf3f9;
+            color: #29435f;
+            font-size: 13px;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .efficiency-table .metric-column-header {
+            min-width: 330px;
+            text-align: left;
+        }
+
+        .efficiency-table tbody tr:last-child td {
+            border-bottom: 0;
+        }
+
+        .efficiency-table tbody tr:hover .metric-value-cell {
+            background: #f8fbff;
+        }
+
+        .metric-name-cell {
+            min-width: 330px;
+            color: #20344d;
+            text-align: left;
+        }
+
+        .metric-value-cell {
+            min-width: 120px;
+            background: white;
+            text-align: center;
+            transition: background 0.15s ease;
+        }
+
+        .metric-value {
+            display: inline-block;
+            min-width: 78px;
+            padding: 6px 10px;
+
+            border-radius: 999px;
+
+            cursor: pointer;
+
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+
+            transition:
+                transform 0.15s ease,
+                box-shadow 0.15s ease;
+        }
+
+        .metric-value:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 9px rgba(20, 38, 63, 0.16);
+        }
+
+        .metric-value:focus {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+        .metric-name-cell {
+            padding-left: calc(
+                16px + (var(--metric-depth, 0) * 22px)
+            ) !important;
+        }
+
         </style>
 
         <script>
@@ -2109,7 +3174,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             document.getElementById(sectionId + "-info-meaning").innerText =
                 info.meaning;
 
-            if (value !== null && value !== undefined && value < 80.0) {
+            if (value !== null && value !== undefined && value < 85.0) {
                 document.getElementById(sectionId + "-info-interpretation").innerText =
                     "Interpretation: " + info.low;
             } else if (value !== null && value !== undefined && value > 100.0) {
@@ -2148,8 +3213,23 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
         <body onload="showTab('overview')">
 
-        <h1>BasicAnalysis Interactive Report</h1>
-        <div class="subtitle">Performance diagnosis organized by metric level.</div>
+        <header class="report-header">
+            <div class="report-header-content">
+                <div>
+                    <div class="report-brand">BasicAnalysis</div>
+                    <h1>Interactive Performance Report</h1>
+                    <p class="subtitle">
+                        Hierarchical efficiency analysis and guided performance diagnosis
+                    </p>
+                </div>
+
+                <div class="report-badge">
+                    Performance Assessment
+                </div>
+            </div>
+        </header>
+
+        <main class="report-container">
 
         <div class="tab-bar">
             <button id="overview-button" class="tab-button" onclick="showTab('overview')">Overview</button>
@@ -2162,14 +3242,24 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         <div id="overview" class="tab-content">
             <h2>Overview</h2>
 
-            <h3>Trace configuration</h3>
-            {trace_config_html}
+            <section class="report-section">
+                <h3>Trace configuration</h3>
+                {trace_config_html}
+            </section>
 
-            <h3>Open traces in Paraver</h3>
-            {resources_html}
+            <section class="report-section">
+                <h3>General metrics</h3>
+                {overview_html}
+            </section>
 
-            <h3>General metrics</h3>
-            {overview_html}
+            <section class="report-section">
+                <h3>Validate observations in Paraver</h3>
+                <p class="section-description">
+                    Use the recommended view to inspect the execution and validate
+                    the observations identified by BasicAnalysis.
+                </p>
+                {resources_html}
+            </section>
         </div>
 
         <div id="global" class="tab-content">
@@ -2192,6 +3282,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             {openmp_html}
         </div>        
 
+        </main>
         </body>
         </html>
         """
