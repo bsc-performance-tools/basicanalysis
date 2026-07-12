@@ -9,6 +9,8 @@ import subprocess
 import hybridmetrics
 import plots
 import reportdata
+import html_to_pdf
+import os
 
 from simplemetrics import (
     compute_model_factors,
@@ -283,6 +285,36 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
                 cmdl_args,
             )
 
+            printable_html = (
+                interactiveplots.generate_basicanalysis_printable_report(
+                    metrics_result,
+                    analysis_result,
+                    report,
+                    trace_list,
+                    trace_processes,
+                    trace_tasks,
+                    trace_threads,
+                    trace_mode,
+                    cmdl_args,
+                )
+            )
+
+            output_pdf = os.path.join(
+                os.getcwd(),
+                "basicanalysis_performance_report.pdf",
+            )
+
+            try:
+                html_to_pdf.html_to_pdf(
+                    printable_html,
+                    output_pdf,
+                )
+
+            except Exception as error:
+                print(
+                    "==WARNING== PDF report could not be generated: "
+                    "{}".format(error)
+                )
         else:
             print('Plotly/interactiveplots module not available. '
                  'Skipping interactive HTML report.')            
@@ -366,7 +398,36 @@ def generate_simple_plots(metrics_result, analysis_result, report,
                 cmdl_args,
             )
 
+            printable_html = (
+                interactiveplots.generate_basicanalysis_printable_report(
+                    metrics_result,
+                    analysis_result,
+                    report,
+                    trace_list,
+                    trace_processes,
+                    trace_tasks,
+                    trace_threads,
+                    trace_mode,
+                    cmdl_args,
+                )
+            )
 
+            output_pdf = os.path.join(
+                os.getcwd(),
+                "basicanalysis_performance_report.pdf",
+            )
+
+            try:
+                html_to_pdf.html_to_pdf(
+                    printable_html,
+                    output_pdf,
+                )
+
+            except Exception as error:
+                print(
+                    "==WARNING== PDF report could not be generated: "
+                    "{}".format(error)
+                )
         else:
             print('Plotly/interactiveplots module not available. '
                       'Skipping interactive HTML report.')
@@ -434,4 +495,5 @@ def generate_plots(metrics_result, analysis_result, trace_list, trace_processes,
             trace_mode,
             cmdl_args,
         )
+    
 

@@ -57,6 +57,25 @@ If these modules are not available, BasicAnalysis can still compute the metrics,
 
 For gnuplot-based output, gnuplot version 5.0 or higher is required.
 
+
+## Optional Dependencies
+
+BasicAnalysis automatically generates a printable PDF performance report when
+a Chromium-compatible browser is available.
+
+The following browser executables are supported:
+
+- `chromium`
+- `chromium-browser`
+- `google-chrome`
+- `google-chrome-stable`
+
+For example, on Ubuntu:
+
+```bash
+sudo apt install chromium
+```
+
 ## Installation
 
 There is no installation step required.
@@ -394,6 +413,8 @@ the final metrics, tables, CSV files, and plots need to be generated.
 #### Notes:
   - This step does not analyze traces directly. It only consumes the merged rawdata JSON file.
   - Use the analysis step first if rawdata has not been generated yet.
+
+
 
 ## Short Workflow example
 

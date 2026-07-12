@@ -2299,9 +2299,152 @@ def _build_metric_depth_map(tree):
     return depth_map
 
 
+def _build_metric_definition_table_html(metric_keys, metric_info):
+    """Build a static table with metric definitions."""
+
+    if not metric_keys:
+        return ""
+
+    lines = []
+
+    lines.append("<div class='metric-definition-section'>")
+    lines.append("<h3>Metric definitions</h3>")
+
+    lines.append("<table class='metric-definition-table'>")
+
+    lines.append("<thead>")
+    lines.append("<tr>")
+    lines.append("<th>Metric</th>")
+    lines.append("<th>Definition</th>")
+    lines.append("</tr>")
+    lines.append("</thead>")
+
+    lines.append("<tbody>")
+
+    for metric_key in metric_keys:
+        info = metric_info.get(metric_key, {})
+
+        label = _clean_metric_label(
+            info.get("label", metric_key)
+        )
+
+        meaning = info.get(
+            "meaning",
+            "No definition available.",
+        )
+
+        lines.append("<tr>")
+
+        lines.append(
+            "<td><strong>{}</strong></td>".format(
+                html.escape(label)
+            )
+        )
+
+        lines.append(
+            "<td>{}</td>".format(
+                html.escape(meaning)
+            )
+        )
+
+        lines.append("</tr>")
+
+    lines.append("</tbody>")
+    lines.append("</table>")
+    lines.append("</div>")
+
+    return "\n".join(lines)
+
+def _build_printable_metric_section(
+        metric_keys,
+        metric_info,
+        metric_sources,
+        trace_list,
+        trace_labels,
+        title,
+        tree,
+        trace_header_note=""):
+    """Build a static efficiency section for the printable report."""
+
+    efficiency_table_html = _build_efficiency_table_html(
+        metric_keys=metric_keys,
+        metric_info=metric_info,
+        metric_sources=metric_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        section_id="print",
+        tree=tree,
+        printable=True,
+    )
+
+    performance_interpretation = (
+        observations.build_performance_interpretation(
+            tree=tree,
+            metric_info=metric_info,
+            metric_sources=metric_sources,
+            trace_list=trace_list,
+        )
+    )
+
+    performance_html = (
+        observations.build_performance_interpretation_html(
+            performance_interpretation
+        )
+    )
+
+    scaling_interpretation = (
+        observations.build_scaling_interpretation(
+            tree=tree,
+            metric_info=metric_info,
+            metric_sources=metric_sources,
+            trace_list=trace_list,
+        )
+    )
+
+    scaling_html = (
+        observations.build_scaling_interpretation_html(
+            scaling_interpretation
+        )
+    )
+
+    analysis_html = observations.build_analysis_summary_html(
+        performance_html=performance_html,
+        scaling_html=scaling_html,
+        title="Analysis summary",
+    )
+
+    definitions_html = _build_metric_definition_table_html(
+        metric_keys=metric_keys,
+        metric_info=metric_info,
+    )
+
+    return """
+    <section class="print-metric-section">
+        <h2>{title}</h2>
+
+        {trace_header_note}
+
+        <div class="metric-table-card">
+            {efficiency_table_html}
+        </div>
+
+        {analysis_html}
+
+        {definitions_html}
+    </section>
+    """.format(
+        title=html.escape(title),
+        trace_header_note=trace_header_note,
+        efficiency_table_html=efficiency_table_html,
+        analysis_html=analysis_html,
+        definitions_html=definitions_html,
+    )
+
+
 def _build_efficiency_table_html(metric_keys, metric_info, metric_sources,
                                  trace_list, trace_labels, section_id,
-                                 tree=None):
+                                 tree=None, printable=False):
+
     """Build an interactive HTML efficiency metrics table."""
 
     depth_map = _build_metric_depth_map(tree or [])
@@ -2376,32 +2519,47 @@ def _build_efficiency_table_html(metric_keys, metric_info, metric_sources,
             background_color = _metric_value_color(value)
             text_color = _cell_text_color(value)
 
-            lines.append(
-                "<td class='metric-value-cell'>"
-                "<button "
-                "type='button' "
-                "class='metric-value' "
-                "style='background:{background}; color:{text_color};' "
-                "onclick=\"selectMetricCell("
-                "'{section_id}', "
-                "'{metric_key}', "
-                "'{metric_label}', "
-                "'{trace_label}', "
-                "{value}"
-                ")\">"
-                "{display_value}"
-                "</button>"
-                "</td>".format(
-                    background=background_color,
-                    text_color=text_color,
-                    section_id=html.escape(section_id, quote=True),
-                    metric_key=html.escape(metric_key, quote=True),
-                    metric_label=html.escape(clean_label, quote=True),
-                    trace_label=html.escape(trace_label, quote=True),
-                    value=js_value,
-                    display_value=display_value,
+            if printable:
+                lines.append(
+                    "<td class='metric-value-cell'>"
+                    "<span "
+                    "class='metric-value metric-value-print' "
+                    "style='background:{background}; color:{text_color};'>"
+                    "{display_value}"
+                    "</span>"
+                    "</td>".format(
+                        background=background_color,
+                        text_color=text_color,
+                        display_value=display_value,
+                    )
                 )
-            )
+            else:
+                lines.append(
+                    "<td class='metric-value-cell'>"
+                    "<button "
+                    "type='button' "
+                    "class='metric-value' "
+                    "style='background:{background}; color:{text_color};' "
+                    "onclick=\"selectMetricCell("
+                    "'{section_id}', "
+                    "'{metric_key}', "
+                    "'{metric_label}', "
+                    "'{trace_label}', "
+                    "{value}"
+                    ")\">"
+                    "{display_value}"
+                    "</button>"
+                    "</td>".format(
+                        background=background_color,
+                        text_color=text_color,
+                        section_id=html.escape(section_id, quote=True),
+                        metric_key=html.escape(metric_key, quote=True),
+                        metric_label=html.escape(clean_label, quote=True),
+                        trace_label=html.escape(trace_label, quote=True),
+                        value=js_value,
+                        display_value=display_value,
+                    )
+                )
 
         lines.append("</tr>")
 
@@ -3867,9 +4025,6 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                     </p>
                 </div>
 
-                <div class="report-badge">
-                    Performance Assessment
-                </div>
             </div>
         </header>
 
@@ -3979,3 +4134,626 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         f.write(html_content)
 
     print("Interactive report written to {}".format(output_html))
+
+
+def generate_basicanalysis_printable_report(
+        metrics_result,
+        analysis_result,
+        report,
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        cmdl_args):
+    """Generate printable BasicAnalysis HTML report."""
+
+    output_html = os.path.join(
+        os.getcwd(),
+        "basicanalysis_printable_report.html",
+    )
+
+    model = _report_execution_model(
+        trace_mode,
+        trace_list,
+        metrics_result,
+    )
+
+    report_traces = report.get("traces", [])
+
+    trace_labels = [
+        _report_trace_label(trace_info)
+        for trace_info in report_traces
+    ]
+
+    trace_header_note = _build_trace_header_note(report)
+
+    trace_config_html = _build_trace_config_table_html(report)
+
+    other_metrics = metrics_result["other_metrics"]
+
+    overview_html = _build_overview_table_html(
+        other_metrics,
+        trace_list,
+        trace_labels,
+    )
+
+    efficiency_scale_html = _build_efficiency_scale_html()
+
+    mod_factors = metrics_result.get("mod_factors", {})
+    hybrid_factors = metrics_result.get("hybrid_factors", {})
+    hyb_comm_omp_factors = metrics_result.get(
+        "hyb_comm_omp_factors",
+        {},
+    )
+
+    inner_model = _inner_model_name(
+        trace_mode,
+        trace_list,
+    )
+
+    hybrid_metric_info = _build_hybrid_metric_info(
+        inner_model
+    )
+
+    if model["has_cuda"]:
+        global_keys = [
+            "global_eff",
+            "parallel_eff",
+            "load_balance",
+            "comm_eff",
+            "comp_scale",
+        ]
+
+        global_tree = GLOBAL_GPU_TREE
+
+    else:
+        global_keys = [
+            "global_eff",
+            "parallel_eff",
+            "load_balance",
+            "comm_eff",
+            "serial_eff",
+            "transfer_eff",
+            "comp_scale",
+            "ipc_scale",
+            "inst_scale",
+            "freq_scale",
+        ]
+
+        global_tree = GLOBAL_TREE
+
+    global_filtered_keys = []
+
+    for key in global_keys:
+        if key not in mod_factors:
+            continue
+
+        for trace in trace_list:
+            if _clean_value(
+                _read_metric(mod_factors, key, trace)
+            ) is not None:
+                global_filtered_keys.append(key)
+                break
+
+    global_sources = {
+        key: mod_factors
+        for key in global_filtered_keys
+    }
+
+    global_html = _build_printable_metric_section(
+        metric_keys=global_filtered_keys,
+        metric_info=SIMPLE_METRIC_INFO,
+        metric_sources=global_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        title="Global Efficiency Metrics",
+        tree=global_tree,
+        trace_header_note=trace_header_note,
+    )
+
+
+    hybrid_html = ""
+
+    if metrics_result["kind"] == "hybrid":
+        hybrid_keys = list(HYBRID_ORDER)
+
+        if inner_model == "OpenMP" and cmdl_args.hyb_mpiomp:
+            hybrid_keys += OMP_COMM_ORDER
+
+        hybrid_sources = {}
+
+        for key in HYBRID_ORDER:
+            hybrid_sources[key] = hybrid_factors
+
+        for key in OMP_COMM_ORDER:
+            hybrid_sources[key] = hyb_comm_omp_factors
+
+        hybrid_filtered_keys = []
+
+        for key in hybrid_keys:
+            source = hybrid_sources[key]
+
+            for trace in trace_list:
+                if _clean_value(
+                    _read_metric(source, key, trace)
+                ) is not None:
+                    hybrid_filtered_keys.append(key)
+                    break
+
+        if hybrid_filtered_keys:
+            hybrid_html = _build_printable_metric_section(
+                metric_keys=hybrid_filtered_keys,
+                metric_info=hybrid_metric_info,
+                metric_sources=hybrid_sources,
+                trace_list=trace_list,
+                trace_labels=trace_labels,
+                title="Parallel Programming Model: MPI + {}".format(
+                    inner_model
+                ),
+                tree=HYBRID_TREE,
+                trace_header_note=trace_header_note,
+            )
+
+
+    talp_html = ""
+
+    if (
+        metrics_result["kind"] == "hybrid"
+        and trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"
+    ):
+        host_factors = metrics_result["host_factors"]
+        device_factors = metrics_result["device_factors"]
+
+        host_keys = [
+            "host_global_eff",
+            "host_parallel_eff",
+            "mpi_parallel_eff",
+            "mpi_load_balance",
+            "mpi_comm_eff",
+            "serial_eff",
+            "transfer_eff",
+            "dev_offload_eff",
+            "host_comp_scale",
+            "ipc_scale",
+            "inst_scale",
+            "freq_scale",
+        ]
+
+        device_keys = [
+            "dev_global_eff",
+            "dev_parallel_eff",
+            "dev_load_balance",
+            "dev_comm_eff",
+            "dev_orches_eff",
+            "dev_comp_scale",
+        ]
+
+        talp_keys = host_keys + device_keys
+        talp_sources = {}
+
+        for key in host_keys:
+            if key in (
+                "ipc_scale",
+                "inst_scale",
+                "freq_scale",
+            ):
+                talp_sources[key] = mod_factors
+            else:
+                talp_sources[key] = host_factors
+
+        for key in device_keys:
+            talp_sources[key] = device_factors
+
+        talp_filtered_keys = []
+
+        for key in talp_keys:
+            source = talp_sources[key]
+
+            for trace in trace_list:
+                if _clean_value(
+                    _read_metric(source, key, trace)
+                ) is not None:
+                    talp_filtered_keys.append(key)
+                    break
+
+        if talp_filtered_keys:
+            talp_html = _build_printable_metric_section(
+                metric_keys=talp_filtered_keys,
+                metric_info=TALP_METRIC_INFO,
+                metric_sources=talp_sources,
+                trace_list=trace_list,
+                trace_labels=trace_labels,
+                title="Host/Device Efficiency Metrics",
+                tree=TALP_TREE,
+                trace_header_note=trace_header_note,
+            )
+
+    openmp_html = ""
+
+    if (
+        metrics_result["kind"] == "hybrid"
+        and "omp_talp_factors" in metrics_result
+    ):
+        omp_talp_factors = metrics_result[
+            "omp_talp_factors"
+        ]
+
+        openmp_filtered_keys = []
+
+        for key in OPENMP_ORDER:
+            if key not in omp_talp_factors:
+                continue
+
+            for trace in trace_list:
+                if _clean_value(
+                    _read_metric(
+                        omp_talp_factors,
+                        key,
+                        trace,
+                    )
+                ) is not None:
+                    openmp_filtered_keys.append(key)
+                    break
+
+        if openmp_filtered_keys:
+            openmp_sources = {
+                key: omp_talp_factors
+                for key in openmp_filtered_keys
+            }
+
+            openmp_html = _build_printable_metric_section(
+                metric_keys=openmp_filtered_keys,
+                metric_info=OPENMP_METRIC_INFO,
+                metric_sources=openmp_sources,
+                trace_list=trace_list,
+                trace_labels=trace_labels,
+                title="OpenMP Efficiency Metrics",
+                tree=OPENMP_TREE,
+                trace_header_note=trace_header_note,
+            )
+
+
+
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>BasicAnalysis Performance Report</title>
+
+        <style>
+            @page {{
+                size: A4 landscape;
+                margin: 12mm;
+            }}
+
+            * {{
+                box-sizing: border-box;
+            }}
+
+            body {{
+                margin: 0;
+                color: #172033;
+                font-family:
+                    -apple-system,
+                    BlinkMacSystemFont,
+                    "Segoe UI",
+                    Roboto,
+                    Helvetica,
+                    Arial,
+                    sans-serif;
+                font-size: 10pt;
+                line-height: 1.5;
+            }}
+
+            .print-header {{
+                margin-bottom: 24px;
+                padding: 18px 22px;
+                background: #17365d;
+                color: white;
+            }}
+
+            .print-header h1 {{
+                margin: 0 0 5px;
+                font-size: 22pt;
+            }}
+
+            .print-header p {{
+                margin: 0;
+                color: #d8e7f5;
+            }}
+
+            .print-section {{
+                margin-bottom: 28px;
+            }}
+
+            .print-metric-section {{
+                break-before: page;
+            }}
+
+            h2 {{
+                margin: 0 0 14px;
+                color: #17365d;
+                font-size: 17pt;
+            }}
+
+            h3 {{
+                color: #243b58;
+            }}
+
+            .metric-table,
+            .efficiency-table,
+            .metric-definition-table {{
+                width: 100%;
+                border-collapse: collapse;
+            }}
+
+            .metric-table th,
+            .metric-table td,
+            .efficiency-table th,
+            .efficiency-table td,
+            .metric-definition-table th,
+            .metric-definition-table td {{
+                padding: 6px 8px;
+                border: 1px solid #dce3ec;
+            }}
+
+            .metric-table th,
+            .efficiency-table th,
+            .metric-definition-table th {{
+                background: #edf3f9;
+                color: #29435f;
+                text-align: left;
+            }}
+
+            .efficiency-table th:not(:first-child),
+            .efficiency-table td:not(:first-child) {{
+                text-align: center;
+            }}
+
+            .metric-name-cell {{
+                padding-left: calc(
+                    8px + (var(--metric-depth, 0) * 16px)
+                ) !important;
+            }}
+
+            .metric-value {{
+                display: inline-block;
+                min-width: 60px;
+                padding: 4px 7px;
+                border-radius: 999px;
+                font-size: 8.5pt;
+                font-weight: 700;
+            }}
+
+            .metric-family-global {{
+                background: #eef2f7;
+                border-left: 4px solid #66788a !important;
+            }}
+
+            .metric-family-mpi {{
+                background: #eaf3ff;
+                border-left: 4px solid #4f86c6 !important;
+            }}
+
+            .metric-family-openmp {{
+                background: #ecf8ef;
+                border-left: 4px solid #4f9d69 !important;
+            }}
+
+            .metric-family-cuda {{
+                background: #fff1e7;
+                border-left: 4px solid #d9823b !important;
+            }}
+
+            .metric-family-host {{
+                background: #f2edff;
+                border-left: 4px solid #8066bf !important;
+            }}
+
+            .metric-family-device {{
+                background: #e9f7f5;
+                border-left: 4px solid #318c82 !important;
+            }}
+
+            .observation-box {{
+                margin: 18px 0;
+                padding: 14px 16px;
+                border: 1px solid #b7cbe3;
+                border-left: 5px solid #4c83bd;
+                background: #f4f8ff;
+            }}
+
+            .performance-interpretation p,
+            .scaling-interpretation p {{
+                color: #31465d;
+                font-size: 10pt;
+                line-height: 1.6;
+            }}
+
+            .metric-definition-section {{
+                margin-top: 20px;
+            }}
+
+            .metric-definition-table {{
+                font-size: 9pt;
+            }}
+
+            .metric-definition-table td:first-child {{
+                width: 28%;
+            }}
+
+            .trace-header-note {{
+                color: #5c677a;
+                font-size: 9pt;
+            }}
+
+            table {{
+                break-inside: auto;
+            }}
+
+            thead {{
+                display: table-header-group;
+            }}
+
+            tr {{
+                break-inside: avoid;
+            }}
+
+            .metric-table-card,
+            .observation-box {{
+                break-inside: avoid;
+            }}
+
+            .efficiency-scale-panel {{
+                margin: 0;
+                padding: 18px 22px;
+                border: 1px solid #d7e0ea;
+                border-radius: 8px;
+                background: #ffffff;
+            }}
+
+            .efficiency-scale-header h3 {{
+                margin: 0 0 4px;
+            }}
+
+            .efficiency-scale-header p {{
+                margin: 0 0 14px;
+                color: #5c677a;
+            }}
+
+            .efficiency-gradient-container {{
+                position: relative;
+                margin: 12px 10px 28px;
+            }}
+
+            .efficiency-gradient {{
+                height: 16px;
+                border-radius: 8px;
+                background: linear-gradient(
+                    to right,
+                    #b2182b 0%,
+                    #ef6548 20%,
+                    #fdbb84 40%,
+                    #fee8a8 60%,
+                    #ffffbf 75%,
+                    #d9ef8b 85%,
+                    #b8e186 92%,
+                    #4dac26 100%
+                );
+            }}
+
+            .efficiency-gradient-markers {{
+                position: relative;
+                height: 16px;
+                margin-top: 5px;
+                color: #5c677a;
+                font-size: 8pt;
+            }}
+
+            .efficiency-gradient-markers span {{
+                position: absolute;
+                transform: translateX(-50%);
+            }}
+
+            .efficiency-gradient-markers span:first-child {{
+                transform: none;
+            }}
+
+            .efficiency-gradient-markers span:last-child {{
+                transform: translateX(-100%);
+            }}
+
+            .efficiency-scale-ranges {{
+                display: grid;
+                grid-template-columns: 60fr 25fr 15fr;
+                border: 1px solid #d7e0ea;
+            }}
+
+            .scale-range {{
+                display: flex;
+                justify-content: space-between;
+                padding: 8px 12px;
+                border-top: 3px solid;
+            }}
+
+            .scale-range-critical {{
+                border-top-color: #ef4444;
+            }}
+
+            .scale-range-attention {{
+                border-top-color: #f4c76b;
+            }}
+
+            .scale-range-good {{
+                border-top-color: #69b34c;
+            }}
+
+            .efficiency-above-reference,
+            .efficiency-scale-guidance {{
+                color: #4b5f78;
+                font-size: 9pt;
+            }}
+
+            .efficiency-scale-guidance {{
+                padding-top: 10px;
+                border-top: 1px solid #d7e0ea;
+            }}
+        </style>
+    </head>
+
+    <body>
+
+        <header class="print-header">
+            <h1>BasicAnalysis Performance Report </h1>
+            <p>
+                Hierarchical efficiency analysis and guided performance diagnosis
+            </p>
+        </header>
+
+        <section class="print-section">
+            <h2>Execution Overview</h2>
+
+            <h3>Trace configuration</h3>
+            {trace_config_html}
+
+            <h3>General metrics</h3>
+            {trace_header_note}
+            {overview_html}
+        </section>
+
+        <section class="print-section">
+            {efficiency_scale_html}
+        </section>
+
+        {global_html}
+        {hybrid_html}
+        {talp_html}
+        {openmp_html}
+
+
+    </body>
+    </html>
+    """.format(
+        trace_config_html=trace_config_html,
+        trace_header_note=trace_header_note,
+        overview_html=overview_html,
+        efficiency_scale_html=efficiency_scale_html,
+        global_html=global_html,
+        hybrid_html=hybrid_html,
+        talp_html=talp_html,
+        openmp_html=openmp_html,
+    )
+
+    with open(output_html, "w") as output_file:
+        output_file.write(html_content)
+
+    print(
+        "Printable report written to {}".format(
+            output_html
+        )
+    )
+
+    return output_html
+    
