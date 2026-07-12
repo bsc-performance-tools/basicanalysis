@@ -75,6 +75,8 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_memtransf_device', 'Useful+MemoryTransfer on the device'),
                             ('useful_memtransf_device_max', 'Useful+MemoryTransfer on the device (maximum)'),
                             ('count_devices', 'Count of Devices'),
+                            ('count_gpu_streams', 'Count of GPU streams'),
+                            ('gpu_streams_per_rank', 'GPU streams per MPI rank'),
                             ('time_no_omp', 'Useful + MPI time.'),
                             ('time_omp_imbalance', 'Time lost due to load imbalance among OpenMP threads.'),
                             ('time_omp_schedule', 'Time spent in OpenMP scheduling and fork/join.'),
@@ -748,6 +750,55 @@ def parse_row_thread_labels(row_path):
                 thread_to_label[thread_obj] = line
     ## print("LABEL: ", thread_to_label)
     return thread_to_label
+
+
+def count_gpu_streams_by_mpi_rank(row_path):
+    """
+    Count GPU streams associated with each MPI rank from the Paraver .row file.
+
+    Returns:
+        {
+            "total_streams": int,
+            "streams_per_rank": int,
+            "streams_by_rank": dict,
+        }
+
+    streams_per_rank values:
+        0  -> no GPU streams detected
+        >0 -> homogeneous number of streams per MPI rank
+        -1 -> non-uniform number of streams across MPI ranks
+    """
+    thread_to_label = parse_row_thread_labels(row_path)
+
+    streams_by_rank = defaultdict(int)
+
+    for thread_obj, label in thread_to_label.items():
+        if not str(label).startswith("GPU_"):
+            continue
+
+        rank_id = mpi_rank_from_thread_object(thread_obj)
+        if rank_id is None:
+            continue
+
+        streams_by_rank[rank_id] += 1
+
+    total_streams = sum(streams_by_rank.values())
+
+    counts = list(streams_by_rank.values())
+
+    if not counts:
+        streams_per_rank = 0
+    elif len(set(counts)) == 1:
+        streams_per_rank = counts[0]
+    else:
+        streams_per_rank = -1
+
+    return {
+        "total_streams": total_streams,
+        "streams_per_rank": streams_per_rank,
+        "streams_by_rank": dict(streams_by_rank),
+    }
+
 
 def parse_row_cpu_nodes(row_path):
     """
@@ -1477,22 +1528,80 @@ def process_one_trace(
         cmd_base.extend([cfgs['burst_useful'], trace_name + '.burst_useful.stats.csv'])
 
     if is_talp_cuda or is_mpi_gpu:
-        cmd_base.extend([cfgs['useful_host'], trace_name + '.useful_host.stats.csv'])
+        cmd_base.extend([
+            cfgs['useful_host'],
+            trace_name + '.useful_host.stats.csv'
+        ])
 
+        # Count GPU devices
         mapping_devices = get_device_stream_id_mapping(trace)
         gpu_devices = len(mapping_devices)
+
         trace_raw_data['count_devices'] = gpu_devices
+
         print("==> Count of devices: ", gpu_devices)
 
-        # gpu_useful_stats = trace_name + '.useful_streams.stats.csv'
-        # gpu_memtransfer_stats = trace_name + '.memtransfer_streams.stats.csv'
+        # Count GPU streams from the Paraver .row hierarchy
+        if os.path.exists(row_path):
+            gpu_stream_info = count_gpu_streams_by_mpi_rank(row_path)
 
-        gpu_useful_stats = trace_name + '.useful_streams.stats.csv'
-        gpu_memtransfer_stats = trace_name + '.memtransfer_streams.stats.csv'
+            trace_raw_data['count_gpu_streams'] = (
+                gpu_stream_info['total_streams']
+            )
 
-        cmd_base.extend([cfgs['useful_streams'], gpu_useful_stats])
-        cmd_base.extend([cfgs['memtransfer_streams'], gpu_memtransfer_stats])
-    
+            trace_raw_data['gpu_streams_per_rank'] = (
+                gpu_stream_info['streams_per_rank']
+            )
+
+            print(
+                "==> Count of GPU streams: ",
+                gpu_stream_info['total_streams']
+            )
+
+            if gpu_stream_info['streams_per_rank'] == -1:
+                print(
+                    "==> GPU streams per MPI rank: non-uniform"
+                )
+            else:
+                print(
+                    "==> GPU streams per MPI rank: ",
+                    gpu_stream_info['streams_per_rank']
+                )
+
+            if cmdl_args.debug:
+                print(
+                    "==DEBUG== GPU streams by MPI rank: ",
+                    gpu_stream_info['streams_by_rank']
+                )
+
+        else:
+            trace_raw_data['count_gpu_streams'] = 0
+            trace_raw_data['gpu_streams_per_rank'] = 0
+
+            print(
+                "==WARNING== Cannot count GPU streams: "
+                "{} not found.".format(row_path)
+            )
+
+        gpu_useful_stats = (
+            trace_name + '.useful_streams.stats.csv'
+        )
+
+        gpu_memtransfer_stats = (
+            trace_name + '.memtransfer_streams.stats.csv'
+        )
+
+        cmd_base.extend([
+            cfgs['useful_streams'],
+            gpu_useful_stats
+        ])
+
+        cmd_base.extend([
+            cfgs['memtransfer_streams'],
+            gpu_memtransfer_stats
+        ])
+
+  
     if is_mpi_omp:
         cmd_base.extend([cfgs['omp_useful_regions'],trace_name + '.omp_useful_regions.stats.csv'])
         cmd_base.extend([

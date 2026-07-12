@@ -22,6 +22,8 @@ def build_report(metrics_result,
     
     output_dir = os.getcwd()
 
+    raw_data = analysis_result.get("raw_data", {})
+
     report = {
         "general": _build_general(metrics_result, cmdl_args),
         "traces": _build_traces(
@@ -30,6 +32,7 @@ def build_report(metrics_result,
             trace_tasks,
             trace_threads,
             trace_mode,
+            raw_data,
         ),
         "resources": _build_resources(trace_list, output_dir),
         "metrics": metrics_result,
@@ -51,10 +54,23 @@ def _build_traces(trace_list,
                   trace_processes,
                   trace_tasks,
                   trace_threads,
-                  trace_mode):
+                  trace_mode,
+                  raw_data):
     traces = []
 
     for index, trace in enumerate(trace_list):
+        devices = raw_data.get(
+            "count_devices", {}
+        ).get(trace, 0)
+
+        gpu_streams = raw_data.get(
+            "count_gpu_streams", {}
+        ).get(trace, 0)
+
+        gpu_streams_per_rank = raw_data.get(
+            "gpu_streams_per_rank", {}
+        ).get(trace, 0)
+
         traces.append({
             "id": index + 1,
             "name": os.path.basename(trace),
@@ -63,9 +79,14 @@ def _build_traces(trace_list,
             "processes": trace_processes.get(trace, "unknown"),
             "tasks": trace_tasks.get(trace, "unknown"),
             "threads": trace_threads.get(trace, "unknown"),
+            "devices": devices,
+            "gpu_streams": gpu_streams,
+            "gpu_streams_per_rank": gpu_streams_per_rank,
         })
+     
 
     return traces
+
 
 
 def _strip_trace_extension(trace):

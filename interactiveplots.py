@@ -529,10 +529,7 @@ GLOBAL_GPU_TREE = [
     _tree_node("global_eff", [
         _tree_node("parallel_eff", [
             _tree_node("load_balance"),
-            _tree_node("comm_eff", [
-                _tree_node("serial_eff"),
-                _tree_node("transfer_eff"),
-            ]),
+            _tree_node("comm_eff"),
         ]),
         _tree_node("comp_scale"),
     ])
@@ -551,12 +548,9 @@ def _format_overview_value(key, value):
     return "{:.2f}".format(value)
 
 
-def _build_overview_table_html(other_metrics, trace_list, trace_processes,
-                               trace_tasks, trace_threads, trace_mode):
-    headers = [
-        _trace_label(trace, index, trace_processes, trace_tasks, trace_threads, trace_mode)
-        for index, trace in enumerate(trace_list)
-    ]
+def _build_overview_table_html(other_metrics, trace_list, trace_labels): 
+
+    headers = trace_labels
 
     html = []
     html.append("<table class='metric-table'>")
@@ -807,9 +801,12 @@ def _build_resources_table_html(report):
     html_lines.append("</table>")
 
     html_lines.append(
-        "<p><b>Default Paraver view:</b> Useful Duration timeline. "
-        "Click the button to copy the command, then paste it in a terminal.</p>"
+        "<p class='paraver-view-note'>"
+        "<b>Default Paraver view:</b> Useful Duration timeline. "
+        "Click the button to copy the command, then paste it in a terminal."
+        "</p>"
     )
+
 
     return "\n".join(html_lines)
 
@@ -870,40 +867,386 @@ def _build_efficiency_scale_html():
     """
 
 
-def _build_trace_config_table_html(analysis_result, trace_list, trace_processes,
-                                   trace_tasks, trace_threads, trace_mode):
-    raw_data = analysis_result.get("raw_data", {})
+def _split_trace_mode(mode):
+    """Split trace collection mode and programming model."""
+    parts = str(mode).split("+")
 
-    html = []
-    html.append("<table class='metric-table'>")
-    html.append("<thead><tr>")
-    html.append("<th>Trace</th>")
-    html.append("<th>Mode</th>")
-    html.append("<th>Processes</th>")
-    html.append("<th>Tasks/rank</th>")
-    html.append("<th>Threads/task</th>")
-    html.append("<th>Devices</th>")
-    html.append("</tr></thead>")
+    trace_mode = parts[0]
 
-    html.append("<tbody>")
-    for index, trace in enumerate(trace_list):
-        devices = raw_data.get("count_devices", {}).get(trace, None)
+    if len(parts) > 1:
+        programming_model = " + ".join(parts[1:])
+    else:
+        programming_model = "Unknown"
 
-        if devices in [None, 0, 0.0]:
-            devices = "-"
+    return trace_mode, programming_model
 
-        html.append("<tr>")
-        html.append("<td>{}</td>".format(index + 1))
-        html.append("<td>{}</td>".format(trace_mode[trace]))
-        html.append("<td>{}</td>".format(trace_processes[trace]))
-        html.append("<td>{}</td>".format(trace_tasks[trace]))
-        html.append("<td>{}</td>".format(trace_threads[trace]))
-        html.append("<td>{}</td>".format(devices))
-        html.append("</tr>")
-    html.append("</tbody>")
-    html.append("</table>")
 
-    return "\n".join(html)
+def _programming_model_key(programming_model):
+    """Return a normalized programming-model identifier."""
+
+    model = str(programming_model).upper().replace(" ", "")
+
+    if model == "MPI":
+        return "mpi"
+
+    if model in ("OPENMP", "OMP"):
+        return "openmp"
+
+    if model == "PTHREADS":
+        return "pthreads"
+
+    if model == "OMPSS":
+        return "ompss"
+
+    if model in ("CUDA", "HIP"):
+        return "gpu"
+
+    if model in (
+        "MPI+OPENMP",
+        "MPI+OMP",
+        "MPI+PTHREADS",
+    ):
+        return "mpi_threads"
+
+    if model == "MPI+OMPSS":
+        return "mpi_ompss"
+
+    if model in (
+        "MPI+CUDA",
+        "MPI+HIP",
+    ):
+        return "mpi_gpu"
+
+    return "generic"
+
+def _report_trace_label(trace_info):
+    """Build a model-aware report column label."""
+
+    trace_id = "T{}".format(
+        trace_info.get("id", "-")
+    )
+
+    _, programming_model = _split_trace_mode(
+        trace_info.get("mode", "unknown")
+    )
+
+    model_key = _programming_model_key(
+        programming_model
+    )
+
+    # --------------------------------------------------
+    # Single programming models
+    # --------------------------------------------------
+
+    if model_key == "mpi":
+        return "{} [{}]".format(
+            trace_info.get("tasks", "-"),
+            trace_id,
+        )
+
+    if model_key in (
+        "openmp",
+        "pthreads",
+        "ompss",
+    ):
+        return "{} [{}]".format(
+            trace_info.get("threads", "-"),
+            trace_id,
+        )
+
+    if model_key == "gpu":
+        return "{} [{}]".format(
+            trace_info.get("gpu_streams", "-"),
+            trace_id,
+        )
+
+    # --------------------------------------------------
+    # MPI + host threading
+    # --------------------------------------------------
+
+    if model_key in (
+        "mpi_threads",
+        "mpi_ompss",
+    ):
+        mpi_ranks = trace_info.get("tasks", 0)
+        inner_units = trace_info.get("threads", 0)
+
+        try:
+            parallel_units = (
+                int(mpi_ranks)
+                * int(inner_units)
+            )
+        except (TypeError, ValueError):
+            parallel_units = trace_info.get(
+                "processes",
+                "-",
+            )
+
+        return "{} ({}×{}) [{}]".format(
+            parallel_units,
+            mpi_ranks,
+            inner_units,
+            trace_id,
+        )
+
+    # --------------------------------------------------
+    # MPI + GPU
+    # --------------------------------------------------
+
+    
+    if model_key == "mpi_gpu":
+        mpi_ranks = trace_info.get("tasks", 0)
+
+        streams_per_rank = trace_info.get(
+            "gpu_streams_per_rank",
+            0,
+        )
+
+        devices = trace_info.get(
+            "devices",
+            0,
+        )
+
+        if streams_per_rank == -1:
+            return "{} ({}×var) [{}D] [{}]".format(
+                trace_info.get("gpu_streams", "-"),
+                mpi_ranks,
+                devices,
+                trace_id,
+            )
+
+        try:
+            parallel_units = (
+                int(mpi_ranks)
+                * int(streams_per_rank)
+            )
+        except (TypeError, ValueError):
+            parallel_units = trace_info.get(
+                "gpu_streams",
+                "-",
+            )
+
+        return "{} ({}×{}) [{}D] [{}]".format(
+            parallel_units,
+            mpi_ranks,
+            streams_per_rank,
+            devices,
+            trace_id,
+        )
+
+
+    # --------------------------------------------------
+    # Fallback
+    # --------------------------------------------------
+
+    return "{} [{}]".format(
+        trace_info.get("processes", "-"),
+        trace_id,
+    )
+    
+
+def _build_trace_header_note(report):
+    """Explain the model-aware trace column labels."""
+
+    traces = report.get("traces", [])
+
+    if not traces:
+        return ""
+
+    _, programming_model = _split_trace_mode(
+        traces[0].get("mode", "unknown")
+    )
+
+    model_key = _programming_model_key(
+        programming_model
+    )
+
+    notes = {
+        "mpi": (
+            "<b>Trace columns:</b> "
+            "<code>MPI ranks [Trace ID]</code>"
+        ),
+        "openmp": (
+            "<b>Trace columns:</b> "
+            "<code>Threads [Trace ID]</code>"
+        ),
+        "pthreads": (
+            "<b>Trace columns:</b> "
+            "<code>Threads [Trace ID]</code>"
+        ),
+        "ompss": (
+            "<b>Trace columns:</b> "
+            "<code>Workers [Trace ID]</code>"
+        ),
+        "gpu": (
+            "<b>Trace columns:</b> "
+            "<code>GPU streams [Trace ID]</code>"
+        ),
+        "mpi_threads": (
+            "<b>Trace columns:</b> "
+            "<code>Parallel units (MPI ranks × threads/rank) [Trace ID]</code>"
+        ),
+        "mpi_ompss": (
+            "<b>Trace columns:</b> "
+            "<code>Parallel units (MPI ranks × workers/rank) [Trace ID]</code>"
+        ),
+        "mpi_gpu": (
+            "<b>Trace columns:</b> "
+            "<code>Parallel units (MPI ranks × streams/rank) "
+            "[nD = devices] [Trace ID]</code>"
+        ),
+
+        "generic": (
+            "<b>Trace columns:</b> "
+            "<code>Parallel units [Trace ID]</code>"
+        ),
+    }
+
+    return (
+        "<p class='trace-header-note'>{}</p>"
+    ).format(notes[model_key])
+
+
+def _trace_resource_columns(model_key):
+    """Return resource columns for a programming model."""
+
+    columns = {
+        "mpi": [
+            ("tasks", "MPI ranks"),
+        ],
+
+        "openmp": [
+            ("threads", "Threads"),
+        ],
+
+        "pthreads": [
+            ("threads", "Threads"),
+        ],
+
+        "ompss": [
+            ("threads", "Workers"),
+        ],
+
+        "gpu": [
+            ("gpu_streams", "GPU streams"),
+            ("devices", "Devices"),
+        ],
+
+        "mpi_threads": [
+            ("processes", "Parallel units"),
+            ("tasks", "MPI ranks"),
+            ("threads", "Threads/rank"),
+        ],
+
+        "mpi_ompss": [
+            ("processes", "Parallel units"),
+            ("tasks", "MPI ranks"),
+            ("threads", "Workers/rank"),
+        ],
+
+        "mpi_gpu": [
+            ("processes", "Parallel units"),
+            ("tasks", "MPI ranks"),
+            ("gpu_streams_per_rank", "Streams/rank"),
+            ("gpu_streams", "GPU streams"),
+            ("devices", "Devices"),
+        ],
+
+        "generic": [
+            ("processes", "Parallel units"),
+        ],
+    }
+
+    return columns[model_key]
+
+
+def _build_trace_config_table_html(report):
+    """Build a programming-model-aware trace configuration table."""
+
+    traces = report.get("traces", [])
+
+    if not traces:
+        return "<p>No trace configuration information available.</p>"
+
+    first_mode = traces[0].get("mode", "unknown")
+
+    _, programming_model = _split_trace_mode(first_mode)
+
+    model_key = _programming_model_key(programming_model)
+
+    resource_columns = _trace_resource_columns(model_key)
+
+    html_lines = []
+
+    html_lines.append("<table class='metric-table'>")
+    html_lines.append("<thead><tr>")
+
+    html_lines.append("<th>ID</th>")
+    html_lines.append("<th>Trace</th>")
+    html_lines.append("<th>Trace mode</th>")
+    html_lines.append("<th>Programming model</th>")
+
+
+    for _, label in resource_columns:
+        html_lines.append(
+            "<th>{}</th>".format(html.escape(label))
+        )
+
+    html_lines.append("</tr></thead>")
+    html_lines.append("<tbody>")
+
+    for trace in traces:
+        trace_collection_mode, programming_model = _split_trace_mode(
+            trace.get("mode", "unknown")
+        )
+
+        trace_id = "T{}".format(trace.get("id", "-"))
+
+        html_lines.append("<tr>")
+
+        html_lines.append(
+            "<td><strong>{}</strong></td>".format(
+                html.escape(trace_id)
+            )
+        )        
+
+        html_lines.append(
+            "<td><code>{}</code></td>".format(
+                html.escape(str(trace.get("name", "unknown")))
+            )
+        )
+
+        html_lines.append(
+            "<td>{}</td>".format(
+                html.escape(trace_collection_mode)
+            )
+        )
+
+        html_lines.append(
+            "<td>{}</td>".format(
+                html.escape(programming_model)
+            )
+        )
+
+        for field, _ in resource_columns:
+            value = trace.get(field, "-")
+
+            if field == "gpu_streams_per_rank" and value == -1:
+                value = "Non-uniform"
+
+            html_lines.append(
+                "<td>{}</td>".format(
+                    html.escape(str(value))
+                )
+            )
+
+        html_lines.append("</tr>")
+
+    html_lines.append("</tbody>")
+    html_lines.append("</table>")
+
+    return "\n".join(html_lines)
+   
 
 
 def _clean_metric_label(label):
@@ -1037,9 +1380,10 @@ def _build_metric_tree_html(metric_keys, metric_info, section_id, tree_kind):
 
 
 def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
-                                       trace_list, trace_processes, trace_tasks,
-                                       trace_threads, trace_mode, title,
-                                       section_id, tree_kind=None):
+                                        trace_list, trace_labels,
+                                        title, section_id,
+                                        tree_kind=None,
+                                        trace_header_note=""):
     tree = []
 
     if tree_kind == "global":
@@ -1053,15 +1397,13 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
     elif tree_kind == "openmp":
         tree = OPENMP_TREE
 
+
     efficiency_table_html = _build_efficiency_table_html(
         metric_keys=metric_keys,
         metric_info=metric_info,
         metric_sources=metric_sources,
         trace_list=trace_list,
-        trace_processes=trace_processes,
-        trace_tasks=trace_tasks,
-        trace_threads=trace_threads,
-        trace_mode=trace_mode,
+        trace_labels=trace_labels,
         section_id=section_id,
         tree=tree,
     )
@@ -1124,7 +1466,7 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
     window.metricInfo_{section_id} = {info_json};
     </script>
     {efficiency_scale_html}
-
+    {trace_header_note}
     <div class="metric-table-card">
         {efficiency_table_html}
     </div>    
@@ -1143,6 +1485,7 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
         section_id=section_id,
         info_json=info_json,
         efficiency_scale_html=efficiency_scale_html,
+        trace_header_note=trace_header_note,
         observations_html=observations_html,
         efficiency_table_html=efficiency_table_html,
     )
@@ -1957,23 +2300,12 @@ def _build_metric_depth_map(tree):
 
 
 def _build_efficiency_table_html(metric_keys, metric_info, metric_sources,
-                                 trace_list, trace_processes, trace_tasks,
-                                 trace_threads, trace_mode, section_id,
+                                 trace_list, trace_labels, section_id,
                                  tree=None):
     """Build an interactive HTML efficiency metrics table."""
 
     depth_map = _build_metric_depth_map(tree or [])
-    headers = [
-        _trace_label(
-            trace,
-            index,
-            trace_processes,
-            trace_tasks,
-            trace_threads,
-            trace_mode,
-        )
-        for index, trace in enumerate(trace_list)
-    ]
+    headers = trace_labels
 
     lines = []
 
@@ -2094,14 +2426,22 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     model = _report_execution_model(trace_mode, trace_list, metrics_result)
     tabs = _build_report_tabs(model)
 
+    report_traces = report.get("traces", [])
+
+    trace_labels = [
+        _report_trace_label(trace_info)
+        for trace_info in report_traces
+    ]    
+
+    trace_header_note = _build_trace_header_note(
+        report
+    )
+
     overview_html = _build_overview_table_html(
         other_metrics,
         trace_list,
-        trace_processes,
-        trace_tasks,
-        trace_threads,
-        trace_mode,
-    )
+        trace_labels,
+    )    
 
     mod_factors = metrics_result.get("mod_factors", {})
     hybrid_factors = metrics_result.get("hybrid_factors", {})
@@ -2117,12 +2457,11 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             "parallel_eff",
             "load_balance",
             "comm_eff",
-            "serial_eff",
-            "transfer_eff",
             "comp_scale",
         ]
 
         global_tree_kind = "global_gpu"
+
     else:
         global_keys = [
             "global_eff",
@@ -2157,13 +2496,11 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         metric_info=SIMPLE_METRIC_INFO,
         metric_sources=global_sources,
         trace_list=trace_list,
-        trace_processes=trace_processes,
-        trace_tasks=trace_tasks,
-        trace_threads=trace_threads,
-        trace_mode=trace_mode,
-        title="Global metrics",
+        trace_labels=trace_labels,
+        title="Global Efficiency Metrics",
         section_id="global",
         tree_kind=global_tree_kind,
+        trace_header_note=trace_header_note,
     )
 
 
@@ -2184,13 +2521,11 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             metric_info=hybrid_metric_info,
             metric_sources=hybrid_sources,
             trace_list=trace_list,
-            trace_processes=trace_processes,
-            trace_tasks=trace_tasks,
-            trace_threads=trace_threads,
-            trace_mode=trace_mode,
+            trace_labels=trace_labels,
             title="Parallel Programming Model: MPI + {}".format(inner_model),
             section_id="hybrid",
             tree_kind="hybrid",
+            trace_header_note=trace_header_note,
         )
     else:
         hybrid_html = "<p>Parallel programming model metrics are not available for simple traces.</p>"
@@ -2255,13 +2590,11 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             metric_info=TALP_METRIC_INFO,
             metric_sources=talp_sources,
             trace_list=trace_list,
-            trace_processes=trace_processes,
-            trace_tasks=trace_tasks,
-            trace_threads=trace_threads,
-            trace_mode=trace_mode,
+            trace_labels=trace_labels,
             title="Host/Device Efficiency Metrics",
             section_id="talp",
             tree_kind="talp",
+            trace_header_note=trace_header_note,
         )
     else:
         talp_html = ("<p>Host/Device metrics are only available for MPI+GPU traces.</p>")
@@ -2294,13 +2627,11 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                 metric_info=OPENMP_METRIC_INFO,
                 metric_sources=openmp_sources,
                 trace_list=trace_list,
-                trace_processes=trace_processes,
-                trace_tasks=trace_tasks,
-                trace_threads=trace_threads,
-                trace_mode=trace_mode,
+                trace_labels=trace_labels,
                 title="OpenMP Efficiency Metrics",
                 section_id="openmp",
                 tree_kind="openmp",
+                trace_header_note=trace_header_note,
             )
         else:
             openmp_html = (
@@ -2313,13 +2644,8 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
 
     trace_config_html = _build_trace_config_table_html(
-        analysis_result,
-        trace_list,
-        trace_processes,
-        trace_tasks,
-        trace_threads,
-        trace_mode,
-    )
+        report
+    )    
     
     resources_html = _build_resources_table_html(report)
 
@@ -2861,7 +3187,10 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
         .metric-info-panel p {
             margin: 7px 0;
-        }
+            color: #31465d;
+            font-size: 14px;
+            line-height: 1.7;
+        }        
 
         .metric-info-type {
             display: inline-block;
@@ -3371,8 +3700,9 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         }
 
         /* -------------------------------------------------- */
-        /* Performance Interpretation                */
+        /* Performance and scaling interpretation              */
         /* -------------------------------------------------- */
+
         .performance-interpretation h3,
         .scaling-interpretation h3 {
             margin: 16px 0 10px;
@@ -3384,12 +3714,44 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             margin-top: 0;
         }
 
-        .performance-interpretation p {
+        .scaling-interpretation {
+            margin-top: 22px;
+        }
+
+        .performance-interpretation p,
+        .scaling-interpretation p {
             margin: 0;
             color: #31465d;
             font-size: 14px;
             line-height: 1.7;
         }
+
+        /* -------------------------------------------------- */
+        /* Header trace notes                                 */
+        /* -------------------------------------------------- */
+
+        .trace-header-note {
+            margin: 8px 0 12px;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .trace-header-note code {
+            color: #29435f;
+            font-weight: 600;
+        }
+
+        /* -------------------------------------------------- */
+        /* Parave view notes                                  */
+        /* -------------------------------------------------- */
+
+        .paraver-view-note {
+            margin: 14px 0 0;
+            color: #31465d;
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
 
         </style>
 
@@ -3499,7 +3861,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             <div class="report-header-content">
                 <div>
                     <div class="report-brand">BasicAnalysis</div>
-                    <h1>Interactive Performance Report</h1>
+                    <h1>Performance Report</h1>
                     <p class="subtitle">
                         Hierarchical efficiency analysis and guided performance diagnosis
                     </p>
@@ -3531,6 +3893,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
             <section class="report-section">
                 <h3>General metrics</h3>
+                {trace_header_note}
                 {overview_html}
             </section>
 
@@ -3610,6 +3973,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     html_content = html_content.replace("{talp_html}", talp_html)
     html_content = html_content.replace("{openmp_html}", openmp_html)
     html_content = html_content.replace("{resources_html}", resources_html)
+    html_content = html_content.replace("{trace_header_note}",trace_header_note)
 
     with open(output_html, "w") as f:
         f.write(html_content)
