@@ -1,14 +1,17 @@
 # BasicAnalysis
 
-BasicAnalysis generates performance metrics based on the BSC Performance Model, originally developed at BSC in 2008 and later used and extended within the POP Centre of Excellence since 2015, from a set of Paraver traces.
+The tool extracts raw performance data from Paraver traces, computes
+hierarchical performance efficiency metrics, and generates CSV files,
+plots, interactive HTML reports, and printable PDF performance reports.
 
 It supports several parallel programming models such as:
 
-* Pure MPI applications
-* Pure OpenMP applications
-* Hybrid applications such as MPI+OpenMP and MPI+CUDA
+* MPI
+* OpenMP and other shared-memory programming models
+* GPU programming models
+* Hybrid models such as MPI+OpenMP and MPI+CUDA
 
-The tool extracts raw performance data from Paraver traces, computes performance metrics, and generates tables, CSV files, and plots.
+The tool extracts raw performance data from Paraver traces, computes performance metrics, and generates tables, CSV files, plots and a performance report (HTML and PDF).
 
 ## Prerequisites
 
@@ -60,8 +63,12 @@ For gnuplot-based output, gnuplot version 5.0 or higher is required.
 
 ## Optional Dependencies
 
-BasicAnalysis automatically generates a printable PDF performance report when
-a Chromium-compatible browser is available.
+When a supported Chromium-compatible browser is available, BasicAnalysis
+automatically generates a PDF performance report.
+
+If no supported browser is found, PDF generation is skipped and a warning
+is reported. The HTML reports and the rest of the BasicAnalysis analysis
+are still generated normally.
 
 The following browser executables are supported:
 
@@ -180,13 +187,22 @@ modelfactors.py trace_1.prv trace_2.prv trace_3.prv
 Depending on the trace type and execution mode, BasicAnalysis can generate:
 
 * raw-data CSV files
-* efficiency tables
-* model-factor tables
+* efficiency and model-factor tables
 * additional metrics tables
-* speedup plots
-* scalability plots
+* speedup and scalability plots
 * gnuplot scripts
 * matplotlib figures
+* an interactive HTML performance report
+* a printable HTML performance report
+* a PDF performance report
+
+The main report files are:
+
+```
+basicanalysis_interactive_report.html
+basicanalysis_printable_report.html
+basicanalysis_performance_report.pdf
+```
 
 ## Notes
 
@@ -194,7 +210,24 @@ Depending on the trace type and execution mode, BasicAnalysis can generate:
 * The generated plots depend on the availability of the required Python modules.
 
 
-# Step-by-step workflow
+## Performance analysis model
+
+BasicAnalysis uses a hierarchical efficiency model to help identify the
+main sources of performance degradation.
+
+Parent metrics summarize overall performance efficiency, while child
+metrics provide a more detailed characterization of the factors affecting
+their parent metric.
+
+When several traces are analyzed, BasicAnalysis also evaluates scaling
+trends relative to the reference trace.
+
+The generated reports preserve this metric hierarchy and provide automatic
+performance interpretations to guide further detailed analysis.
+
+
+
+## Step-by-step workflow
 
 BasicAnalysis from version 0.5.0 can be executed in three independent stages:
 
@@ -204,7 +237,7 @@ BasicAnalysis from version 0.5.0 can be executed in three independent stages:
 
 This workflow is useful when processing many traces, especially if some analyses fail. In that case, users can rerun only the failed traces, then merge the results and compute the final metrics.
 
-## 1. Trace analysis step
+### 1. Trace analysis step
 Command:
 
 ``` analyze_traces.py [options] [trace_list ...] ```
@@ -218,9 +251,9 @@ when required by the selected metric model.
 The generated rawdata JSON files can later be merged and reused for
 metrics computation without repeating the analysis step.
 
-### Help Contents
+#### Help Contents
 
-#### Positional arguments:
+##### Positional arguments:
 
 ```
   trace_list
@@ -228,7 +261,7 @@ metrics computation without repeating the analysis step.
       traces are analyzed.
 ```
 
-#### Main options:
+##### Main options:
 
 ``` 
   -h, --help
@@ -258,7 +291,7 @@ metrics computation without repeating the analysis step.
       Order the trace list based on the number of processes.
 ```
 
-#### Simulation options (it is needed for communications sub-metrics):
+##### Simulation options (it is needed for communications sub-metrics):
 
 ```
   -skip-simul, --skip-simulation
@@ -280,7 +313,7 @@ metrics computation without repeating the analysis step.
       for MPI+OpenMP codes.
 ```
 
-#### Resource options:
+##### Resource options:
 
 ```
   --jobs JOBS
@@ -293,19 +326,19 @@ metrics computation without repeating the analysis step.
   -ms MAX_TRACE_SIZE, --max_trace_size MAX_TRACE_SIZE
       Maximum allowed trace size in MiB (default: 1024 MiB).
 ```
-#### Output:
+##### Output:
 
 - This step generates one rawdata JSON file per analyzed trace.
 - These files can be merged later with merge_rawdata.py.
 
-## 2. Merge step
+### 2. Merge step
 
 Command:
 
 ```
 merge_rawdata.py --output merged_rawdata.json rawdata_list.json
 ```
-### Help contents
+#### Help contents
 
 Merge per-trace rawdata JSON files into a single merged rawdata JSON file.
 
@@ -316,14 +349,14 @@ and plot generation.
 This is useful when traces are analyzed in separate runs, or when only
 failed traces need to be reanalyzed and merged again afterward.
 
-#### Positional arguments:
+##### Positional arguments:
 
 ```
   rawdata_files
       List of per-trace rawdata JSON files to merge.
 ```
 
-#### Options:
+##### Options:
 
 ```
   -h, --help
@@ -339,7 +372,7 @@ failed traces need to be reanalyzed and merged again afterward.
       Output merged rawdata JSON file.
 ```
 
-#### Notes:
+##### Notes:
 
 The merged file preserves:
 
@@ -350,7 +383,7 @@ The merged file preserves:
 
 The merged output can be passed directly to compute_metrics_from_merged.py.
 
-## 3. Metrics computation step
+### 3. Metrics computation step
 
 Command
 
@@ -359,7 +392,7 @@ compute_metrics_from_merged.py --merged-input merged_rawdata.json [options]
 
 ```
 
-### Help Contents
+#### Help Contents
 
 Compute metrics, reports, and plots from merged rawdata JSON.
 
@@ -371,7 +404,7 @@ This is useful when trace analysis has already been completed and only
 the final metrics, tables, CSV files, and plots need to be generated.
 
 
-#### Options:
+##### Options:
 
 ```
   -h, --help
@@ -410,28 +443,28 @@ the final metrics, tables, CSV files, and plots need to be generated.
 
 ```
 
-#### Notes:
+##### Notes:
   - This step does not analyze traces directly. It only consumes the merged rawdata JSON file.
   - Use the analysis step first if rawdata has not been generated yet.
 
 
 
-## Short Workflow example
+### Short Workflow example
 
-#### 1. Analyze traces
+##### 1. Analyze traces
 
 ```
 analyze_traces.py trace1.prv trace2.prv trace3.prv
 ```
 
-#### 2. Merge rawdata
+##### 2. Merge rawdata
 
 ```
 merge_rawdata.py --output merged_rawdata.json *.rawdata.json
 ```
 
 
-#### 3. Compute metrics from merged data
+##### 3. Compute metrics from merged data
 
 ```
 compute_metrics_from_merged.py --merged-input merged_rawdata.json
