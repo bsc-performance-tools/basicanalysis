@@ -385,13 +385,24 @@ OPENMP_METRIC_INFO = {
         "action": "Inspect useful computation and MPI time outside OpenMP parallel regions.",
     },
     "omp_talp_load_balance": {
-        "label": "  -- OpenMP Load balance",
-        "short_label": "OMP LB",
-        "type": "OpenMP sub-metric",
-        "meaning": "Efficiency loss caused by imbalance among OpenMP threads inside parallel regions.",
-        "low": "Low values indicate that some OpenMP threads wait while others continue useful computation.",
+        "label": "  -- OpenMP Region Load balance",
+        "short_label": "OMP Region LB",
+        "type": "OpenMP runtime-specific sub-metric",
+        "meaning": (
+            "Efficiency of useful-computation distribution among OpenMP "
+            "threads inside OpenMP parallel regions. Only useful computation "
+            "performed inside those regions is considered."
+        ),
+        "low": (
+            "Low values indicate that useful computation is unevenly "
+            "distributed among OpenMP threads inside parallel regions."
+        ),
         "above100": "Values above 100% are unexpected and should be checked.",
-        "action": "Inspect useful duration per OpenMP thread and per parallel region.",
+        "action": (
+            "Inspect useful computation per OpenMP thread and per parallel "
+            "region. Do not compare this metric directly with the classical "
+            "application-level POP Load Balance."
+        ),
     },
     "omp_talp_scheduling_eff": {
         "label": "  -- OpenMP Scheduling efficiency",
@@ -452,19 +463,53 @@ def _tree_node(metric_key, children=None):
     return {"metric": metric_key, "children": children or []}
 
 
+# Application-level POP view.  Global Metrics intentionally stop at
+# Communication Efficiency.  Serialization and Transfer are runtime-level
+# explanations and are therefore shown only in the Parallel Runtime Model.
 GLOBAL_TREE = [
     _tree_node("global_eff", [
         _tree_node("parallel_eff", [
             _tree_node("load_balance"),
-            _tree_node("comm_eff", [
-                _tree_node("serial_eff"),
-                _tree_node("transfer_eff"),
-            ]),
+            _tree_node("comm_eff"),
         ]),
         _tree_node("comp_scale", [
             _tree_node("ipc_scale"),
             _tree_node("inst_scale"),
             _tree_node("freq_scale"),
+        ]),
+    ])
+]
+
+# Runtime views are rooted at Parallel Efficiency.  The available depth is
+# determined by the performance model: MPI can expose Serialization and
+# Transfer through Dimemas, while other simple runtimes currently stop at
+# Load Balance and Communication Efficiency.
+GLOBAL_PARALLEL_TREE = [
+    _tree_node("parallel_eff", [
+        _tree_node("load_balance"),
+        _tree_node("comm_eff", [
+            _tree_node("serial_eff"),
+            _tree_node("transfer_eff"),
+        ]),
+    ])
+]
+
+MPI_RUNTIME_TREE = [
+    _tree_node("mpi_parallel_eff", [
+        _tree_node("mpi_load_balance"),
+        _tree_node("mpi_comm_eff", [
+            _tree_node("serial_eff"),
+            _tree_node("transfer_eff"),
+        ]),
+    ])
+]
+
+INNER_RUNTIME_TREE = [
+    _tree_node("omp_parallel_eff", [
+        _tree_node("omp_load_balance"),
+        _tree_node("omp_comm_eff", [
+            _tree_node("omp_serial_eff"),
+            _tree_node("omp_transfer_eff"),
         ]),
     ])
 ]
@@ -514,6 +559,45 @@ TALP_TREE = [
         ]),
         _tree_node("dev_comp_scale"),
     ]),
+]
+
+HOST_TREE = [
+    _tree_node("host_global_eff", [
+        _tree_node("host_parallel_eff", [
+            _tree_node("mpi_parallel_eff", [
+                _tree_node("mpi_load_balance"),
+                _tree_node("mpi_comm_eff", [
+                    _tree_node("serial_eff"),
+                    _tree_node("transfer_eff"),
+                ]),
+            ]),
+            _tree_node("dev_offload_eff"),
+        ]),
+        _tree_node("host_comp_scale", [
+            _tree_node("ipc_scale"),
+            _tree_node("inst_scale"),
+            _tree_node("freq_scale"),
+        ]),
+    ])
+]
+
+DEVICE_TREE = [
+    _tree_node("dev_global_eff", [
+        _tree_node("dev_parallel_eff", [
+            _tree_node("dev_load_balance"),
+            _tree_node("dev_comm_eff"),
+            _tree_node("dev_orches_eff"),
+        ]),
+        _tree_node("dev_comp_scale"),
+    ])
+]
+
+DEVICE_RUNTIME_TREE = [
+    _tree_node("dev_parallel_eff", [
+        _tree_node("dev_load_balance"),
+        _tree_node("dev_comm_eff"),
+        _tree_node("dev_orches_eff"),
+    ])
 ]
 
 OPENMP_TREE = [
@@ -1366,6 +1450,18 @@ def _build_metric_tree_html(metric_keys, metric_info, section_id, tree_kind):
         tree = HYBRID_TREE
     elif tree_kind == "talp":
         tree = TALP_TREE
+    elif tree_kind == "host":
+        tree = HOST_TREE
+    elif tree_kind == "device":
+        tree = DEVICE_TREE
+    elif tree_kind == "runtime_global":
+        tree = GLOBAL_PARALLEL_TREE
+    elif tree_kind == "runtime_mpi":
+        tree = MPI_RUNTIME_TREE
+    elif tree_kind == "runtime_inner":
+        tree = INNER_RUNTIME_TREE
+    elif tree_kind == "runtime_device":
+        tree = DEVICE_RUNTIME_TREE
     elif tree_kind == "openmp":
         tree = OPENMP_TREE 
     elif tree_kind == "global_gpu":
@@ -1384,6 +1480,19 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
                                         title, section_id,
                                         tree_kind=None,
                                         trace_header_note=""):
+    # Global Metrics deliberately stop at Communication Efficiency. Keep this
+    # invariant here even if a caller supplies runtime-level metrics.
+    if tree_kind in ("global", "global_gpu") or section_id == "global":
+        excluded_runtime_metrics = {"serial_eff", "transfer_eff"}
+        metric_keys = [
+            key for key in metric_keys
+            if key not in excluded_runtime_metrics
+        ]
+        metric_sources = {
+            key: source for key, source in metric_sources.items()
+            if key not in excluded_runtime_metrics
+        }
+
     tree = []
 
     if tree_kind == "global":
@@ -1394,6 +1503,18 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
         tree = HYBRID_TREE
     elif tree_kind == "talp":
         tree = TALP_TREE
+    elif tree_kind == "host":
+        tree = HOST_TREE
+    elif tree_kind == "device":
+        tree = DEVICE_TREE
+    elif tree_kind == "runtime_global":
+        tree = GLOBAL_PARALLEL_TREE
+    elif tree_kind == "runtime_mpi":
+        tree = MPI_RUNTIME_TREE
+    elif tree_kind == "runtime_inner":
+        tree = INNER_RUNTIME_TREE
+    elif tree_kind == "runtime_device":
+        tree = DEVICE_RUNTIME_TREE
     elif tree_kind == "openmp":
         tree = OPENMP_TREE
 
@@ -1463,7 +1584,7 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
 
     return """
     <script>
-    window.metricInfo_{section_id} = {info_json};
+    window["metricInfo_{section_id}"] = {info_json};
     </script>
     {efficiency_scale_html}
     {trace_header_note}
@@ -2366,6 +2487,18 @@ def _build_printable_metric_section(
         trace_header_note=""):
     """Build a static efficiency section for the printable report."""
 
+    # Keep Serialization and Transfer exclusively in runtime-model sections.
+    if tree in (GLOBAL_TREE, GLOBAL_GPU_TREE):
+        excluded_runtime_metrics = {"serial_eff", "transfer_eff"}
+        metric_keys = [
+            key for key in metric_keys
+            if key not in excluded_runtime_metrics
+        ]
+        metric_sources = {
+            key: source for key, source in metric_sources.items()
+            if key not in excluded_runtime_metrics
+        }
+
     efficiency_table_html = _build_efficiency_table_html(
         metric_keys=metric_keys,
         metric_info=metric_info,
@@ -2570,259 +2703,200 @@ def _build_efficiency_table_html(metric_keys, metric_info, metric_sources,
     return "\n".join(lines)
 
 
-def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
-                                          report,
-                                          trace_list, trace_processes,
-                                          trace_tasks, trace_threads,
-                                          trace_mode, cmdl_args):
-    """Generate unified interactive HTML report."""
-
-    output_html = os.path.join(os.getcwd(), "basicanalysis_interactive_report.html")
-
-    other_metrics = metrics_result["other_metrics"]
-
-    model = _report_execution_model(trace_mode, trace_list, metrics_result)
-    tabs = _build_report_tabs(model)
-
-    report_traces = report.get("traces", [])
-
-    trace_labels = [
-        _report_trace_label(trace_info)
-        for trace_info in report_traces
-    ]    
-
-    trace_header_note = _build_trace_header_note(
-        report
-    )
-
-    overview_html = _build_overview_table_html(
-        other_metrics,
-        trace_list,
-        trace_labels,
-    )    
-
-    mod_factors = metrics_result.get("mod_factors", {})
-    hybrid_factors = metrics_result.get("hybrid_factors", {})
-    hyb_comm_omp_factors = metrics_result.get("hyb_comm_omp_factors", {})
-
-    inner_model = _inner_model_name(trace_mode, trace_list)
-    hybrid_metric_info = _build_hybrid_metric_info(inner_model)
 
 
-    if model["has_cuda"]:
-        global_keys = [
-            "global_eff",
-            "parallel_eff",
-            "load_balance",
-            "comm_eff",
-            "comp_scale",
-        ]
-
-        global_tree_kind = "global_gpu"
-
-    else:
-        global_keys = [
-            "global_eff",
-            "parallel_eff",
-            "load_balance",
-            "comm_eff",
-            "serial_eff",
-            "transfer_eff",
-            "comp_scale",
-            "ipc_scale",
-            "inst_scale",
-            "freq_scale",
-        ]
-
-        global_tree_kind = "global"
+def _build_openmp_runtime_scope_note():
+    """Explain the scope of the isolated OpenMP runtime metrics."""
+    return """
+    <div class="analysis-scope-note analysis-scope-warning">
+        <h3>Metric scope</h3>
+        <p>
+            The metrics in this analysis are computed from the OpenMP
+            execution independently of the derived hybrid multiplicative model.
+        </p>
+        <p>
+            <strong>OpenMP Region Load Balance</strong> considers only useful
+            computation performed inside OpenMP parallel regions. It is therefore
+            not directly comparable with the application-level
+            <strong>Load Balance</strong> shown in Global Metrics or with the
+            derived OpenMP Load Balance shown in the Parallel Runtime Model.
+        </p>
+    </div>
+    """
 
 
-    global_filtered_keys = []
-    for key in global_keys:
-        if key not in mod_factors:
-            continue
+def _build_application_summary_panel(trace_config_html, trace_header_note,
+                                     overview_html, resources_html,
+                                     global_html):
+    """Build the persistent application-analysis pane."""
+    return """
+    <section class="application-panel" aria-label="Application analysis">
+        <div class="workspace-panel">
+            <h2>Overview</h2>
 
-        for trace in trace_list:
-            if _clean_value(_read_metric(mod_factors, key, trace)) is not None:
-                global_filtered_keys.append(key)
-                break
+            <section class="report-section">
+                <h3>Trace configuration</h3>
+                {trace_config_html}
+            </section>
 
-    global_sources = {key: mod_factors for key in global_filtered_keys}
+            <section class="report-section">
+                <h3>General metrics</h3>
+                {trace_header_note}
+                {overview_html}
+            </section>
 
-    global_html = _build_metric_tree_heatmap_section(
-        metric_keys=global_filtered_keys,
-        metric_info=SIMPLE_METRIC_INFO,
-        metric_sources=global_sources,
-        trace_list=trace_list,
-        trace_labels=trace_labels,
-        title="Global Efficiency Metrics",
-        section_id="global",
-        tree_kind=global_tree_kind,
+        </div>
+
+        <div class="workspace-panel">
+            <h2>Global Metrics</h2>
+            {global_html}
+        </div>
+
+        <div class="workspace-panel validation-panel">
+            <h2>Validate the analysis in Paraver</h2>
+            <p class="section-description">
+                Use the recommended view to inspect the execution and validate
+                the findings identified by BasicAnalysis.
+            </p>
+            {resources_html}
+        </div>
+    </section>
+    """.format(
+        trace_config_html=trace_config_html,
         trace_header_note=trace_header_note,
+        overview_html=overview_html,
+        resources_html=resources_html,
+        global_html=global_html,
     )
 
 
-    # ---- Hybrid model tab
-    if metrics_result["kind"] == "hybrid":
-        hybrid_keys = list(HYBRID_ORDER)
+def _build_detail_navigation(runtime_model_views,
+                             runtime_analysis_views,
+                             domain_views):
+    """Build selectors for the analysis families that are available."""
+    groups = []
 
-        if inner_model == "OpenMP" and cmdl_args.hyb_mpiomp:
-            hybrid_keys += OMP_COMM_ORDER
+    def add_group(group_label, views, button_class):
+        if not views:
+            return
 
-        hybrid_sources = {}
-        for key in HYBRID_ORDER:
-            hybrid_sources[key] = hybrid_factors
-        for key in OMP_COMM_ORDER:
-            hybrid_sources[key] = hyb_comm_omp_factors
-        hybrid_html = _build_metric_tree_heatmap_section(
-            metric_keys=hybrid_keys,
-            metric_info=hybrid_metric_info,
-            metric_sources=hybrid_sources,
-            trace_list=trace_list,
-            trace_labels=trace_labels,
-            title="Parallel Programming Model: MPI + {}".format(inner_model),
-            section_id="hybrid",
-            tree_kind="hybrid",
-            trace_header_note=trace_header_note,
-        )
-    else:
-        hybrid_html = "<p>Parallel programming model metrics are not available for simple traces.</p>"
-
-    # ---- TALP model tab
-
-    if (
-    metrics_result["kind"] == "hybrid"
-    and trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"
-    ):
-        host_factors = metrics_result["host_factors"]
-        device_factors = metrics_result["device_factors"]
-
-        host_keys = [
-            "host_global_eff",
-            "host_parallel_eff",
-            "mpi_parallel_eff",
-            "mpi_load_balance",
-            "mpi_comm_eff",
-            "serial_eff",
-            "transfer_eff",
-            "dev_offload_eff",
-            "host_comp_scale",
-            "ipc_scale",
-            "inst_scale",
-            "freq_scale",
-        ]
-
-
-        device_keys = [
-            "dev_global_eff",
-            "dev_parallel_eff",
-            "dev_load_balance",
-            "dev_comm_eff",
-            "dev_orches_eff",
-            "dev_comp_scale",
-        ]
-
-        talp_keys = host_keys + device_keys
-
-        talp_sources = {}
-
-        for key in host_keys:
-            if key in ("ipc_scale", "inst_scale", "freq_scale"):
-                talp_sources[key] = mod_factors
-            else:
-                talp_sources[key] = host_factors
-        for key in device_keys:
-            talp_sources[key] = device_factors
-
-
-        # Remove rows that are unavailable for all traces
-        talp_filtered_keys = []
-        for key in talp_keys:
-            source = talp_sources[key]
-            for trace in trace_list:
-                if _clean_value(_read_metric(source, key, trace)) is not None:
-                    talp_filtered_keys.append(key)
-                    break
-        talp_html = _build_metric_tree_heatmap_section(
-            metric_keys=talp_filtered_keys,
-            metric_info=TALP_METRIC_INFO,
-            metric_sources=talp_sources,
-            trace_list=trace_list,
-            trace_labels=trace_labels,
-            title="Host/Device Efficiency Metrics",
-            section_id="talp",
-            tree_kind="talp",
-            trace_header_note=trace_header_note,
-        )
-    else:
-        talp_html = ("<p>Host/Device metrics are only available for MPI+GPU traces.</p>")
-
-
-    # ---- OpenMP Efficiency Metrics tab
-    if (
-        metrics_result["kind"] == "hybrid"
-        and "omp_talp_factors" in metrics_result
-    ):
-        omp_talp_factors = metrics_result["omp_talp_factors"]
-
-        openmp_filtered_keys = []
-        for key in OPENMP_ORDER:
-            if key not in omp_talp_factors:
-                continue
-
-            for trace in trace_list:
-                if _clean_value(_read_metric(omp_talp_factors, key, trace)) is not None:
-                    openmp_filtered_keys.append(key)
-                    break
-
-        if openmp_filtered_keys:
-            openmp_sources = {
-                key: omp_talp_factors for key in openmp_filtered_keys
-            }
-
-            openmp_html = _build_metric_tree_heatmap_section(
-                metric_keys=openmp_filtered_keys,
-                metric_info=OPENMP_METRIC_INFO,
-                metric_sources=openmp_sources,
-                trace_list=trace_list,
-                trace_labels=trace_labels,
-                title="OpenMP Efficiency Metrics",
-                section_id="openmp",
-                tree_kind="openmp",
-                trace_header_note=trace_header_note,
+        buttons = []
+        for view in views:
+            buttons.append(
+                '<button id="{id}-button" '
+                'class="detail-tab-button {button_class}" '
+                'data-target="{id}" '
+                'onclick="showDetailView(&quot;{id}&quot;, this)">'
+                '{label}</button>'.format(
+                    id=html.escape(view["id"], quote=True),
+                    button_class=html.escape(button_class, quote=True),
+                    label=html.escape(view["label"]),
+                )
             )
-        else:
-            openmp_html = (
-                "<p>OpenMP efficiency metrics are not available for this trace configuration.</p>"
+
+        groups.append(
+            '<div class="detail-nav-group">'
+            '<span class="detail-nav-label">{group_label}</span>'
+            '<div class="detail-tab-list">{buttons}</div>'
+            '</div>'.format(
+                group_label=html.escape(group_label),
+                buttons="".join(buttons),
             )
-    else:
-        openmp_html = (
-            "<p>OpenMP efficiency metrics are only available for MPI+OpenMP traces.</p>"
         )
 
-
-    trace_config_html = _build_trace_config_table_html(
-        report
-    )    
-    
-    resources_html = _build_resources_table_html(report)
-
-
-    show_simple = (
-        not model["is_hybrid"]
-        and model["has_mpi"]
-        and not model["has_omp"]
-        and not model["has_cuda"]
+    add_group(
+        "Parallel Runtime Model",
+        runtime_model_views,
+        "runtime-model-tab",
+    )
+    add_group(
+        "Runtime-Specific Analysis",
+        runtime_analysis_views,
+        "runtime-analysis-tab",
+    )
+    add_group(
+        "Execution Domain",
+        domain_views,
+        "domain-tab",
     )
 
-    show_hybrid = model["is_hybrid"]
+    return (
+        '<nav class="detail-navigation" '
+        'aria-label="Detailed analysis selector">{}</nav>'
+    ).format("".join(groups))
 
-    show_hostdevice = model["has_cuda"]
 
-    show_openmp = model["has_omp"]
+def _build_detail_view(view_id, title, content_html):
+    """Build one selectable detailed-analysis view."""
+    return """
+    <section id="{view_id}" class="detail-view">
+        <h2>{title}</h2>
+        {content_html}
+    </section>
+    """.format(
+        view_id=html.escape(view_id, quote=True),
+        title=html.escape(title),
+        content_html=content_html,
+    )
 
 
-    html_content = """
+def _build_detail_panel(runtime_model_views,
+                        runtime_analysis_views,
+                        domain_views):
+    """Build the selectable analysis pane from explicit semantic views."""
+    all_views = (
+        list(runtime_model_views)
+        + list(runtime_analysis_views)
+        + list(domain_views)
+    )
+
+    if all_views:
+        views_html = "\n".join(
+            _build_detail_view(view["id"], view["title"], view["html"])
+            for view in all_views
+        )
+    else:
+        views_html = _build_detail_view(
+            "analysis-unavailable",
+            "Detailed Analysis",
+            "<p>No additional analysis models are available.</p>",
+        )
+
+    return """
+    <section class="detail-panel" aria-label="Detailed performance analysis">
+        <div class="workspace-panel detail-workspace">
+            {navigation_html}
+            <div class="detail-view-container">
+                {views_html}
+            </div>
+        </div>
+    </section>
+    """.format(
+        navigation_html=_build_detail_navigation(
+            runtime_model_views,
+            runtime_analysis_views,
+            domain_views,
+        ),
+        views_html=views_html,
+    )
+
+
+def _build_workspace_layout(application_html, detail_html):
+    """Arrange the persistent application pane and selectable detail pane."""
+    return """
+    <div class="report-workspace">
+        {application_html}
+        {detail_html}
+    </div>
+    """.format(
+        application_html=application_html,
+        detail_html=detail_html,
+    )
+
+
+def _build_interactive_report_document(workspace_html):
+    """Build the complete interactive HTML document."""
+    document = """
         <!DOCTYPE html>
         <html>
         <head>
@@ -3058,8 +3132,16 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             box-sizing: border-box;
         }
 
+        html,
         body {
+            height: 100%;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
             margin: 0;
+            overflow: hidden;
             background: var(--background);
             color: var(--text);
             font-family:
@@ -3075,9 +3157,17 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         }
 
         .report-header {
+            position: relative;
+            z-index: 1000;
+            flex: 0 0 auto;
             background: linear-gradient(135deg, #122a49 0%, #1e4b78 100%);
             color: white;
             padding: 30px 24px;
+            box-shadow: none;
+            transition: box-shadow 0.18s ease;
+        }
+
+        .report-header.is-scrolled {
             box-shadow: var(--shadow-md);
         }
 
@@ -3581,8 +3671,10 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         }
 
         .efficiency-table-wrapper {
+            position: relative;
             width: 100%;
             overflow-x: auto;
+            overflow-y: visible;
         }
 
         .efficiency-table {
@@ -3600,6 +3692,10 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         }
 
         .efficiency-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 4;
+
             background: #edf3f9;
             color: #29435f;
             font-size: 13px;
@@ -3608,8 +3704,15 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         }
 
         .efficiency-table .metric-column-header {
+            position: sticky;
+            top: 0;
+            left: 0;
+            z-index: 7;
+
             min-width: 330px;
             text-align: left;
+            background: #edf3f9;
+            box-shadow: 7px 0 10px -10px rgba(20, 38, 63, 0.55);
         }
 
         .efficiency-table tbody tr:last-child td {
@@ -3620,10 +3723,19 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             background: #f8fbff;
         }
 
+        .efficiency-table tbody tr:hover .metric-name-cell {
+            filter: brightness(0.985);
+        }
+
         .metric-name-cell {
+            position: sticky;
+            left: 0;
+            z-index: 3;
+
             min-width: 330px;
             color: #20344d;
             text-align: left;
+            box-shadow: 7px 0 10px -10px rgba(20, 38, 63, 0.55);
         }
 
         .metric-value-cell {
@@ -3911,22 +4023,290 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         }
 
 
-        </style>
+        
 
-        <script>
-        function showTab(tabId) {
-            const contents = document.getElementsByClassName("tab-content");
-            for (let i = 0; i < contents.length; i++) {
-                contents[i].classList.remove("active");
+        /* -------------------------------------------------- */
+        /* Analysis scope notes                                */
+        /* -------------------------------------------------- */
+
+        .analysis-scope-note {
+            margin-bottom: 22px;
+            padding: 18px 20px;
+            border: 1px solid #d9c98c;
+            border-left: 5px solid #c79a20;
+            border-radius: var(--radius-md);
+            background: #fffaf0;
+            color: #4f452d;
+        }
+
+        .analysis-scope-note h3 {
+            margin: 0 0 8px;
+            color: #6f5617;
+            font-size: 17px;
+        }
+
+        .analysis-scope-note p {
+            margin: 7px 0;
+            line-height: 1.65;
+        }
+
+        /* -------------------------------------------------- */
+        /* Two-pane analysis workspace                         */
+        /* -------------------------------------------------- */
+
+        .report-container {
+            flex: 1 1 auto;
+            min-height: 0;
+            width: min(1680px, calc(100% - 32px));
+            margin: 24px auto;
+        }
+
+        .report-workspace {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 20px;
+            align-items: stretch;
+            height: 100%;
+            min-height: 0;
+        }
+
+        .application-panel,
+        .detail-panel {
+            min-width: 0;
+            min-height: 0;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
+        }
+
+        .application-panel {
+            padding-right: 8px;
+        }
+
+        .detail-panel {
+            height: 100%;
+            max-height: 100%;
+            padding-right: 8px;
+        }
+
+        .application-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            height: 100%;
+            max-height: 100%;
+        }
+
+        /* Keep the application cards at their natural height. Without this,
+           flexbox may shrink them to fit the column, clipping their contents
+           instead of creating vertical overflow for the panel scrollbar. */
+        .application-panel > .workspace-panel {
+            flex: 0 0 auto;
+        }
+
+        .workspace-panel {
+            min-width: 0;
+            padding: 22px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+        }
+
+        .detail-workspace {
+            overflow: visible;
+        }
+
+        .workspace-panel > h2 {
+            margin-top: 0;
+        }
+
+        .detail-navigation {
+            position: sticky;
+            top: 0;
+            z-index: 30;
+
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+
+            margin: 0 0 24px;
+            padding: 0 0 18px;
+
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            box-shadow: 0 6px 12px -10px rgba(20, 38, 63, 0.35);
+        }
+
+        .detail-nav-group {
+            display: grid;
+            grid-template-columns: minmax(130px, auto) minmax(0, 1fr);
+            gap: 12px;
+            align-items: center;
+        }
+
+        .detail-nav-label {
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+        }
+
+        .detail-tab-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .detail-tab-button {
+            min-height: 36px;
+            padding: 7px 16px;
+            border: 1px solid #b8c7d8;
+            border-radius: 999px;
+            background: #fff;
+            color: #40546b;
+            cursor: pointer;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 650;
+        }
+
+        .detail-tab-button:hover {
+            border-color: #6f96bd;
+            background: #f2f7fc;
+            color: var(--primary);
+        }
+
+        .detail-tab-button.active {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: #fff;
+        }
+
+        .detail-view {
+            display: none;
+        }
+
+        .detail-view.active {
+            display: block;
+            animation: tabFadeIn .22s ease;
+        }
+
+        .application-panel .metric-table,
+        .application-panel .efficiency-table,
+        .detail-panel .efficiency-table {
+            width: max-content;
+            min-width: 100%;
+        }
+
+        .application-panel .report-section,
+        .efficiency-table-wrapper {
+            overflow-x: auto;
+        }
+
+        @media (max-width: 980px) {
+            html,
+            body {
+                height: auto;
+                min-height: 100%;
             }
 
-            const buttons = document.getElementsByClassName("tab-button");
+            body {
+                display: block;
+                overflow: auto;
+            }
+
+            .report-header {
+                position: sticky;
+                top: 0;
+            }
+
+            .report-container {
+                width: min(100% - 24px, 1680px);
+                margin: 16px auto 28px;
+            }
+
+            .report-workspace {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+
+            .application-panel,
+            .detail-panel {
+                overflow: visible;
+                padding-right: 0;
+            }
+
+            .detail-nav-group {
+                grid-template-columns: 1fr;
+            }
+        }
+
+</style>
+
+        <script>
+        function showDetailView(viewId, button) {
+            const views = document.getElementsByClassName("detail-view");
+            for (let i = 0; i < views.length; i++) {
+                views[i].classList.remove("active");
+            }
+
+            const buttons = document.getElementsByClassName("detail-tab-button");
             for (let i = 0; i < buttons.length; i++) {
                 buttons[i].classList.remove("active");
             }
 
-            document.getElementById(tabId).classList.add("active");
-            document.getElementById(tabId + "-button").classList.add("active");
+            const view = document.getElementById(viewId);
+            if (view) view.classList.add("active");
+            if (button) button.classList.add("active");
+        }
+
+        function initializeStickyHeader() {
+            const header = document.querySelector(".report-header");
+            if (!header) return;
+
+            const scrollPanels = document.querySelectorAll(
+                ".application-panel, .detail-panel"
+            );
+
+            function updateHeaderShadow() {
+                let isScrolled = window.scrollY > 0;
+
+                for (let i = 0; i < scrollPanels.length; i++) {
+                    if (scrollPanels[i].scrollTop > 0) {
+                        isScrolled = true;
+                        break;
+                    }
+                }
+
+                header.classList.toggle("is-scrolled", isScrolled);
+            }
+
+            updateHeaderShadow();
+            window.addEventListener("scroll", updateHeaderShadow, { passive: true });
+
+            for (let i = 0; i < scrollPanels.length; i++) {
+                scrollPanels[i].addEventListener(
+                    "scroll",
+                    updateHeaderShadow,
+                    { passive: true }
+                );
+            }
+        }
+
+        function initializeWorkspace() {
+            initializeStickyHeader();
+
+            const firstButton = document.querySelector(".detail-tab-button");
+            if (firstButton) {
+                showDetailView(firstButton.dataset.target, firstButton);
+                return;
+            }
+
+            const firstView = document.querySelector(".detail-view");
+            if (firstView) firstView.classList.add("active");
         }
 
         function selectMetric(sectionId, metricKey) {
@@ -4013,7 +4393,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         </script>
         </head>
 
-        <body onload="showTab('overview')">
+        <body onload="initializeWorkspace()">
 
         <header class="report-header">
             <div class="report-header-content">
@@ -4028,112 +4408,402 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             </div>
         </header>
 
-        <main class="report-container">
+        <main class="report-container">""" + """
 
-        <div class="tab-bar">
-            <button id="overview-button" class="tab-button" onclick="showTab('overview')">Overview</button>
-            <button id="global-button" class="tab-button" onclick="showTab('global')">Global metrics</button>
-            <button id="hybrid-button" class="tab-button" onclick="showTab('hybrid')">Programming Model</button>
-            <button id="talp-button" class="tab-button" onclick="showTab('talp')">Host/Device</button>
-            <button id="isolated-inner-button" class="tab-button" onclick="showTab('isolated-inner')">OpenMP</button>
-        </div>
+        {workspace_html}
 
-        <div id="overview" class="tab-content">
-            <h2>Overview</h2>
-
-            <section class="report-section">
-                <h3>Trace configuration</h3>
-                {trace_config_html}
-            </section>
-
-            <section class="report-section">
-                <h3>General metrics</h3>
-                {trace_header_note}
-                {overview_html}
-            </section>
-
-            <section class="report-section">
-                <h3>Validate observations in Paraver</h3>
-                <p class="section-description">
-                    Use the recommended view to inspect the execution and validate
-                    the observations identified by BasicAnalysis.
-                </p>
-                {resources_html}
-            </section>
-        </div>
-
-        <div id="global" class="tab-content">
-            <h2>Global metrics</h2>
-            {global_html}
-        </div>
-
-        <div id="hybrid" class="tab-content">
-            <h2>Parallel Programming Model Efficiency Metrics</h2>
-            {hybrid_html}
-        </div>
-    
-        <div id="talp" class="tab-content">
-            <h2>Host/Device Efficiency Metrics</h2>
-            {talp_html}
-        </div>
-
-        <div id="isolated-inner" class="tab-content">
-            <h2>OpenMP Efficiency Metrics</h2>
-            {openmp_html}
-        </div>        
-
-        </main>
+    """ + """</main>
         </body>
         </html>
         """
+
+    return document.replace('{workspace_html}', workspace_html)
+
+def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
+                                          report,
+                                          trace_list, trace_processes,
+                                          trace_tasks, trace_threads,
+                                          trace_mode, cmdl_args):
+    """Generate unified interactive HTML report."""
+
+    output_html = os.path.join(os.getcwd(), "basicanalysis_interactive_report.html")
+
+    other_metrics = metrics_result["other_metrics"]
+
+    model = _report_execution_model(trace_mode, trace_list, metrics_result)
+    tabs = _build_report_tabs(model)
+
+    report_traces = report.get("traces", [])
+
+    trace_labels = [
+        _report_trace_label(trace_info)
+        for trace_info in report_traces
+    ]    
+
+    trace_header_note = _build_trace_header_note(
+        report
+    )
+
+    overview_html = _build_overview_table_html(
+        other_metrics,
+        trace_list,
+        trace_labels,
+    )    
+
+    mod_factors = metrics_result.get("mod_factors", {})
+    hybrid_factors = metrics_result.get("hybrid_factors", {})
+    hyb_comm_omp_factors = metrics_result.get("hyb_comm_omp_factors", {})
+
+    inner_model = _inner_model_name(trace_mode, trace_list)
+    hybrid_metric_info = _build_hybrid_metric_info(inner_model)
+
+
+    if model["has_cuda"]:
+        global_keys = [
+            "global_eff",
+            "parallel_eff",
+            "load_balance",
+            "comm_eff",
+            "comp_scale",
+        ]
+
+        global_tree_kind = "global_gpu"
+
+    else:
+        global_keys = [
+            "global_eff",
+            "parallel_eff",
+            "load_balance",
+            "comm_eff",
+            "comp_scale",
+            "ipc_scale",
+            "inst_scale",
+            "freq_scale",
+        ]
+
+        global_tree_kind = "global"
+
+
+    global_filtered_keys = []
+    for key in global_keys:
+        if key not in mod_factors:
+            continue
+
+        for trace in trace_list:
+            if _clean_value(_read_metric(mod_factors, key, trace)) is not None:
+                global_filtered_keys.append(key)
+                break
+
+    global_sources = {key: mod_factors for key in global_filtered_keys}
+
+    global_html = _build_metric_tree_heatmap_section(
+        metric_keys=global_filtered_keys,
+        metric_info=SIMPLE_METRIC_INFO,
+        metric_sources=global_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        title="Global Efficiency Metrics",
+        section_id="global",
+        tree_kind=global_tree_kind,
+        trace_header_note=trace_header_note,
+    )
+
+
+    # ---- Hybrid model tab
+    if metrics_result["kind"] == "hybrid":
+        hybrid_keys = list(HYBRID_ORDER)
+
+        if inner_model == "OpenMP" and cmdl_args.hyb_mpiomp:
+            hybrid_keys += OMP_COMM_ORDER
+
+        hybrid_sources = {}
+        for key in HYBRID_ORDER:
+            hybrid_sources[key] = hybrid_factors
+        for key in OMP_COMM_ORDER:
+            hybrid_sources[key] = hyb_comm_omp_factors
+        hybrid_html = _build_metric_tree_heatmap_section(
+            metric_keys=hybrid_keys,
+            metric_info=hybrid_metric_info,
+            metric_sources=hybrid_sources,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            title="Parallel Programming Model: MPI + {}".format(inner_model),
+            section_id="hybrid",
+            tree_kind="hybrid",
+            trace_header_note=trace_header_note,
+        )
+    else:
+        hybrid_html = "<p>Parallel programming model metrics are not available for simple traces.</p>"
+
+    # ---- MPI+GPU execution-domain and device-runtime metrics
+    host_html = "<p>Host execution-domain metrics are only available for MPI+GPU traces.</p>"
+    device_html = "<p>Device execution-domain metrics are only available for MPI+GPU traces.</p>"
+
+    if (
+        metrics_result["kind"] == "hybrid"
+        and trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"
+    ):
+        host_factors = metrics_result["host_factors"]
+        device_factors = metrics_result["device_factors"]
+
+        host_keys = [
+            "host_global_eff",
+            "host_parallel_eff",
+            "mpi_parallel_eff",
+            "mpi_load_balance",
+            "mpi_comm_eff",
+            "serial_eff",
+            "transfer_eff",
+            "dev_offload_eff",
+            "host_comp_scale",
+            "ipc_scale",
+            "inst_scale",
+            "freq_scale",
+        ]
+        device_keys = [
+            "dev_global_eff",
+            "dev_parallel_eff",
+            "dev_load_balance",
+            "dev_comm_eff",
+            "dev_orches_eff",
+            "dev_comp_scale",
+        ]
+
+        host_sources = {}
+        for key in host_keys:
+            if key in ("ipc_scale", "inst_scale", "freq_scale"):
+                host_sources[key] = mod_factors
+            else:
+                host_sources[key] = host_factors
+
+        device_sources = {key: device_factors for key in device_keys}
+
+        host_filtered_keys = []
+        for key in host_keys:
+            source = host_sources[key]
+            if any(
+                _clean_value(_read_metric(source, key, trace)) is not None
+                for trace in trace_list
+            ):
+                host_filtered_keys.append(key)
+
+        device_filtered_keys = []
+        for key in device_keys:
+            source = device_sources[key]
+            if any(
+                _clean_value(_read_metric(source, key, trace)) is not None
+                for trace in trace_list
+            ):
+                device_filtered_keys.append(key)
+
+        host_html = _build_metric_tree_heatmap_section(
+            metric_keys=host_filtered_keys,
+            metric_info=TALP_METRIC_INFO,
+            metric_sources=host_sources,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            title="Host Efficiency Metrics",
+            section_id="host",
+            tree_kind="host",
+            trace_header_note=trace_header_note,
+        )
+
+        device_html = _build_metric_tree_heatmap_section(
+            metric_keys=device_filtered_keys,
+            metric_info=TALP_METRIC_INFO,
+            metric_sources=device_sources,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            title="Device Efficiency Metrics",
+            section_id="device",
+            tree_kind="device",
+            trace_header_note=trace_header_note,
+        )
+
+
+    # ---- OpenMP runtime-specific efficiency metrics
+    openmp_filtered_keys = []
+
+    if (
+        metrics_result["kind"] == "hybrid"
+        and "omp_talp_factors" in metrics_result
+    ):
+        omp_talp_factors = metrics_result["omp_talp_factors"]
+
+        openmp_filtered_keys = []
+        for key in OPENMP_ORDER:
+            if key not in omp_talp_factors:
+                continue
+
+            for trace in trace_list:
+                if _clean_value(_read_metric(omp_talp_factors, key, trace)) is not None:
+                    openmp_filtered_keys.append(key)
+                    break
+
+        if openmp_filtered_keys:
+            openmp_sources = {
+                key: omp_talp_factors for key in openmp_filtered_keys
+            }
+
+            openmp_metrics_html = _build_metric_tree_heatmap_section(
+                metric_keys=openmp_filtered_keys,
+                metric_info=OPENMP_METRIC_INFO,
+                metric_sources=openmp_sources,
+                trace_list=trace_list,
+                trace_labels=trace_labels,
+                title="OpenMP Efficiency Metrics",
+                section_id="openmp",
+                tree_kind="openmp",
+                trace_header_note=trace_header_note,
+            )
+            openmp_html = (
+                _build_openmp_runtime_scope_note()
+                + openmp_metrics_html
+            )
+        else:
+            openmp_html = (
+                "<p>OpenMP efficiency metrics are not available for this trace configuration.</p>"
+            )
+    else:
+        openmp_html = (
+            "<p>OpenMP efficiency metrics are only available for MPI+OpenMP traces.</p>"
+        )
+
+
+    trace_config_html = _build_trace_config_table_html(
+        report
+    )    
     
-   
-    if not show_hybrid:
-        html_content = html_content.replace(
-            '<button id="hybrid-button" class="tab-button" onclick="showTab(\'hybrid\')">Programming Model</button>',
-            ""
+    resources_html = _build_resources_table_html(report)
+
+
+    application_html = _build_application_summary_panel(
+        trace_config_html=trace_config_html,
+        trace_header_note=trace_header_note,
+        overview_html=overview_html,
+        resources_html=resources_html,
+        global_html=global_html,
+    )
+
+    runtime_model_views = []
+    runtime_analysis_views = []
+    domain_views = []
+
+    # --------------------------------------------------
+    # Parallel Runtime Model
+    # --------------------------------------------------
+    # Simple traces expose the general POP Parallel Efficiency subtree.
+    # Hybrid traces expose the complete derived MPI+X multiplicative model.
+    if not model["is_hybrid"]:
+        simple_runtime_keys = [
+            "parallel_eff",
+            "load_balance",
+            "comm_eff",
+            "serial_eff",
+            "transfer_eff",
+        ]
+        simple_runtime_filtered_keys = [
+            key for key in simple_runtime_keys
+            if key in mod_factors and any(
+                _clean_value(_read_metric(mod_factors, key, trace)) is not None
+                for trace in trace_list
+            )
+        ]
+        simple_runtime_sources = {
+            key: mod_factors for key in simple_runtime_filtered_keys
+        }
+
+        if model["has_mpi"]:
+            runtime_label = "MPI"
+        elif model["has_omp"]:
+            runtime_label = "OpenMP"
+        elif model["has_cuda"]:
+            runtime_label = "CUDA"
+        else:
+            runtime_label = "Parallel runtime"
+
+        simple_runtime_html = _build_metric_tree_heatmap_section(
+            metric_keys=simple_runtime_filtered_keys,
+            metric_info=SIMPLE_METRIC_INFO,
+            metric_sources=simple_runtime_sources,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            title="{} Parallel Efficiency".format(runtime_label),
+            section_id="runtime-model-simple-metrics",
+            tree_kind="runtime_global",
+            trace_header_note=trace_header_note,
         )
 
-        html_content = html_content.replace(
-            '<div id="hybrid" class="tab-content">',
-            '<div id="hybrid" class="tab-content" style="display:none;">'
-        )   
+        runtime_model_views.append({
+            "id": "runtime-model-simple",
+            "label": runtime_label,
+            "title": "{} Parallel Runtime Model".format(runtime_label),
+            "html": simple_runtime_html,
+        })
 
+    else:
+        runtime_model_views.append({
+            "id": "runtime-model-hybrid",
+            "label": "MPI + {}".format(inner_model),
+            "title": "Parallel Runtime Model: MPI + {}".format(inner_model),
+            "html": hybrid_html,
+        })
 
-    if not show_hostdevice:
-        html_content = html_content.replace(
-            '<button id="talp-button" class="tab-button" onclick="showTab(\'talp\')">Host/Device</button>',
-            ""
-        )
+        # --------------------------------------------------
+        # Runtime-Specific Analysis
+        # --------------------------------------------------
+        # The isolated OpenMP analysis is computed independently from the
+        # derived MPI+OpenMP multiplicative decomposition.
+        if model["has_omp"] and openmp_filtered_keys:
+            runtime_analysis_views.append({
+                "id": "runtime-analysis-openmp",
+                "label": "OpenMP",
+                "title": "OpenMP Runtime-Specific Analysis",
+                "html": openmp_html,
+            })
 
-        html_content = html_content.replace(
-            '<div id="talp" class="tab-content">',
-            '<div id="talp" class="tab-content" style="display:none;">'
-        )
+        # --------------------------------------------------
+        # Execution Domain
+        # --------------------------------------------------
+        # Host and Device views are execution-domain analyses. They must not
+        # be presented as CUDA runtime-specific analyses.
+        if model["has_cuda"]:
+            domain_views.extend([
+                {
+                    "id": "domain-host",
+                    "label": "Host",
+                    "title": "Host Execution Domain",
+                    "html": host_html,
+                },
+                {
+                    "id": "domain-device",
+                    "label": "Device",
+                    "title": "Device Execution Domain",
+                    "html": device_html,
+                },
+            ])
 
-    if not show_openmp:
-        html_content = html_content.replace(
-            '<button id="isolated-inner-button" class="tab-button" onclick="showTab(\'isolated-inner\')">OpenMP</button>',
-            ""
-        )
-        html_content = html_content.replace(
-            '<div id="isolated-inner" class="tab-content">',
-            '<div id="isolated-inner" class="tab-content" style="display:none;">'
-        )
- 
-    html_content = html_content.replace("{trace_config_html}", trace_config_html)
-    html_content = html_content.replace("{overview_html}", overview_html)
-    html_content = html_content.replace("{global_html}", global_html)
-    html_content = html_content.replace("{hybrid_html}", hybrid_html)
-    html_content = html_content.replace("{talp_html}", talp_html)
-    html_content = html_content.replace("{openmp_html}", openmp_html)
-    html_content = html_content.replace("{resources_html}", resources_html)
-    html_content = html_content.replace("{trace_header_note}",trace_header_note)
+    detail_html = _build_detail_panel(
+        runtime_model_views=runtime_model_views,
+        runtime_analysis_views=runtime_analysis_views,
+        domain_views=domain_views,
+    )
 
-    with open(output_html, "w") as f:
-        f.write(html_content)
+    workspace_html = _build_workspace_layout(
+        application_html=application_html,
+        detail_html=detail_html,
+    )
+
+    html_content = _build_interactive_report_document(
+        workspace_html=workspace_html,
+    )
+
+    with open(output_html, "w") as output_file:
+        output_file.write(html_content)
 
     print("Interactive report written to {}".format(output_html))
+
+    return output_html
 
 
 def generate_basicanalysis_printable_report(
@@ -4213,8 +4883,6 @@ def generate_basicanalysis_printable_report(
             "parallel_eff",
             "load_balance",
             "comm_eff",
-            "serial_eff",
-            "transfer_eff",
             "comp_scale",
             "ipc_scale",
             "inst_scale",
@@ -4402,15 +5070,19 @@ def generate_basicanalysis_printable_report(
                 for key in openmp_filtered_keys
             }
 
-            openmp_html = _build_printable_metric_section(
+            openmp_metrics_html = _build_printable_metric_section(
                 metric_keys=openmp_filtered_keys,
                 metric_info=OPENMP_METRIC_INFO,
                 metric_sources=openmp_sources,
                 trace_list=trace_list,
                 trace_labels=trace_labels,
-                title="OpenMP Efficiency Metrics",
+                title="OpenMP Runtime-Specific Analysis",
                 tree=OPENMP_TREE,
                 trace_header_note=trace_header_note,
+            )
+            openmp_html = (
+                _build_openmp_runtime_scope_note()
+                + openmp_metrics_html
             )
 
 
@@ -4604,6 +5276,25 @@ def generate_basicanalysis_printable_report(
             .metric-table-card,
             .observation-box {{
                 break-inside: avoid;
+            }}
+
+            .analysis-scope-note {{
+                margin: 18px 0;
+                padding: 14px 16px;
+                border: 1px solid #d9c98c;
+                border-left: 5px solid #c79a20;
+                background: #fffaf0;
+                color: #4f452d;
+                break-inside: avoid;
+            }}
+
+            .analysis-scope-note h3 {{
+                margin: 0 0 6px;
+                color: #6f5617;
+            }}
+
+            .analysis-scope-note p {{
+                margin: 6px 0;
             }}
 
             .efficiency-scale-panel {{
