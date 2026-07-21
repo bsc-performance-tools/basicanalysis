@@ -227,7 +227,13 @@ TALP_METRIC_INFO = {
         "meaning": "Overall host efficiency.",
         "low": "Low values indicate host-side inefficiency.",
         "above100": "Values above 100% should be checked.",
-        "action": "Inspect host parallel efficiency and host computation scalability.",
+         "action": (
+            "Compare Host Global Efficiency with Device Global Efficiency. "
+            "If the host value is substantially lower, inspect Host Parallel "
+            "Efficiency, Device Offload Efficiency, and Host Computation "
+            "Scalability to determine whether the dominant loss originates "
+            "from MPI, the host-side accelerator execution path, or host computation."
+        ),
     },
     "host_parallel_eff": {
         "label": "-- Host Parallel efficiency",
@@ -236,7 +242,11 @@ TALP_METRIC_INFO = {
         "meaning": "Host-side parallel efficiency.",
         "low": "Low values indicate host-side parallel inefficiency.",
         "above100": "Values above 100% should be checked.",
-        "action": "Inspect MPI and offload efficiency.",
+         "action": (
+            "Compare MPI Parallel Efficiency with Device Offload Efficiency. "
+            "This separates MPI-related losses from losses in the host-side "
+            "accelerator execution path."
+        ),
     },
     "mpi_parallel_eff": {
         "label": "   == MPI Parallel efficiency",
@@ -287,10 +297,24 @@ TALP_METRIC_INFO = {
         "label": "   == Device Offload efficiency",
         "short_label": "   == Offload",
         "type": "Host/device metric",
-        "meaning": "Fraction of outside-MPI time effectively offloaded to the device.",
-        "low": "Low values indicate low device offload efficiency.",
+         "meaning": (
+            "Efficiency with which host-side time outside MPI is converted "
+            "into effective device execution."
+        ),
+        "low": (
+            "Low values indicate that a substantial fraction of host-side "
+            "execution does not result in effective device work. Possible "
+            "contributors include kernel-launch overhead, synchronization, "
+            "runtime management, data movement, or insufficient accelerator use."
+        ),
         "above100": "Values above 100% should be checked.",
-        "action": "Inspect host/device work distribution.",
+        "action": (
+            "Compare Device Offload Efficiency with MPI Parallel Efficiency "
+            "and Device Global Efficiency. A low offload value together with "
+            "healthy MPI metrics indicates that the dominant loss occurs in "
+            "the host-side accelerator execution path. Then inspect the Device "
+            "view to determine whether device-side execution adds another loss."
+        ),
     },
     "host_comp_scale": {
         "label": "-- Host Computation scalability",
@@ -308,7 +332,13 @@ TALP_METRIC_INFO = {
         "meaning": "Overall device-side efficiency.",
         "low": "Low values indicate GPU/device inefficiency.",
         "above100": "Values above 100% should be checked.",
-        "action": "Inspect device parallel efficiency and computation scalability.",
+         "action": (
+            "Inspect Device Parallel Efficiency and Device Computation "
+            "Scalability. Within Device Parallel Efficiency, compare Device "
+            "Load Balance, Communication Efficiency, and Orchestration Efficiency. "
+            "Compare the result with Device Offload Efficiency to distinguish "
+            "device-side inefficiency from host-side accelerator overhead."
+        ),
     },
     "dev_parallel_eff": {
         "label": "-- Device Parallel efficiency",
@@ -317,7 +347,12 @@ TALP_METRIC_INFO = {
         "meaning": "Device-side parallel efficiency.",
         "low": "Low values indicate low useful device occupancy over runtime.",
         "above100": "Values above 100% should be checked.",
-        "action": "Inspect device load balance, communication, and orchestration.",
+         "action": (
+            "Compare Device Load Balance, Communication Efficiency, and "
+            "Orchestration Efficiency. Then compare the device-side result "
+            "with Device Offload Efficiency to determine whether the larger "
+            "loss occurs during host-side offloading or device execution."
+        ),
     },
     "dev_load_balance": {
         "label": "   == Device Load balance",
@@ -344,7 +379,12 @@ TALP_METRIC_INFO = {
         "meaning": "Efficiency of device orchestration over runtime.",
         "low": "Low values indicate relevant orchestration overhead.",
         "above100": "Values above 100% should be checked.",
-        "action": "Inspect kernel launch, synchronization, and orchestration overhead.",
+         "action": (
+            "Inspect kernel-launch frequency, synchronization, stream dependencies, "
+            "runtime scheduling, and overlap between device computation and data "
+            "movement. Compare this loss with Device Offload Efficiency to distinguish "
+            "device-side orchestration overhead from host-side accelerator overhead."
+        ),
     },
     "dev_comp_scale": {
         "label": "-- Device Computation scalability",
@@ -718,7 +758,7 @@ def _hover_text(metric_key, value, raw_value):
         "<b>Metric type:</b> {}<br>"
         "<b>Meaning:</b> {}<br>"
         "<b>Interpretation:</b> {}<br>"
-        "<b>Actionability:</b> {}"
+        "<b>Next diagnostic step:</b> {}"
     ).format(
         label,
         value,
@@ -805,7 +845,7 @@ def _hover_text_from_info(metric_info, metric_key, value, raw_value):
         "<b>Metric type:</b> {}<br>"
         "<b>Meaning:</b> {}<br>"
         "<b>Interpretation:</b> {}<br>"
-        "<b>Actionability:</b> {}"
+        "<b>Next diagnostic step:</b> {}"
     ).format(
         label,
         value,
@@ -826,22 +866,269 @@ def _inner_model_name(trace_mode, trace_list):
     return "X"
 
 
+def _build_global_metric_info(is_hybrid):
+    """Build application-level metric guidance for the execution model."""
+    metric_info = {
+        key: dict(value)
+        for key, value in SIMPLE_METRIC_INFO.items()
+    }
+
+    if not is_hybrid:
+        return metric_info
+
+    metric_info["parallel_eff"]["action"] = (
+        "Inspect the Parallel Runtime Model and compare the Parallel Efficiency "
+        "of each active runtime. Continue the diagnosis from the runtime "
+        "exhibiting the lowest efficiency."
+    )
+
+    metric_info["load_balance"]["meaning"] = (
+        "Overall efficiency of workload distribution after combining the "
+        "contributions of all active parallel runtimes."
+    )
+    metric_info["load_balance"]["low"] = (
+        "Low values indicate that one or more active runtimes contribute "
+        "workload imbalance to the complete hybrid execution."
+    )
+    metric_info["load_balance"]["action"] = (
+        "Inspect the Load Balance metric of each active runtime in the Parallel "
+        "Runtime Model. Compare the runtime-specific values to identify which "
+        "runtime contributes most to the overall imbalance, and continue the "
+        "diagnosis from the runtime with the lowest value."
+    )
+
+    metric_info["comm_eff"]["meaning"] = (
+        "Overall communication efficiency after combining communication and "
+        "runtime-overhead effects from all active parallel runtimes."
+    )
+    metric_info["comm_eff"]["low"] = (
+        "Low values indicate that one or more active runtimes contribute "
+        "communication, synchronization, or runtime overhead."
+    )
+    metric_info["comm_eff"]["action"] = (
+        "Inspect the Communication Efficiency metric of each active runtime in "
+        "the Parallel Runtime Model. Continue the diagnosis within the runtime "
+        "exhibiting the greatest efficiency loss and follow its child metrics."
+    )
+
+    return metric_info
+
+
 def _build_hybrid_metric_info(inner_model):
-    """Build metric metadata for MPI+X hybrid metrics."""
-    metric_info = dict(METRIC_INFO)
+    """Build runtime-aware metadata and diagnostic guidance for MPI+X."""
+    metric_info = {
+        key: dict(value)
+        for key, value in METRIC_INFO.items()
+    }
 
-    metric_info["omp_parallel_eff"] = dict(metric_info["omp_parallel_eff"])
-    metric_info["omp_load_balance"] = dict(metric_info["omp_load_balance"])
-    metric_info["omp_comm_eff"] = dict(metric_info["omp_comm_eff"])
+    # The internal keys retain the historical omp_* names, but every
+    # user-facing field must identify the actual inner runtime.
+    metric_info["omp_parallel_eff"]["label"] = (
+        "  -- {} Parallel efficiency".format(inner_model)
+    )
+    metric_info["omp_parallel_eff"]["short_label"] = (
+        "{} PE".format(inner_model)
+    )
+    metric_info["omp_parallel_eff"]["type"] = (
+        "{} contribution to the hybrid model".format(inner_model)
+    )
+    metric_info["omp_parallel_eff"]["meaning"] = (
+        "{} Parallel Efficiency contribution derived from the MPI+{} "
+        "multiplicative decomposition.".format(inner_model, inner_model)
+    )
+    metric_info["omp_parallel_eff"]["low"] = (
+        "Low values indicate that {} contributes significant parallel "
+        "inefficiency to the complete hybrid execution.".format(inner_model)
+    )
+    metric_info["omp_parallel_eff"]["above100"] = (
+        "Values above 100% indicate that the {} contribution compensates "
+        "for efficiency losses observed at the MPI level; this is not a "
+        "conventional standalone efficiency.".format(inner_model)
+    )
 
-    metric_info["omp_parallel_eff"]["label"] = "  -- {} Parallel efficiency".format(inner_model)
-    metric_info["omp_parallel_eff"]["short_label"] = "{} PE".format(inner_model)
+    metric_info["omp_load_balance"]["label"] = (
+        "    -- {} Load balance".format(inner_model)
+    )
+    metric_info["omp_load_balance"]["short_label"] = (
+        "{} LB".format(inner_model)
+    )
+    metric_info["omp_load_balance"]["type"] = (
+        "{} contribution to the hybrid model".format(inner_model)
+    )
+    metric_info["omp_load_balance"]["meaning"] = (
+        "{} Load Balance contribution derived from the MPI+{} "
+        "multiplicative decomposition.".format(inner_model, inner_model)
+    )
+    metric_info["omp_load_balance"]["low"] = (
+        "Low values indicate that workload distribution associated with {} "
+        "contributes significantly to the overall hybrid load imbalance."
+    ).format(inner_model)
+    metric_info["omp_load_balance"]["above100"] = (
+        "Values above 100% indicate that the {} contribution compensates "
+        "for load imbalance observed at the MPI level.".format(inner_model)
+    )
 
-    metric_info["omp_load_balance"]["label"] = "    -- {} Load balance".format(inner_model)
-    metric_info["omp_load_balance"]["short_label"] = "{} LB".format(inner_model)
+    metric_info["omp_comm_eff"]["label"] = (
+        "    -- {} Communication efficiency".format(inner_model)
+    )
+    metric_info["omp_comm_eff"]["short_label"] = (
+        "{} Comm".format(inner_model)
+    )
+    metric_info["omp_comm_eff"]["type"] = (
+        "{} contribution to the hybrid model".format(inner_model)
+    )
+    metric_info["omp_comm_eff"]["meaning"] = (
+        "{} contribution associated with synchronization, communication, "
+        "and runtime-management overhead in the MPI+{} multiplicative "
+        "decomposition.".format(inner_model, inner_model)
+    )
+    metric_info["omp_comm_eff"]["low"] = (
+        "Low values indicate that synchronization, communication, or "
+        "runtime-management overhead associated with {} significantly limits "
+        "the hybrid execution.".format(inner_model)
+    )
+    metric_info["omp_comm_eff"]["above100"] = (
+        "Values above 100% indicate that the {} contribution compensates for "
+        "or amplifies communication-related effects observed at the MPI level."
+    ).format(inner_model)
 
-    metric_info["omp_comm_eff"]["label"] = "    -- {} Communication efficiency".format(inner_model)
-    metric_info["omp_comm_eff"]["short_label"] = "{} Comm".format(inner_model)
+    metric_info["hybrid_eff"]["action"] = (
+        "Compare MPI Parallel Efficiency with {} Parallel Efficiency and "
+        "continue the diagnosis from the runtime exhibiting the lowest "
+        "efficiency.".format(inner_model)
+    )
+
+    metric_info["mpi_parallel_eff"]["action"] = (
+        "Continue the MPI diagnosis using MPI Load Balance and MPI "
+        "Communication Efficiency. If MPI Communication Efficiency is low, "
+        "inspect MPI Serialization and Transfer Efficiency."
+    )
+    metric_info["mpi_load_balance"]["action"] = (
+        "Compare MPI Load Balance with {} Load Balance to determine the "
+        "relative MPI contribution to the overall application imbalance."
+    ).format(inner_model)
+    metric_info["mpi_comm_eff"]["action"] = (
+        "Compare MPI Communication Efficiency with {} Communication "
+        "Efficiency. If MPI is lower, inspect MPI Serialization and Transfer "
+        "Efficiency."
+    ).format(inner_model)
+
+    metric_info["omp_load_balance"]["action"] = (
+        "Compare {0} Load Balance with MPI Load Balance to determine which "
+        "runtime contributes most to the overall application imbalance. "
+        "Continue the diagnosis within {0} if it has the lower value."
+    ).format(inner_model)
+
+    metric_info["omp_comm_eff"]["action"] = (
+        "Compare {0} Communication Efficiency with MPI Communication "
+        "Efficiency to determine which runtime contributes most to the "
+        "overall communication or runtime-overhead loss."
+    ).format(inner_model)
+
+    if inner_model == "OpenMP":
+        metric_info["omp_parallel_eff"]["meaning"] = (
+            "OpenMP Parallel Efficiency contribution derived from the "
+            "MPI+OpenMP multiplicative decomposition."
+        )
+        metric_info["omp_parallel_eff"]["low"] = (
+            "Low values indicate that OpenMP contributes significant parallel "
+            "inefficiency to the complete MPI+OpenMP execution."
+        )
+        metric_info["omp_parallel_eff"]["action"] = (
+            "Continue the diagnosis in the Runtime-Specific Analysis section. "
+            "Compare OpenMP Serial Efficiency, OpenMP Region Load Balance, and "
+            "OpenMP Scheduling Efficiency to determine whether the OpenMP loss "
+            "is caused by serial execution, workload imbalance inside parallel "
+            "regions, or runtime scheduling and fork/join overhead."
+        )
+
+        metric_info["omp_load_balance"]["meaning"] = (
+            "OpenMP Load Balance contribution derived from the MPI+OpenMP "
+            "multiplicative decomposition."
+        )
+        metric_info["omp_load_balance"]["low"] = (
+            "Low values indicate that workload distribution among OpenMP "
+            "threads contributes significantly to the overall MPI+OpenMP "
+            "load imbalance."
+        )
+        metric_info["omp_load_balance"]["action"] = (
+            "Continue the diagnosis in the Runtime-Specific Analysis section. "
+            "Inspect OpenMP Region Load Balance to determine whether the "
+            "observed OpenMP imbalance originates inside OpenMP parallel "
+            "regions. Compare useful computation per thread within those "
+            "regions, and do not interpret this metric as identical to the "
+            "application-level POP Load Balance."
+        )
+
+        metric_info["omp_comm_eff"]["meaning"] = (
+            "OpenMP contribution associated with synchronization, scheduling, "
+            "fork/join, and runtime-management overhead in the MPI+OpenMP "
+            "multiplicative decomposition."
+        )
+        metric_info["omp_comm_eff"]["low"] = (
+            "Low values indicate that OpenMP synchronization, scheduling, "
+            "fork/join, or runtime-management overhead significantly limits "
+            "the MPI+OpenMP execution."
+        )
+        metric_info["omp_comm_eff"]["action"] = (
+            "Continue the diagnosis in the Runtime-Specific Analysis section. "
+            "Inspect OpenMP Scheduling Efficiency and OpenMP Serial Efficiency "
+            "to determine whether runtime management, synchronization, "
+            "fork/join overhead, or time outside OpenMP parallel regions "
+            "limits OpenMP efficiency."
+        )
+
+    elif inner_model in ("CUDA", "HIP"):
+        metric_info["omp_parallel_eff"]["meaning"] = (
+            "{} Parallel Efficiency contribution derived from the MPI+{} "
+            "multiplicative decomposition.".format(inner_model, inner_model)
+        )
+        metric_info["omp_parallel_eff"]["low"] = (
+            "Low values indicate that {} execution contributes significant "
+            "parallel inefficiency to the complete MPI+{} execution."
+        ).format(inner_model, inner_model)
+        metric_info["omp_parallel_eff"]["action"] = (
+            "Continue the diagnosis in the Execution Domain section. Compare "
+            "Host Global Efficiency, Device Offload Efficiency, and Device "
+            "Global Efficiency to determine whether the dominant loss "
+            "originates in the host-side accelerator execution path, "
+            "device-side execution, or both."
+        )
+
+        metric_info["omp_load_balance"]["meaning"] = (
+            "{} Load Balance contribution derived from the MPI+{} "
+            "multiplicative decomposition.".format(inner_model, inner_model)
+        )
+        metric_info["omp_load_balance"]["low"] = (
+            "Low values indicate that workload distribution associated with "
+            "{} contributes significantly to the overall MPI+{} load "
+            "imbalance.".format(inner_model, inner_model)
+        )
+        metric_info["omp_load_balance"]["action"] = (
+            "First compare {0} Load Balance with MPI Load Balance. Then "
+            "continue the diagnosis in the Execution Domain section: low "
+            "Device Offload Efficiency indicates host-side accelerator "
+            "overhead, whereas low Device Load Balance indicates imbalance "
+            "during device execution."
+        ).format(inner_model)
+
+        metric_info["omp_comm_eff"]["meaning"] = (
+            "{} contribution associated with synchronization, data movement, "
+            "and accelerator runtime-management overhead in the MPI+{} "
+            "multiplicative decomposition.".format(inner_model, inner_model)
+        )
+        metric_info["omp_comm_eff"]["low"] = (
+            "Low values indicate that {} synchronization, data movement, or "
+            "accelerator runtime-management overhead significantly limits the "
+            "MPI+{} execution.".format(inner_model, inner_model)
+        )
+        metric_info["omp_comm_eff"]["action"] = (
+            "First compare {0} Communication Efficiency with MPI "
+            "Communication Efficiency. Then continue the diagnosis in the "
+            "Execution Domain section to distinguish host-side offloading, "
+            "data movement, and synchronization overhead from device-side "
+            "communication or orchestration losses."
+        ).format(inner_model)
 
     return metric_info
 
@@ -4323,7 +4610,7 @@ def _build_interactive_report_document(workspace_html):
             document.getElementById(sectionId + "-info-interpretation").innerText =
                 "Low values: " + info.low + " Above 100%: " + info.above100;
             document.getElementById(sectionId + "-info-action").innerText =
-                "Suggested action: " + info.action;
+                "Next diagnostic step: " + info.action;
 
             const buttons = document.querySelectorAll(
                 "#" + sectionId + " .metric-tree-button"
@@ -4368,7 +4655,7 @@ def _build_interactive_report_document(workspace_html):
             }
 
             document.getElementById(sectionId + "-info-action").innerText =
-                "Suggested action: " + info.action;
+                "Next diagnostic step: " + info.action;
 
 
             const buttons = document.querySelectorAll(
@@ -4456,6 +4743,9 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
     inner_model = _inner_model_name(trace_mode, trace_list)
     hybrid_metric_info = _build_hybrid_metric_info(inner_model)
+    global_metric_info = _build_global_metric_info(
+        is_hybrid=model["is_hybrid"]
+    )
 
 
     if model["has_cuda"]:
@@ -4498,7 +4788,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
     global_html = _build_metric_tree_heatmap_section(
         metric_keys=global_filtered_keys,
-        metric_info=SIMPLE_METRIC_INFO,
+        metric_info=global_metric_info,
         metric_sources=global_sources,
         trace_list=trace_list,
         trace_labels=trace_labels,
@@ -4865,6 +5155,9 @@ def generate_basicanalysis_printable_report(
     hybrid_metric_info = _build_hybrid_metric_info(
         inner_model
     )
+    global_metric_info = _build_global_metric_info(
+        is_hybrid=model["is_hybrid"]
+    )
 
     if model["has_cuda"]:
         global_keys = [
@@ -4911,7 +5204,7 @@ def generate_basicanalysis_printable_report(
 
     global_html = _build_printable_metric_section(
         metric_keys=global_filtered_keys,
-        metric_info=SIMPLE_METRIC_INFO,
+        metric_info=global_metric_info,
         metric_sources=global_sources,
         trace_list=trace_list,
         trace_labels=trace_labels,
