@@ -12,6 +12,76 @@ import observations
 
 import plotly.graph_objects as go
 
+
+from metrics import get_default_knowledge_base
+
+#
+# Metric Knowledge Base
+#
+KB = get_default_knowledge_base()
+
+
+class MetricInfoProvider:
+    """Presentation adapter for the metric knowledge base.
+
+    The knowledge base remains the authoritative semantic source. This adapter
+    provides the flattened dictionaries currently expected by the report
+    builders and applies optional presentation overrides without mutating the
+    knowledge-base data.
+
+    Keeping this boundary explicit allows future report stages to expose richer
+    fields such as formulas, derivations, dependencies, assumptions, and
+    diagnostic causes without coupling the report code to the internal YAML
+    representation.
+    """
+
+    def __init__(self, knowledge_base):
+        self._knowledge_base = knowledge_base
+
+    def get(self, metric_key, runtime=None, runtime_family=None,
+            presentation=None, overrides=None):
+        """Return one report-ready metric-information dictionary."""
+        info = self._knowledge_base.as_legacy_info(
+            metric_key,
+            runtime=runtime,
+            runtime_family=runtime_family,
+        )
+        info = dict(info)
+
+        if presentation:
+            info.update(presentation)
+
+        if overrides:
+            info.update(overrides)
+
+        return info
+
+    def build(self, presentation, runtime=None, runtime_family=None):
+        """Build report-ready metadata for a presentation mapping."""
+        metric_info = {}
+
+        for metric_key, presentation_info in presentation.items():
+            metric_info[metric_key] = self.get(
+                metric_key,
+                runtime=runtime,
+                runtime_family=runtime_family,
+                presentation=presentation_info,
+            )
+
+        return metric_info
+
+    @staticmethod
+    def clone(metric_info):
+        """Return a safe shallow copy of a metric-information mapping."""
+        return {
+            metric_key: dict(info)
+            for metric_key, info in metric_info.items()
+        }
+
+
+METRIC_PROVIDER = MetricInfoProvider(KB)
+
+
 EFFICIENCY_COLOR_SCALE = [
     (0.00, "#b2182b"),
     (0.20, "#ef6548"),
@@ -23,437 +93,248 @@ EFFICIENCY_COLOR_SCALE = [
     (1.00, "#4dac26"),
 ]
 
-SIMPLE_METRIC_INFO = {
-    "global_eff": {
-        "label": "Global efficiency",
-        "short_label": "Global",
-        "type": "Global metric",
-        "meaning": "Overall efficiency including parallel efficiency and scalability.",
-        "low": "Low values indicate relevant global inefficiency.",
-        "above100": "Values above 100% may occur in some scaling cases and should be interpreted carefully.",
-        "action": "Inspect parallel efficiency and computation scalability.",
-    },
-    "parallel_eff": {
-        "label": "-- Parallel efficiency",
-        "short_label": "PE",
-        "type": "Parallel metric",
-        "meaning": "Efficiency of the parallel execution at the measured scale.",
-        "low": "Low values indicate parallel inefficiency.",
-        "above100": "Values above 100% should be checked.",
-        "action": "Inspect load balance and communication efficiency.",
-    },
-    "load_balance": {
-        "label": "   -- Load balance",
-        "short_label": "LB",
-        "type": "Parallel sub-metric",
-        "meaning": "Efficiency of work distribution across processes.",
-        "low": "Low values indicate load imbalance.",
-        "above100": "Values above 100% should be checked.",
-        "action": "Inspect workload distribution.",
-    },
-    "comm_eff": {
-        "label": "   -- Communication efficiency",
-        "short_label": "Comm",
-        "type": "Parallel sub-metric",
-        "meaning": "Efficiency loss caused by communication.",
-        "low": "Low values indicate communication overhead.",
-        "above100": "Values above 100% should be checked.",
-        "action": "Inspect serialization and transfer efficiency.",
-    },
-    "serial_eff": {
-        "label": "      -- Serialization efficiency",
-        "short_label": "Ser",
-        "type": "Communication sub-metric",
-        "meaning": "Efficiency loss caused by serialization.",
-        "low": "Low values indicate serialization effects.",
-        "above100": "Values above 100% may indicate simulation inconsistency.",
-        "action": "Inspect simulated and original traces.",
-    },
-    "transfer_eff": {
-        "label": "      -- Transfer efficiency",
-        "short_label": "Trans",
-        "type": "Communication sub-metric",
-        "meaning": "Efficiency loss caused by data transfer overhead.",
-        "low": "Low values indicate transfer overhead.",
-        "above100": "Values above 100% may indicate simulation inconsistency.",
-        "action": "Inspect communication volume and frequency.",
-    },
-    "comp_scale": {
-        "label": "-- Computation scalability",
-        "short_label": "Comp scale",
-        "type": "Scalability metric",
-        "meaning": "Scalability of useful computation.",
-        "low": "Low values indicate computation scaling degradation.",
-        "above100": "Values above 100% may occur depending on scaling behavior.",
-        "action": "Inspect IPC, instruction, and frequency scalability.",
-    },
-    "ipc_scale": {
-        "label": "   -- IPC scalability",
-        "short_label": "IPC",
-        "type": "Scalability sub-metric",
-        "meaning": "Scalability of instructions per cycle.",
-        "low": "Low values indicate IPC degradation.",
-        "above100": "Values above 100% indicate higher IPC than reference.",
-        "action": "Inspect microarchitectural behavior.",
-    },
-    "inst_scale": {
-        "label": "   -- Instruction scalability",
-        "short_label": "Inst",
-        "type": "Scalability sub-metric",
-        "meaning": "Scalability of executed instructions.",
-        "low": "Low values indicate instruction-count growth or poor scaling.",
-        "above100": "Values above 100% may occur depending on scaling mode.",
-        "action": "Inspect algorithmic work and instrumentation effects.",
-    },
-    "freq_scale": {
-        "label": "   -- Frequency scalability",
-        "short_label": "Freq",
-        "type": "Scalability sub-metric",
-        "meaning": "Scalability of processor frequency.",
-        "low": "Low values indicate frequency degradation.",
-        "above100": "Values above 100% indicate higher frequency than reference.",
-        "action": "Inspect CPU frequency, throttling, and power behavior.",
-    },
-}
+def _build_simple_metric_info():
+    """Build the standard POP metric metadata from the knowledge base.
 
-METRIC_INFO = {
-    "hybrid_eff": {
-        "label": "Hybrid Parallel efficiency",
-        "short_label": "Hybrid PE",
-        "type": "Global hybrid metric",
-        "meaning": "Overall parallel efficiency of the complete hybrid execution.",
-        "low": "Low values indicate that the complete hybrid execution is far from ideal.",
-        "above100": "Values above 100% are unexpected for this metric and should be checked.",
-        "action": "Inspect MPI and inner-level component metrics to identify the dominant source of inefficiency.",
-    },
-    "mpi_parallel_eff": {
-        "label": "  -- MPI Parallel efficiency",
-        "short_label": " -- MPI PE",
-        "type": "Outer-level MPI metric",
-        "meaning": "Parallel efficiency associated with the MPI level.",
-        "low": "Low values indicate MPI-level inefficiency.",
-        "above100": "Values above 100% are unexpected for this metric and should be checked.",
-        "action": "Inspect MPI load balance and MPI communication efficiency.",
-    },
-    "mpi_load_balance": {
-        "label": "      -- MPI Load balance",
-        "short_label": "  -- MPI LB",
-        "type": "Outer-level MPI metric",
-        "meaning": "Work distribution efficiency across MPI ranks.",
-        "low": "Low values indicate load imbalance between MPI ranks.",
-        "above100": "Values above 100% are unexpected for this metric and should be checked.",
-        "action": "Inspect the workload distribution across MPI ranks.",
-    },
-    "mpi_comm_eff": {
-        "label": "      -- MPI Communication efficiency",
-        "short_label": "  -- MPI Comm",
-        "type": "Outer-level MPI metric",
-        "meaning": "Efficiency loss associated with MPI communication.",
-        "low": "Low values indicate significant MPI communication overhead.",
-        "above100": "Values above 100% are unexpected for this metric and should be checked.",
-        "action": "Inspect MPI serialization and MPI transfer efficiency.",
-    },
-    "serial_eff": {
-        "label": "         -- MPI Serialization efficiency",
-        "short_label": "    -- MPI Ser",
-        "type": "Outer-level MPI sub-metric",
-        "meaning": "Efficiency loss caused by serialization or limited overlap in MPI communication.",
-        "low": "Low values indicate relevant MPI serialization effects.",
-        "above100": "Values above 100% are usually caused by simulation or measurement inconsistency.",
-        "action": "Compare original and simulated traces.",
-    },
-    "transfer_eff": {
-        "label": "         -- MPI Transfer efficiency",
-        "short_label": "    -- MPI Trans",
-        "type": "Outer-level MPI sub-metric",
-        "meaning": "Efficiency loss caused by MPI transfer overhead.",
-        "low": "Low values indicate relevant MPI transfer overhead.",
-        "above100": "Values above 100% are usually caused by simulation or measurement inconsistency.",
-        "action": "Inspect message sizes, communication frequency, and network behavior.",
-    },
-    "omp_parallel_eff": {
-        "label": "  -- OpenMP Parallel efficiency",
-        "short_label": "-- OMP PE",
-        "type": "Inner-level contribution",
-        "meaning": "Inner-level contribution derived from the hybrid decomposition.",
-        "low": "Low values indicate that the inner level contributes significant inefficiency.",
-        "above100": "Values above 100% indicate a compensation effect, not a conventional efficiency.",
-        "action": "Inspect inner-level load balance, communication, serialization, and transfer efficiency.",
-    },
-    "omp_load_balance": {
-        "label": "      -- OpenMP Load balance",
-        "short_label": "  -- OMP LB",
-        "type": "Inner-level contribution",
-        "meaning": "Inner-level load-balance contribution in the hybrid decomposition.",
-        "low": "Low values may indicate thread-level imbalance, but interpretation depends on the hybrid decomposition.",
-        "above100": "Values above 100% indicate that the inner level compensates load imbalance observed at the MPI level.",
-        "action": "Use this as a compensation indicator. For inner level only diagnosis, use an isolated inner level view.",
-    },
-    "omp_comm_eff": {
-        "label": "      -- OpenMP Communication efficiency",
-        "short_label": "  -- OMP Comm",
-        "type": "Inner-level contribution",
-        "meaning": "Inner-level synchronization/runtime-overhead contribution in the hybrid decomposition.",
-        "low": "Low values indicate relevant inner-level synchronization or runtime overhead.",
-        "above100": "Values above 100% indicate a compensation or amplification effect in the hybrid decomposition.",
-        "action": "Inspect inner level serialization and transfer efficiency.",
-    },
-    "omp_serial_eff": {
-        "label": "         -- OpenMP Serialization efficiency",
-        "short_label": "    -- OMP Ser",
-        "type": "Inner-level sub-metric",
-        "meaning": "Effect of limited parallelism, dependencies, or serialized OpenMP regions.",
-        "low": "Low values indicate structural limitations in OpenMP parallelism.",
-        "above100": "Values above 100% indicate a compensation effect in the hybrid decomposition.",
-        "action": "Inspect dependencies, critical sections, barriers, and limited parallel regions.",
-    },
-    "omp_transfer_eff": {
-        "label": "         -- OpenMP Transfer efficiency",
-        "short_label": "    -- OMP Trans",
-        "type": "Inner-level sub-metric",
-        "meaning": "Effect of OpenMP runtime, scheduling, synchronization, or thread-management overhead.",
-        "low": "Low values indicate significant OpenMP runtime overhead.",
-        "above100": "Values above 100% indicate a compensation effect in the hybrid decomposition.",
-        "action": "Inspect fork-join frequency, scheduling overhead, barriers, and synchronization events.",
-    },
-}
+    The knowledge base owns the methodological content.  This function adds
+    only presentation details that are specific to the current report, such as
+    hierarchy markers used by the legacy Plotly views.
+    """
+
+    presentation = {
+        "global_eff": {
+            "label": "Global efficiency",
+            "short_label": "Global",
+        },
+        "parallel_eff": {
+            "label": "-- Parallel efficiency",
+            "short_label": "PE",
+        },
+        "load_balance": {
+            "label": "   -- Load balance",
+            "short_label": "LB",
+        },
+        "comm_eff": {
+            "label": "   -- Communication efficiency",
+            "short_label": "Comm",
+        },
+        "serial_eff": {
+            "label": "      -- Serialization efficiency",
+            "short_label": "Ser",
+        },
+        "transfer_eff": {
+            "label": "      -- Transfer efficiency",
+            "short_label": "Trans",
+        },
+        "comp_scale": {
+            "label": "-- Computation scalability",
+            "short_label": "Comp scale",
+        },
+        "ipc_scale": {
+            "label": "   -- IPC scalability",
+            "short_label": "IPC",
+        },
+        "inst_scale": {
+            "label": "   -- Instruction scalability",
+            "short_label": "Inst",
+        },
+        "freq_scale": {
+            "label": "   -- Frequency scalability",
+            "short_label": "Freq",
+        },
+    }
+
+    return METRIC_PROVIDER.build(presentation)
 
 
-TALP_METRIC_INFO = {
-    "host_global_eff": {
-        "label": "Host Global efficiency",
-        "short_label": "Host global",
-        "type": "Host metric",
-        "meaning": "Overall host efficiency.",
-        "low": "Low values indicate host-side inefficiency.",
-        "above100": "Values above 100% should be checked.",
-         "action": (
-            "Compare Host Global Efficiency with Device Global Efficiency. "
-            "If the host value is substantially lower, inspect Host Parallel "
-            "Efficiency, Device Offload Efficiency, and Host Computation "
-            "Scalability to determine whether the dominant loss originates "
-            "from MPI, the host-side accelerator execution path, or host computation."
-        ),
-    },
-    "host_parallel_eff": {
-        "label": "-- Host Parallel efficiency",
-        "short_label": "-- Host PE",
-        "type": "Host metric",
-        "meaning": "Host-side parallel efficiency.",
-        "low": "Low values indicate host-side parallel inefficiency.",
-        "above100": "Values above 100% should be checked.",
-         "action": (
-            "Compare MPI Parallel Efficiency with Device Offload Efficiency. "
-            "This separates MPI-related losses from losses in the host-side "
-            "accelerator execution path."
-        ),
-    },
-    "mpi_parallel_eff": {
-        "label": "   == MPI Parallel efficiency",
-        "short_label": " -- MPI PE",
-        "type": "MPI host metric",
-        "meaning": "MPI efficiency on the host side.",
-        "low": "Low values indicate MPI-level inefficiency.",
-        "above100": "Values above 100% should be checked.",
-        "action": "Inspect MPI load balance and communication efficiency.",
-    },
-    "mpi_load_balance": {
-        "label": "       -- MPI Load balance",
-        "short_label": " -- MPI LB",
-        "type": "MPI host metric",
-        "meaning": "MPI rank load balance.",
-        "low": "Low values indicate MPI rank imbalance.",
-        "above100": "Values above 100% should be checked.",
-        "action": "Inspect MPI workload distribution.",
-    },
-    "mpi_comm_eff": {
-        "label": "       -- MPI Communication efficiency",
-        "short_label": " -- MPI Comm",
-        "type": "MPI host metric",
-        "meaning": "MPI communication efficiency.",
-        "low": "Low values indicate MPI communication overhead.",
-        "above100": "Values above 100% should be checked.",
-        "action": "Inspect MPI serialization and transfer.",
-    },
-    "serial_eff": {
-        "label": "          -- MPI Serialization efficiency",
-        "short_label": "   -- MPI Ser",
-        "type": "MPI sub-metric",
-        "meaning": "MPI serialization efficiency.",
-        "low": "Low values indicate MPI serialization effects.",
-        "above100": "Values above 100% may indicate simulation inconsistency.",
-        "action": "Inspect original and simulated traces.",
-    },
-    "transfer_eff": {
-        "label": "          -- MPI Transfer efficiency",
-        "short_label": "   -- MPI Trans",
-        "type": "MPI sub-metric",
-        "meaning": "MPI transfer efficiency.",
-        "low": "Low values indicate MPI transfer overhead.",
-        "above100": "Values above 100% may indicate simulation inconsistency.",
-        "action": "Inspect message volume and frequency.",
-    },
-    "dev_offload_eff": {
-        "label": "   == Device Offload efficiency",
-        "short_label": "   == Offload",
-        "type": "Host/device metric",
-         "meaning": (
-            "Efficiency with which host-side time outside MPI is converted "
-            "into effective device execution."
-        ),
-        "low": (
-            "Low values indicate that a substantial fraction of host-side "
-            "execution does not result in effective device work. Possible "
-            "contributors include kernel-launch overhead, synchronization, "
-            "runtime management, data movement, or insufficient accelerator use."
-        ),
-        "above100": "Values above 100% should be checked.",
-        "action": (
-            "Compare Device Offload Efficiency with MPI Parallel Efficiency "
-            "and Device Global Efficiency. A low offload value together with "
-            "healthy MPI metrics indicates that the dominant loss occurs in "
-            "the host-side accelerator execution path. Then inspect the Device "
-            "view to determine whether device-side execution adds another loss."
-        ),
-    },
-    "host_comp_scale": {
-        "label": "-- Host Computation scalability",
-        "short_label": "-- Host scale",
-        "type": "Host scalability metric",
-        "meaning": "Host computation scalability.",
-        "low": "Low values indicate host-side computation scaling loss.",
-        "above100": "Values above 100% may occur depending on scaling behavior.",
-        "action": "Inspect host IPC, instruction, and frequency scalability.",
-    },
-    "dev_global_eff": {
-        "label": "Device Global efficiency",
-        "short_label": "Dev global",
-        "type": "Device metric",
-        "meaning": "Overall device-side efficiency.",
-        "low": "Low values indicate GPU/device inefficiency.",
-        "above100": "Values above 100% should be checked.",
-         "action": (
-            "Inspect Device Parallel Efficiency and Device Computation "
-            "Scalability. Within Device Parallel Efficiency, compare Device "
-            "Load Balance, Communication Efficiency, and Orchestration Efficiency. "
-            "Compare the result with Device Offload Efficiency to distinguish "
-            "device-side inefficiency from host-side accelerator overhead."
-        ),
-    },
-    "dev_parallel_eff": {
-        "label": "-- Device Parallel efficiency",
-        "short_label": "-- Dev PE",
-        "type": "Device metric",
-        "meaning": "Device-side parallel efficiency.",
-        "low": "Low values indicate low useful device occupancy over runtime.",
-        "above100": "Values above 100% should be checked.",
-         "action": (
-            "Compare Device Load Balance, Communication Efficiency, and "
-            "Orchestration Efficiency. Then compare the device-side result "
-            "with Device Offload Efficiency to determine whether the larger "
-            "loss occurs during host-side offloading or device execution."
-        ),
-    },
-    "dev_load_balance": {
-        "label": "   == Device Load balance",
-        "short_label": "   == Dev LB",
-        "type": "Device sub-metric",
-        "meaning": "Load balance across devices.",
-        "low": "Low values indicate imbalance across devices.",
-        "above100": "Values above 100% should be checked.",
-        "action": "Inspect per-device useful time.",
-    },
-    "dev_comm_eff": {
-        "label": "   == Device Communication efficiency",
-        "short_label": "   == Dev Comm",
-        "type": "Device sub-metric",
-        "meaning": "Efficiency related to device memory transfer overhead.",
-        "low": "Low values indicate relevant device transfer overhead.",
-        "above100": "Values above 100% should be checked.",
-        "action": "Inspect host-device/device memory transfers.",
-    },
-    "dev_orches_eff": {
-        "label": "   == Device Orchestration efficiency",
-        "short_label": "   == Dev Orch",
-        "type": "Device sub-metric",
-        "meaning": "Efficiency of device orchestration over runtime.",
-        "low": "Low values indicate relevant orchestration overhead.",
-        "above100": "Values above 100% should be checked.",
-         "action": (
-            "Inspect kernel-launch frequency, synchronization, stream dependencies, "
-            "runtime scheduling, and overlap between device computation and data "
-            "movement. Compare this loss with Device Offload Efficiency to distinguish "
-            "device-side orchestration overhead from host-side accelerator overhead."
-        ),
-    },
-    "dev_comp_scale": {
-        "label": "-- Device Computation scalability",
-        "short_label": "-- Dev scale",
-        "type": "Device scalability metric",
-        "meaning": "Device computation scalability.",
-        "low": "Low values indicate GPU/device computation scaling loss.",
-        "above100": "Values above 100% may occur depending on scaling behavior.",
-        "action": "Inspect device useful time scaling.",
-    },
-}
-
-for key in ("ipc_scale", "inst_scale", "freq_scale"):
-    TALP_METRIC_INFO[key] = dict(SIMPLE_METRIC_INFO[key])
-
-TALP_METRIC_INFO["ipc_scale"]["type"] = "Host scalability sub-metric"
-TALP_METRIC_INFO["inst_scale"]["type"] = "Host scalability sub-metric"
-TALP_METRIC_INFO["freq_scale"]["type"] = "Host scalability sub-metric"
+# Standard application-level and single-runtime POP metrics are obtained
+# through the shared presentation adapter.
+SIMPLE_METRIC_INFO = _build_simple_metric_info()
 
 
-OPENMP_METRIC_INFO = {
-    "omp_talp_parallel_eff": {
-        "label": "OpenMP Parallel efficiency",
-        "short_label": "OMP PE",
-        "type": "OpenMP metric",
-        "meaning": "Efficiency of the OpenMP execution considering idle OpenMP-thread time as loss.",
-        "low": "Low values indicate relevant OpenMP inefficiency.",
-        "above100": "Values above 100% are unexpected and should be checked.",
-        "action": "Inspect OpenMP Serial, Load Balance, and Scheduling efficiencies.",
-    },
-    "omp_talp_serial_eff": {
-        "label": "  -- OpenMP Serial efficiency",
-        "short_label": "OMP Serial",
-        "type": "OpenMP sub-metric",
-        "meaning": "Efficiency loss caused by time outside OpenMP parallel regions.",
-        "low": "Low values indicate that a relevant part of the execution is not parallelized with OpenMP.",
-        "above100": "Values above 100% are unexpected and should be checked.",
-        "action": "Inspect useful computation and MPI time outside OpenMP parallel regions.",
-    },
-    "omp_talp_load_balance": {
-        "label": "  -- OpenMP Region Load balance",
-        "short_label": "OMP Region LB",
-        "type": "OpenMP runtime-specific sub-metric",
-        "meaning": (
-            "Efficiency of useful-computation distribution among OpenMP "
-            "threads inside OpenMP parallel regions. Only useful computation "
-            "performed inside those regions is considered."
-        ),
-        "low": (
-            "Low values indicate that useful computation is unevenly "
-            "distributed among OpenMP threads inside parallel regions."
-        ),
-        "above100": "Values above 100% are unexpected and should be checked.",
-        "action": (
-            "Inspect useful computation per OpenMP thread and per parallel "
-            "region. Do not compare this metric directly with the classical "
-            "application-level POP Load Balance."
-        ),
-    },
-    "omp_talp_scheduling_eff": {
-        "label": "  -- OpenMP Scheduling efficiency",
-        "short_label": "OMP Sched",
-        "type": "OpenMP sub-metric",
-        "meaning": "Efficiency loss caused by OpenMP scheduling and fork/join overhead.",
-        "low": "Low values indicate relevant OpenMP runtime overhead.",
-        "above100": "Values above 100% are unexpected and should be checked.",
-        "action": "Inspect scheduling and fork/join states in the OpenMP regions.",
-    },
-}
+def _build_hybrid_base_metric_info(inner_model):
+    """Build the MPI+X metric metadata from the knowledge base.
+
+    The internal ``omp_*`` identifiers are retained for compatibility with the
+    current metric files.  Runtime-aware wording is requested from the
+    knowledge base using the actual inner runtime (OpenMP, CUDA, HIP, etc.).
+    Only report-specific hierarchy labels remain in this module.
+    """
+
+    inner_model = inner_model or "OpenMP"
+    runtime_family = inner_model.lower()
+
+    presentation = {
+        "hybrid_eff": {
+            "label": "Hybrid Parallel efficiency",
+            "short_label": "Hybrid PE",
+        },
+        "mpi_parallel_eff": {
+            "label": "  -- MPI Parallel efficiency",
+            "short_label": " -- MPI PE",
+        },
+        "mpi_load_balance": {
+            "label": "      -- MPI Load balance",
+            "short_label": "  -- MPI LB",
+        },
+        "mpi_comm_eff": {
+            "label": "      -- MPI Communication efficiency",
+            "short_label": "  -- MPI Comm",
+        },
+        "serial_eff": {
+            "label": "         -- MPI Serialization efficiency",
+            "short_label": "    -- MPI Ser",
+        },
+        "transfer_eff": {
+            "label": "         -- MPI Transfer efficiency",
+            "short_label": "    -- MPI Trans",
+        },
+        "omp_parallel_eff": {
+            "label": "  -- {} Parallel efficiency".format(inner_model),
+            "short_label": "{} PE".format(inner_model),
+        },
+        "omp_load_balance": {
+            "label": "      -- {} Load balance".format(inner_model),
+            "short_label": "{} LB".format(inner_model),
+        },
+        "omp_comm_eff": {
+            "label": "      -- {} Communication efficiency".format(inner_model),
+            "short_label": "{} Comm".format(inner_model),
+        },
+        "omp_serial_eff": {
+            "label": "         -- {} Serialization efficiency".format(inner_model),
+            "short_label": "{} Ser".format(inner_model),
+        },
+        "omp_transfer_eff": {
+            "label": "         -- {} Transfer efficiency".format(inner_model),
+            "short_label": "{} Trans".format(inner_model),
+        },
+    }
+
+    return METRIC_PROVIDER.build(
+        presentation,
+        runtime=inner_model,
+        runtime_family=runtime_family,
+    )
+
+
+# Compatibility metadata for legacy helpers that do not yet receive the
+# execution model explicitly. Runtime-aware report paths call
+# _build_hybrid_base_metric_info() with the actual inner runtime.
+METRIC_INFO = _build_hybrid_base_metric_info("OpenMP")
+
+
+
+def _build_talp_metric_info():
+    """Build Host/Device metric metadata from the knowledge base.
+
+    Methodological content comes from the shared knowledge base.  Only
+    report-specific labels and hierarchy markers remain in this module.
+    """
+
+    presentation = {
+        "host_global_eff": {
+            "label": "Host Global efficiency",
+            "short_label": "Host global",
+        },
+        "host_parallel_eff": {
+            "label": "-- Host Parallel efficiency",
+            "short_label": "-- Host PE",
+        },
+        "mpi_parallel_eff": {
+            "label": "   == MPI Parallel efficiency",
+            "short_label": " -- MPI PE",
+        },
+        "mpi_load_balance": {
+            "label": "       -- MPI Load balance",
+            "short_label": " -- MPI LB",
+        },
+        "mpi_comm_eff": {
+            "label": "       -- MPI Communication efficiency",
+            "short_label": " -- MPI Comm",
+        },
+        "serial_eff": {
+            "label": "          -- MPI Serialization efficiency",
+            "short_label": "   -- MPI Ser",
+        },
+        "transfer_eff": {
+            "label": "          -- MPI Transfer efficiency",
+            "short_label": "   -- MPI Trans",
+        },
+        "dev_offload_eff": {
+            "label": "   == Device Offload efficiency",
+            "short_label": "   == Offload",
+        },
+        "host_comp_scale": {
+            "label": "-- Host Computation scalability",
+            "short_label": "-- Host scale",
+        },
+        "ipc_scale": {
+            "label": "   -- IPC scalability",
+            "short_label": "IPC",
+        },
+        "inst_scale": {
+            "label": "   -- Instruction scalability",
+            "short_label": "Inst",
+        },
+        "freq_scale": {
+            "label": "   -- Frequency scalability",
+            "short_label": "Freq",
+        },
+        "dev_global_eff": {
+            "label": "Device Global efficiency",
+            "short_label": "Dev global",
+        },
+        "dev_parallel_eff": {
+            "label": "-- Device Parallel efficiency",
+            "short_label": "-- Dev PE",
+        },
+        "dev_load_balance": {
+            "label": "   == Device Load balance",
+            "short_label": "   == Dev LB",
+        },
+        "dev_comm_eff": {
+            "label": "   == Device Communication efficiency",
+            "short_label": "   == Dev Comm",
+        },
+        "dev_orches_eff": {
+            "label": "   == Device Orchestration efficiency",
+            "short_label": "   == Dev Orch",
+        },
+        "dev_comp_scale": {
+            "label": "-- Device Computation scalability",
+            "short_label": "-- Dev scale",
+        },
+    }
+
+    metric_info = METRIC_PROVIDER.build(presentation)
+
+    # These canonical scalability metrics are interpreted specifically as
+    # host-side sub-metrics in the Host execution-domain view.
+    for metric_key in ("ipc_scale", "inst_scale", "freq_scale"):
+        metric_info[metric_key]["type"] = "Host scalability sub-metric"
+
+    return metric_info
+
+
+TALP_METRIC_INFO = _build_talp_metric_info()
+
+
+
+def _build_openmp_metric_info():
+    """OpenMP runtime-specific metrics from the shared knowledge base."""
+
+    presentation = {
+        "omp_talp_parallel_eff": {"label": "OpenMP Parallel efficiency","short_label":"OMP Parallel"},
+        "omp_talp_serial_eff": {"label": "   -- OpenMP Serial efficiency","short_label":"OMP Serial"},
+        "omp_talp_load_balance": {"label": "   -- OpenMP Load balance","short_label":"OMP LB"},
+        "omp_talp_scheduling_eff": {"label": "   -- OpenMP Scheduling efficiency","short_label":"OMP Sched"},
+    }
+
+    return METRIC_PROVIDER.build(presentation)
+
+OPENMP_METRIC_INFO = _build_openmp_metric_info()
+
 
 HYBRID_ORDER = [
     "hybrid_eff",
@@ -658,6 +539,24 @@ GLOBAL_GPU_TREE = [
         _tree_node("comp_scale"),
     ])
 ]
+
+
+
+def _metric_info(metric_key,
+                 runtime=None,
+                 runtime_family=None):
+    """
+    Return metric information using the knowledge base.
+
+    This function currently provides a compatibility layer with the
+    previous metric dictionaries.
+    """
+
+    return METRIC_PROVIDER.get(
+        metric_key,
+        runtime=runtime,
+        runtime_family=runtime_family,
+    )
 
 
 def _format_overview_value(key, value):
@@ -868,10 +767,7 @@ def _inner_model_name(trace_mode, trace_list):
 
 def _build_global_metric_info(is_hybrid):
     """Build application-level metric guidance for the execution model."""
-    metric_info = {
-        key: dict(value)
-        for key, value in SIMPLE_METRIC_INFO.items()
-    }
+    metric_info = METRIC_PROVIDER.clone(SIMPLE_METRIC_INFO)
 
     if not is_hybrid:
         return metric_info
@@ -916,10 +812,7 @@ def _build_global_metric_info(is_hybrid):
 
 def _build_hybrid_metric_info(inner_model):
     """Build runtime-aware metadata and diagnostic guidance for MPI+X."""
-    metric_info = {
-        key: dict(value)
-        for key, value in METRIC_INFO.items()
-    }
+    metric_info = _build_hybrid_base_metric_info(inner_model)
 
     # The internal keys retain the historical omp_* names, but every
     # user-facing field must identify the actual inner runtime.
@@ -6481,10 +6374,7 @@ def _build_single_runtime_metric_info(runtime_name):
     pure MPI, OpenMP, CUDA, and other single-runtime reports use the same
     analytical vocabulary as composed-runtime reports.
     """
-    metric_info = {
-        key: dict(value)
-        for key, value in SIMPLE_METRIC_INFO.items()
-    }
+    metric_info = METRIC_PROVIDER.clone(SIMPLE_METRIC_INFO)
 
     runtime_name = runtime_name or "Parallel runtime"
 
