@@ -221,7 +221,7 @@ METRIC_INFO = {
 
 TALP_METRIC_INFO = {
     "host_global_eff": {
-        "label": "HOST Global efficiency",
+        "label": "Host Global efficiency",
         "short_label": "Host global",
         "type": "Host metric",
         "meaning": "Overall host efficiency.",
@@ -326,7 +326,7 @@ TALP_METRIC_INFO = {
         "action": "Inspect host IPC, instruction, and frequency scalability.",
     },
     "dev_global_eff": {
-        "label": "DEVICE Global efficiency",
+        "label": "Device Global efficiency",
         "short_label": "Dev global",
         "type": "Device metric",
         "meaning": "Overall device-side efficiency.",
@@ -2707,61 +2707,67 @@ def _build_metric_depth_map(tree):
     return depth_map
 
 
-def _build_metric_definition_table_html(metric_keys, metric_info):
-    """Build a static table with metric definitions."""
+def _collect_metric_definitions(definition_registry, metric_keys, metric_info):
+    """Collect unique metric definitions in first-use order.
 
-    if not metric_keys:
-        return ""
-
-    lines = []
-
-    lines.append("<div class='metric-definition-section'>")
-    lines.append("<h3>Metric definitions</h3>")
-
-    lines.append("<table class='metric-definition-table'>")
-
-    lines.append("<thead>")
-    lines.append("<tr>")
-    lines.append("<th>Metric</th>")
-    lines.append("<th>Definition</th>")
-    lines.append("</tr>")
-    lines.append("</thead>")
-
-    lines.append("<tbody>")
-
+    The printable report keeps analytical results close to their diagnosis and
+    moves documentation to a single appendix.  User-facing labels are used as
+    the deduplication key because some internal metric identifiers are reused
+    across runtime models.
+    """
     for metric_key in metric_keys:
         info = metric_info.get(metric_key, {})
+        label = _clean_metric_label(info.get("label", metric_key))
+        meaning = info.get("meaning", "No definition available.")
+        normalized_label = " ".join(label.lower().split())
 
-        label = _clean_metric_label(
-            info.get("label", metric_key)
-        )
+        if normalized_label not in definition_registry:
+            definition_registry[normalized_label] = {
+                "label": label,
+                "meaning": meaning,
+            }
 
-        meaning = info.get(
-            "meaning",
-            "No definition available.",
-        )
 
-        lines.append("<tr>")
+def _build_metric_definition_appendix_html(definition_registry):
+    """Build one compact appendix containing all unique metric definitions."""
+    if not definition_registry:
+        return ""
 
+    lines = [
+        '<section class="print-appendix print-page-section">',
+        '<header class="print-section-header">',
+        '<p class="print-section-kicker">Reference</p>',
+        '<h2>Appendix A — Metric Definitions</h2>',
+        '<p class="print-section-description">Definitions are listed once, '
+        'in the order in which the metrics first appear in the report.</p>',
+        '</header>',
+        '<table class="metric-definition-table">',
+        '<thead><tr><th>Metric</th><th>Definition</th></tr></thead>',
+        '<tbody>',
+    ]
+
+    for item in definition_registry.values():
+        lines.append('<tr>')
         lines.append(
-            "<td><strong>{}</strong></td>".format(
-                html.escape(label)
+            '<td><strong>{}</strong></td>'.format(
+                html.escape(item["label"])
             )
         )
-
         lines.append(
-            "<td>{}</td>".format(
-                html.escape(meaning)
+            '<td>{}</td>'.format(
+                html.escape(item["meaning"])
             )
         )
+        lines.append('</tr>')
 
-        lines.append("</tr>")
-
-    lines.append("</tbody>")
-    lines.append("</table>")
-    lines.append("</div>")
+    lines.extend([
+        '</tbody>',
+        '</table>',
+        '</section>',
+    ])
 
     return "\n".join(lines)
+
 
 def _build_printable_metric_section(
         metric_keys,
@@ -2771,8 +2777,15 @@ def _build_printable_metric_section(
         trace_labels,
         title,
         tree,
-        trace_header_note=""):
-    """Build a static efficiency section for the printable report."""
+        trace_header_note="",
+        scope_note_html="",
+        section_kicker="Performance analysis",
+        section_description=""):
+    """Build one analytical section for the printable report.
+
+    Metric definitions are intentionally excluded.  They are collected by the
+    caller and rendered once in Appendix A.
+    """
 
     # Keep Serialization and Transfer exclusively in runtime-model sections.
     if tree in (GLOBAL_TREE, GLOBAL_GPU_TREE):
@@ -2797,67 +2810,67 @@ def _build_printable_metric_section(
         printable=True,
     )
 
-    performance_interpretation = (
-        observations.build_performance_interpretation(
-            tree=tree,
-            metric_info=metric_info,
-            metric_sources=metric_sources,
-            trace_list=trace_list,
-        )
+    performance_interpretation = observations.build_performance_interpretation(
+        tree=tree,
+        metric_info=metric_info,
+        metric_sources=metric_sources,
+        trace_list=trace_list,
+    )
+    performance_html = observations.build_performance_interpretation_html(
+        performance_interpretation
     )
 
-    performance_html = (
-        observations.build_performance_interpretation_html(
-            performance_interpretation
-        )
+    scaling_interpretation = observations.build_scaling_interpretation(
+        tree=tree,
+        metric_info=metric_info,
+        metric_sources=metric_sources,
+        trace_list=trace_list,
     )
-
-    scaling_interpretation = (
-        observations.build_scaling_interpretation(
-            tree=tree,
-            metric_info=metric_info,
-            metric_sources=metric_sources,
-            trace_list=trace_list,
-        )
-    )
-
-    scaling_html = (
-        observations.build_scaling_interpretation_html(
-            scaling_interpretation
-        )
+    scaling_html = observations.build_scaling_interpretation_html(
+        scaling_interpretation
     )
 
     analysis_html = observations.build_analysis_summary_html(
         performance_html=performance_html,
         scaling_html=scaling_html,
-        title="Analysis summary",
+        title="Automatic diagnosis",
     )
 
-    definitions_html = _build_metric_definition_table_html(
-        metric_keys=metric_keys,
-        metric_info=metric_info,
-    )
+    description_html = ""
+    if section_description:
+        description_html = (
+            '<p class="print-section-description">{}</p>'.format(
+                html.escape(section_description)
+            )
+        )
 
     return """
-    <section class="print-metric-section">
-        <h2>{title}</h2>
+    <section class="print-metric-section print-page-section">
+        <header class="print-section-header">
+            <p class="print-section-kicker">{section_kicker}</p>
+            <h2>{title}</h2>
+            {description_html}
+            {trace_header_note}
+        </header>
 
-        {trace_header_note}
+        {scope_note_html}
 
-        <div class="metric-table-card">
+        <div class="print-metric-results metric-table-card">
             {efficiency_table_html}
         </div>
 
-        {analysis_html}
-
-        {definitions_html}
+        <div class="print-analysis-summary">
+            {analysis_html}
+        </div>
     </section>
     """.format(
+        section_kicker=html.escape(section_kicker),
         title=html.escape(title),
+        description_html=description_html,
         trace_header_note=trace_header_note,
+        scope_note_html=scope_note_html,
         efficiency_table_html=efficiency_table_html,
         analysis_html=analysis_html,
-        definitions_html=definitions_html,
     )
 
 
@@ -6459,6 +6472,108 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     return output_html
 
 
+
+def _build_single_runtime_metric_info(runtime_name):
+    """Build runtime-labelled metadata for a single-runtime POP model.
+
+    The underlying metric identifiers remain the standard simple-model keys,
+    but the printable report explicitly identifies the active runtime so that
+    pure MPI, OpenMP, CUDA, and other single-runtime reports use the same
+    analytical vocabulary as composed-runtime reports.
+    """
+    metric_info = {
+        key: dict(value)
+        for key, value in SIMPLE_METRIC_INFO.items()
+    }
+
+    runtime_name = runtime_name or "Parallel runtime"
+
+    metric_info["parallel_eff"]["label"] = (
+        "{} Parallel efficiency".format(runtime_name)
+    )
+    metric_info["parallel_eff"]["short_label"] = (
+        "{} PE".format(runtime_name)
+    )
+    metric_info["parallel_eff"]["type"] = (
+        "{} runtime metric".format(runtime_name)
+    )
+
+    metric_info["load_balance"]["label"] = (
+        "  -- {} Load balance".format(runtime_name)
+    )
+    metric_info["load_balance"]["short_label"] = (
+        "{} LB".format(runtime_name)
+    )
+    metric_info["load_balance"]["type"] = (
+        "{} runtime sub-metric".format(runtime_name)
+    )
+
+    metric_info["comm_eff"]["label"] = (
+        "  -- {} Communication efficiency".format(runtime_name)
+    )
+    metric_info["comm_eff"]["short_label"] = (
+        "{} Comm".format(runtime_name)
+    )
+    metric_info["comm_eff"]["type"] = (
+        "{} runtime sub-metric".format(runtime_name)
+    )
+
+    metric_info["serial_eff"]["label"] = (
+        "     -- {} Serialization efficiency".format(runtime_name)
+    )
+    metric_info["serial_eff"]["short_label"] = (
+        "{} Ser".format(runtime_name)
+    )
+    metric_info["serial_eff"]["type"] = (
+        "{} communication sub-metric".format(runtime_name)
+    )
+
+    metric_info["transfer_eff"]["label"] = (
+        "     -- {} Transfer efficiency".format(runtime_name)
+    )
+    metric_info["transfer_eff"]["short_label"] = (
+        "{} Trans".format(runtime_name)
+    )
+    metric_info["transfer_eff"]["type"] = (
+        "{} communication sub-metric".format(runtime_name)
+    )
+
+    if runtime_name == "MPI":
+        metric_info["parallel_eff"]["meaning"] = (
+            "Parallel efficiency of the MPI execution."
+        )
+        metric_info["load_balance"]["meaning"] = (
+            "Efficiency of useful-work distribution across MPI ranks."
+        )
+        metric_info["comm_eff"]["meaning"] = (
+            "Efficiency loss associated with MPI communication."
+        )
+        metric_info["serial_eff"]["meaning"] = (
+            "Efficiency loss caused by MPI serialization or limited overlap."
+        )
+        metric_info["transfer_eff"]["meaning"] = (
+            "Efficiency loss caused by MPI data-transfer overhead."
+        )
+
+    return metric_info
+
+
+def _filter_available_metric_keys(metric_keys, metric_sources,
+                                  trace_list):
+    """Return only metrics with at least one numeric value."""
+    filtered = []
+
+    for key in metric_keys:
+        source = metric_sources.get(key, {})
+        if any(
+            _clean_value(_read_metric(source, key, trace)) is not None
+            for trace in trace_list
+        ):
+            filtered.append(key)
+
+    return filtered
+
+
 def generate_basicanalysis_printable_report(
         metrics_result,
         analysis_result,
@@ -6469,7 +6584,23 @@ def generate_basicanalysis_printable_report(
         trace_threads,
         trace_mode,
         cmdl_args):
-    """Generate printable BasicAnalysis HTML report."""
+    """Generate the printable BasicAnalysis HTML report.
+
+    The printable report follows the same analytical architecture as the
+    interactive report:
+
+      1. Execution Overview
+      2. Application Efficiency Analysis
+      3. Runtime Analysis
+         - single-runtime model for pure applications
+         - composed runtime model for hybrid applications
+      4. Runtime-Specific Analysis, when available
+      5. Execution-Domain Analysis, when available
+      Appendix A. Metric Definitions
+
+    Runtime contributions, isolated runtime diagnoses, and Host/Device
+    execution domains are intentionally represented as different layers.
+    """
 
     output_html = os.path.join(
         os.getcwd(),
@@ -6483,24 +6614,20 @@ def generate_basicanalysis_printable_report(
     )
 
     report_traces = report.get("traces", [])
-
     trace_labels = [
         _report_trace_label(trace_info)
         for trace_info in report_traces
     ]
 
     trace_header_note = _build_trace_header_note(report)
-
     trace_config_html = _build_trace_config_table_html(report)
 
     other_metrics = metrics_result["other_metrics"]
-
     overview_html = _build_overview_table_html(
         other_metrics,
         trace_list,
         trace_labels,
     )
-
     efficiency_scale_html = _build_efficiency_scale_html()
 
     mod_factors = metrics_result.get("mod_factors", {})
@@ -6510,18 +6637,17 @@ def generate_basicanalysis_printable_report(
         {},
     )
 
-    inner_model = _inner_model_name(
-        trace_mode,
-        trace_list,
-    )
-
-    hybrid_metric_info = _build_hybrid_metric_info(
-        inner_model
-    )
+    inner_model = _inner_model_name(trace_mode, trace_list)
+    hybrid_metric_info = _build_hybrid_metric_info(inner_model)
     global_metric_info = _build_global_metric_info(
         is_hybrid=model["is_hybrid"]
     )
 
+    definition_registry = {}
+
+    # --------------------------------------------------
+    # 2. Application efficiency analysis
+    # --------------------------------------------------
     if model["has_cuda"]:
         global_keys = [
             "global_eff",
@@ -6530,9 +6656,7 @@ def generate_basicanalysis_printable_report(
             "comm_eff",
             "comp_scale",
         ]
-
         global_tree = GLOBAL_GPU_TREE
-
     else:
         global_keys = [
             "global_eff",
@@ -6544,26 +6668,23 @@ def generate_basicanalysis_printable_report(
             "inst_scale",
             "freq_scale",
         ]
-
         global_tree = GLOBAL_TREE
-
-    global_filtered_keys = []
-
-    for key in global_keys:
-        if key not in mod_factors:
-            continue
-
-        for trace in trace_list:
-            if _clean_value(
-                _read_metric(mod_factors, key, trace)
-            ) is not None:
-                global_filtered_keys.append(key)
-                break
 
     global_sources = {
         key: mod_factors
-        for key in global_filtered_keys
+        for key in global_keys
     }
+    global_filtered_keys = _filter_available_metric_keys(
+        global_keys,
+        global_sources,
+        trace_list,
+    )
+
+    _collect_metric_definitions(
+        definition_registry,
+        global_filtered_keys,
+        global_metric_info,
+    )
 
     global_html = _build_printable_metric_section(
         metric_keys=global_filtered_keys,
@@ -6571,63 +6692,272 @@ def generate_basicanalysis_printable_report(
         metric_sources=global_sources,
         trace_list=trace_list,
         trace_labels=trace_labels,
-        title="Global Efficiency Metrics",
+        title="2 Application Efficiency Analysis",
         tree=global_tree,
         trace_header_note=trace_header_note,
+        section_kicker="Application-level model",
+        section_description=(
+            "Overall efficiency decomposition and scaling behavior of the "
+            "complete application."
+        ),
     )
 
+    # --------------------------------------------------
+    # 3. Runtime analysis
+    # --------------------------------------------------
+    runtime_model_html = ""
 
-    hybrid_html = ""
-
-    if metrics_result["kind"] == "hybrid":
+    if model["is_hybrid"]:
         hybrid_keys = list(HYBRID_ORDER)
-
         if inner_model == "OpenMP" and cmdl_args.hyb_mpiomp:
             hybrid_keys += OMP_COMM_ORDER
 
-        hybrid_sources = {}
-
-        for key in HYBRID_ORDER:
-            hybrid_sources[key] = hybrid_factors
-
+        hybrid_sources = {
+            key: hybrid_factors
+            for key in HYBRID_ORDER
+        }
         for key in OMP_COMM_ORDER:
             hybrid_sources[key] = hyb_comm_omp_factors
 
-        hybrid_filtered_keys = []
-
-        for key in hybrid_keys:
-            source = hybrid_sources[key]
-
-            for trace in trace_list:
-                if _clean_value(
-                    _read_metric(source, key, trace)
-                ) is not None:
-                    hybrid_filtered_keys.append(key)
-                    break
+        hybrid_filtered_keys = _filter_available_metric_keys(
+            hybrid_keys,
+            hybrid_sources,
+            trace_list,
+        )
 
         if hybrid_filtered_keys:
-            hybrid_html = _build_printable_metric_section(
+            _collect_metric_definitions(
+                definition_registry,
+                hybrid_filtered_keys,
+                hybrid_metric_info,
+            )
+            runtime_model_html = _build_printable_metric_section(
                 metric_keys=hybrid_filtered_keys,
                 metric_info=hybrid_metric_info,
                 metric_sources=hybrid_sources,
                 trace_list=trace_list,
                 trace_labels=trace_labels,
-                title="Parallel Programming Model: MPI + {}".format(
+                title="3 Composed Runtime Analysis — MPI + {}".format(
                     inner_model
                 ),
                 tree=HYBRID_TREE,
                 trace_header_note=trace_header_note,
+                section_kicker="Composed runtime model",
+                section_description=(
+                    "Multiplicative decomposition of Parallel Efficiency "
+                    "across the active runtimes."
+                ),
+            )
+    else:
+        if model["has_mpi"]:
+            runtime_name = "MPI"
+        elif model["has_omp"]:
+            runtime_name = "OpenMP"
+        elif model["has_cuda"]:
+            runtime_name = "CUDA"
+        else:
+            runtime_name = "Parallel Runtime"
+
+        single_runtime_keys = [
+            "parallel_eff",
+            "load_balance",
+            "comm_eff",
+            "serial_eff",
+            "transfer_eff",
+        ]
+        single_runtime_sources = {
+            key: mod_factors
+            for key in single_runtime_keys
+        }
+        single_runtime_filtered_keys = _filter_available_metric_keys(
+            single_runtime_keys,
+            single_runtime_sources,
+            trace_list,
+        )
+
+        if single_runtime_filtered_keys:
+            single_runtime_info = _build_single_runtime_metric_info(
+                runtime_name
+            )
+            _collect_metric_definitions(
+                definition_registry,
+                single_runtime_filtered_keys,
+                single_runtime_info,
+            )
+            runtime_model_html = _build_printable_metric_section(
+                metric_keys=single_runtime_filtered_keys,
+                metric_info=single_runtime_info,
+                metric_sources=single_runtime_sources,
+                trace_list=trace_list,
+                trace_labels=trace_labels,
+                title="3 {} Runtime Analysis".format(runtime_name),
+                tree=GLOBAL_PARALLEL_TREE,
+                trace_header_note=trace_header_note,
+                section_kicker="Runtime model",
+                section_description=(
+                    "Runtime-level decomposition of Parallel Efficiency, "
+                    "including load balance and communication losses."
+                ),
             )
 
+    # --------------------------------------------------
+    # 4. Runtime-specific analysis
+    # --------------------------------------------------
+    runtime_specific_sections = []
+    runtime_specific_index = 1
 
-    talp_html = ""
+    # For hybrid executions, expose MPI separately from the composed model.
+    if model["is_hybrid"] and model["has_mpi"]:
+        mpi_keys = [
+            "mpi_parallel_eff",
+            "mpi_load_balance",
+            "mpi_comm_eff",
+            "serial_eff",
+            "transfer_eff",
+        ]
+        mpi_sources = {
+            key: hybrid_factors
+            for key in mpi_keys
+        }
+        mpi_filtered_keys = _filter_available_metric_keys(
+            mpi_keys,
+            mpi_sources,
+            trace_list,
+        )
 
+        if mpi_filtered_keys:
+            _collect_metric_definitions(
+                definition_registry,
+                mpi_filtered_keys,
+                hybrid_metric_info,
+            )
+            runtime_specific_sections.append(
+                _build_printable_metric_section(
+                    metric_keys=mpi_filtered_keys,
+                    metric_info=hybrid_metric_info,
+                    metric_sources=mpi_sources,
+                    trace_list=trace_list,
+                    trace_labels=trace_labels,
+                    title="4.{} MPI Runtime-Specific Analysis".format(
+                        runtime_specific_index
+                    ),
+                    tree=MPI_RUNTIME_TREE,
+                    trace_header_note=trace_header_note,
+                    section_kicker="Runtime-specific diagnosis",
+                    section_description=(
+                        "Isolated diagnosis of MPI load balance, "
+                        "serialization, and transfer overhead."
+                    ),
+                )
+            )
+            runtime_specific_index += 1
+
+    # OpenMP exposes a true isolated runtime-specific model.
+    if model["has_omp"] and "omp_talp_factors" in metrics_result:
+        omp_talp_factors = metrics_result["omp_talp_factors"]
+        openmp_sources = {
+            key: omp_talp_factors
+            for key in OPENMP_ORDER
+        }
+        openmp_filtered_keys = _filter_available_metric_keys(
+            OPENMP_ORDER,
+            openmp_sources,
+            trace_list,
+        )
+
+        if openmp_filtered_keys:
+            _collect_metric_definitions(
+                definition_registry,
+                openmp_filtered_keys,
+                OPENMP_METRIC_INFO,
+            )
+            runtime_specific_sections.append(
+                _build_printable_metric_section(
+                    metric_keys=openmp_filtered_keys,
+                    metric_info=OPENMP_METRIC_INFO,
+                    metric_sources=openmp_sources,
+                    trace_list=trace_list,
+                    trace_labels=trace_labels,
+                    title="4.{} OpenMP Runtime-Specific Analysis".format(
+                        runtime_specific_index
+                    ),
+                    tree=OPENMP_TREE,
+                    trace_header_note=trace_header_note,
+                    scope_note_html=_build_openmp_runtime_scope_note(
+                        is_hybrid=model["is_hybrid"]
+                    ),
+                    section_kicker="Runtime-specific diagnosis",
+                    section_description=(
+                        "Direct diagnosis of serial execution, region load "
+                        "balance, and OpenMP scheduling overhead."
+                    ),
+                )
+            )
+            runtime_specific_index += 1
+
+    # CUDA/HIP currently expose their contribution from the composed model.
+    # This is kept separate from Host and Device execution-domain analysis.
     if (
-        metrics_result["kind"] == "hybrid"
-        and trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"
+        model["is_hybrid"]
+        and model["has_cuda"]
+        and inner_model in ("CUDA", "HIP")
     ):
-        host_factors = metrics_result["host_factors"]
-        device_factors = metrics_result["device_factors"]
+        accelerator_keys = [
+            "omp_parallel_eff",
+            "omp_load_balance",
+            "omp_comm_eff",
+        ]
+        accelerator_sources = {
+            key: hybrid_factors
+            for key in accelerator_keys
+        }
+        accelerator_filtered_keys = _filter_available_metric_keys(
+            accelerator_keys,
+            accelerator_sources,
+            trace_list,
+        )
+
+        if accelerator_filtered_keys:
+            _collect_metric_definitions(
+                definition_registry,
+                accelerator_filtered_keys,
+                hybrid_metric_info,
+            )
+            runtime_specific_sections.append(
+                _build_printable_metric_section(
+                    metric_keys=accelerator_filtered_keys,
+                    metric_info=hybrid_metric_info,
+                    metric_sources=accelerator_sources,
+                    trace_list=trace_list,
+                    trace_labels=trace_labels,
+                    title="4.{} {} Runtime Contribution".format(
+                        runtime_specific_index,
+                        inner_model,
+                    ),
+                    tree=INNER_RUNTIME_TREE,
+                    trace_header_note=trace_header_note,
+                    section_kicker="Runtime contribution",
+                    section_description=(
+                        "Isolated view of the {} contribution derived from "
+                        "the composed MPI+{} runtime model. A dedicated "
+                        "runtime-specific model can be added here when its "
+                        "metrics are defined."
+                    ).format(inner_model, inner_model),
+                )
+            )
+            runtime_specific_index += 1
+
+    runtime_specific_html = "\n".join(runtime_specific_sections)
+
+    # --------------------------------------------------
+    # 5. Execution-domain analysis
+    # --------------------------------------------------
+    host_domain_html = ""
+    device_domain_html = ""
+
+    if metrics_result.get("kind") == "hybrid" and model["has_cuda"]:
+        host_factors = metrics_result.get("host_factors", {})
+        device_factors = metrics_result.get("device_factors", {})
 
         host_keys = [
             "host_global_eff",
@@ -6643,7 +6973,6 @@ def generate_basicanalysis_printable_report(
             "inst_scale",
             "freq_scale",
         ]
-
         device_keys = [
             "dev_global_eff",
             "dev_parallel_eff",
@@ -6653,96 +6982,76 @@ def generate_basicanalysis_printable_report(
             "dev_comp_scale",
         ]
 
-        talp_keys = host_keys + device_keys
-        talp_sources = {}
-
+        host_sources = {}
         for key in host_keys:
-            if key in (
-                "ipc_scale",
-                "inst_scale",
-                "freq_scale",
-            ):
-                talp_sources[key] = mod_factors
+            if key in ("ipc_scale", "inst_scale", "freq_scale"):
+                host_sources[key] = mod_factors
             else:
-                talp_sources[key] = host_factors
+                host_sources[key] = host_factors
 
-        for key in device_keys:
-            talp_sources[key] = device_factors
+        device_sources = {
+            key: device_factors
+            for key in device_keys
+        }
 
-        talp_filtered_keys = []
+        host_filtered_keys = _filter_available_metric_keys(
+            host_keys,
+            host_sources,
+            trace_list,
+        )
+        device_filtered_keys = _filter_available_metric_keys(
+            device_keys,
+            device_sources,
+            trace_list,
+        )
 
-        for key in talp_keys:
-            source = talp_sources[key]
-
-            for trace in trace_list:
-                if _clean_value(
-                    _read_metric(source, key, trace)
-                ) is not None:
-                    talp_filtered_keys.append(key)
-                    break
-
-        if talp_filtered_keys:
-            talp_html = _build_printable_metric_section(
-                metric_keys=talp_filtered_keys,
+        if host_filtered_keys:
+            _collect_metric_definitions(
+                definition_registry,
+                host_filtered_keys,
+                TALP_METRIC_INFO,
+            )
+            host_domain_html = _build_printable_metric_section(
+                metric_keys=host_filtered_keys,
                 metric_info=TALP_METRIC_INFO,
-                metric_sources=talp_sources,
+                metric_sources=host_sources,
                 trace_list=trace_list,
                 trace_labels=trace_labels,
-                title="Host/Device Efficiency Metrics",
-                tree=TALP_TREE,
+                title="5.1 Host Execution Domain",
+                tree=HOST_TREE,
                 trace_header_note=trace_header_note,
+                section_kicker="Execution-domain analysis",
+                section_description=(
+                    "Host-side MPI behavior, accelerator offload path, and "
+                    "host computation scalability."
+                ),
             )
 
-    openmp_html = ""
-
-    if (
-        model["has_omp"]
-        and "omp_talp_factors" in metrics_result
-    ):
-        omp_talp_factors = metrics_result[
-            "omp_talp_factors"
-        ]
-
-        openmp_filtered_keys = []
-
-        for key in OPENMP_ORDER:
-            if key not in omp_talp_factors:
-                continue
-
-            for trace in trace_list:
-                if _clean_value(
-                    _read_metric(
-                        omp_talp_factors,
-                        key,
-                        trace,
-                    )
-                ) is not None:
-                    openmp_filtered_keys.append(key)
-                    break
-
-        if openmp_filtered_keys:
-            openmp_sources = {
-                key: omp_talp_factors
-                for key in openmp_filtered_keys
-            }
-
-            openmp_metrics_html = _build_printable_metric_section(
-                metric_keys=openmp_filtered_keys,
-                metric_info=OPENMP_METRIC_INFO,
-                metric_sources=openmp_sources,
+        if device_filtered_keys:
+            _collect_metric_definitions(
+                definition_registry,
+                device_filtered_keys,
+                TALP_METRIC_INFO,
+            )
+            device_domain_html = _build_printable_metric_section(
+                metric_keys=device_filtered_keys,
+                metric_info=TALP_METRIC_INFO,
+                metric_sources=device_sources,
                 trace_list=trace_list,
                 trace_labels=trace_labels,
-                title="OpenMP Runtime-Specific Analysis",
-                tree=OPENMP_TREE,
+                title="5.2 Device Execution Domain",
+                tree=DEVICE_TREE,
                 trace_header_note=trace_header_note,
-            )
-            openmp_html = (
-                _build_openmp_runtime_scope_note(
-                    is_hybrid=model["is_hybrid"]
-                )
-                + openmp_metrics_html
+                section_kicker="Execution-domain analysis",
+                section_description=(
+                    "Device-side parallel efficiency, data movement, "
+                    "orchestration, and computation scalability."
+                ),
             )
 
+    appendix_html = _build_metric_definition_appendix_html(
+        definition_registry
+    )
 
     html_content = """
     <!DOCTYPE html>
@@ -6754,38 +7063,38 @@ def generate_basicanalysis_printable_report(
         <style>
             @page {{
                 size: A4 landscape;
-                margin: 12mm;
+                margin: 10mm;
             }}
 
-            * {{
-                box-sizing: border-box;
+            @media print {{
+                html,
+                body {{
+                    -webkit-print-color-adjust: exact;
+                    print-color-adjust: exact;
+                }}
             }}
+
+            * {{ box-sizing: border-box; }}
 
             body {{
                 margin: 0;
                 color: #172033;
-                font-family:
-                    -apple-system,
-                    BlinkMacSystemFont,
-                    "Segoe UI",
-                    Roboto,
-                    Helvetica,
-                    Arial,
-                    sans-serif;
-                font-size: 10pt;
-                line-height: 1.5;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                    Roboto, Helvetica, Arial, sans-serif;
+                font-size: 9.4pt;
+                line-height: 1.42;
             }}
 
             .print-header {{
-                margin-bottom: 24px;
-                padding: 18px 22px;
+                margin-bottom: 16px;
+                padding: 13px 18px;
                 background: #17365d;
                 color: white;
             }}
 
             .print-header h1 {{
-                margin: 0 0 5px;
-                font-size: 22pt;
+                margin: 0 0 3px;
+                font-size: 20pt;
             }}
 
             .print-header p {{
@@ -6793,22 +7102,59 @@ def generate_basicanalysis_printable_report(
                 color: #d8e7f5;
             }}
 
-            .print-section {{
-                margin-bottom: 28px;
+            .print-page-section {{
+                break-before: page;
+                page-break-before: always;
             }}
 
-            .print-metric-section {{
-                break-before: page;
+            .print-overview {{
+                break-before: auto;
+                page-break-before: auto;
+            }}
+
+            .print-section-header {{
+                break-after: avoid-page;
+                page-break-after: avoid;
+                margin-bottom: 10px;
+            }}
+
+            .print-section-kicker {{
+                margin: 0 0 2px;
+                color: #527397;
+                font-size: 8pt;
+                font-weight: 700;
+                letter-spacing: .08em;
+                text-transform: uppercase;
+            }}
+
+            .print-section-description {{
+                margin: -4px 0 7px;
+                color: #5c677a;
+                font-size: 8.8pt;
             }}
 
             h2 {{
-                margin: 0 0 14px;
+                margin: 0 0 8px;
                 color: #17365d;
-                font-size: 17pt;
+                font-size: 16pt;
             }}
 
             h3 {{
+                margin: 12px 0 6px;
                 color: #243b58;
+                break-after: avoid-page;
+                page-break-after: avoid;
+            }}
+
+            .print-overview-grid {{
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }}
+
+            .print-overview-block {{
+                break-inside: avoid-page;
+                page-break-inside: avoid;
             }}
 
             .metric-table,
@@ -6824,8 +7170,9 @@ def generate_basicanalysis_printable_report(
             .efficiency-table td,
             .metric-definition-table th,
             .metric-definition-table td {{
-                padding: 6px 8px;
+                padding: 4px 6px;
                 border: 1px solid #dce3ec;
+                vertical-align: top;
             }}
 
             .metric-table th,
@@ -6836,23 +7183,27 @@ def generate_basicanalysis_printable_report(
                 text-align: left;
             }}
 
+            thead {{ display: table-header-group; }}
+            tr {{
+                break-inside: avoid-page;
+                page-break-inside: avoid;
+            }}
+
             .efficiency-table th:not(:first-child),
             .efficiency-table td:not(:first-child) {{
                 text-align: center;
             }}
 
             .metric-name-cell {{
-                padding-left: calc(
-                    8px + (var(--metric-depth, 0) * 16px)
-                ) !important;
+                padding-left: calc(6px + (var(--metric-depth, 0) * 14px)) !important;
             }}
 
             .metric-value {{
                 display: inline-block;
-                min-width: 60px;
-                padding: 4px 7px;
+                min-width: 54px;
+                padding: 3px 6px;
                 border-radius: 999px;
-                font-size: 8.5pt;
+                font-size: 8pt;
                 font-weight: 700;
             }}
 
@@ -6860,158 +7211,126 @@ def generate_basicanalysis_printable_report(
                 background: #eef2f7;
                 border-left: 4px solid #66788a !important;
             }}
-
             .metric-family-mpi {{
                 background: #eaf3ff;
                 border-left: 4px solid #4f86c6 !important;
             }}
-
             .metric-family-openmp {{
                 background: #ecf8ef;
                 border-left: 4px solid #4f9d69 !important;
             }}
-
             .metric-family-cuda {{
                 background: #fff1e7;
                 border-left: 4px solid #d9823b !important;
             }}
-
             .metric-family-host {{
                 background: #f2edff;
                 border-left: 4px solid #8066bf !important;
             }}
-
             .metric-family-device {{
                 background: #e9f7f5;
                 border-left: 4px solid #318c82 !important;
             }}
 
+            .metric-table-card {{
+                break-inside: auto;
+                page-break-inside: auto;
+            }}
+
+            .print-analysis-summary {{
+                margin-top: 12px;
+            }}
+
             .observation-box {{
-                margin: 18px 0;
-                padding: 14px 16px;
+                margin: 0;
+                padding: 10px 12px;
                 border: 1px solid #b7cbe3;
                 border-left: 5px solid #4c83bd;
                 background: #f4f8ff;
+                break-inside: avoid-page;
+                page-break-inside: avoid;
             }}
+
+            .observation-box h3 {{ margin-top: 0; }}
 
             .performance-interpretation p,
             .scaling-interpretation p {{
+                margin: 4px 0;
                 color: #31465d;
-                font-size: 10pt;
-                line-height: 1.6;
-            }}
-
-            .metric-definition-section {{
-                margin-top: 20px;
-            }}
-
-            .metric-definition-table {{
-                font-size: 9pt;
-            }}
-
-            .metric-definition-table td:first-child {{
-                width: 28%;
+                font-size: 8.8pt;
+                line-height: 1.45;
             }}
 
             .trace-header-note {{
+                margin: 0 0 7px;
                 color: #5c677a;
-                font-size: 9pt;
-            }}
-
-            table {{
-                break-inside: auto;
-            }}
-
-            thead {{
-                display: table-header-group;
-            }}
-
-            tr {{
-                break-inside: avoid;
-            }}
-
-            .metric-table-card,
-            .observation-box {{
-                break-inside: avoid;
+                font-size: 8.2pt;
             }}
 
             .analysis-scope-note {{
-                margin: 18px 0;
-                padding: 14px 16px;
+                margin: 8px 0 10px;
+                padding: 10px 12px;
                 border: 1px solid #d9c98c;
                 border-left: 5px solid #c79a20;
                 background: #fffaf0;
                 color: #4f452d;
-                break-inside: avoid;
+                break-inside: avoid-page;
+                page-break-inside: avoid;
             }}
 
             .analysis-scope-note h3 {{
-                margin: 0 0 6px;
+                margin: 0 0 4px;
                 color: #6f5617;
             }}
 
-            .analysis-scope-note p {{
-                margin: 6px 0;
-            }}
+            .analysis-scope-note p {{ margin: 4px 0; }}
 
             .efficiency-scale-panel {{
                 margin: 0;
-                padding: 18px 22px;
+                padding: 12px 15px;
                 border: 1px solid #d7e0ea;
                 border-radius: 8px;
                 background: #ffffff;
+                break-inside: avoid-page;
+                page-break-inside: avoid;
             }}
 
-            .efficiency-scale-header h3 {{
-                margin: 0 0 4px;
-            }}
-
+            .efficiency-scale-header h3 {{ margin: 0 0 2px; }}
             .efficiency-scale-header p {{
-                margin: 0 0 14px;
+                margin: 0 0 8px;
                 color: #5c677a;
             }}
 
             .efficiency-gradient-container {{
                 position: relative;
-                margin: 12px 10px 28px;
+                margin: 8px 8px 20px;
             }}
 
             .efficiency-gradient {{
-                height: 16px;
+                height: 12px;
                 border-radius: 8px;
                 background: linear-gradient(
                     to right,
-                    #b2182b 0%,
-                    #ef6548 20%,
-                    #fdbb84 40%,
-                    #fee8a8 60%,
-                    #ffffbf 75%,
-                    #d9ef8b 85%,
-                    #b8e186 92%,
-                    #4dac26 100%
+                    #b2182b 0%, #ef6548 20%, #fdbb84 40%,
+                    #fee8a8 60%, #ffffbf 75%, #d9ef8b 85%,
+                    #b8e186 92%, #4dac26 100%
                 );
             }}
 
             .efficiency-gradient-markers {{
                 position: relative;
-                height: 16px;
-                margin-top: 5px;
+                height: 12px;
+                margin-top: 3px;
                 color: #5c677a;
-                font-size: 8pt;
+                font-size: 7.5pt;
             }}
 
             .efficiency-gradient-markers span {{
                 position: absolute;
                 transform: translateX(-50%);
             }}
-
-            .efficiency-gradient-markers span:first-child {{
-                transform: none;
-            }}
-
-            .efficiency-gradient-markers span:last-child {{
-                transform: translateX(-100%);
-            }}
+            .efficiency-gradient-markers span:first-child {{ transform: none; }}
+            .efficiency-gradient-markers span:last-child {{ transform: translateX(-100%); }}
 
             .efficiency-scale-ranges {{
                 display: grid;
@@ -7022,65 +7341,81 @@ def generate_basicanalysis_printable_report(
             .scale-range {{
                 display: flex;
                 justify-content: space-between;
-                padding: 8px 12px;
+                padding: 5px 8px;
                 border-top: 3px solid;
             }}
-
-            .scale-range-critical {{
-                border-top-color: #ef4444;
-            }}
-
-            .scale-range-attention {{
-                border-top-color: #f4c76b;
-            }}
-
-            .scale-range-good {{
-                border-top-color: #69b34c;
-            }}
+            .scale-range-critical {{ border-top-color: #ef4444; }}
+            .scale-range-attention {{ border-top-color: #f4c76b; }}
+            .scale-range-good {{ border-top-color: #69b34c; }}
 
             .efficiency-above-reference,
             .efficiency-scale-guidance {{
+                margin: 7px 0 0;
                 color: #4b5f78;
-                font-size: 9pt;
+                font-size: 8pt;
             }}
 
             .efficiency-scale-guidance {{
-                padding-top: 10px;
+                padding-top: 6px;
                 border-top: 1px solid #d7e0ea;
+            }}
+
+            .metric-definition-table {{
+                font-size: 8.3pt;
+            }}
+
+            .metric-definition-table td:first-child {{
+                width: 27%;
+                white-space: nowrap;
+            }}
+
+            .print-appendix .metric-definition-table td {{
+                padding-top: 3px;
+                padding-bottom: 3px;
             }}
         </style>
     </head>
 
     <body>
-
         <header class="print-header">
-            <h1>BasicAnalysis Performance Report </h1>
-            <p>
-                Hierarchical efficiency analysis and guided performance diagnosis
-            </p>
+            <h1>BasicAnalysis Performance Report</h1>
+            <p>Hierarchical efficiency analysis and guided performance diagnosis</p>
         </header>
 
-        <section class="print-section">
-            <h2>Execution Overview</h2>
+        <section class="print-overview">
+            <header class="print-section-header">
+                <p class="print-section-kicker">Application context</p>
+                <h2>1 Execution Overview</h2>
+                <p class="print-section-description">
+                    Execution configuration, general performance indicators, and
+                    the efficiency scale used throughout the report.
+                </p>
+            </header>
 
-            <h3>Trace configuration</h3>
-            {trace_config_html}
+            <div class="print-overview-grid">
+                <div class="print-overview-block">
+                    <h3>Trace configuration</h3>
+                    {trace_config_html}
+                </div>
 
-            <h3>General metrics</h3>
-            {trace_header_note}
-            {overview_html}
-        </section>
+                <div class="print-overview-block">
+                    <h3>General metrics</h3>
+                    {trace_header_note}
+                    {overview_html}
+                </div>
 
-        <section class="print-section">
-            {efficiency_scale_html}
+                <div class="print-overview-block">
+                    {efficiency_scale_html}
+                </div>
+            </div>
         </section>
 
         {global_html}
-        {hybrid_html}
-        {talp_html}
-        {openmp_html}
-
-
+        {runtime_model_html}
+        {runtime_specific_html}
+        {host_domain_html}
+        {device_domain_html}
+        {appendix_html}
     </body>
     </html>
     """.format(
@@ -7089,19 +7424,15 @@ def generate_basicanalysis_printable_report(
         overview_html=overview_html,
         efficiency_scale_html=efficiency_scale_html,
         global_html=global_html,
-        hybrid_html=hybrid_html,
-        talp_html=talp_html,
-        openmp_html=openmp_html,
+        runtime_model_html=runtime_model_html,
+        runtime_specific_html=runtime_specific_html,
+        host_domain_html=host_domain_html,
+        device_domain_html=device_domain_html,
+        appendix_html=appendix_html,
     )
 
     with open(output_html, "w") as output_file:
         output_file.write(html_content)
 
-    print(
-        "Printable report written to {}".format(
-            output_html
-        )
-    )
-
+    print("Printable report written to {}".format(output_html))
     return output_html
-    
