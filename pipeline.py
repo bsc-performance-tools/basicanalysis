@@ -22,6 +22,7 @@ from simplemetrics import (
     plots_efficiency_table_matplot,
     plots_modelfactors_matplot,
     plots_speedup_matplot,
+    print_omp_talp_metrics_csv,
 )
 
 # optional dependency flags
@@ -119,7 +120,8 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
             "omp_talp_factors": omp_talp_factors,
         }
 
-    mod_factors, mod_factors_scale_plus_io, other_metrics = compute_model_factors(
+
+    (mod_factors, mod_factors_scale_plus_io, other_metrics, omp_talp_factors) = compute_model_factors(
         raw_data,
         trace_list,
         trace_processes,
@@ -133,8 +135,8 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
         "mod_factors": mod_factors,
         "mod_factors_scale_plus_io": mod_factors_scale_plus_io,
         "other_metrics": other_metrics,
+        "omp_talp_factors": omp_talp_factors,
     }
-
 
 def generate_reports(metrics_result, analysis_result, trace_list, trace_processes,
                      trace_tasks, trace_threads, trace_mode, cmdl_args):
@@ -196,11 +198,14 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
     mod_factors = metrics_result["mod_factors"]
     mod_factors_scale_plus_io = metrics_result["mod_factors_scale_plus_io"]
     other_metrics = metrics_result["other_metrics"]
+    omp_talp_factors = metrics_result["omp_talp_factors"]
+
 
     print_other_metrics_table(other_metrics, trace_list, trace_processes)
     print_other_metrics_csv(other_metrics, trace_list, trace_processes)
     print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes, trace_mode)
     print_mod_factors_csv(mod_factors, trace_list, trace_processes)
+    print_omp_talp_metrics_csv(omp_talp_factors, trace_list, trace_processes)    
     print_efficiency_table(mod_factors, trace_list, trace_processes)
 
 

@@ -1489,7 +1489,15 @@ def process_one_trace(
         'Detailed+MPI+OpenMP',
         'Detailed+MPI+CUDA',
     )
-    is_mpi_omp = (trace_mode_value == 'Detailed+MPI+OpenMP')    
+ 
+    is_openmp = trace_mode_value in (
+        'Detailed+OpenMP',
+        'Detailed+MPI+OpenMP',
+    )
+
+    is_mpi_omp = (
+        trace_mode_value == 'Detailed+MPI+OpenMP'
+    )
 
     is_talp_cuda = (trace_mode_value == 'Detailed+MPI+CUDA' and cmdl_args.pop_model_to_apply == 'talp')
     is_mpi_gpu = (trace_mode_value == 'Detailed+MPI+CUDA')
@@ -1602,25 +1610,32 @@ def process_one_trace(
         ])
 
   
-    if is_mpi_omp:
-        cmd_base.extend([cfgs['omp_useful_regions'],trace_name + '.omp_useful_regions.stats.csv'])
+    if is_openmp:
         cmd_base.extend([
-            cfgs['mpi_time'],
-            trace_name + '.mpi_time.stats.csv'
+            cfgs['omp_useful_regions'],
+            trace_name + '.omp_useful_regions.stats.csv'
         ])
+
         cmd_base.extend([
             cfgs['omp_sched_fork_join'],
             trace_name + '.omp_sched_fork_join.stats.csv'
         ])
+
         cmd_base.extend([
             cfgs['useful_duration'],
             trace_name + '.useful_duration.stats.csv'
         ])
+
         cmd_base.extend([
             cfgs['useful_outside_omp'],
             trace_name + '.useful_outside_omp.stats.csv'
         ])
 
+    if is_mpi_omp:
+        cmd_base.extend([
+            cfgs['mpi_time'],
+            trace_name + '.mpi_time.stats.csv'
+        ])
 
     time_base = time.time()
     run_command(cmd_base, cmdl_args)
@@ -1966,7 +1981,7 @@ def process_one_trace(
             trace_raw_data['useful_host_max'] = 0.0
           
     # OpenMP TALP-style raw timings
-    if is_mpi_omp:      
+    if is_openmp:    
         # Useful inside OpenMP parallel regions + imbalance
         if os.path.exists(trace_name + '.omp_useful_regions.stats.csv'):
             omp_region_data = parse_omp_region_imbalance(
@@ -1992,12 +2007,18 @@ def process_one_trace(
         else:
             useful_outside_omp = 0.0
 
-        # MPI time
-        if os.path.exists(trace_name + '.mpi_time.stats.csv'):
-            mpi_time_stats = parse_tab_stats(trace_name + '.mpi_time.stats.csv')
+        # MPI time      
+
+        mpi_time = 0.0
+
+        if is_mpi_omp and os.path.exists(
+            trace_name + '.mpi_time.stats.csv'
+        ):
+            mpi_time_stats = parse_tab_stats(
+                trace_name + '.mpi_time.stats.csv'
+            )
             mpi_time = mpi_time_stats['tot']
-        else:
-            mpi_time = 0.0
+
 
         # T_no_OMP = all useful computation + MPI time
         useful_total = float(trace_raw_data['useful_tot'])
@@ -2014,10 +2035,14 @@ def process_one_trace(
             )
 
         mpi_by_master = {}
-        if os.path.exists(trace_name + '.mpi_time.stats.csv'):
+
+        if is_mpi_omp and os.path.exists(
+            trace_name + '.mpi_time.stats.csv'
+        ):
             mpi_by_master = parse_master_thread_values(
                 trace_name + '.mpi_time.stats.csv'
             )
+
 
         threads_per_rank = max(int(trace_threads_value), 1)
 
@@ -2025,11 +2050,14 @@ def process_one_trace(
         all_task_ids = set(useful_outside_by_master.keys()) | set(mpi_by_master.keys())
 
         for task_id in all_task_ids:
-            useful_outside_value = useful_outside_by_master.get(task_id, 0.0)
-            mpi_value = mpi_by_master.get(task_id, 0.0)
+            serial_active = (
+                useful_outside_by_master.get(task_id, 0.0)
+                + mpi_by_master.get(task_id, 0.0)
+            )
 
-            serial_active = useful_outside_value + mpi_value
-            time_omp_serial += serial_active * max(threads_per_rank - 1, 0)
+            time_omp_serial += (
+                serial_active * max(threads_per_rank - 1, 0)
+            )
 
         trace_raw_data['time_omp_serial'] = time_omp_serial
     else:
@@ -2236,7 +2264,7 @@ def process_one_trace(
         if os.path.exists(trace_name + '.memtransfer_streams.stats.legend.csv'):
             move_files(trace_name + '.memtransfer_streams.stats.legend.csv', local_path_dest, cmdl_args)
 
-    if is_mpi_omp:
+    if is_openmp:
         if os.path.exists(trace_name + '.omp_useful_regions.stats.csv'):
             move_files(trace_name + '.omp_useful_regions.stats.csv', local_path_dest, cmdl_args)
         if os.path.exists(trace_name + '.mpi_time.stats.csv'):

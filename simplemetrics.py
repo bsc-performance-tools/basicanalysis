@@ -69,6 +69,12 @@ mod_factors_scale_plus_io_doc = OrderedDict([('comp_scale', '-- Computation scal
                                ('freq_scale', '   -- Frequency scalability')])
 
 
+mod_omp_factors_doc = OrderedDict([('omp_talp_parallel_eff','-- OpenMP Parallel Efficiency'),
+    ('omp_talp_serial_eff', '   -- OpenMP Serial Efficiency'),
+    ('omp_talp_load_balance', '   -- OpenMP Load Balance'),
+    ('omp_talp_scheduling_eff', '   -- OpenMP Scheduling Efficiency'),])
+
+
 def create_mod_factors(trace_list):
     """Creates 2D dictionary of the model factors and initializes with an empty
     string. The mod_factors dictionary has the format: [mod factor key][trace].
@@ -112,6 +118,27 @@ def create_other_metrics(trace_list):
         other_metrics[key] = trace_dict
 
     return other_metrics
+
+
+def create_omp_talp_factors(trace_list):
+    """Create the isolated OpenMP metric dictionary.
+
+    The dictionary has the format:
+        omp_talp_factors[factor_key][trace]
+    """
+    global mod_omp_factors_doc
+
+    omp_talp_factors = {}
+
+    for key in mod_omp_factors_doc:
+        trace_dict = {}
+
+        for trace_name in trace_list:
+            trace_dict[trace_name] = 0.0
+
+        omp_talp_factors[key] = trace_dict
+
+    return omp_talp_factors
 
 
 def get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args):
@@ -203,6 +230,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     mod_factors = create_mod_factors(trace_list)
     other_metrics = create_other_metrics(trace_list)
     mod_factors_scale_plus_io = create_mod_factors_scale_io(trace_list)
+    omp_talp_factors = create_omp_talp_factors(trace_list)
 
     # Guess the weak or strong scaling
     scaling = get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args)
@@ -315,6 +343,57 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                      * mod_factors['comm_eff'][trace] / 100.0
         except:
             mod_factors['parallel_eff'][trace] = 'NaN'
+
+
+        # Isolated OpenMP metrics:
+        # TALP-style timing decomposition for OpenMP-only traces.
+        try:
+            if trace_mode[trace] == 'Detailed+OpenMP':
+                t_no_omp = float(raw_data['time_no_omp'][trace])
+
+                t_serial = float(raw_data['time_omp_serial'][trace])
+
+                t_imbal = float(raw_data['time_omp_imbalance'][trace])
+
+                t_sched = float(raw_data['time_omp_schedule'][trace])
+
+                t_after_serial = (t_no_omp + t_serial)
+
+                t_after_load_balance = (t_after_serial + t_imbal)
+
+                t_total = (t_after_load_balance + t_sched)
+
+                if t_total > 0.0:
+                    omp_talp_factors['omp_talp_parallel_eff'][trace] = (t_no_omp / t_total * 100.0)
+                else:
+                    omp_talp_factors['omp_talp_parallel_eff'][trace] = 'NaN'
+
+                if t_after_serial > 0.0:
+                    omp_talp_factors['omp_talp_serial_eff'][trace] = (t_no_omp / t_after_serial * 100.0)
+                else:
+                    omp_talp_factors['omp_talp_serial_eff'][trace] = 'NaN'
+
+                if t_after_load_balance > 0.0:
+                    omp_talp_factors['omp_talp_load_balance'][trace] = (t_after_serial / t_after_load_balance * 100.0)
+                else:
+                    omp_talp_factors['omp_talp_load_balance'][trace] = 'NaN'
+
+                if t_total > 0.0:
+                    omp_talp_factors['omp_talp_scheduling_eff'][trace] = (t_after_load_balance / t_total * 100.0)
+                else:
+                    omp_talp_factors['omp_talp_scheduling_eff'][trace] = 'NaN'
+
+            else:
+                omp_talp_factors['omp_talp_parallel_eff'][trace] = 'Non-Avail'
+                omp_talp_factors['omp_talp_serial_eff'][trace] = 'Non-Avail'
+                omp_talp_factors['omp_talp_load_balance'][trace] = 'Non-Avail'
+                omp_talp_factors['omp_talp_scheduling_eff'][trace] = 'Non-Avail'
+
+        except (TypeError, ValueError, ZeroDivisionError):
+            omp_talp_factors['omp_talp_parallel_eff'][trace] = 'NaN'
+            omp_talp_factors['omp_talp_serial_eff'][trace] = 'NaN'
+            omp_talp_factors['omp_talp_load_balance'][trace] = 'NaN'
+            omp_talp_factors['omp_talp_scheduling_eff'][trace] = 'NaN'
 
         # Computation Scale only useful computation
         try:  # except NaN
@@ -538,7 +617,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             other_metrics['efficiency'][trace] = 'NaN'
 
-    return mod_factors, mod_factors_scale_plus_io, other_metrics
+    return (mod_factors, mod_factors_scale_plus_io, other_metrics, omp_talp_factors)
 
 
 def read_mod_factors_csv(cmdl_args):
@@ -1304,3 +1383,40 @@ def plots_speedup_matplot(trace_list, trace_processes, trace_tasks, trace_thread
     # plt.xlim(0, )
     plt.legend()
     plt.savefig('efficiency-matplot.png', bbox_inches='tight')
+
+
+def print_omp_talp_metrics_csv(omp_talp_factors, trace_list, trace_processes):
+    """Print isolated OpenMP TALP-style metrics for validation."""
+    global mod_omp_factors_doc
+
+    delimiter = ';'
+    file_path = os.path.join(os.getcwd(), 'omp_talp_metrics.csv')
+
+    with open(file_path, 'w') as output:
+        line = '"Number of processes"'
+        for trace in trace_list:
+            label = str(trace_processes[trace])
+
+            line += delimiter + label
+
+        output.write(line + '\n')
+
+        for mod_key in mod_omp_factors_doc:
+            line = '"' + mod_omp_factors_doc[mod_key] + '"'
+
+            for trace in trace_list:
+                line += delimiter
+                value = omp_talp_factors[mod_key][trace]
+
+                try:
+                    line += '{0:.6f}'.format(value)
+                except (ValueError, TypeError):
+                    line += '{}'.format(value)
+
+            output.write(line + '\n')
+
+        output.write('#\n')
+
+    print('')
+    print('======== Output File: Isolated OpenMP Metrics ========')
+    print('OpenMP TALP-style metrics written to ' + file_path)

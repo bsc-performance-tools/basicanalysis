@@ -2992,24 +2992,475 @@ def _build_efficiency_table_html(metric_keys, metric_info, metric_sources,
 
 
 
-def _build_openmp_runtime_scope_note():
+def _build_openmp_runtime_scope_note(is_hybrid):
     """Explain the scope of the isolated OpenMP runtime metrics."""
-    return """
-    <div class="analysis-scope-note analysis-scope-warning">
-        <h3>Metric scope</h3>
-        <p>
-            The metrics in this analysis are computed from the OpenMP
-            execution independently of the derived hybrid multiplicative model.
-        </p>
+
+    if is_hybrid:
+        comparison_text = """
         <p>
             <strong>OpenMP Region Load Balance</strong> considers only useful
             computation performed inside OpenMP parallel regions. It is therefore
             not directly comparable with the application-level
             <strong>Load Balance</strong> shown in Global Metrics or with the
-            derived OpenMP Load Balance shown in the Parallel Runtime Model.
+            derived OpenMP Load Balance contribution shown in the
+            Parallel Runtime Model.
         </p>
+        """
+    else:
+        comparison_text = """
+        <p>
+            <strong>OpenMP Region Load Balance</strong> considers only useful
+            computation performed inside OpenMP parallel regions. It is therefore
+            not directly comparable with the application-level
+            <strong>Load Balance</strong> shown in Global Metrics, which describes
+            the distribution of useful computation across the complete execution.
+        </p>
+        """
+
+    return """
+    <div class="analysis-scope-note analysis-scope-warning">
+        <h3>Metric scope</h3>
+        <p>
+            The metrics in this analysis are computed directly from the
+            OpenMP execution and quantify serial execution, workload imbalance
+            inside parallel regions, and OpenMP scheduling and fork/join overhead.
+        </p>
+        {comparison_text}
     </div>
+    """.format(
+        comparison_text=comparison_text,
+    )
+
+
+
+def _build_overview_view(trace_config_html, trace_header_note,
+                         overview_html, resources_html, global_html):
+    """Build the Overview view without changing its current presentation.
+
+    This semantic wrapper is the first layout-refactoring step. It groups all
+    application-level information in a single view while preserving the
+    existing HTML structure and visual appearance.
     """
+    return _build_application_summary_panel(
+        trace_config_html=trace_config_html,
+        trace_header_note=trace_header_note,
+        overview_html=overview_html,
+        resources_html=resources_html,
+        global_html=global_html,
+    )
+
+
+def _build_parallel_runtime_model_views(model, mod_factors, trace_list,
+                                        trace_labels, trace_header_note,
+                                        hybrid_html, inner_model):
+    """Build the semantic Parallel Runtime Model view definitions.
+
+    The function only reorganizes the existing report-generation logic. It
+    deliberately keeps the same identifiers, titles, metric trees, and HTML
+    content so that Step 1 introduces no visual or behavioral changes.
+    """
+    runtime_model_views = []
+
+    # Simple traces expose the general POP Parallel Efficiency subtree.
+    # Hybrid traces expose the complete derived MPI+X multiplicative model.
+    if not model["is_hybrid"]:
+        simple_runtime_keys = [
+            "parallel_eff",
+            "load_balance",
+            "comm_eff",
+            "serial_eff",
+            "transfer_eff",
+        ]
+        simple_runtime_filtered_keys = [
+            key for key in simple_runtime_keys
+            if key in mod_factors and any(
+                _clean_value(_read_metric(mod_factors, key, trace)) is not None
+                for trace in trace_list
+            )
+        ]
+        simple_runtime_sources = {
+            key: mod_factors for key in simple_runtime_filtered_keys
+        }
+
+        if model["has_mpi"]:
+            runtime_label = "MPI"
+        elif model["has_omp"]:
+            runtime_label = "OpenMP"
+        elif model["has_cuda"]:
+            runtime_label = "CUDA"
+        else:
+            runtime_label = "Parallel runtime"
+
+        simple_runtime_html = _build_metric_tree_heatmap_section(
+            metric_keys=simple_runtime_filtered_keys,
+            metric_info=SIMPLE_METRIC_INFO,
+            metric_sources=simple_runtime_sources,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            title="{} Parallel Efficiency".format(runtime_label),
+            section_id="runtime-model-simple-metrics",
+            tree_kind="runtime_global",
+            trace_header_note=trace_header_note,
+        )
+
+        runtime_model_views.append({
+            "id": "runtime-model-simple",
+            "label": runtime_label,
+            "title": "{} Parallel Runtime Model".format(runtime_label),
+            "html": simple_runtime_html,
+        })
+    else:
+        runtime_model_views.append({
+            "id": "runtime-model-hybrid",
+            "label": "MPI + {}".format(inner_model),
+            "title": "Parallel Runtime Model: MPI + {}".format(inner_model),
+            "html": hybrid_html,
+        })
+
+    return runtime_model_views
+
+
+def _build_component_views(model, inner_model, mpi_html,
+                           accelerator_html,
+                           openmp_filtered_keys, openmp_html,
+                           host_html, device_html):
+    """Build the independent analysis views exposed by the navigator.
+
+    Runtime components and execution domains are intentionally represented as
+    two separate analysis groups.  Host and Device are therefore not rendered
+    as children of the accelerator runtime component.
+    """
+    analysis_views = []
+
+    if mpi_html:
+        analysis_views.append({
+            "id": "analysis-runtime-mpi",
+            "label": "MPI",
+            "description": "Runtime analysis",
+            "title": "MPI Runtime-Specific Analysis",
+            "group": "runtime",
+            "html": mpi_html,
+        })
+
+    if model["has_omp"] and openmp_filtered_keys:
+        analysis_views.append({
+            "id": "analysis-runtime-openmp",
+            "label": "OpenMP",
+            "description": "Runtime analysis",
+            "title": "OpenMP Runtime-Specific Analysis",
+            "group": "runtime",
+            "html": openmp_html,
+        })
+
+    if model["is_hybrid"] and model["has_cuda"] and accelerator_html:
+        analysis_views.append({
+            "id": "analysis-runtime-accelerator",
+            "label": inner_model,
+            "description": "Hybrid contribution",
+            "title": "{} Runtime Contribution".format(inner_model),
+            "group": "runtime",
+            "html": accelerator_html,
+        })
+
+        analysis_views.extend([
+            {
+                "id": "analysis-domain-host",
+                "label": "Host",
+                "description": "CPU side",
+                "title": "Host Execution Domain",
+                "group": "domain",
+                "html": host_html,
+            },
+            {
+                "id": "analysis-domain-device",
+                "label": "Device",
+                "description": "Accelerator side",
+                "title": "Device Execution Domain",
+                "group": "domain",
+                "html": device_html,
+            },
+        ])
+
+    # Preserve selection of other hybrid runtimes even when an isolated model
+    # is not yet available.
+    if (
+        model["is_hybrid"]
+        and not model["has_omp"]
+        and not model["has_cuda"]
+        and inner_model
+    ):
+        analysis_views.append({
+            "id": "analysis-runtime-inner",
+            "label": inner_model,
+            "description": "Analysis availability",
+            "title": "{} Runtime Analysis".format(inner_model),
+            "group": "runtime",
+            "html": (
+                "<div class='analysis-scope-note'>"
+                "<h3>Analysis availability</h3>"
+                "<p>The Parallel Runtime Model quantifies the {0} contribution, "
+                "but an isolated {0} runtime-specific analysis is not currently "
+                "available.</p></div>"
+            ).format(html.escape(inner_model)),
+        })
+
+    return analysis_views
+
+
+def _build_analysis_navigator_html(analysis_views):
+    """Build grouped selectors for runtime and execution-domain analyses."""
+    runtime_views = [
+        view for view in analysis_views
+        if view.get("group") == "runtime"
+    ]
+    domain_views = [
+        view for view in analysis_views
+        if view.get("group") == "domain"
+    ]
+
+    def build_group(title, description, views, aria_label):
+        if not views:
+            return ""
+
+        buttons = []
+        for view in views:
+            buttons.append(
+                '<button type="button" class="runtime-component-button analysis-nav-button" '
+                'data-analysis-target="{target}" '
+                'aria-pressed="false" '
+                'onclick="selectAnalysisView(\'{target}\', this)">'
+                '<span class="runtime-component-name">{label}</span>'
+                '<span class="runtime-component-kind">{description}</span>'
+                '</button>'.format(
+                    target=html.escape(view["id"], quote=True),
+                    label=html.escape(view["label"]),
+                    description=html.escape(view.get("description", "Analysis")),
+                )
+            )
+
+        return (
+            '<section class="analysis-navigator-group" aria-label="{aria_label}">'
+            '<div class="runtime-component-selector-header">'
+            '<h3>{title}</h3><p>{description}</p>'
+            '</div>'
+            '<div class="runtime-component-list">{buttons}</div>'
+            '</section>'
+        ).format(
+            aria_label=html.escape(aria_label, quote=True),
+            title=html.escape(title),
+            description=html.escape(description),
+            buttons="".join(buttons),
+        )
+
+    groups = [
+        build_group(
+            "Select a runtime component",
+            "Inspect the contribution or runtime-specific behavior of an active parallel runtime.",
+            runtime_views,
+            "Runtime components",
+        ),
+        build_group(
+            "Select an execution domain",
+            "Inspect whether the efficiency loss occurs on the host or during device execution.",
+            domain_views,
+            "Execution domains",
+        ),
+    ]
+
+    groups = [group for group in groups if group]
+    if not groups:
+        return (
+            '<div class="runtime-component-selector empty">'
+            '<p>No selectable analyses are available.</p>'
+            '</div>'
+        )
+
+    return (
+        '<section class="runtime-component-selector analysis-navigator" '
+        'aria-label="Performance analysis navigator">{}</section>'
+    ).format("".join(groups))
+
+
+def _build_sidebar_runtime_model_html(runtime_model_views, analysis_views):
+    """Render the Parallel Runtime Model and the grouped analysis navigator."""
+    if not runtime_model_views:
+        return (
+            '<section class="workspace-panel">'
+            '<h2>Parallel Runtime Model</h2>'
+            '<p>No parallel runtime model is available.</p>'
+            '</section>'
+        )
+
+    selector_html = _build_analysis_navigator_html(analysis_views)
+    model_html = "\n".join(
+        _build_detail_view(view["id"], view["title"], view["html"])
+        .replace('class="detail-view"', 'class="runtime-model-static-view"')
+        for view in runtime_model_views
+    )
+
+    # Present the composed MPI+X model first.  Compact jump controls preserve
+    # this diagnostic order while allowing direct navigation to the component
+    # selectors and back to the composed model without repeated manual scrolling.
+    return (
+        '<div id="runtime-model-composed-start" class="runtime-model-composed-start">'
+        '<button type="button" class="analysis-jump-link" '
+        'onclick="scrollSidebarToElement(\'runtime-model-component-selectors\')">'
+        '<span>Component-level diagnosis</span><span aria-hidden="true">↓</span>'
+        '</button>'
+        + model_html
+        + '</div>'
+        + '<div id="runtime-model-component-selectors" '
+          'class="analysis-drilldown-separator">'
+          '<span>Continue with component-level diagnosis</span>'
+          '<button type="button" class="analysis-jump-link analysis-jump-link-back" '
+          'onclick="scrollSidebarToElement(\'runtime-model-composed-start\')">'
+          '<span aria-hidden="true">↑</span><span>Back to composed runtime model</span>'
+          '</button>'
+          '</div>'
+        + selector_html
+    )
+
+
+def _build_component_panel_html(analysis_views):
+    """Pre-render all selectable analyses for the right panel."""
+    panels = []
+    for view in analysis_views:
+        panels.append(
+            '<section id="{id}" class="component-analysis-view" hidden '
+            'aria-label="{title}">'
+            '<div class="workspace-panel component-analysis-workspace">'
+            '<div class="component-analysis-header">'
+            '<p class="component-analysis-eyebrow">Performance analysis</p>'
+            '<h1>{title}</h1>'
+            '</div>'
+            '{content}'
+            '</div>'
+            '</section>'.format(
+                id=html.escape(view["id"], quote=True),
+                title=html.escape(view["title"]),
+                content=view.get("html", ""),
+            )
+        )
+
+    return "\n".join(panels)
+
+
+def _build_step4_workspace(overview_view_html, runtime_model_views,
+                           analysis_views):
+    """Build the Step 4 context/detail workspace with hide and maximize controls."""
+    runtime_model_html = _build_sidebar_runtime_model_html(
+        runtime_model_views,
+        analysis_views,
+    )
+    component_panels_html = _build_component_panel_html(analysis_views)
+
+    return """
+    <div class="workspace-shell">
+        <div class="analysis-layout">
+        <aside class="analysis-sidebar" aria-label="Report navigation">
+            <div class="sidebar-header">
+                <div class="sidebar-header-row">
+                    <span class="sidebar-title">Global Performance Overview</span>
+                    <div class="sidebar-header-actions">
+                        <button
+                            type="button"
+                            id="sidebar-maximize-button"
+                            class="sidebar-control-button sidebar-maximize-button"
+                            aria-label="Maximize global performance overview"
+                            aria-pressed="false"
+                            title="Maximize global performance overview"
+                            onclick="toggleContextMaximized()">
+                            <span class="sidebar-maximize-icon" aria-hidden="true">⛶</span>
+                        </button>
+                        <button
+                            type="button"
+                            id="sidebar-collapse-button"
+                            class="sidebar-control-button sidebar-collapse-button"
+                            aria-label="Hide global performance overview"
+                            aria-expanded="true"
+                            title="Hide global performance overview"
+                            onclick="toggleAnalysisSidebar()">
+                            <span class="sidebar-collapse-icon" aria-hidden="true">‹</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="sidebar-tabs" role="tablist" aria-label="Primary report views">
+                    <button
+                        type="button"
+                        id="overview-sidebar-tab"
+                        class="sidebar-tab active"
+                        role="tab"
+                        aria-selected="true"
+                        aria-controls="overview-sidebar-view"
+                        onclick="showSidebarView('overview-sidebar-view', this)">
+                        <span class="sidebar-tab-label">Overview</span>
+                    </button>
+                    <button
+                        type="button"
+                        id="runtime-model-sidebar-tab"
+                        class="sidebar-tab"
+                        role="tab"
+                        aria-selected="false"
+                        aria-controls="runtime-model-sidebar-view"
+                        onclick="showSidebarView('runtime-model-sidebar-view', this)">
+                        <span class="sidebar-tab-label">Parallel Runtime Model</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="sidebar-view-container">
+                <section
+                    id="overview-sidebar-view"
+                    class="sidebar-view active"
+                    role="tabpanel"
+                    aria-labelledby="overview-sidebar-tab"
+                    aria-label="Overview">
+                    {overview_view_html}
+                </section>
+
+                <section
+                    id="runtime-model-sidebar-view"
+                    class="sidebar-view"
+                    role="tabpanel"
+                    aria-labelledby="runtime-model-sidebar-tab"
+                    aria-label="Parallel Runtime Model">
+                    {runtime_model_html}
+                </section>
+            </div>
+        </aside>
+
+        <main class="component-panel" aria-label="Performance analysis">
+            <div id="component-placeholder" class="workspace-panel component-placeholder">
+                <div class="component-placeholder-icon" aria-hidden="true">◎</div>
+                <p class="component-placeholder-eyebrow">Performance analysis</p>
+                <h2>Select an analysis view</h2>
+                <p>
+                    Open the Parallel Runtime Model tab and choose either a runtime
+                    component or an execution domain.
+                </p>
+            </div>
+            {component_panels_html}
+        </main>
+        </div>
+    </div>
+    """.format(
+        overview_view_html=overview_view_html,
+        runtime_model_html=runtime_model_html,
+        component_panels_html=component_panels_html,
+    )
+
+def _assemble_interactive_report(overview_view_html, runtime_model_views,
+                                 analysis_views):
+    """Assemble the Step 4 report with persistent context-panel sizing."""
+    workspace_html = _build_step4_workspace(
+        overview_view_html=overview_view_html,
+        runtime_model_views=runtime_model_views,
+        analysis_views=analysis_views,
+    )
+
+    return _build_interactive_report_document(
+        workspace_html=workspace_html,
+    )
 
 
 def _build_application_summary_panel(trace_config_html, trace_header_note,
@@ -4531,9 +4982,861 @@ def _build_interactive_report_document(workspace_html):
             }
         }
 
+
+        /* -------------------------------------------------- */
+        /* Step 4: persistent, collapsible analysis workspace  */
+        /* -------------------------------------------------- */
+
+        .workspace-shell {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            height: 100%;
+            min-height: 0;
+        }
+
+        .analysis-layout {
+            display: grid;
+            grid-template-columns: minmax(420px, 46%) minmax(0, 54%);
+            gap: 20px;
+            align-items: stretch;
+            height: 100%;
+            min-height: 0;
+            transition: grid-template-columns .24s ease;
+        }
+
+        .analysis-layout.sidebar-collapsed {
+            grid-template-columns: 54px minmax(0, 1fr);
+        }
+
+        .analysis-layout.context-maximized {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .analysis-layout.context-maximized .analysis-sidebar {
+            width: 100%;
+        }
+
+        .analysis-layout.context-maximized .component-panel {
+            display: none;
+        }
+
+        .analysis-layout.context-maximized .sidebar-maximize-button {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: #fff;
+        }
+
+        .analysis-layout.sidebar-collapsed .sidebar-view-container,
+        .analysis-layout.sidebar-collapsed .sidebar-tabs,
+        .analysis-layout.sidebar-collapsed .sidebar-title {
+            display: none;
+        }
+
+        .analysis-layout.sidebar-collapsed .analysis-sidebar {
+            overflow: hidden;
+        }
+
+        .analysis-layout.sidebar-collapsed .sidebar-header {
+            height: 100%;
+            padding: 10px 8px;
+            border-bottom: 0;
+        }
+
+        .analysis-layout.sidebar-collapsed .sidebar-header-row {
+            justify-content: center;
+            margin-bottom: 0;
+        }
+
+        .analysis-layout.sidebar-collapsed .sidebar-header-actions {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .analysis-layout.sidebar-collapsed .sidebar-maximize-button {
+            display: none;
+        }
+
+        .analysis-layout.sidebar-collapsed .sidebar-collapse-icon {
+            transform: rotate(180deg);
+        }
+
+        .analysis-sidebar,
+        .component-panel {
+            min-width: 0;
+            min-height: 0;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
+        }
+
+        .analysis-sidebar {
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .sidebar-header {
+            position: sticky;
+            top: 0;
+            z-index: 40;
+            flex: 0 0 auto;
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.97);
+            backdrop-filter: blur(8px);
+        }
+
+        .sidebar-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .sidebar-title {
+            color: var(--primary);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: .07em;
+            text-transform: uppercase;
+        }
+
+        .sidebar-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sidebar-control-button {
+            display: grid;
+            width: 34px;
+            height: 34px;
+            flex: 0 0 34px;
+            place-items: center;
+            border: 1px solid #b8c7d8;
+            border-radius: 9px;
+            background: #fff;
+            color: var(--primary);
+            cursor: pointer;
+            font: inherit;
+        }
+
+        .sidebar-control-button:hover {
+            border-color: #6f96bd;
+            background: #f2f7fc;
+        }
+
+        .sidebar-control-button:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+        .sidebar-maximize-icon {
+            display: inline-block;
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        .sidebar-collapse-icon {
+            display: inline-block;
+            font-size: 25px;
+            line-height: 1;
+            transition: transform .24s ease;
+        }
+
+        .sidebar-tabs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .sidebar-tab {
+            min-height: 42px;
+            padding: 9px 12px;
+            border: 1px solid #b8c7d8;
+            border-radius: var(--radius-sm);
+            background: #fff;
+            color: #40546b;
+            cursor: pointer;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .sidebar-tab:hover {
+            border-color: #6f96bd;
+            background: #f2f7fc;
+            color: var(--primary);
+        }
+
+        .sidebar-tab:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+        .sidebar-tab.active {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: #fff;
+            box-shadow: 0 3px 10px rgba(23, 54, 93, 0.18);
+        }
+
+        .sidebar-view-container {
+            flex: 1 1 auto;
+            min-height: 0;
+            padding: 16px;
+        }
+
+        .sidebar-view {
+            display: none;
+        }
+
+        .sidebar-view.active {
+            display: block;
+            animation: workspaceFadeIn .20s ease;
+        }
+
+        .sidebar-view .application-panel {
+            display: flex;
+            height: auto;
+            max-height: none;
+            overflow: visible;
+            padding-right: 0;
+        }
+
+        .sidebar-view .workspace-panel {
+            box-shadow: none;
+        }
+
+        .runtime-model-static-view {
+            display: block;
+        }
+
+        .runtime-model-static-view + .runtime-model-static-view {
+            margin-top: 18px;
+        }
+
+        .component-panel {
+            display: flex;
+            align-items: stretch;
+            padding-right: 8px;
+        }
+
+        .component-placeholder {
+            display: flex;
+            width: 100%;
+            min-height: 100%;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        .component-placeholder-icon {
+            display: grid;
+            width: 62px;
+            height: 62px;
+            margin-bottom: 16px;
+            place-items: center;
+            border: 1px solid #b8c7d8;
+            border-radius: 50%;
+            background: #f3f7fb;
+            color: var(--primary);
+            font-size: 30px;
+        }
+
+        .component-placeholder-eyebrow {
+            margin: 0 0 6px;
+            color: #527397;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .component-placeholder h2 {
+            margin-bottom: 10px;
+        }
+
+        .component-placeholder p {
+            max-width: 560px;
+            margin: 5px auto;
+        }
+
+        .component-placeholder-note {
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+            font-size: 13px;
+        }
+
+        .component-view-storage {
+            display: none !important;
+        }
+
+        .runtime-model-composed-start {
+            scroll-margin-top: 84px;
+        }
+
+        .analysis-jump-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            margin: 0 0 14px;
+            padding: 7px 11px;
+            border: 1px solid #9fb6cf;
+            border-radius: 999px;
+            background: #f7faff;
+            color: var(--primary);
+            cursor: pointer;
+            font: inherit;
+            font-size: 12px;
+            font-weight: 750;
+            line-height: 1.2;
+        }
+
+        .analysis-jump-link:hover {
+            border-color: var(--primary);
+            background: #eaf3ff;
+        }
+
+        .analysis-jump-link:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+        .analysis-jump-link-back {
+            margin: 0;
+            background: #fff;
+            font-size: 11px;
+        }
+
+        #runtime-model-component-selectors {
+            scroll-margin-top: 84px;
+        }
+
+        .analysis-drilldown-separator {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 24px 0 14px;
+            color: #527397;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: .07em;
+            text-transform: uppercase;
+        }
+
+        .analysis-drilldown-separator::before,
+        .analysis-drilldown-separator::after {
+            content: "";
+            flex: 1 1 auto;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .runtime-component-selector {
+            margin-bottom: 12px;
+            padding: 12px;
+            border: 1px solid #cbd8e6;
+            border-radius: var(--radius-md);
+            background: #f7faff;
+        }
+
+        .runtime-component-selector-header h3 {
+            margin: 0 0 2px;
+            color: var(--primary);
+            font-size: 15px;
+        }
+
+        .runtime-component-selector-header p {
+            margin: 0 0 8px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .analysis-navigator {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .analysis-navigator-group + .analysis-navigator-group {
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        .runtime-component-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 8px;
+        }
+
+        .runtime-component-button {
+            display: flex;
+            min-height: 50px;
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: center;
+            gap: 1px;
+            padding: 8px 11px;
+            border: 1px solid #9fb6cf;
+            border-radius: 9px;
+            background: #fff;
+            color: var(--primary);
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .runtime-component-button:hover {
+            border-color: var(--primary);
+            background: #edf5fd;
+        }
+
+        .runtime-component-button.active {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(23, 54, 93, 0.20);
+        }
+
+        .runtime-component-name {
+            font-size: 14px;
+            font-weight: 750;
+            line-height: 1.2;
+        }
+
+        .runtime-component-kind {
+            color: #66788a;
+            font-size: 10px;
+            font-weight: 650;
+            line-height: 1.2;
+        }
+
+        .runtime-component-button.active .runtime-component-kind {
+            color: #d8e7f5;
+        }
+
+        .component-analysis-view {
+            display: none;
+            width: 100%;
+        }
+
+        .component-analysis-view.active {
+            display: block;
+            animation: workspaceFadeIn .22s ease;
+        }
+
+        @keyframes workspaceFadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .component-analysis-workspace {
+            width: 100%;
+            min-height: 100%;
+            overflow: visible;
+        }
+
+        .component-analysis-header {
+            margin-bottom: 18px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .component-analysis-header h1 {
+            margin: 0;
+            color: var(--primary);
+            font-size: 25px;
+        }
+
+        .component-analysis-eyebrow {
+            margin: 0 0 5px;
+            color: #527397;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+
+        .domain-selector {
+            position: sticky;
+            top: 0;
+            z-index: 25;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            margin-bottom: 20px;
+            padding: 12px 0 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .domain-selector-label {
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+        }
+
+        .domain-selector-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .domain-selector-button {
+            padding: 8px 18px;
+            border: 1px solid #aabed2;
+            border-radius: 999px;
+            background: #fff;
+            color: #40546b;
+            cursor: pointer;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .domain-selector-button.active {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: #fff;
+        }
+
+        .execution-domain-view {
+            display: none;
+        }
+
+        .execution-domain-view.active {
+            display: block;
+        }
+
+        @media (max-width: 1100px) {
+            .analysis-layout {
+                grid-template-columns: minmax(360px, 48%) minmax(0, 52%);
+            }
+        }
+
+        @media (max-width: 980px) {
+            .analysis-layout,
+            .analysis-layout.sidebar-collapsed,
+            .analysis-layout.context-maximized {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+
+            .analysis-layout.context-maximized .component-panel {
+                display: flex;
+            }
+
+            .analysis-layout.sidebar-collapsed .sidebar-view-container,
+            .analysis-layout.sidebar-collapsed .sidebar-tabs,
+            .analysis-layout.sidebar-collapsed .sidebar-title {
+                display: initial;
+            }
+
+            .analysis-layout.sidebar-collapsed .sidebar-tabs {
+                display: grid;
+            }
+
+            .analysis-layout.sidebar-collapsed .sidebar-header {
+                height: auto;
+                padding: 12px;
+                border-bottom: 1px solid var(--border);
+            }
+
+            .analysis-layout.sidebar-collapsed .sidebar-header-row {
+                justify-content: space-between;
+                margin-bottom: 10px;
+            }
+
+            .analysis-layout.sidebar-collapsed .sidebar-collapse-icon {
+                transform: none;
+            }
+
+            .analysis-sidebar,
+            .component-panel {
+                overflow: visible;
+                padding-right: 0;
+            }
+
+            .component-placeholder {
+                min-height: 340px;
+            }
+        }
+
+        @media (max-width: 620px) {
+            .sidebar-tabs {
+                grid-template-columns: 1fr;
+            }
+        }
+
 </style>
 
         <script>
+        const WORKSPACE_STATE_KEY = "basicAnalysis.workspace.v1";
+
+        function readWorkspaceState() {
+            try {
+                return JSON.parse(localStorage.getItem(WORKSPACE_STATE_KEY)) || {};
+            } catch (error) {
+                return {};
+            }
+        }
+
+        function writeWorkspaceState(update) {
+            const state = Object.assign({}, readWorkspaceState(), update);
+            try {
+                localStorage.setItem(WORKSPACE_STATE_KEY, JSON.stringify(state));
+            } catch (error) {
+                // The report remains fully usable when storage is unavailable.
+            }
+        }
+
+        function updateContextControls() {
+            const layout = document.querySelector(".analysis-layout");
+            const collapseButton = document.getElementById("sidebar-collapse-button");
+            const maximizeButton = document.getElementById("sidebar-maximize-button");
+            if (!layout) return;
+
+            const collapsed = layout.classList.contains("sidebar-collapsed");
+            const maximized = layout.classList.contains("context-maximized");
+
+            if (collapseButton) {
+                collapseButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                collapseButton.setAttribute(
+                    "aria-label",
+                    collapsed
+                        ? "Show global performance overview"
+                        : "Hide global performance overview"
+                );
+                collapseButton.title = collapsed
+                    ? "Show global performance overview"
+                    : "Hide global performance overview";
+            }
+
+            if (maximizeButton) {
+                maximizeButton.setAttribute("aria-pressed", maximized ? "true" : "false");
+                maximizeButton.setAttribute(
+                    "aria-label",
+                    maximized
+                        ? "Restore split view"
+                        : "Maximize global performance overview"
+                );
+                maximizeButton.title = maximized
+                    ? "Restore split view"
+                    : "Maximize global performance overview";
+                const icon = maximizeButton.querySelector(".sidebar-maximize-icon");
+                if (icon) icon.textContent = maximized ? "🗗" : "⛶";
+            }
+        }
+
+        function toggleAnalysisSidebar(forceCollapsed, persist = true) {
+            const layout = document.querySelector(".analysis-layout");
+            if (!layout) return;
+
+            const collapsed = typeof forceCollapsed === "boolean"
+                ? forceCollapsed
+                : !layout.classList.contains("sidebar-collapsed");
+
+            if (collapsed) {
+                layout.classList.remove("context-maximized");
+            }
+            layout.classList.toggle("sidebar-collapsed", collapsed);
+            updateContextControls();
+
+            if (persist) {
+                writeWorkspaceState({
+                    sidebarCollapsed: collapsed,
+                    contextMaximized: false
+                });
+            }
+        }
+
+        function toggleContextMaximized(forceMaximized, persist = true) {
+            const layout = document.querySelector(".analysis-layout");
+            if (!layout || window.innerWidth <= 980) return;
+
+            const maximized = typeof forceMaximized === "boolean"
+                ? forceMaximized
+                : !layout.classList.contains("context-maximized");
+
+            if (maximized) {
+                layout.classList.remove("sidebar-collapsed");
+            }
+            layout.classList.toggle("context-maximized", maximized);
+            updateContextControls();
+
+            const sidebar = document.querySelector(".analysis-sidebar");
+            if (sidebar) sidebar.scrollTop = 0;
+
+            if (persist) {
+                writeWorkspaceState({
+                    contextMaximized: maximized,
+                    sidebarCollapsed: false
+                });
+            }
+        }
+
+        function showSidebarView(viewId, button, persist = true) {
+            const views = document.getElementsByClassName("sidebar-view");
+            for (let i = 0; i < views.length; i++) {
+                views[i].classList.remove("active");
+                views[i].setAttribute("hidden", "hidden");
+            }
+
+            const buttons = document.getElementsByClassName("sidebar-tab");
+            for (let i = 0; i < buttons.length; i++) {
+                buttons[i].classList.remove("active");
+                buttons[i].setAttribute("aria-selected", "false");
+                buttons[i].setAttribute("tabindex", "-1");
+            }
+
+            const view = document.getElementById(viewId);
+            if (view) {
+                view.classList.add("active");
+                view.removeAttribute("hidden");
+            }
+
+            if (button) {
+                button.classList.add("active");
+                button.setAttribute("aria-selected", "true");
+                button.setAttribute("tabindex", "0");
+            }
+
+            const sidebar = document.querySelector(".analysis-sidebar");
+            if (sidebar) sidebar.scrollTop = 0;
+
+            if (persist) writeWorkspaceState({ sidebarView: viewId });
+        }
+
+        function initializeSidebarTabs(savedViewId) {
+            let activeButton = null;
+            if (savedViewId) {
+                activeButton = document.querySelector(
+                    '.sidebar-tab[aria-controls="' + savedViewId + '"]'
+                );
+            }
+            if (!activeButton) {
+                activeButton = document.querySelector(".sidebar-tab.active");
+            }
+            if (activeButton) {
+                showSidebarView(
+                    activeButton.getAttribute("aria-controls"),
+                    activeButton,
+                    false
+                );
+            }
+
+            const tabList = document.querySelector(".sidebar-tabs");
+            if (!tabList) return;
+
+            tabList.addEventListener("keydown", function(event) {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                    return;
+                }
+
+                const tabs = Array.from(
+                    tabList.querySelectorAll(".sidebar-tab")
+                );
+                const currentIndex = tabs.indexOf(document.activeElement);
+                if (currentIndex < 0) return;
+
+                event.preventDefault();
+                const direction = event.key === "ArrowRight" ? 1 : -1;
+                const nextIndex = (currentIndex + direction + tabs.length) % tabs.length;
+                const nextTab = tabs[nextIndex];
+
+                nextTab.focus();
+                showSidebarView(nextTab.getAttribute("aria-controls"), nextTab);
+            });
+        }
+
+        function scrollSidebarToElement(elementId) {
+            const sidebar = document.querySelector(".analysis-sidebar");
+            const target = document.getElementById(elementId);
+            if (!sidebar || !target) return;
+
+            const sidebarRect = sidebar.getBoundingClientRect();
+            const targetRect = target.getBoundingClientRect();
+            const stickyHeader = sidebar.querySelector(".sidebar-header");
+            const headerHeight = stickyHeader ? stickyHeader.offsetHeight : 0;
+            const destination = sidebar.scrollTop
+                + (targetRect.top - sidebarRect.top)
+                - headerHeight
+                - 12;
+
+            sidebar.scrollTo({
+                top: Math.max(0, destination),
+                behavior: "smooth"
+            });
+        }
+
+        function selectAnalysisView(viewId, button, persist = true) {
+            const layout = document.querySelector(".analysis-layout");
+
+            // A runtime component or execution domain opens a detailed analysis
+            // in the right panel. If the global context is maximized, restore
+            // the split layout automatically before showing the selected view.
+            const sidebar = document.querySelector(".analysis-sidebar");
+            const preservedSidebarScroll = sidebar ? sidebar.scrollTop : 0;
+
+            if (layout && layout.classList.contains("context-maximized")) {
+                toggleContextMaximized(false, false);
+                if (sidebar) {
+                    // Restoring split view changes the panel width but should not
+                    // send the user back to the beginning of the runtime model.
+                    window.requestAnimationFrame(function() {
+                        sidebar.scrollTop = preservedSidebarScroll;
+                    });
+                }
+            }
+
+            const placeholder = document.getElementById("component-placeholder");
+            if (placeholder) placeholder.style.display = "none";
+
+            const views = document.getElementsByClassName("component-analysis-view");
+            for (let i = 0; i < views.length; i++) {
+                views[i].classList.remove("active");
+                views[i].setAttribute("hidden", "hidden");
+            }
+
+            const buttons = document.getElementsByClassName("analysis-nav-button");
+            for (let i = 0; i < buttons.length; i++) {
+                buttons[i].classList.remove("active");
+                buttons[i].setAttribute("aria-pressed", "false");
+            }
+
+            const view = document.getElementById(viewId);
+            if (view) {
+                view.classList.add("active");
+                view.removeAttribute("hidden");
+            }
+
+            if (button) {
+                button.classList.add("active");
+                button.setAttribute("aria-pressed", "true");
+            }
+
+            const panel = document.querySelector(".component-panel");
+            if (panel) panel.scrollTop = 0;
+
+            if (persist) {
+                writeWorkspaceState({
+                    analysisView: viewId,
+                    contextMaximized: false,
+                    sidebarCollapsed: false
+                });
+            }
+        }
+
         function showDetailView(viewId, button) {
             const views = document.getElementsByClassName("detail-view");
             for (let i = 0; i < views.length; i++) {
@@ -4555,7 +5858,7 @@ def _build_interactive_report_document(workspace_html):
             if (!header) return;
 
             const scrollPanels = document.querySelectorAll(
-                ".application-panel, .detail-panel"
+                ".analysis-sidebar, .component-panel"
             );
 
             function updateHeaderShadow() {
@@ -4585,6 +5888,42 @@ def _build_interactive_report_document(workspace_html):
 
         function initializeWorkspace() {
             initializeStickyHeader();
+
+            window.addEventListener("resize", function() {
+                const layout = document.querySelector(".analysis-layout");
+                if (!layout) return;
+                if (window.innerWidth <= 980) {
+                    layout.classList.remove("sidebar-collapsed");
+                    layout.classList.remove("context-maximized");
+                }
+                updateContextControls();
+            });
+
+            const state = readWorkspaceState();
+            initializeSidebarTabs(state.sidebarView);
+
+            if (window.innerWidth > 980) {
+                if (state.contextMaximized === true) {
+                    toggleContextMaximized(true, false);
+                } else if (state.sidebarCollapsed === true) {
+                    toggleAnalysisSidebar(true, false);
+                } else {
+                    updateContextControls();
+                }
+            } else {
+                updateContextControls();
+            }
+
+            if (state.analysisView) {
+                const savedView = document.getElementById(state.analysisView);
+                const savedButton = document.querySelector(
+                    '.analysis-nav-button[data-analysis-target="' +
+                    state.analysisView + '"]'
+                );
+                if (savedView && savedButton) {
+                    selectAnalysisView(state.analysisView, savedButton, false);
+                }
+            }
 
             const firstButton = document.querySelector(".detail-tab-button");
             if (firstButton) {
@@ -4718,8 +6057,6 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     other_metrics = metrics_result["other_metrics"]
 
     model = _report_execution_model(trace_mode, trace_list, metrics_result)
-    tabs = _build_report_tabs(model)
-
     report_traces = report.get("traces", [])
 
     trace_labels = [
@@ -4915,7 +6252,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     openmp_filtered_keys = []
 
     if (
-        metrics_result["kind"] == "hybrid"
+        model["has_omp"]
         and "omp_talp_factors" in metrics_result
     ):
         omp_talp_factors = metrics_result["omp_talp_factors"]
@@ -4947,16 +6284,20 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                 trace_header_note=trace_header_note,
             )
             openmp_html = (
-                _build_openmp_runtime_scope_note()
+                _build_openmp_runtime_scope_note(
+                    is_hybrid=model["is_hybrid"]
+                )
                 + openmp_metrics_html
             )
         else:
             openmp_html = (
                 "<p>OpenMP efficiency metrics are not available for this trace configuration.</p>"
             )
+            
     else:
         openmp_html = (
-            "<p>OpenMP efficiency metrics are only available for MPI+OpenMP traces.</p>"
+            "<p>OpenMP runtime-specific efficiency metrics are not available "
+            "for this trace configuration.</p>"
         )
 
 
@@ -4967,7 +6308,11 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     resources_html = _build_resources_table_html(report)
 
 
-    application_html = _build_application_summary_panel(
+    # --------------------------------------------------
+    # Step 1: build semantic report views
+    # --------------------------------------------------
+
+    overview_view_html = _build_overview_view(
         trace_config_html=trace_config_html,
         trace_header_note=trace_header_note,
         overview_html=overview_html,
@@ -4975,117 +6320,135 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         global_html=global_html,
     )
 
-    runtime_model_views = []
-    runtime_analysis_views = []
-    domain_views = []
+    runtime_model_views = _build_parallel_runtime_model_views(
+        model=model,
+        mod_factors=mod_factors,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        trace_header_note=trace_header_note,
+        hybrid_html=hybrid_html,
+        inner_model=inner_model,
+    )
 
     # --------------------------------------------------
-    # Parallel Runtime Model
+    # Step 3: build MPI runtime-specific component analysis
     # --------------------------------------------------
-    # Simple traces expose the general POP Parallel Efficiency subtree.
-    # Hybrid traces expose the complete derived MPI+X multiplicative model.
-    if not model["is_hybrid"]:
-        simple_runtime_keys = [
-            "parallel_eff",
-            "load_balance",
-            "comm_eff",
-            "serial_eff",
-            "transfer_eff",
+    mpi_html = ""
+
+    if model["has_mpi"]:
+        if model["is_hybrid"]:
+            mpi_keys = [
+                "mpi_parallel_eff",
+                "mpi_load_balance",
+                "mpi_comm_eff",
+                "serial_eff",
+                "transfer_eff",
+            ]
+            mpi_metric_info = hybrid_metric_info
+            mpi_sources = {
+                key: hybrid_factors for key in mpi_keys
+            }
+            mpi_tree_kind = "runtime_mpi"
+        else:
+            mpi_keys = [
+                "parallel_eff",
+                "load_balance",
+                "comm_eff",
+                "serial_eff",
+                "transfer_eff",
+            ]
+            mpi_metric_info = SIMPLE_METRIC_INFO
+            mpi_sources = {
+                key: mod_factors for key in mpi_keys
+            }
+            mpi_tree_kind = "runtime_global"
+
+        mpi_filtered_keys = []
+        for key in mpi_keys:
+            source = mpi_sources[key]
+            if any(
+                _clean_value(_read_metric(source, key, trace)) is not None
+                for trace in trace_list
+            ):
+                mpi_filtered_keys.append(key)
+
+        if mpi_filtered_keys:
+            mpi_html = _build_metric_tree_heatmap_section(
+                metric_keys=mpi_filtered_keys,
+                metric_info=mpi_metric_info,
+                metric_sources=mpi_sources,
+                trace_list=trace_list,
+                trace_labels=trace_labels,
+                title="MPI Efficiency Metrics",
+                section_id="mpi-runtime",
+                tree_kind=mpi_tree_kind,
+                trace_header_note=trace_header_note,
+            )
+
+    # --------------------------------------------------
+    # Step 3 revision: accelerator runtime contribution
+    # --------------------------------------------------
+    accelerator_html = ""
+
+    if model["is_hybrid"] and model["has_cuda"]:
+        accelerator_keys = [
+            "omp_parallel_eff",
+            "omp_load_balance",
+            "omp_comm_eff",
         ]
-        simple_runtime_filtered_keys = [
-            key for key in simple_runtime_keys
-            if key in mod_factors and any(
-                _clean_value(_read_metric(mod_factors, key, trace)) is not None
+        accelerator_sources = {
+            key: hybrid_factors for key in accelerator_keys
+        }
+        accelerator_filtered_keys = [
+            key for key in accelerator_keys
+            if any(
+                _clean_value(
+                    _read_metric(accelerator_sources[key], key, trace)
+                ) is not None
                 for trace in trace_list
             )
         ]
-        simple_runtime_sources = {
-            key: mod_factors for key in simple_runtime_filtered_keys
-        }
 
-        if model["has_mpi"]:
-            runtime_label = "MPI"
-        elif model["has_omp"]:
-            runtime_label = "OpenMP"
-        elif model["has_cuda"]:
-            runtime_label = "CUDA"
-        else:
-            runtime_label = "Parallel runtime"
+        if accelerator_filtered_keys:
+            accelerator_scope_note = (
+                "<div class='analysis-scope-note'>"
+                "<h3>Metric scope</h3>"
+                "<p>These metrics quantify the {0} contribution within the "
+                "MPI+{0} multiplicative runtime model. Host and Device are "
+                "available as independent execution-domain analyses in the "
+                "left navigator.</p></div>"
+            ).format(html.escape(inner_model))
 
-        simple_runtime_html = _build_metric_tree_heatmap_section(
-            metric_keys=simple_runtime_filtered_keys,
-            metric_info=SIMPLE_METRIC_INFO,
-            metric_sources=simple_runtime_sources,
-            trace_list=trace_list,
-            trace_labels=trace_labels,
-            title="{} Parallel Efficiency".format(runtime_label),
-            section_id="runtime-model-simple-metrics",
-            tree_kind="runtime_global",
-            trace_header_note=trace_header_note,
-        )
+            accelerator_metrics_html = _build_metric_tree_heatmap_section(
+                metric_keys=accelerator_filtered_keys,
+                metric_info=hybrid_metric_info,
+                metric_sources=accelerator_sources,
+                trace_list=trace_list,
+                trace_labels=trace_labels,
+                title="{} Runtime Contribution Metrics".format(inner_model),
+                section_id="accelerator-runtime",
+                tree_kind="runtime_inner",
+                trace_header_note=trace_header_note,
+            )
+            accelerator_html = (
+                accelerator_scope_note + accelerator_metrics_html
+            )
 
-        runtime_model_views.append({
-            "id": "runtime-model-simple",
-            "label": runtime_label,
-            "title": "{} Parallel Runtime Model".format(runtime_label),
-            "html": simple_runtime_html,
-        })
+    analysis_views = _build_component_views(
+        model=model,
+        inner_model=inner_model,
+        mpi_html=mpi_html,
+        accelerator_html=accelerator_html,
+        openmp_filtered_keys=openmp_filtered_keys,
+        openmp_html=openmp_html,
+        host_html=host_html,
+        device_html=device_html,
+    )
 
-    else:
-        runtime_model_views.append({
-            "id": "runtime-model-hybrid",
-            "label": "MPI + {}".format(inner_model),
-            "title": "Parallel Runtime Model: MPI + {}".format(inner_model),
-            "html": hybrid_html,
-        })
-
-        # --------------------------------------------------
-        # Runtime-Specific Analysis
-        # --------------------------------------------------
-        # The isolated OpenMP analysis is computed independently from the
-        # derived MPI+OpenMP multiplicative decomposition.
-        if model["has_omp"] and openmp_filtered_keys:
-            runtime_analysis_views.append({
-                "id": "runtime-analysis-openmp",
-                "label": "OpenMP",
-                "title": "OpenMP Runtime-Specific Analysis",
-                "html": openmp_html,
-            })
-
-        # --------------------------------------------------
-        # Execution Domain
-        # --------------------------------------------------
-        # Host and Device views are execution-domain analyses. They must not
-        # be presented as CUDA runtime-specific analyses.
-        if model["has_cuda"]:
-            domain_views.extend([
-                {
-                    "id": "domain-host",
-                    "label": "Host",
-                    "title": "Host Execution Domain",
-                    "html": host_html,
-                },
-                {
-                    "id": "domain-device",
-                    "label": "Device",
-                    "title": "Device Execution Domain",
-                    "html": device_html,
-                },
-            ])
-
-    detail_html = _build_detail_panel(
+    html_content = _assemble_interactive_report(
+        overview_view_html=overview_view_html,
         runtime_model_views=runtime_model_views,
-        runtime_analysis_views=runtime_analysis_views,
-        domain_views=domain_views,
-    )
-
-    workspace_html = _build_workspace_layout(
-        application_html=application_html,
-        detail_html=detail_html,
-    )
-
-    html_content = _build_interactive_report_document(
-        workspace_html=workspace_html,
+        analysis_views=analysis_views,
     )
 
     with open(output_html, "w") as output_file:
@@ -5333,7 +6696,7 @@ def generate_basicanalysis_printable_report(
     openmp_html = ""
 
     if (
-        metrics_result["kind"] == "hybrid"
+        model["has_omp"]
         and "omp_talp_factors" in metrics_result
     ):
         omp_talp_factors = metrics_result[
@@ -5374,10 +6737,11 @@ def generate_basicanalysis_printable_report(
                 trace_header_note=trace_header_note,
             )
             openmp_html = (
-                _build_openmp_runtime_scope_note()
+                _build_openmp_runtime_scope_note(
+                    is_hybrid=model["is_hybrid"]
+                )
                 + openmp_metrics_html
             )
-
 
 
     html_content = """
