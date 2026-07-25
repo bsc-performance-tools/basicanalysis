@@ -13,12 +13,20 @@ import observations
 import plotly.graph_objects as go
 
 
-from metrics import get_default_knowledge_base
+from metrics import (
+    get_default_knowledge_base,
+    get_default_provider,
+)
 
 #
 # Metric Knowledge Base
 #
 KB = get_default_knowledge_base()
+
+#
+# Typed semantic provider
+#
+KNOWLEDGE_PROVIDER = get_default_provider()
 
 
 class MetricInfoProvider:
@@ -557,6 +565,43 @@ def _metric_info(metric_key,
         runtime=runtime,
         runtime_family=runtime_family,
     )
+
+
+def _build_metric_knowledge(
+        metric_keys,
+        runtime=None,
+        runtime_family=None):
+    """Resolve typed semantic knowledge for report metrics.
+
+    Parameters
+    ----------
+    metric_keys
+        Metric identifiers used by the report section.
+    runtime
+        Optional runtime used to resolve template-based metrics such as
+        ``omp_parallel_eff``. Despite their historical names, these aliases may
+        represent OpenMP, CUDA, HIP, or another inner runtime.
+    runtime_family
+        Optional normalized runtime family. When omitted, the provider derives
+        it from ``runtime``.
+
+    Returns
+    -------
+    dict
+        Mapping from the report metric identifier to an immutable
+        ``MetricKnowledge`` object.
+    """
+
+    metric_knowledge = {}
+
+    for metric_key in metric_keys:
+        metric_knowledge[metric_key] = KNOWLEDGE_PROVIDER.get(
+            metric_key,
+            runtime=runtime,
+            runtime_family=runtime_family,
+        )
+
+    return metric_knowledge
 
 
 def _format_overview_value(key, value):
@@ -1656,10 +1701,11 @@ def _build_metric_tree_html(metric_keys, metric_info, section_id, tree_kind):
 
 
 def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
-                                        trace_list, trace_labels,
-                                        title, section_id,
+                                        trace_list, trace_labels, title, section_id,
                                         tree_kind=None,
-                                        trace_header_note=""):
+                                        trace_header_note="",
+                                        runtime=None,
+                                        runtime_family=None):
     # Global Metrics deliberately stop at Communication Efficiency. Keep this
     # invariant here even if a caller supplies runtime-level metrics.
     if tree_kind in ("global", "global_gpu") or section_id == "global":
@@ -1672,6 +1718,12 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
             key: source for key, source in metric_sources.items()
             if key not in excluded_runtime_metrics
         }
+
+    metric_knowledge = _build_metric_knowledge(
+        metric_keys=metric_keys,
+        runtime=runtime,
+        runtime_family=runtime_family,
+    )
 
     tree = []
 
@@ -1720,6 +1772,7 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
                 metric_info=metric_info,
                 metric_sources=metric_sources,
                 trace_list=trace_list,
+                metric_knowledge=metric_knowledge,
             )
         )
 
@@ -1734,7 +1787,9 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
             metric_info=metric_info,
             metric_sources=metric_sources,
             trace_list=trace_list,
+            metric_knowledge=metric_knowledge,
         )
+
 
         scaling_interpretation_html = (
             observations.build_scaling_interpretation_html(
@@ -1755,6 +1810,7 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
             trace_list=trace_list,
             max_attention=5,
             max_trends=4,
+            metric_knowledge=metric_knowledge,
         )
 
         observations_html = observations.build_threshold_observation_html(
@@ -2703,12 +2759,16 @@ def _build_printable_metric_section(
         printable=True,
     )
 
-    performance_interpretation = observations.build_performance_interpretation(
-        tree=tree,
-        metric_info=metric_info,
-        metric_sources=metric_sources,
-        trace_list=trace_list,
+    performance_interpretation = (
+        observations.build_performance_interpretation(
+            tree=tree,
+            metric_info=metric_info,
+            metric_sources=metric_sources,
+            trace_list=trace_list,
+            #metric_knowledge=metric_knowledge,
+        )
     )
+
     performance_html = observations.build_performance_interpretation_html(
         performance_interpretation
     )
@@ -2718,7 +2778,9 @@ def _build_printable_metric_section(
         metric_info=metric_info,
         metric_sources=metric_sources,
         trace_list=trace_list,
+        #metric_knowledge=metric_knowledge,
     )
+
     scaling_html = observations.build_scaling_interpretation_html(
         scaling_interpretation
     )
@@ -6064,6 +6126,8 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             section_id="hybrid",
             tree_kind="hybrid",
             trace_header_note=trace_header_note,
+            runtime=inner_model,
+            runtime_family=inner_model.lower(),
         )
     else:
         hybrid_html = "<p>Parallel programming model metrics are not available for simple traces.</p>"
@@ -6335,7 +6399,10 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                 section_id="accelerator-runtime",
                 tree_kind="runtime_inner",
                 trace_header_note=trace_header_note,
+                runtime=inner_model,
+                runtime_family=inner_model.lower(),
             )
+
             accelerator_html = (
                 accelerator_scope_note + accelerator_metrics_html
             )

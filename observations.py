@@ -1,17 +1,28 @@
 #!/usr/bin/env python3
 
-"""Deterministic observations for BasicAnalysis reports."""
+"""Deterministic observations for BasicAnalysis reports.
+
+The active analysis path consumes resolved ``MetricKnowledge`` objects when
+available.  This keeps labels, thresholds, and semantic classification in the
+shared performance knowledge layer while this module remains responsible for
+trend analysis, hierarchy traversal, and deterministic diagnosis.
+"""
 
 from __future__ import print_function, division
 
 import math
 
 # ---------------------------------------------------------------------
-# Observation thresholds
+# Legacy fallback thresholds
 # ---------------------------------------------------------------------
+#
+# Active report paths should pass resolved ``MetricKnowledge`` objects through
+# ``metric_knowledge``.  These values are retained only for compatibility with
+# older callers and metrics that have not yet been migrated to the provider.
 
-ATTENTION_THRESHOLD = 85.0
-CRITICAL_THRESHOLD = 60.0
+DEFAULT_ATTENTION_THRESHOLD = 85.0
+DEFAULT_CRITICAL_THRESHOLD = 60.0
+DEFAULT_REFERENCE_VALUE = 100.0
 
 
 def _is_number(value):
@@ -112,9 +123,122 @@ def _format_series(values):
     return " → ".join("{:.2f}%".format(v) for v in values)
 
 
-def _metric_label(metric_info, metric_key):
-    info = metric_info.get(metric_key, {})
-    return info.get("label", metric_key).replace("-", "").replace("=", "").strip()
+def _knowledge_entry(metric_knowledge, metric_key):
+    """Return resolved knowledge for one metric, when available."""
+    if not metric_knowledge:
+        return None
+    return metric_knowledge.get(metric_key)
+
+
+def _knowledge_value(entry, name, default=None):
+    """Read a field from a typed object or a compatibility mapping."""
+    if entry is None:
+        return default
+    if isinstance(entry, dict):
+        return entry.get(name, default)
+    return getattr(entry, name, default)
+
+
+def _metric_label(metric_info, metric_key, metric_knowledge=None):
+    """Return the user-facing metric name without presentation markers."""
+    entry = _knowledge_entry(metric_knowledge, metric_key)
+
+    clean_label = _knowledge_value(entry, "clean_label")
+    if clean_label:
+        return clean_label
+
+    name = _knowledge_value(entry, "name")
+    if name:
+        return _strip_presentation_markers(name)
+
+    info = (metric_info or {}).get(metric_key, {})
+    return _strip_presentation_markers(info.get("label", metric_key))
+
+
+def _strip_presentation_markers(label):
+    return (
+        str(label)
+        .replace("-", "")
+        .replace("=", "")
+        .replace("*", "")
+        .strip()
+    )
+
+
+def _metric_thresholds(metric_knowledge, metric_key):
+    """Return critical, attention, and reference thresholds for a metric."""
+    entry = _knowledge_entry(metric_knowledge, metric_key)
+    thresholds = _knowledge_value(entry, "thresholds")
+
+    if thresholds is None:
+        return (
+            DEFAULT_CRITICAL_THRESHOLD,
+            DEFAULT_ATTENTION_THRESHOLD,
+            DEFAULT_REFERENCE_VALUE,
+        )
+
+    if isinstance(thresholds, dict):
+        return (
+            float(thresholds.get("critical", DEFAULT_CRITICAL_THRESHOLD)),
+            float(thresholds.get("attention", DEFAULT_ATTENTION_THRESHOLD)),
+            float(thresholds.get("reference", DEFAULT_REFERENCE_VALUE)),
+        )
+
+    return (
+        float(getattr(thresholds, "critical", DEFAULT_CRITICAL_THRESHOLD)),
+        float(getattr(thresholds, "attention", DEFAULT_ATTENTION_THRESHOLD)),
+        float(getattr(thresholds, "reference", DEFAULT_REFERENCE_VALUE)),
+    )
+
+
+def _metric_status(metric_key, value, metric_knowledge=None):
+    """Classify a value using the resolved metric thresholds."""
+    value = _to_float(value)
+    if value is None:
+        return "unavailable"
+
+    critical, attention, reference = _metric_thresholds(
+        metric_knowledge, metric_key
+    )
+
+    if value > reference:
+        return "above_reference"
+    if value < critical:
+        return "critical"
+    if value < attention:
+        return "attention"
+    return "acceptable"
+
+
+def _requires_attention(metric_key, value, metric_knowledge=None):
+    return _metric_status(metric_key, value, metric_knowledge) in (
+        "critical",
+        "attention",
+    )
+
+
+def _is_acceptable(metric_key, value, metric_knowledge=None):
+    return _metric_status(metric_key, value, metric_knowledge) in (
+        "acceptable",
+        "above_reference",
+    )
+
+
+def _status_text(metric_key, value, metric_knowledge=None):
+    status = _metric_status(metric_key, value, metric_knowledge)
+    if status == "critical":
+        return "critical"
+    if status == "attention":
+        return "below the acceptable threshold"
+    if status == "above_reference":
+        return "above the reference value"
+    if status == "unavailable":
+        return "unavailable"
+    return "acceptable"
+
+
+def _attention_threshold(metric_key, metric_knowledge=None):
+    return _metric_thresholds(metric_knowledge, metric_key)[1]
 
 
 def _last_value(metric_sources, metric_key, trace_list):
@@ -124,51 +248,14 @@ def _last_value(metric_sources, metric_key, trace_list):
     return values[-1], values
 
 
-def _status_text(value):
-    if value < CRITICAL_THRESHOLD:
-        return "critical"
-    if value < ATTENTION_THRESHOLD:
-        return "below the acceptable threshold"
-    return "acceptable"
-
-
-def _metric_status(value):
-    if value is None:
-        return "unavailable"
-
-    if value < CRITICAL_THRESHOLD:
-        return "critical"
-
-    if value < ATTENTION_THRESHOLD:
-        return "attention"
-
-    return "good"
-
-
+# Compatibility alias retained for legacy functions.
 def _metric_last_values(metric_sources, metric_key, trace_list):
-    values = _metric_series(
-        metric_sources,
-        metric_key,
-        trace_list,
-    )
-
-    if not values:
-        return None, []
-
-    return values[-1], values
+    return _last_value(metric_sources, metric_key, trace_list)
 
 
-def _clean_label(metric_info, metric_key):
-    info = metric_info.get(metric_key, {})
-    label = info.get("label", metric_key)
+def _clean_label(metric_info, metric_key, metric_knowledge=None):
+    return _metric_label(metric_info, metric_key, metric_knowledge)
 
-    return (
-        label
-        .replace("-", "")
-        .replace("=", "")
-        .replace("*", "")
-        .strip()
-    )
 
 def _join_metric_names(names):
     if not names:
@@ -189,7 +276,7 @@ def _join_metric_names(names):
     )
 
 def build_performance_interpretation(tree, metric_info, metric_sources,
-                                     trace_list):
+                                     trace_list, metric_knowledge=None):
     """
     Build a hierarchy-aware interpretation of the efficiency metrics.
 
@@ -212,7 +299,7 @@ def build_performance_interpretation(tree, metric_info, metric_sources,
         if parent_value is None:
             return
 
-        if parent_value < ATTENTION_THRESHOLD and children:
+        if _requires_attention(metric_key, parent_value, metric_knowledge) and children:
             child_data = []
 
             for child in children:
@@ -232,22 +319,23 @@ def build_performance_interpretation(tree, metric_info, metric_sources,
                     "label": _clean_label(
                         metric_info,
                         child_key,
+                        metric_knowledge,
                     ),
                     "value": child_value,
-                    "status": _metric_status(child_value),
+                    "status": _metric_status(child_key, child_value, metric_knowledge),
                 })
 
             if child_data:
                 limiting_children = [
                     child
                     for child in child_data
-                    if child["value"] < ATTENTION_THRESHOLD
+                    if _requires_attention(child["metric"], child["value"], metric_knowledge)
                 ]
 
                 healthy_children = [
                     child
                     for child in child_data
-                    if child["value"] >= ATTENTION_THRESHOLD
+                    if _is_acceptable(child["metric"], child["value"], metric_knowledge)
                 ]
 
                 limiting_children.sort(
@@ -257,6 +345,7 @@ def build_performance_interpretation(tree, metric_info, metric_sources,
                 parent_label = _clean_label(
                     metric_info,
                     metric_key,
+                    metric_knowledge,
                 )
 
                 if limiting_children:
@@ -327,7 +416,7 @@ def build_performance_interpretation_html(interpretations):
 
 
 def build_scaling_trend_lines(metric_keys, metric_info, metric_sources,
-                              trace_list, max_items=4):
+                              trace_list, max_items=4, metric_knowledge=None):
     """
     Build trend notes for scaling analysis.
 
@@ -343,13 +432,13 @@ def build_scaling_trend_lines(metric_keys, metric_info, metric_sources,
         if len(values) < 2:
             continue
 
-        label = _metric_label(metric_info, metric_key)
+        label = _metric_label(metric_info, metric_key, metric_knowledge)
         trend = _trend_type(values)
         final_value = values[-1]
         delta = final_value - values[0]
 
         if trend in ("decreasing", "non_monotonic_decrease"):
-            if final_value < ATTENTION_THRESHOLD:
+            if _requires_attention(metric_key, final_value, metric_knowledge):
                 text = (
                     "{} is below the acceptable threshold and decreases with scale ({})."
                 ).format(label, _format_series(values))
@@ -361,7 +450,7 @@ def build_scaling_trend_lines(metric_keys, metric_info, metric_sources,
                 text = None
 
         elif trend in ("increasing", "non_monotonic_increase"):
-            if final_value < ATTENTION_THRESHOLD:
+            if _requires_attention(metric_key, final_value, metric_knowledge):
                 text = (
                     "{} remains below the acceptable threshold, although it improves with scale ({})."
                 ).format(label, _format_series(values))
@@ -386,12 +475,12 @@ def build_scaling_trend_lines(metric_keys, metric_info, metric_sources,
 
 
 def build_tree_diagnosis_observations(tree, metric_info, metric_sources,
-                                      trace_list):
+                                      trace_list, metric_knowledge=None):
     """
     Build hierarchical observations following the metric tree.
 
     The diagnosis starts from root metrics and recursively expands only
-    branches whose last-trace value is below ATTENTION_THRESHOLD.
+    branches whose last-trace value is below DEFAULT_ATTENTION_THRESHOLD.
     """
     lines = []
 
@@ -403,15 +492,15 @@ def build_tree_diagnosis_observations(tree, metric_info, metric_sources,
         if value is None:
             return
 
-        if value >= ATTENTION_THRESHOLD and depth > 0:
+        if _is_acceptable(metric_key, value, metric_knowledge) and depth > 0:
             return
 
-        label = _metric_label(metric_info, metric_key)
-        status = _status_text(value)
+        label = _metric_label(metric_info, metric_key, metric_knowledge)
+        status = _status_text(metric_key, value, metric_knowledge)
         indent = "&nbsp;" * (depth * 4)
 
         if depth == 0:
-            if value >= ATTENTION_THRESHOLD:
+            if _is_acceptable(metric_key, value, metric_knowledge):
                 lines.append(
                     "{}{} remains acceptable ({:.2f}%).".format(
                         indent, label, value
@@ -441,7 +530,7 @@ def build_tree_diagnosis_observations(tree, metric_info, metric_sources,
             if child_value is None:
                 continue
 
-            if child_value < ATTENTION_THRESHOLD:
+            if _requires_attention(child_key, child_value, metric_knowledge):
                 bad_children.append((child_value, child))
             else:
                 good_children.append((child_value, child))
@@ -453,7 +542,7 @@ def build_tree_diagnosis_observations(tree, metric_info, metric_sources,
 
         if depth == 0 and good_children and bad_children:
             good_names = [
-                _metric_label(metric_info, child["metric"])
+                _metric_label(metric_info, child["metric"], metric_knowledge)
                 for _, child in good_children
             ]
 
@@ -470,7 +559,7 @@ def build_tree_diagnosis_observations(tree, metric_info, metric_sources,
     if not lines:
         lines.append(
             "All analyzed metrics remain above {:.0f}%, so no significant efficiency loss is highlighted.".format(
-                ATTENTION_THRESHOLD
+                _attention_threshold("global_eff", metric_knowledge)
             )
         )
 
@@ -503,11 +592,12 @@ def build_tree_diagnosis_html(diagnosis_lines, trend_lines=None,
 
 
 def build_threshold_observations(metric_keys, metric_info, metric_sources,
-                                 trace_list, max_attention=5, max_trends=4):
+                                 trace_list, max_attention=5, max_trends=4,
+                                 metric_knowledge=None):
     """
     Build observations using threshold-first logic.
 
-    1. Report metrics below ATTENTION_THRESHOLD in the last trace.
+    1. Report metrics below DEFAULT_ATTENTION_THRESHOLD in the last trace.
     2. If several traces are available, report trend notes.
     """
     attention = []
@@ -518,19 +608,25 @@ def build_threshold_observations(metric_keys, metric_info, metric_sources,
         if not values:
             continue
 
-        info = metric_info.get(metric_key, {})
-        label = info.get("label", metric_key).replace("-", "").replace("=", "").strip()
+        label = _metric_label(
+            metric_info,
+            metric_key,
+            metric_knowledge,
+        )
 
         final_value = values[-1]
+        status = _metric_status(metric_key, final_value, metric_knowledge)
 
-        if final_value < CRITICAL_THRESHOLD:
+        if status == "critical":
             level = "critical"
-        elif final_value < ATTENTION_THRESHOLD:
-            level = "requires attention"
+        elif status == "attention":
+            level = "below the acceptable threshold"
+        elif status == "above_reference":
+            level = "above the reference value"
         else:
             level = "acceptable"
 
-        if final_value < ATTENTION_THRESHOLD:
+        if _requires_attention(metric_key, final_value, metric_knowledge):
             attention.append({
                 "metric": metric_key,
                 "label": label,
@@ -549,7 +645,7 @@ def build_threshold_observations(metric_keys, metric_info, metric_sources,
             delta = values[-1] - values[0]
 
             if trend in ("decreasing", "non_monotonic_decrease"):
-                if final_value < ATTENTION_THRESHOLD:
+                if _requires_attention(metric_key, final_value, metric_knowledge):
                     text = (
                         "{} is below the acceptable threshold and decreases with scale "
                         "({})."
@@ -563,7 +659,7 @@ def build_threshold_observations(metric_keys, metric_info, metric_sources,
                     text = None
 
             elif trend in ("increasing", "non_monotonic_increase"):
-                if final_value < ATTENTION_THRESHOLD:
+                if _requires_attention(metric_key, final_value, metric_knowledge):
                     text = (
                         "{} remains below the acceptable threshold, although it improves "
                         "with scale ({})."
@@ -592,6 +688,12 @@ def build_threshold_observations(metric_keys, metric_info, metric_sources,
     return {
         "attention": attention[:max_attention],
         "trends": trends[:max_trends],
+        "attention_threshold": (
+            min(
+                [_attention_threshold(key, metric_knowledge) for key in metric_keys],
+                default=DEFAULT_ATTENTION_THRESHOLD,
+            )
+        ),
     }
 
 
@@ -599,6 +701,9 @@ def build_threshold_observation_html(observation_groups,
                                      title="Analysis summary"):
     attention = observation_groups.get("attention", [])
     trends = observation_groups.get("trends", [])
+    attention_threshold = observation_groups.get(
+        "attention_threshold", DEFAULT_ATTENTION_THRESHOLD
+    )
 
     html = []
     html.append("<div class='observation-box'>")
@@ -613,7 +718,7 @@ def build_threshold_observation_html(observation_groups,
     else:
         html.append(
             "<p>All analyzed metrics remain above {:.0f}% in the last trace.</p>".format(
-                ATTENTION_THRESHOLD
+                _attention_threshold("global_eff", metric_knowledge)
             )
         )
 
@@ -630,13 +735,15 @@ def build_threshold_observation_html(observation_groups,
 
 
 def build_hierarchy_observations(metric_keys, metric_info, metric_sources,
-                                 trace_list, tree, max_items=4):
+                                 trace_list, tree, max_items=4,
+                                 metric_knowledge=None):
     observations = build_trend_observations(
         metric_keys,
         metric_info,
         metric_sources,
         trace_list,
         max_items=50,
+        metric_knowledge=metric_knowledge,
     )
 
     obs_by_metric = {obs["metric"]: obs for obs in observations}
@@ -704,7 +811,9 @@ def build_hierarchy_observations(metric_keys, metric_info, metric_sources,
         # Only report metrics that deserve attention
         attention_obs = [
             obs for obs in hierarchy_obs
-            if obs["values"] and obs["values"][-1] < ATTENTION_THRESHOLD
+            if obs["values"] and _requires_attention(
+                obs["metric"], obs["values"][-1], metric_knowledge
+            )
         ]
 
         # If all metrics are good, simply report that.
@@ -719,7 +828,7 @@ def build_hierarchy_observations(metric_keys, metric_info, metric_sources,
                 "text": (
                     "All efficiency metrics remain above {:.0f}%, "
                     "so no significant efficiency loss is highlighted."
-                ).format(ATTENTION_THRESHOLD),
+                ).format(DEFAULT_ATTENTION_THRESHOLD),
                 "action": "",
             }]
 
@@ -730,7 +839,8 @@ def build_hierarchy_observations(metric_keys, metric_info, metric_sources,
 
     return observations[:max_items]
 
-def _build_metric_observation(metric_key, metric_info, values):
+def _build_metric_observation(metric_key, metric_info, values,
+                              metric_knowledge=None):
     if len(values) < 2:
         return None
 
@@ -744,8 +854,8 @@ def _build_metric_observation(metric_key, metric_info, values):
     if sev == "none" and trend not in ("increasing", "non_monotonic_increase"):
         return None
 
-    info = metric_info.get(metric_key, {})
-    label = info.get("label", metric_key).replace("-", "").replace("=", "").strip()
+    info = (metric_info or {}).get(metric_key, {})
+    label = _metric_label(metric_info, metric_key, metric_knowledge)
 
     if trend == "decreasing":
         if sev == "significant":
@@ -792,7 +902,7 @@ def _build_metric_observation(metric_key, metric_info, values):
 
 
 def build_trend_observations(metric_keys, metric_info, metric_sources,
-                             trace_list, max_items=4):
+                             trace_list, max_items=4, metric_knowledge=None):
     """
     Build deterministic observations for a metric page.
 
@@ -829,7 +939,9 @@ def build_trend_observations(metric_keys, metric_info, metric_sources,
         if len(values) < 2:
             continue
 
-        obs = _build_metric_observation(metric_key, metric_info, values)
+        obs = _build_metric_observation(
+            metric_key, metric_info, values, metric_knowledge
+        )
         if obs is not None:
             observations.append(obs)
 
@@ -881,7 +993,8 @@ def build_analysis_summary_html(performance_html,
     return "\n".join(html)
 
 
-def _metric_trend_data(metric_key, metric_info, metric_sources, trace_list):
+def _metric_trend_data(metric_key, metric_info, metric_sources, trace_list,
+                       metric_knowledge=None):
     values = _metric_series(
         metric_sources,
         metric_key,
@@ -893,18 +1006,18 @@ def _metric_trend_data(metric_key, metric_info, metric_sources, trace_list):
 
     return {
         "metric": metric_key,
-        "label": _clean_label(metric_info, metric_key),
+        "label": _clean_label(metric_info, metric_key, metric_knowledge),
         "values": values,
         "first": values[0],
         "final": values[-1],
         "delta": _trend_delta(values),
         "direction": _trend_direction(values),
-        "status": _metric_status(values[-1]),
+        "status": _metric_status(metric_key, values[-1], metric_knowledge),
     }
 
 
 def build_scaling_interpretation(tree, metric_info, metric_sources,
-                                 trace_list):
+                                 trace_list, metric_knowledge=None):
     """
     Build hierarchy-aware scaling interpretation.
 
@@ -926,6 +1039,7 @@ def build_scaling_interpretation(tree, metric_info, metric_sources,
             metric_info,
             metric_sources,
             trace_list,
+            metric_knowledge,
         )
 
         if parent is None:
@@ -939,6 +1053,7 @@ def build_scaling_interpretation(tree, metric_info, metric_sources,
                 metric_info,
                 metric_sources,
                 trace_list,
+                metric_knowledge,
             )
 
             if data is not None:
@@ -948,6 +1063,7 @@ def build_scaling_interpretation(tree, metric_info, metric_sources,
             text = _build_parent_child_scaling_text(
                 parent,
                 child_data,
+                metric_knowledge,
             )
 
             if text:
@@ -967,7 +1083,7 @@ def build_scaling_interpretation(tree, metric_info, metric_sources,
     return interpretations
 
 
-def _build_parent_child_scaling_text(parent, children):
+def _build_parent_child_scaling_text(parent, children, metric_knowledge=None):
     parent_label = parent["label"]
     parent_direction = parent["direction"]
 
@@ -982,20 +1098,20 @@ def _build_parent_child_scaling_text(parent, children):
         for child in children
         if (
             child["direction"] == "increasing"
-            and child["final"] < ATTENTION_THRESHOLD
+            and _requires_attention(child["metric"], child["final"], metric_knowledge)
         )
     ]
 
     healthy_children = [
         child
         for child in children
-        if child["final"] >= ATTENTION_THRESHOLD
+        if _is_acceptable(child["metric"], child["final"], metric_knowledge)
     ]
 
     # Acceptable but degrading
     if (
         parent_direction == "decreasing"
-        and parent["final"] >= ATTENTION_THRESHOLD
+        and _is_acceptable(parent["metric"], parent["final"], metric_knowledge)
     ):
         return (
             "{} remains acceptable but decreases with scale and may become "
@@ -1055,12 +1171,14 @@ def _build_parent_child_scaling_text(parent, children):
         ]
 
         if healthy_names:
+            plural = len(healthy_names) > 1
             text += (
-                " {} remain{} at acceptable levels and are unlikely "
+                " {} {} at acceptable levels and {} unlikely "
                 "to explain the observed scaling loss."
             ).format(
                 _join_metric_names(healthy_names),
-                "" if len(healthy_names) > 1 else "s",
+                "remain" if plural else "remains",
+                "are" if plural else "is",
             )
 
         return text
@@ -1068,7 +1186,7 @@ def _build_parent_child_scaling_text(parent, children):
     # Improving but still low
     if (
         parent_direction == "increasing"
-        and parent["final"] < ATTENTION_THRESHOLD
+        and _requires_attention(parent["metric"], parent["final"], metric_knowledge)
     ):
         text = (
             "{} improves with scale but remains below the acceptable threshold"
@@ -1077,7 +1195,7 @@ def _build_parent_child_scaling_text(parent, children):
         low_children = [
             child
             for child in children
-            if child["final"] < ATTENTION_THRESHOLD
+            if _requires_attention(child["metric"], child["final"], metric_knowledge)
         ]
 
         if low_children:
