@@ -567,6 +567,11 @@ def _metric_info(metric_key,
     )
 
 
+def _default_metric_thresholds():
+    """Return the provider-level fallback efficiency thresholds."""
+    return KNOWLEDGE_PROVIDER.default_thresholds
+
+
 def _build_metric_knowledge(
         metric_keys,
         runtime=None,
@@ -1120,8 +1125,19 @@ def _build_resources_table_html(report):
     return "\n".join(html_lines)
 
 
-def _build_efficiency_scale_html():
+def _build_efficiency_scale_html(thresholds=None):
     """Build the common efficiency interpretation scale."""
+
+    if thresholds is None:
+        thresholds = _default_metric_thresholds()
+
+    critical = float(thresholds.critical)
+    attention = float(thresholds.attention)
+    reference = float(thresholds.reference)
+
+    critical_width = critical
+    attention_width = attention - critical
+    acceptable_width = reference - attention
 
     return """
     <div class="efficiency-scale-panel">
@@ -1138,31 +1154,37 @@ def _build_efficiency_scale_html():
 
             <div class="efficiency-gradient-markers">
                 <span style="left: 0%;">0%</span>
-                <span style="left: 60%;">60%</span>
-                <span style="left: 85%;">85%</span>
-                <span style="left: 100%;">100%</span>
+                <span style="left: {critical}%;">{critical:g}%</span>
+                <span style="left: {attention}%;">{attention:g}%</span>
+                <span style="left: {reference}%;">{reference:g}%</span>
             </div>
         </div>
 
-        <div class="efficiency-scale-ranges">
+        <div
+            class="efficiency-scale-ranges"
+            style="grid-template-columns:
+                {critical_width}fr
+                {attention_width}fr
+                {acceptable_width}fr;"
+        >
             <div class="scale-range scale-range-critical">
                 <strong>Critical</strong>
-                <span>&lt; 60%</span>
+                <span>&lt; {critical:g}%</span>
             </div>
 
             <div class="scale-range scale-range-attention">
                 <strong>Attention</strong>
-                <span>60% – 85%</span>
+                <span>{critical:g}% – {attention:g}%</span>
             </div>
 
             <div class="scale-range scale-range-good">
                 <strong>Good</strong>
-                <span>85% – 100%</span>
+                <span>{attention:g}% – {reference:g}%</span>
             </div>
         </div>
 
         <p class="efficiency-above-reference">
-            <strong>Above reference (&gt; 100%):</strong>
+            <strong>Above reference (&gt; {reference:g}%):</strong>
             values are displayed using the upper end of the color scale and
             should be interpreted according to the selected metric.
         </p>
@@ -1173,7 +1195,15 @@ def _build_efficiency_scale_html():
             metrics to identify the main factor contributing to the efficiency loss.
         </p>
     </div>
-    """
+    """.format(
+        critical=critical,
+        attention=attention,
+        reference=reference,
+        critical_width=critical_width,
+        attention_width=attention_width,
+        acceptable_width=acceptable_width,
+    )
+
 
 
 def _split_trace_mode(mode):
@@ -1563,21 +1593,43 @@ def _clean_metric_label(label):
     return label.replace("-", "").replace("=", "").replace("*", "").strip()
 
 
-def _metric_info_json(metric_keys, metric_info):
-    """Build JSON metadata used by the clickable metric tree."""
+def _metric_info_json(
+        metric_keys,
+        metric_info,
+        metric_knowledge):
+    """Build JSON metadata used by the clickable metric table."""
     data = {}
 
     for key in metric_keys:
         info = metric_info.get(key, {})
-        label = _clean_metric_label(info.get("label", key))
+        knowledge = metric_knowledge[key]
+        thresholds = knowledge.thresholds
+
+        label = _clean_metric_label(
+            info.get("label", knowledge.name)
+        )
 
         data[key] = {
             "title": label,
             "type": info.get("type", "Metric"),
-            "meaning": info.get("meaning", ""),
-            "low": info.get("low", ""),
-            "above100": info.get("above100", ""),
-            "action": info.get("action", ""),
+            "meaning": info.get("meaning", knowledge.definition),
+            "low": info.get(
+                "low",
+                knowledge.interpretation_low,
+            ),
+            "above100": info.get(
+                "above100",
+                knowledge.interpretation_above_100,
+            ),
+            "action": info.get(
+                "action",
+                " ".join(knowledge.next_steps),
+            ),
+            "thresholds": {
+                "critical": thresholds.critical,
+                "attention": thresholds.attention,
+                "reference": thresholds.reference,
+            },
         }
 
     return json.dumps(data)
@@ -1759,11 +1811,16 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
         trace_labels=trace_labels,
         section_id=section_id,
         tree=tree,
+        metric_knowledge=metric_knowledge,
     )
 
     efficiency_scale_html = _build_efficiency_scale_html()
 
-    info_json = _metric_info_json(metric_keys, metric_info)
+    info_json = _metric_info_json(
+        metric_keys,
+        metric_info,
+        metric_knowledge,
+    )
 
     if tree:
         performance_interpretation = (
@@ -2580,17 +2637,20 @@ def _interpolate_color(color_a, color_b, fraction):
     return _rgb_to_hex(rgb)
 
 
-def _metric_value_class(value):
+def _metric_value_class(value, thresholds=None):
+    if thresholds is None:
+        thresholds = _default_metric_thresholds()
+
     if value is None:
         return "metric-unavailable"
 
-    if value > 100.0:
+    if value > thresholds.reference:
         return "metric-above-reference"
 
-    if value < 60.0:
+    if value < thresholds.critical:
         return "metric-critical"
 
-    if value < 85.0:
+    if value < thresholds.attention:
         return "metric-warning"
 
     return "metric-good"
@@ -2829,9 +2889,10 @@ def _build_printable_metric_section(
     )
 
 
-def _build_efficiency_table_html(metric_keys, metric_info, metric_sources,
-                                 trace_list, trace_labels, section_id,
-                                 tree=None, printable=False):
+def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
+                                trace_list, trace_labels, section_id,
+                                tree=None, printable=False,
+                                metric_knowledge=None):
 
     """Build an interactive HTML efficiency metrics table."""
 
@@ -2872,6 +2933,19 @@ def _build_efficiency_table_html(metric_keys, metric_info, metric_sources,
 
         source = metric_sources.get(metric_key, {})
 
+        # Resolve the thresholds for this metric.
+        knowledge = (
+            metric_knowledge.get(metric_key)
+            if metric_knowledge
+            else None
+        )
+
+        thresholds = (
+            knowledge.thresholds
+            if knowledge is not None
+            else _default_metric_thresholds()
+        )
+
         lines.append("<tr>")
 
         # Metric name
@@ -2903,7 +2977,11 @@ def _build_efficiency_table_html(metric_keys, metric_info, metric_sources,
                 display_value = "{:.2f}%".format(value)
                 js_value = "{:.10f}".format(value)
 
-            value_class = _metric_value_class(value)
+            value_class = _metric_value_class(
+                value,
+                thresholds,
+            )
+
             background_color = _metric_value_color(value)
             text_color = _cell_text_color(value)
 
@@ -2926,7 +3004,7 @@ def _build_efficiency_table_html(metric_keys, metric_info, metric_sources,
                     "<td class='metric-value-cell'>"
                     "<button "
                     "type='button' "
-                    "class='metric-value' "
+                    "class='metric-value {value_class}' "
                     "style='background:{background}; color:{text_color};' "
                     "onclick=\"selectMetricCell("
                     "'{section_id}', "
@@ -2945,6 +3023,7 @@ def _build_efficiency_table_html(metric_keys, metric_info, metric_sources,
                         metric_label=html.escape(clean_label, quote=True),
                         trace_label=html.escape(trace_label, quote=True),
                         value=js_value,
+                        value_class=value_class,
                         display_value=display_value,
                     )
                 )
@@ -2956,8 +3035,6 @@ def _build_efficiency_table_html(metric_keys, metric_info, metric_sources,
     lines.append("</div>")
 
     return "\n".join(lines)
-
-
 
 
 def _build_openmp_runtime_scope_note(is_hybrid):
@@ -5910,12 +5987,17 @@ def _build_interactive_report_document(workspace_html):
             }
 
             const info = infoDict[metricKey];
+            const thresholds = info.thresholds;
 
             document.getElementById(sectionId + "-info-title").innerText = info.title;
             document.getElementById(sectionId + "-info-type").innerText = info.type;
             document.getElementById(sectionId + "-info-meaning").innerText = info.meaning;
             document.getElementById(sectionId + "-info-interpretation").innerText =
-                "Low values: " + info.low + " Above 100%: " + info.above100;
+                "Values below " + thresholds.attention + "%: "
+                + info.low
+                + " Values above " + thresholds.reference + "%: "
+                + info.above100;
+
             document.getElementById(sectionId + "-info-action").innerText =
                 "Next diagnostic step: " + info.action;
 
@@ -5950,14 +6032,25 @@ def _build_interactive_report_document(workspace_html):
             document.getElementById(sectionId + "-info-meaning").innerText =
                 info.meaning;
 
-            if (value !== null && value !== undefined && value < 85.0) {
-                document.getElementById(sectionId + "-info-interpretation").innerText =
-                    "Interpretation: " + info.low;
-            } else if (value !== null && value !== undefined && value > 100.0) {
-                document.getElementById(sectionId + "-info-interpretation").innerText =
+            const thresholds = info.thresholds;
+            const interpretationElement = document.getElementById(
+                sectionId + "-info-interpretation"
+            );
+
+            if (value === null || value === undefined) {
+                interpretationElement.innerText =
+                    "Interpretation: Metric is not available for this trace or configuration.";
+            } else if (value > thresholds.reference) {
+                interpretationElement.innerText =
                     "Interpretation: " + info.above100;
+            } else if (value < thresholds.critical) {
+                interpretationElement.innerText =
+                    "Interpretation: Critical value. " + info.low;
+            } else if (value < thresholds.attention) {
+                interpretationElement.innerText =
+                    "Interpretation: Requires attention. " + info.low;
             } else {
-                document.getElementById(sectionId + "-info-interpretation").innerText =
+                interpretationElement.innerText =
                     "Interpretation: This component is probably not the dominant bottleneck.";
             }
 
