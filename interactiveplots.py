@@ -1047,12 +1047,14 @@ def _build_hybrid_metric_info(inner_model):
             "{} contributes significantly to the overall MPI+{} load "
             "imbalance.".format(inner_model, inner_model)
         )
+
         metric_info["omp_load_balance"]["action"] = (
-            "First compare {0} Load Balance with MPI Load Balance. Then "
-            "continue the diagnosis in the Execution Domain section: low "
-            "Device Offload Efficiency indicates host-side accelerator "
-            "overhead, whereas low Device Load Balance indicates imbalance "
-            "during device execution."
+            "Compare {0} Load Balance with MPI Load Balance to identify the "
+            "dominant contribution to the overall hybrid imbalance. If {0} is "
+            "the main contributor, inspect the Host and Device execution domains "
+            "and validate the behavior in the trace. Device Load Balance provides "
+            "device-side evidence, but it is not a direct decomposition of this "
+            "derived {0} Load Balance contribution."
         ).format(inner_model)
 
         metric_info["omp_comm_eff"]["meaning"] = (
@@ -1066,11 +1068,12 @@ def _build_hybrid_metric_info(inner_model):
             "MPI+{} execution.".format(inner_model, inner_model)
         )
         metric_info["omp_comm_eff"]["action"] = (
-            "First compare {0} Communication Efficiency with MPI "
-            "Communication Efficiency. Then continue the diagnosis in the "
-            "Execution Domain section to distinguish host-side offloading, "
-            "data movement, and synchronization overhead from device-side "
-            "communication or orchestration losses."
+            "Compare {0} Communication Efficiency with MPI Communication "
+            "Efficiency to identify the dominant runtime contribution. If {0} "
+            "is the main contributor, inspect the Host and Device execution "
+            "domains and validate the behavior in the trace. The domain metrics "
+            "provide supporting evidence, but they do not directly decompose "
+            "this derived {0} Communication Efficiency contribution."
         ).format(inner_model)
 
     return metric_info
@@ -1593,46 +1596,86 @@ def _clean_metric_label(label):
     return label.replace("-", "").replace("=", "").replace("*", "").strip()
 
 
+
 def _metric_info_json(
         metric_keys,
         metric_info,
         metric_knowledge):
-    """Build JSON metadata used by the clickable metric table."""
+    """Serialize metric presentation and semantic knowledge for JavaScript.
+
+    Presentation-specific fields, such as the report label and metric type,
+    remain in ``metric_info``. Semantic fields are obtained exclusively from
+    ``MetricKnowledge``.
+
+    Legacy aliases are temporarily retained until the JavaScript consumers
+    have been migrated to the structured semantic representation.
+    """
+
     data = {}
 
-    for key in metric_keys:
-        info = metric_info.get(key, {})
-        knowledge = metric_knowledge[key]
+    for metric_key in metric_keys:
+        info = metric_info.get(metric_key, {})
+        knowledge = metric_knowledge[metric_key]
         thresholds = knowledge.thresholds
 
         label = _clean_metric_label(
             info.get("label", knowledge.name)
         )
 
-        data[key] = {
+        definition = knowledge.definition
+        interpretation_low = knowledge.interpretation_low
+        interpretation_high = knowledge.interpretation_high
+        interpretation_above_reference = (
+            knowledge.interpretation_above_100
+        )
+
+        recommendations = list(knowledge.next_steps)
+
+        # A report section may provide execution-model-specific diagnostic
+        # routing. This does not replace the metric semantics; it specializes
+        # the next diagnostic step for the current analysis context.
+        contextual_action = info.get("action")
+
+        if contextual_action:
+            recommendations = [contextual_action]
+
+
+
+        data[metric_key] = {
+            # ----------------------------------------------
+            # Presentation metadata
+            # ----------------------------------------------
             "title": label,
             "type": info.get("type", "Metric"),
-            "meaning": info.get("meaning", knowledge.definition),
-            "low": info.get(
-                "low",
-                knowledge.interpretation_low,
-            ),
-            "above100": info.get(
-                "above100",
-                knowledge.interpretation_above_100,
-            ),
-            "action": info.get(
-                "action",
-                " ".join(knowledge.next_steps),
-            ),
+
+            # ----------------------------------------------
+            # Structured semantic knowledge
+            # ----------------------------------------------
+            "definition": definition,
+            "interpretation": {
+                "low": interpretation_low,
+                "high": interpretation_high,
+                "above_reference": interpretation_above_reference,
+            },
+            "recommendations": recommendations,
             "thresholds": {
                 "critical": thresholds.critical,
                 "attention": thresholds.attention,
                 "reference": thresholds.reference,
             },
+
+            # ----------------------------------------------
+            # Temporary compatibility aliases
+            # Remove after migrating the JavaScript.
+            # ----------------------------------------------
+            "meaning": definition,
+            "low": interpretation_low,
+            "above100": interpretation_above_reference,
+            "action": " ".join(recommendations),
         }
 
     return json.dumps(data)
+
 
 
 def _metric_button(metric_key, metric_info, section_id):
