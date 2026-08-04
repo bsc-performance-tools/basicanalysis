@@ -12,6 +12,13 @@ import observations
 
 import plotly.graph_objects as go
 
+from report.renderer.html import (
+    build_analysis_catalogue,
+    render_analysis_navigation,
+    render_performance_assessment,
+    render_trace_configuration,
+)
+
 
 from metrics import (
     get_default_knowledge_base,
@@ -86,6 +93,8 @@ class MetricInfoProvider:
             for metric_key, info in metric_info.items()
         }
 
+
+USE_GUIDED_ANALYSIS_NAVIGATION = True
 
 METRIC_PROVIDER = MetricInfoProvider(KB)
 
@@ -548,6 +557,20 @@ GLOBAL_GPU_TREE = [
     ])
 ]
 
+
+# Computation Scalability is an independent analytical view.
+# The semantic ScalabilityAnalysisBuilder determines which nodes are
+# available for the current execution model.
+SCALABILITY_TREE = [
+    _tree_node(
+        "comp_scale",
+        [
+            _tree_node("ipc_scale"),
+            _tree_node("inst_scale"),
+            _tree_node("freq_scale"),
+        ],
+    )
+]
 
 
 def _metric_info(metric_key,
@@ -1785,7 +1808,9 @@ def _build_metric_tree_html(metric_keys, metric_info, section_id, tree_kind):
     elif tree_kind == "openmp":
         tree = OPENMP_TREE 
     elif tree_kind == "global_gpu":
-        tree = GLOBAL_GPU_TREE             
+        tree = GLOBAL_GPU_TREE
+    elif tree_kind == "scalability":
+        tree = SCALABILITY_TREE
     else:
         tree = []
 
@@ -1844,7 +1869,8 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
         tree = DEVICE_RUNTIME_TREE
     elif tree_kind == "openmp":
         tree = OPENMP_TREE
-
+    elif tree_kind == "scalability":
+        tree = SCALABILITY_TREE
 
     efficiency_table_html = _build_efficiency_table_html(
         metric_keys=metric_keys,
@@ -3050,6 +3076,7 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
                     "class='metric-value {value_class}' "
                     "style='background:{background}; color:{text_color};' "
                     "onclick=\"selectMetricCell("
+                    "this, "
                     "'{section_id}', "
                     "'{metric_key}', "
                     "'{metric_label}', "
@@ -3204,6 +3231,13 @@ def _build_parallel_runtime_model_views(model, mod_factors, trace_list,
             "title": "Parallel Runtime Model: MPI + {}".format(inner_model),
             "html": hybrid_html,
         })
+
+    if runtime_model_views:
+        parallel_runtime_model_html = runtime_model_views[0]["html"]
+    else:
+        parallel_runtime_model_html = (
+            "<p>No Parallel Runtime Model is available.</p>"
+        )
 
     return runtime_model_views
 
@@ -3717,6 +3751,75 @@ def _build_workspace_layout(application_html, detail_html):
     """.format(
         application_html=application_html,
         detail_html=detail_html,
+    )
+
+
+def _build_primary_report_navigation(
+    overview_html,
+    performance_assessment_html,
+):
+    """Build the top-level Overview and Performance Assessment views."""
+
+    return """
+    <div class="primary-report-navigation">
+        <div
+            class="primary-report-tabs"
+            role="tablist"
+            aria-label="Report analysis stages"
+        >
+            <button
+                type="button"
+                id="primary-overview-tab"
+                class="primary-report-tab active"
+                role="tab"
+                aria-selected="true"
+                aria-controls="primary-overview-view"
+                onclick="showPrimaryReportView(
+                    'primary-overview-view',
+                    this
+                )"
+            >
+                Overview
+            </button>
+
+            <button
+                type="button"
+                id="primary-assessment-tab"
+                class="primary-report-tab"
+                role="tab"
+                aria-selected="false"
+                aria-controls="primary-assessment-view"
+                onclick="showPrimaryReportView(
+                    'primary-assessment-view',
+                    this
+                )"
+            >
+                Performance Assessment
+            </button>
+        </div>
+
+        <section
+            id="primary-overview-view"
+            class="primary-report-view active"
+            role="tabpanel"
+            aria-labelledby="primary-overview-tab"
+        >
+            {overview_html}
+        </section>
+
+        <section
+            id="primary-assessment-view"
+            class="primary-report-view"
+            role="tabpanel"
+            aria-labelledby="primary-assessment-tab"
+            hidden
+        >
+            {performance_assessment_html}
+        </section>
+    </div>
+    """.format(
+        overview_html=overview_html,
+        performance_assessment_html=performance_assessment_html,
     )
 
 
@@ -4848,9 +4951,7 @@ def _build_interactive_report_document(workspace_html):
             line-height: 1.7;
         }
 
-
-        
-
+      
         /* -------------------------------------------------- */
         /* Analysis scope notes                                */
         /* -------------------------------------------------- */
@@ -5666,6 +5767,1467 @@ def _build_interactive_report_document(workspace_html):
             }
         }
 
+
+        /* -------------------------------------------------- */
+        /* Performance Assessment layout                */
+        /* -------------------------------------------------- */
+
+        .performance-assessment-view {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            height: 100%;
+            min-height: 0;
+            overflow-y: auto;
+            padding-right: 8px;
+        }
+
+        .performance-global-metrics,
+        .performance-runtime-analysis {
+            padding: 22px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .performance-section-header {
+            margin-bottom: 20px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .performance-section-header h2 {
+            margin-bottom: 6px;
+        }
+
+        .performance-section-header p {
+            max-width: 900px;
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .performance-analysis-layout {
+            display: grid;
+            grid-template-columns:
+                minmax(0, 1fr)
+                minmax(300px, 0.75fr)
+                170px;
+            gap: 16px;
+            align-items: stretch;
+        }
+
+        .performance-primary-panel,
+        .performance-secondary-panel {
+            min-width: 0;
+            min-height: 420px;
+            padding: 18px;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+
+            background: var(--surface-soft);
+            overflow: hidden;
+        }
+
+        .performance-secondary-panel {
+            position: relative;
+        }
+
+        .performance-secondary-placeholder {
+            display: flex;
+            min-height: 380px;
+            max-width: 430px;
+            margin: 0 auto;
+
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+
+            color: var(--text-secondary);
+            text-align: center;
+        }
+
+        .performance-secondary-placeholder[hidden] {
+            display: none;
+        }
+
+        .performance-secondary-placeholder h3 {
+            margin-top: 0;
+            color: var(--primary);
+        }
+
+        .performance-secondary-view {
+            display: none;
+            min-width: 0;
+        }
+
+        .performance-secondary-view.is-active {
+            display: block;
+            animation: tabFadeIn 0.22s ease;
+        }
+
+        .performance-secondary-view-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+
+            margin-bottom: 18px;
+            padding-bottom: 14px;
+
+            border-bottom: 1px solid var(--border);
+        }
+
+        .performance-secondary-heading {
+            min-width: 0;
+        }
+
+        .performance-secondary-heading h3 {
+            margin: 0 0 7px;
+            color: var(--primary);
+            font-size: 20px;
+        }
+
+        .performance-secondary-heading > p:last-child {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        .performance-secondary-eyebrow {
+            margin: 0 0 4px;
+
+            color: #527397;
+            font-size: 11px;
+            font-weight: 750;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .performance-secondary-close {
+            display: grid;
+            width: 34px;
+            height: 34px;
+            flex: 0 0 34px;
+
+            place-items: center;
+
+            border: 1px solid #aabed2;
+            border-radius: 8px;
+
+            background: white;
+            color: var(--primary);
+
+            cursor: pointer;
+            font: inherit;
+            font-size: 22px;
+            line-height: 1;
+        }
+
+        .performance-secondary-close:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .performance-secondary-close:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+        .performance-secondary-body {
+            min-width: 0;
+        }
+
+        .performance-secondary-body .metric-table-card,
+        .performance-secondary-body .efficiency-table-wrapper {
+            max-width: 100%;
+        }
+
+        .performance-secondary-body .efficiency-table {
+            width: max-content;
+            min-width: 100%;
+        }
+
+        .performance-secondary-body .metric-name-cell,
+        .performance-secondary-body
+        .efficiency-table
+        .metric-column-header {
+            min-width: 250px;
+        }
+
+        .performance-analysis-selector {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            min-width: 0;
+        }
+
+        .performance-analysis-selector.is-empty {
+            padding: 14px;
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-secondary);
+            background: var(--surface-soft);
+        }
+
+        .analysis-selector-group {
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: #f7faff;
+        }
+
+        .analysis-selector-group h4 {
+            margin: 0 0 10px;
+            color: var(--primary);
+            font-size: 13px;
+        }
+
+        .analysis-selector-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+
+        .analysis-selector-button {
+            width: 100%;
+            min-height: 42px;
+            padding: 9px 11px;
+
+            border: 1px solid #9fb6cf;
+            border-radius: 8px;
+
+            background: white;
+            color: var(--primary);
+
+            cursor: pointer;
+            text-align: left;
+
+            font: inherit;
+            font-size: 13px;
+            font-weight: 700;
+
+            transition:
+                border-color 0.16s ease,
+                background 0.16s ease,
+                color 0.16s ease,
+                box-shadow 0.16s ease;
+        }
+
+        .analysis-selector-button:hover {
+            border-color: var(--primary);
+            background: #edf5fd;
+        }
+
+        .analysis-selector-button.is-selected {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 12px rgba(23, 54, 93, 0.20);
+        }
+
+        .analysis-selector-button:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+        .performance-primary-panel .efficiency-table,
+        .performance-secondary-panel .efficiency-table {
+            width: max-content;
+            min-width: 100%;
+        }
+
+        @media (max-width: 1100px) {
+            .performance-analysis-layout {
+                grid-template-columns:
+                    minmax(0, 1fr)
+                    minmax(260px, 0.75fr);
+            }
+
+            .performance-analysis-selector {
+                grid-column: 1 / -1;
+                display: grid;
+                grid-template-columns: repeat(
+                    auto-fit,
+                    minmax(220px, 1fr)
+                );
+            }
+        }
+
+        @media (max-width: 780px) {
+            html,
+            body {
+                height: auto;
+                overflow: auto;
+            }
+
+            .report-container {
+                height: auto;
+            }
+
+            .performance-assessment-view {
+                overflow: visible;
+            }
+
+            .performance-analysis-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .performance-analysis-selector {
+                grid-column: auto;
+                display: flex;
+            }
+        }
+
+
+        /* -------------------------------------------------- */
+        /* Primary report navigation                           */
+        /* -------------------------------------------------- */
+
+        .primary-report-navigation {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-height: 0;
+        }
+
+        .primary-report-tabs {
+            display: flex;
+            flex: 0 0 auto;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding: 8px;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: var(--surface);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .primary-report-tab {
+            min-height: 42px;
+            padding: 9px 18px;
+
+            border: 1px solid transparent;
+            border-radius: var(--radius-sm);
+
+            background: transparent;
+            color: var(--text-secondary);
+
+            cursor: pointer;
+            font: inherit;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .primary-report-tab:hover {
+            background: var(--primary-light);
+            color: var(--primary);
+        }
+
+        .primary-report-tab.active {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: white;
+        }
+
+        .primary-report-tab:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+        .primary-report-view {
+            display: none;
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            padding-right: 8px;
+        }
+
+        .primary-report-view.active {
+            display: block;
+            animation: tabFadeIn 0.22s ease;
+        }
+
+        .primary-report-view .application-panel {
+            height: auto;
+            max-height: none;
+            overflow: visible;
+            padding-right: 0;
+        }
+
+        @media (max-width: 780px) {
+            .primary-report-navigation {
+                height: auto;
+            }
+
+            .primary-report-tabs {
+                flex-direction: column;
+            }
+
+            .primary-report-view {
+                overflow: visible;
+            }
+        }
+
+        /* -------------------------------------------------- */
+        /* Analysis comparison workspace                       */
+        /* -------------------------------------------------- */
+
+        .comparison-workspace {
+            display: flex;
+            height: 100%;
+            min-height: 0;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .comparison-workspace-header {
+            flex: 0 0 auto;
+            padding: 18px 22px;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+
+            background: var(--surface);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .comparison-workspace-header h1 {
+            margin: 0 0 5px;
+            color: var(--primary);
+            font-size: 24px;
+        }
+
+        .comparison-workspace-header > div > p:last-child {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .comparison-workspace-eyebrow {
+            margin: 0 0 4px;
+
+            color: #527397;
+            font-size: 11px;
+            font-weight: 750;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .comparison-panels {
+            display: grid;
+            flex: 1 1 auto;
+            min-height: 0;
+
+            grid-template-columns:
+                minmax(0, 1fr)
+                1px
+                minmax(0, 1fr);
+
+            gap: 16px;
+        }
+
+        .comparison-divider {
+            width: 1px;
+            min-height: 100%;
+            background: var(--border);
+        }
+
+        .comparison-panel {
+            display: flex;
+            min-width: 0;
+            min-height: 0;
+            flex-direction: column;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+
+            background: var(--surface);
+            box-shadow: var(--shadow-sm);
+
+            overflow: hidden;
+        }
+
+        .comparison-panel-header {
+            display: flex;
+            flex: 0 0 auto;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
+
+            padding: 16px 18px;
+
+            border-bottom: 1px solid var(--border);
+            background: #f8fbff;
+        }
+
+        .comparison-panel-heading {
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+
+        .comparison-panel-heading h2 {
+            margin: 0 0 5px;
+            font-size: 20px;
+        }
+
+        .comparison-panel-heading > p:last-child {
+            max-width: 620px;
+            margin: 0;
+
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .comparison-panel-eyebrow {
+            margin: 0 0 3px;
+
+            color: #527397;
+            font-size: 10px;
+            font-weight: 750;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .comparison-panel-controls {
+            display: grid;
+            min-width: 210px;
+
+            grid-template-columns: minmax(150px, 1fr) 36px;
+            gap: 6px;
+            align-items: end;
+        }
+
+        .comparison-selector-label {
+            grid-column: 1 / -1;
+
+            color: var(--text-secondary);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .comparison-view-selector {
+            width: 100%;
+            min-height: 36px;
+            padding: 6px 9px;
+
+            border: 1px solid #aabed2;
+            border-radius: 8px;
+
+            background: white;
+            color: var(--primary);
+
+            font: inherit;
+            font-size: 12px;
+            font-weight: 650;
+        }
+
+        .comparison-view-selector:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+        .comparison-panel-control {
+            display: grid;
+            width: 36px;
+            height: 36px;
+
+            place-items: center;
+
+            border: 1px solid #aabed2;
+            border-radius: 8px;
+
+            background: white;
+            color: var(--primary);
+
+            cursor: pointer;
+            font: inherit;
+        }
+
+        .comparison-panel-control:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .comparison-panel-control:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+        .comparison-panel-content {
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+
+            padding: 16px;
+
+            overflow: auto;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
+        }
+
+        .comparison-analysis-view {
+            display: none;
+            min-width: 0;
+        }
+
+        .comparison-analysis-view.is-active {
+            display: block;
+            animation: tabFadeIn 0.22s ease;
+        }
+
+        .comparison-analysis-body {
+            min-width: 0;
+        }
+
+        .comparison-analysis-body .application-panel {
+            display: flex;
+            height: auto;
+            max-height: none;
+
+            overflow: visible;
+            padding-right: 0;
+        }
+
+        .comparison-analysis-body .workspace-panel {
+            box-shadow: none;
+        }
+
+        .comparison-analysis-body .efficiency-table {
+            width: max-content;
+            min-width: 100%;
+        }
+
+        .comparison-analysis-body .metric-name-cell,
+        .comparison-analysis-body
+        .efficiency-table
+        .metric-column-header {
+            min-width: 255px;
+        }
+
+        .comparison-view-unavailable {
+            padding: 24px;
+
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-md);
+
+            background: var(--surface-soft);
+            color: var(--text-secondary);
+            text-align: center;
+        }
+
+        .comparison-view-unavailable h3 {
+            margin-top: 0;
+        }
+
+        /* Maximize/restore */
+
+        .comparison-workspace[data-maximized-panel]
+        .comparison-panels {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .comparison-workspace[data-maximized-panel]
+        .comparison-divider {
+            display: none;
+        }
+
+        .comparison-panel.is-hidden-by-maximize {
+            display: none;
+        }
+
+        .comparison-panel.is-maximized {
+            width: 100%;
+        }
+
+        .comparison-panel.is-maximized
+        .comparison-panel-control {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: white;
+        }
+
+        @media (max-width: 1050px) {
+            .comparison-panels {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+
+            .comparison-divider {
+                width: 100%;
+                min-height: 1px;
+                height: 1px;
+            }
+
+            .comparison-panel {
+                min-height: 620px;
+            }
+        }
+
+        @media (max-width: 720px) {
+            html,
+            body {
+                height: auto;
+                overflow: auto;
+            }
+
+            .report-container {
+                height: auto;
+            }
+
+            .comparison-workspace {
+                height: auto;
+            }
+
+            .comparison-panel-header {
+                flex-direction: column;
+            }
+
+            .comparison-panel-controls {
+                width: 100%;
+                min-width: 0;
+            }
+
+            .comparison-panel-content {
+                overflow: visible;
+            }
+        } 
+
+        /* -------------------------------------------------- */
+        /* Guided analysis navigation                          */
+        /* -------------------------------------------------- */
+
+        .guided-analysis-navigation {
+            display: flex;
+            height: 100%;
+            min-height: 0;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .guided-navigation-header {
+            display: flex;
+            flex: 0 0 auto;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 24px;
+            padding: 17px 21px;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+
+            background: var(--surface);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .guided-navigation-header h1 {
+            margin: 0 0 5px;
+            color: var(--primary);
+            font-size: 24px;
+        }
+
+        .guided-navigation-header > div:first-child > p:last-child {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .guided-navigation-eyebrow,
+        .guided-secondary-eyebrow {
+            margin: 0 0 3px;
+
+            color: #527397;
+            font-size: 10px;
+            font-weight: 750;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+
+        .guided-navigation-actions {
+            min-width: 230px;
+        }
+
+        .guided-comparison-control {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .guided-comparison-control[hidden] {
+            display: none;
+        }
+
+        .guided-comparison-control label {
+            color: var(--text-secondary);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+        }
+
+        .guided-comparison-selector {
+            min-height: 38px;
+            padding: 7px 10px;
+
+            border: 1px solid #aabed2;
+            border-radius: 8px;
+
+            background: white;
+            color: var(--primary);
+
+            font: inherit;
+            font-size: 12px;
+            font-weight: 650;
+        }
+
+        .guided-primary-tabs {
+            display: flex;
+            flex: 0 0 auto;
+            gap: 8px;
+            padding: 8px;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+
+            background: var(--surface);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .guided-primary-tab {
+            min-height: 42px;
+            padding: 8px 17px;
+
+            border: 1px solid transparent;
+            border-radius: 8px;
+
+            background: transparent;
+            color: var(--text-secondary);
+
+            cursor: pointer;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .guided-primary-tab:hover {
+            background: var(--primary-light);
+            color: var(--primary);
+        }
+
+        .guided-primary-tab.is-active {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: white;
+        }
+
+        .guided-analysis-stage {
+            display: flex;
+            flex: 1 1 auto;
+            min-height: 0;
+            gap: 16px;
+        }
+
+        .guided-primary-region {
+            display: grid;
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+
+            grid-template-columns:
+                minmax(0, 1fr)
+                180px;
+
+            gap: 16px;
+        }
+
+        .guided-primary-region.has-drilldown {
+            grid-template-columns:
+                minmax(0, 1fr)
+                minmax(320px, .85fr)
+                180px;
+        }
+
+        .guided-primary-panel,
+        .guided-drilldown-panel,
+        .guided-comparison-region {
+            min-width: 0;
+            min-height: 0;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+
+            background: var(--surface);
+            box-shadow: var(--shadow-sm);
+
+            overflow: auto;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
+        }
+
+        .guided-primary-panel {
+            padding: 18px;
+        }
+
+        .guided-analysis-navigation:not(.is-runtime-primary)
+        .guided-runtime-selector-region {
+            display: none;
+        }
+
+        .guided-analysis-navigation:not(.is-runtime-primary)
+        .guided-primary-region {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .guided-drilldown-panel {
+            display: none;
+        }
+
+        .guided-primary-region.has-drilldown
+        .guided-drilldown-panel {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .guided-runtime-selector-region {
+            min-width: 0;
+            overflow-y: auto;
+        }
+
+        .guided-drilldown-selector {
+            display: flex;
+            flex-direction: column;
+            gap: 13px;
+        }
+
+        .guided-drilldown-selector.is-empty {
+            padding: 14px;
+
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-md);
+
+            background: var(--surface-soft);
+            color: var(--text-secondary);
+        }
+
+        .guided-drilldown-group {
+            padding: 12px;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+
+            background: #f7faff;
+        }
+
+        .guided-drilldown-group h3 {
+            margin: 0 0 3px;
+            color: var(--primary);
+            font-size: 13px;
+        }
+
+        .guided-drilldown-group > p {
+            margin: 0 0 10px;
+
+            color: var(--text-secondary);
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .guided-drilldown-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+
+        .guided-drilldown-button {
+            min-height: 39px;
+            padding: 8px 10px;
+
+            border: 1px solid #9fb6cf;
+            border-radius: 8px;
+
+            background: white;
+            color: var(--primary);
+
+            cursor: pointer;
+            text-align: left;
+
+            font: inherit;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .guided-drilldown-button:hover {
+            border-color: var(--primary);
+            background: #edf5fd;
+        }
+
+        .guided-drilldown-button.is-selected {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: white;
+        }
+
+        .guided-secondary-header {
+            display: flex;
+            flex: 0 0 auto;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 15px;
+
+            padding: 15px 17px;
+
+            border-bottom: 1px solid var(--border);
+            background: #f8fbff;
+        }
+
+        .guided-secondary-header h2 {
+            margin: 0 0 4px;
+            font-size: 19px;
+        }
+
+        .guided-secondary-header > div > p:last-child {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+
+        .guided-secondary-close {
+            display: grid;
+            width: 33px;
+            height: 33px;
+            flex: 0 0 33px;
+
+            place-items: center;
+
+            border: 1px solid #aabed2;
+            border-radius: 8px;
+
+            background: white;
+            color: var(--primary);
+
+            cursor: pointer;
+            font: inherit;
+            font-size: 21px;
+        }
+
+        .guided-secondary-content {
+            min-width: 0;
+            min-height: 0;
+            padding: 16px;
+            overflow: auto;
+        }
+
+        .guided-comparison-region {
+            display: flex;
+            flex: 0 0 min(48%, 720px);
+            flex-direction: column;
+        }
+
+        .guided-comparison-region[hidden] {
+            display: none;
+        }
+
+        .guided-analysis-view {
+            min-width: 0;
+        }
+
+        .guided-analysis-view .application-panel {
+            display: flex;
+            height: auto;
+            max-height: none;
+            overflow: visible;
+            padding-right: 0;
+        }
+
+        .guided-analysis-view .workspace-panel {
+            box-shadow: none;
+        }
+
+        .guided-analysis-view .efficiency-table {
+            width: max-content;
+            min-width: 100%;
+        }
+
+        .guided-analysis-view .metric-name-cell,
+        .guided-analysis-view
+        .efficiency-table
+        .metric-column-header {
+            min-width: 255px;
+        }
+
+        .guided-view-unavailable {
+            padding: 24px;
+
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-md);
+
+            background: var(--surface-soft);
+            color: var(--text-secondary);
+            text-align: center;
+        }
+
+        @media (max-width: 1150px) {
+            .guided-primary-region.has-drilldown {
+                grid-template-columns:
+                    minmax(0, 1fr)
+                    minmax(290px, .8fr);
+            }
+
+            .guided-primary-region.has-drilldown
+            .guided-runtime-selector-region {
+                grid-column: 1 / -1;
+            }
+
+            .guided-primary-region.has-drilldown
+            .guided-drilldown-selector {
+                display: grid;
+                grid-template-columns:
+                    repeat(auto-fit, minmax(230px, 1fr));
+            }
+        }
+
+        @media (max-width: 850px) {
+            html,
+            body {
+                height: auto;
+                overflow: auto;
+            }
+
+            .report-container,
+            .guided-analysis-navigation {
+                height: auto;
+            }
+
+            .guided-navigation-header {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .guided-navigation-actions {
+                min-width: 0;
+            }
+
+            .guided-primary-tabs {
+                flex-direction: column;
+            }
+
+            .guided-analysis-stage {
+                flex-direction: column;
+            }
+
+            .guided-primary-region,
+            .guided-primary-region.has-drilldown {
+                grid-template-columns: 1fr;
+            }
+
+            .guided-primary-panel,
+            .guided-drilldown-panel,
+            .guided-comparison-region {
+                overflow: visible;
+            }
+
+            .guided-comparison-region {
+                flex-basis: auto;
+            }
+        }
+
+
+        /* -------------------------------------------------- */
+        /* Compact layout for analysis-focused use             */
+        /* -------------------------------------------------- */
+
+        /* Main report header */
+
+        .report-header {
+            padding: 16px 24px;
+        }
+
+        .report-header h1 {
+            font-size: 25px;
+        }
+
+        .report-brand {
+            margin-bottom: 2px;
+            font-size: 11px;
+        }
+
+        .subtitle {
+            margin-top: 4px;
+            font-size: 13px;
+        }
+
+
+        /* Main report area */
+
+        .report-container {
+            width: min(1760px, calc(100% - 20px));
+            margin: 12px auto 18px;
+        }
+
+
+        /* Guided-workflow header */
+
+        .guided-analysis-navigation {
+            gap: 8px;
+        }
+
+        .guided-navigation-header {
+            min-height: 0;
+            padding: 10px 14px;
+            gap: 16px;
+        }
+
+        .guided-navigation-header h1 {
+            margin-bottom: 2px;
+            font-size: 19px;
+        }
+
+        .guided-navigation-header > div:first-child > p:last-child {
+            font-size: 12px;
+            line-height: 1.35;
+        }
+
+        .guided-navigation-eyebrow {
+            margin-bottom: 1px;
+            font-size: 9px;
+        }
+
+        .guided-navigation-actions {
+            min-width: 205px;
+        }
+
+        .guided-comparison-control {
+            gap: 2px;
+        }
+
+        .guided-comparison-control label {
+            font-size: 9px;
+        }
+
+        .guided-comparison-selector {
+            min-height: 32px;
+            padding: 4px 8px;
+            font-size: 11px;
+        }
+
+
+        /* Primary navigation tabs */
+
+        .guided-primary-tabs {
+            gap: 4px;
+            padding: 4px 6px;
+        }
+
+        .guided-primary-tab {
+            min-height: 34px;
+            padding: 5px 14px;
+            font-size: 12px;
+        }
+
+
+        /* Analysis regions */
+
+        .guided-analysis-stage {
+            gap: 10px;
+        }
+
+        .guided-primary-region {
+            gap: 10px;
+            grid-template-columns:
+                minmax(0, 1fr)
+                155px;
+        }
+
+        .guided-primary-region.has-drilldown {
+            grid-template-columns:
+                minmax(0, 1fr)
+                minmax(300px, 0.82fr)
+                155px;
+        }
+
+        .guided-primary-panel {
+            padding: 10px;
+        }
+
+
+        /* Runtime and resource selector */
+
+        .guided-drilldown-selector {
+            gap: 8px;
+        }
+
+        .guided-drilldown-group {
+            padding: 9px;
+        }
+
+        .guided-drilldown-group h3 {
+            margin-bottom: 1px;
+            font-size: 12px;
+        }
+
+        .guided-drilldown-group > p {
+            margin-bottom: 7px;
+            font-size: 10px;
+            line-height: 1.3;
+        }
+
+        .guided-drilldown-buttons {
+            gap: 5px;
+        }
+
+        .guided-drilldown-button {
+            min-height: 34px;
+            padding: 6px 9px;
+            font-size: 11px;
+        }
+
+
+        /* Detailed-analysis header */
+
+        .guided-secondary-header {
+            padding: 9px 12px;
+            gap: 10px;
+        }
+
+        .guided-secondary-eyebrow {
+            display: none;
+        }
+
+        .guided-secondary-header h2 {
+            margin-bottom: 2px;
+            font-size: 17px;
+        }
+
+        .guided-secondary-header > div > p:last-child {
+            font-size: 10px;
+            line-height: 1.35;
+        }
+
+        .guided-secondary-close {
+            width: 29px;
+            height: 29px;
+            flex-basis: 29px;
+            font-size: 18px;
+        }
+
+        .guided-secondary-content {
+            padding: 10px;
+        }
+
+
+        /* Efficiency interpretation: compact reference panel */
+
+        .efficiency-scale-panel {
+            margin-bottom: 12px;
+            padding: 11px 14px;
+        }
+
+        .efficiency-scale-header h3 {
+            margin-bottom: 1px;
+            font-size: 15px;
+        }
+
+        .efficiency-scale-header p {
+            font-size: 11px;
+        }
+
+        .efficiency-gradient-container {
+            margin: 12px 6px 17px;
+        }
+
+        .efficiency-gradient {
+            height: 10px;
+        }
+
+        .efficiency-gradient-markers {
+            height: 13px;
+            margin-top: 3px;
+            font-size: 10px;
+        }
+
+        .scale-range {
+            padding: 6px 10px;
+            font-size: 11px;
+        }
+
+        .scale-range span {
+            font-size: 10px;
+        }
+
+        .efficiency-above-reference {
+            margin-top: 8px;
+            font-size: 10px;
+            line-height: 1.35;
+        }
+
+        .efficiency-scale-guidance {
+            margin-top: 8px;
+            padding-top: 7px;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+
+        /* Give more visual priority to tables and analysis */
+
+        .metric-table-card {
+            margin-bottom: 12px;
+        }
+
+        .efficiency-table th,
+        .efficiency-table td {
+            padding-top: 8px;
+            padding-bottom: 8px;
+        }
+
+        .metric-info-panel {
+            min-height: 0;
+            margin-bottom: 12px;
+            padding: 13px 16px;
+        }
+
+        .metric-info-panel::before {
+            margin-bottom: 4px;
+            font-size: 10px;
+        }
+
+        .metric-info-panel h3 {
+            margin-bottom: 4px;
+            font-size: 16px;
+        }
+
+        .metric-info-panel p {
+            margin: 4px 0;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .observation-box {
+            margin-bottom: 12px;
+            padding: 13px 16px;
+        }
+
+        .observation-box h3 {
+            margin-bottom: 7px;
+            font-size: 16px;
+        }
+
+        .performance-interpretation p,
+        .scaling-interpretation p {
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+
+
 </style>
 
         <script>
@@ -5974,6 +7536,47 @@ def _build_interactive_report_document(workspace_html):
             }
         }
 
+        function showPrimaryReportView(viewId, button) {
+            const views = document.getElementsByClassName(
+                "primary-report-view"
+            );
+
+            for (let index = 0; index < views.length; index++) {
+                views[index].classList.remove("active");
+                views[index].setAttribute("hidden", "hidden");
+            }
+
+            const buttons = document.getElementsByClassName(
+                "primary-report-tab"
+            );
+
+            for (let index = 0; index < buttons.length; index++) {
+                buttons[index].classList.remove("active");
+                buttons[index].setAttribute(
+                    "aria-selected",
+                    "false"
+                );
+            }
+
+            const selectedView = document.getElementById(
+                viewId
+            );
+
+            if (selectedView) {
+                selectedView.classList.add("active");
+                selectedView.removeAttribute("hidden");
+                selectedView.scrollTop = 0;
+            }
+
+            if (button) {
+                button.classList.add("active");
+                button.setAttribute(
+                    "aria-selected",
+                    "true"
+                );
+            }
+        }
+
         function initializeWorkspace() {
             initializeStickyHeader();
 
@@ -6057,59 +7660,124 @@ def _build_interactive_report_document(workspace_html):
             }
         }
 
-        function selectMetricCell(sectionId, metricKey, metricLabel, traceLabel, value) {
-            const infoDict = window["metricInfo_" + sectionId];
+        function selectMetricCell(trigger, sectionId, metricKey, metricLabel, traceLabel, value) {
+            const infoDict = window[
+                "metricInfo_" + sectionId
+            ];
+
             if (!infoDict || !infoDict[metricKey]) {
                 return;
             }
 
+            const panelRoot = trigger
+                ? trigger.closest("[data-comparison-panel]")
+                : null;
+
+            const root = panelRoot || document;
+
+            function findInRoot(elementId) {
+                return root.querySelector(
+                    "#" + CSS.escape(elementId)
+                );
+            }
+
             const info = infoDict[metricKey];
-            const valueText = value === null || value === undefined ? "Non-Avail" : value.toFixed(2) + "%";
 
-            document.getElementById(sectionId + "-info-title").innerText =
-                info.title + " — " + traceLabel;
+            const valueText =
+                value === null || value === undefined
+                    ? "Non-Avail"
+                    : value.toFixed(2) + "%";
 
-            document.getElementById(sectionId + "-info-type").innerText =
-                info.type + " | Value: " + valueText;
+            const titleElement = findInRoot(
+                sectionId + "-info-title"
+            );
 
-            document.getElementById(sectionId + "-info-meaning").innerText =
-                info.meaning;
+            const typeElement = findInRoot(
+                sectionId + "-info-type"
+            );
 
-            const thresholds = info.thresholds;
-            const interpretationElement = document.getElementById(
+            const meaningElement = findInRoot(
+                sectionId + "-info-meaning"
+            );
+
+            const interpretationElement = findInRoot(
                 sectionId + "-info-interpretation"
             );
 
-            if (value === null || value === undefined) {
-                interpretationElement.innerText =
-                    "Interpretation: Metric is not available for this trace or configuration.";
-            } else if (value > thresholds.reference) {
-                interpretationElement.innerText =
-                    "Interpretation: " + info.above100;
-            } else if (value < thresholds.critical) {
-                interpretationElement.innerText =
-                    "Interpretation: Critical value. " + info.low;
-            } else if (value < thresholds.attention) {
-                interpretationElement.innerText =
-                    "Interpretation: Requires attention. " + info.low;
-            } else {
-                interpretationElement.innerText =
-                    "Interpretation: This component is probably not the dominant bottleneck.";
-            }
-
-            document.getElementById(sectionId + "-info-action").innerText =
-                "Next diagnostic step: " + info.action;
-
-
-            const buttons = document.querySelectorAll(
-                "#" + sectionId + " .metric-tree-button"
+            const actionElement = findInRoot(
+                sectionId + "-info-action"
             );
 
-            for (let i = 0; i < buttons.length; i++) {
-                buttons[i].classList.remove("active");
+            if (titleElement) {
+                titleElement.innerText =
+                    info.title + " — " + traceLabel;
+            }
 
-                if (buttons[i].getAttribute("data-metric-key") === metricKey) {
-                    buttons[i].classList.add("active");
+            if (typeElement) {
+                typeElement.innerText =
+                    info.type + " | Value: " + valueText;
+            }
+
+            if (meaningElement) {
+                meaningElement.innerText =
+                    info.meaning;
+            }
+
+            const thresholds = info.thresholds;
+
+            if (interpretationElement) {
+                if (
+                    value === null
+                    || value === undefined
+                ) {
+                    interpretationElement.innerText =
+                        "Interpretation: Metric is not available "
+                        + "for this trace or configuration.";
+                } else if (value > thresholds.reference) {
+                    interpretationElement.innerText =
+                        "Interpretation: " + info.above100;
+                } else if (value < thresholds.critical) {
+                    interpretationElement.innerText =
+                        "Interpretation: Critical value. "
+                        + info.low;
+                } else if (value < thresholds.attention) {
+                    interpretationElement.innerText =
+                        "Interpretation: Requires attention. "
+                        + info.low;
+                } else {
+                    interpretationElement.innerText =
+                        "Interpretation: This component is "
+                        + "probably not the dominant bottleneck.";
+                }
+            }
+
+            if (actionElement) {
+                actionElement.innerText =
+                    "Next diagnostic step: " + info.action;
+            }
+
+            const buttons = root.querySelectorAll(
+                "#" + CSS.escape(sectionId)
+                + " .metric-tree-button"
+            );
+
+            for (
+                let index = 0;
+                index < buttons.length;
+                index++
+            ) {
+                buttons[index].classList.remove(
+                    "active"
+                );
+
+                if (
+                    buttons[index].getAttribute(
+                        "data-metric-key"
+                    ) === metricKey
+                ) {
+                    buttons[index].classList.add(
+                        "active"
+                    );
                 }
             }
         }
@@ -6149,11 +7817,12 @@ def _build_interactive_report_document(workspace_html):
 
     return document.replace('{workspace_html}', workspace_html)
 
+
 def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
-                                          report,
-                                          trace_list, trace_processes,
-                                          trace_tasks, trace_threads,
-                                          trace_mode, cmdl_args):
+                                            report, report_model,
+                                            trace_list, trace_processes,
+                                            trace_tasks, trace_threads,
+                                            trace_mode, cmdl_args):
     """Generate unified interactive HTML report."""
 
     output_html = os.path.join(os.getcwd(), "basicanalysis_interactive_report.html")
@@ -6406,12 +8075,115 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             "for this trace configuration.</p>"
         )
 
+   
+    trace_configuration_section = report_model.get_section(
+        "trace-configuration"
+    )
 
-    trace_config_html = _build_trace_config_table_html(
-        report
-    )    
-    
+    if trace_configuration_section is None:
+        raise ValueError(
+            "The semantic report does not contain the "
+            "'trace-configuration' section."
+        )
+
+    trace_config_html = render_trace_configuration(
+        trace_configuration_section
+    )
+
+
+    overview_section = report_model.get_section(
+        "overview"
+    )
+
+    assessment_section = report_model.get_section(
+        "performance-assessment"
+    )
+
+    runtime_section = report_model.get_section(
+        "runtime-analysis"
+    )
+
+    resource_section = report_model.get_section(
+        "resource-analysis"
+    )
+
+    scalability_section = report_model.get_section(
+        "scalability-analysis"
+    )
+
+
+    if overview_section is None:
+        raise ValueError(
+            "The semantic report does not contain the "
+            "'overview' section."
+        )
+
+    if assessment_section is None:
+        raise ValueError(
+            "The semantic report does not contain the "
+            "'performance-assessment' section."
+        )
+
+    if runtime_section is None:
+        raise ValueError(
+            "The semantic report does not contain the "
+            "'runtime-analysis' section."
+        )
+
     resources_html = _build_resources_table_html(report)
+
+
+    # --------------------------------------------------
+    # Computation Scalability analysis
+    # --------------------------------------------------
+
+    computation_scalability_html = ""
+
+    if scalability_section is not None:
+        scalability_data = scalability_section.payload
+        scalability_analysis = scalability_data.analysis
+
+        scalability_keys = [
+            metric.metric_id
+            for metric in scalability_analysis.metrics
+        ]
+
+        scalability_sources = {
+            metric_key: mod_factors
+            for metric_key in scalability_keys
+        }
+
+        if scalability_keys:
+            scalability_metrics_html = (
+                _build_metric_tree_heatmap_section(
+                    metric_keys=scalability_keys,
+                    metric_info=SIMPLE_METRIC_INFO,
+                    metric_sources=scalability_sources,
+                    trace_list=trace_list,
+                    trace_labels=trace_labels,
+                    title=scalability_analysis.title,
+                    section_id="computation-scalability",
+                    tree_kind="scalability",
+                    trace_header_note=trace_header_note,
+                )
+            )
+
+            scalability_scope_html = """
+            <div class="analysis-scope-note">
+                <h3>Analysis scope</h3>
+                <p>{description}</p>
+            </div>
+            """.format(
+                description=html.escape(
+                    scalability_analysis.description
+                )
+            )
+
+            computation_scalability_html = (
+                scalability_scope_html
+                + scalability_metrics_html
+            )
+
 
 
     # --------------------------------------------------
@@ -6554,10 +8326,71 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         device_html=device_html,
     )
 
-    html_content = _assemble_interactive_report(
-        overview_view_html=overview_view_html,
-        runtime_model_views=runtime_model_views,
-        analysis_views=analysis_views,
+    component_html = {
+        "mpi-runtime": mpi_html,
+        "openmp-runtime": openmp_html,
+        "accelerator-runtime": accelerator_html,
+        "host-analysis": host_html,
+        "device-analysis": device_html,
+    }
+
+    if runtime_model_views:
+        parallel_runtime_model_html = runtime_model_views[0]["html"]
+    else:
+        parallel_runtime_model_html = (
+            "<p>No Parallel Runtime Model is available.</p>"
+        )
+
+    rendered_analysis_html = {
+        "overview": overview_view_html,
+        "parallel-runtime-model": (
+            parallel_runtime_model_html
+        ),
+        "computation-scalability": (
+            computation_scalability_html
+        ),
+        "mpi-runtime": mpi_html,
+        "openmp-runtime": openmp_html,
+        "accelerator-runtime": accelerator_html,
+        "host-analysis": host_html,
+        "device-analysis": device_html,
+    }
+
+
+    analysis_catalogue = build_analysis_catalogue(
+        overview_section=overview_section,
+        runtime_section=runtime_section,
+        resource_section=resource_section,
+        scalability_section=scalability_section,
+        rendered_html=rendered_analysis_html,
+    )
+
+    if USE_GUIDED_ANALYSIS_NAVIGATION:
+        workspace_html = render_analysis_navigation(
+            catalogue=analysis_catalogue,
+        )
+    else:
+        performance_assessment_html = (
+            render_performance_assessment(
+                assessment_section=assessment_section,
+                runtime_section=runtime_section,
+                resource_section=resource_section,
+                parallel_runtime_model_html=(
+                    parallel_runtime_model_html
+                ),
+                component_html=component_html,
+            )
+        )
+
+        workspace_html = _build_primary_report_navigation(
+            overview_html=overview_view_html,
+            performance_assessment_html=(
+                performance_assessment_html
+            ),
+        )
+
+    html_content = _build_interactive_report_document(
+        workspace_html=workspace_html,
     )
 
     with open(output_html, "w") as output_file:

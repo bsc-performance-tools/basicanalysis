@@ -9,6 +9,7 @@ import subprocess
 import hybridmetrics
 import plots
 import reportdata
+from report import build_analysis_context, build_report_model
 import html_to_pdf
 import os
 
@@ -218,10 +219,11 @@ def can_plot_lineal():
     """Check whether line plotting is available."""
     return not (error_import_numpy or error_import_scipy)
 
+
 def generate_hybrid_plots(metrics_result, analysis_result, report,
-                          trace_list, trace_processes,
-                          trace_tasks, trace_threads,
-                          trace_mode, cmdl_args):
+                            report_model, trace_list, trace_processes,
+                            trace_tasks, trace_threads,trace_mode,
+                            cmdl_args):
     """Generate plots for hybrid metrics."""
     raw_data = analysis_result["raw_data"]
     mod_factors = metrics_result["mod_factors"]
@@ -282,6 +284,7 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
                 metrics_result,
                 analysis_result,
                 report,
+                report_model,
                 trace_list,
                 trace_processes,
                 trace_tasks,
@@ -357,8 +360,9 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
 
 
 def generate_simple_plots(metrics_result, analysis_result, report,
-                          trace_list, trace_processes,
-                          trace_tasks, trace_threads, trace_mode, cmdl_args):
+                            report_model, trace_list, trace_processes,
+                            trace_tasks, trace_threads, trace_mode,
+                            cmdl_args):
     """Generate plots for simple metrics."""
     mod_factors = metrics_result["mod_factors"]
 
@@ -395,6 +399,7 @@ def generate_simple_plots(metrics_result, analysis_result, report,
                 metrics_result,
                 analysis_result,
                 report,
+                report_model,
                 trace_list,
                 trace_processes,
                 trace_tasks,
@@ -456,8 +461,16 @@ def generate_simple_plots(metrics_result, analysis_result, report,
         subprocess.check_output(["rm", "efficiency_table.gp"])
 
 
-def generate_plots(metrics_result, analysis_result, trace_list, trace_processes,
-                   trace_tasks, trace_threads, trace_mode, cmdl_args):
+def generate_plots(
+    metrics_result,
+    analysis_result,
+    trace_list,
+    trace_processes,
+    trace_tasks,
+    trace_threads,
+    trace_mode,
+    cmdl_args,
+):
     """Generate all plots."""
 
     report = reportdata.build_report(
@@ -471,16 +484,58 @@ def generate_plots(metrics_result, analysis_result, trace_list, trace_processes,
         cmdl_args,
     )
 
+    # Phase 2: build and validate the new semantic report model in parallel.
+    # The existing report dictionary continues to feed interactiveplots.py, so
+    # report output and behavior remain unchanged during this integration step.
+    analysis_context = build_analysis_context(
+        report,
+        raw_data=analysis_result.get("raw_data", {}),
+    )
+
+    report_model = build_report_model(analysis_context)
+    report_model.validate()
+
     if cmdl_args.debug:
         print("==DEBUG== Report data model created")
         print("==DEBUG== Report traces:", len(report["traces"]))
         print("==DEBUG== Report resources:", len(report["resources"]))
+        print(
+            "==DEBUG== Semantic report sections:",
+            len(list(report_model.iter_sections())),
+        )
+
+        # Temporary Phase 3.1 integration validation
+        overview = report_model.get_section("overview")
+
+        print("\n==DEBUG== Overview section")
+        print("==DEBUG== Section ID:", overview.section_id)
+        print("==DEBUG== Section type:", overview.section_type)
+
+        print("==DEBUG== Overview children:")
+        for child in overview.children:
+            print(
+                "==DEBUG==  ",
+                child.section_id,
+                child.section_type,
+            )
+
+        print("==DEBUG== General metrics:")
+        for metric in overview.payload.general_metrics:
+            print(
+                "==DEBUG==  ",
+                metric.metric_id,
+                [
+                    (value.trace_id, value.value)
+                    for value in metric.values
+                ],
+            )
 
     if metrics_result["kind"] == "hybrid":
         generate_hybrid_plots(
             metrics_result,
             analysis_result,
             report,
+            report_model,
             trace_list,
             trace_processes,
             trace_tasks,
@@ -493,6 +548,7 @@ def generate_plots(metrics_result, analysis_result, trace_list, trace_processes,
             metrics_result,
             analysis_result,
             report,
+            report_model,
             trace_list,
             trace_processes,
             trace_tasks,
