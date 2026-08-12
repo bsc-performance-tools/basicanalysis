@@ -8,6 +8,7 @@ import math
 
 from rawdata import *
 from collections import OrderedDict
+from scaling import get_scaling_type
 
 # error import variables
 error_import_pandas = False
@@ -240,91 +241,7 @@ def create_omp_talp_factors(trace_list):
 
     return omp_talp_factors
 
-def get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args):
-    """Guess the scaling type (weak/strong) based on the useful instructions.
-    Computes the normalized instruction ratio for all measurements, whereas the
-    normalized instruction ratio is (instructions ratio / process ratio) with
-    the smallest run as reference. For exact weak scaling the normalized ratio
-    should be exactly 1 and for exact strong scaling it should be close to zero
-    with an upper bound of 0.5. The eps value defines the threshold to be
-    considered weak scaling and should give enough buffer to safely handle
-    non-ideal scaling.
-    """
-    eps = 0.9
-    normalized_inst_ratio = 0
-    normalized_runtime_ratio = 0
-    normalized_useful_avg_ratio = 0
 
-    # Check if there is only one trace.
-    if len(trace_list) == 1:
-        return 'strong'
-
-    for trace in trace_list:
-        try:  # except NaN
-            inst_ratio = float(raw_data['useful_ins'][trace]) / float(raw_data['useful_ins'][trace_list[0]])
-        except:
-            inst_ratio = 0.0
-        try:  # except NaN
-            proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
-        except:
-            proc_ratio = 'NaN'
-        try:  # except NaN
-            runtime_ratio = float(raw_data['runtime'][trace]) / float(raw_data['runtime'][trace_list[0]])
-        except:
-            runtime_ratio = 'NaN'
-        try:  # except NaN
-            useful_avg_ratio = float(raw_data['useful_avg'][trace]) / float(raw_data['useful_avg'][trace_list[0]])
-        except:
-            useful_avg_ratio = 'NaN'
-
-        normalized_inst_ratio += inst_ratio / proc_ratio
-        normalized_runtime_ratio += runtime_ratio
-        normalized_useful_avg_ratio += useful_avg_ratio
-    # Get the average inst increase. Ignore ratio of first trace 1.0)
-    normalized_inst_ratio = (normalized_inst_ratio - 1) / (len(trace_list) - 1)
-    normalized_runtime_ratio = (normalized_runtime_ratio - 1) / (len(trace_list) - 1)
-    normalized_useful_avg_ratio = (normalized_useful_avg_ratio - 1) / (len(trace_list) - 1)
-
-    scaling_computed = ''
-    scale_type = 0
-
-    if normalized_inst_ratio > eps:
-        scale_type += 1
-    if normalized_runtime_ratio > eps:
-        scale_type += 1
-    if normalized_useful_avg_ratio > eps:
-        scale_type += 1
-
-    # print("normalized_inst_ratio: ", normalized_inst_ratio)
-    # print("normalized_runtime_ratio: ", normalized_runtime_ratio)
-    # print("normalized_useful_avg_ratio: ", normalized_useful_avg_ratio)
-
-    # scale_type greater than 1 means weak scaling.
-    if scale_type > 1:
-        scaling_computed = 'weak'
-    else:
-        scaling_computed = 'strong'
-
-    if cmdl_args.scaling == 'auto':
-        if cmdl_args.debug:
-            print('==DEBUG== Detected ' + scaling_computed + ' scaling.')
-            print('')
-        return scaling_computed
-
-    if cmdl_args.scaling == 'weak':
-        if scaling_computed == 'strong':
-            print('==Warning== Scaling set to weak scaling but detected strong scaling.')
-            print('')
-        return 'weak'
-
-    if cmdl_args.scaling == 'strong':
-        if scaling_computed == 'weak':
-            print('==Warning== Scaling set to strong scaling but detected weak scaling.')
-            print('')
-        return 'strong'
-
-    print('==Error== reached undefined control flow state.')
-    sys.exit(1)
 
 
 def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, list_mpi_procs_count, cmdl_args):
@@ -458,8 +375,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                    / float(raw_data['useful_tot'][trace]) * proc_ratio * 100.0
             else:
                 mod_factors['comp_scale'][trace] = 'Non-Avail'
+                host_factors['host_comp_scale'][trace] = 'Non-Avail'
+
         except:
             mod_factors['comp_scale'][trace] = 'NaN'
+            host_factors['host_comp_scale'][trace] = 'NaN'
 
         # Computation Scale + Serial I/O
         try:  # except NaN
@@ -929,8 +849,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     mod_factors['ipc_scale'][trace] = 'Non-Avail'
             else:
                 mod_factors['ipc_scale'][trace] = 'Non-Avail'
+                host_factors['host_ipc_scale'][trace] = 'Non-Avail'
         except:
             mod_factors['ipc_scale'][trace] = 'NaN'
+            host_factors['host_ipc_scale'][trace] = 'NaN'
 
         # IPC scale + Serial I/O
         try:  # except NaN
@@ -977,8 +899,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     mod_factors['freq_scale'][trace] = 'Non-Avail'
             else:
                 mod_factors['freq_scale'][trace] = 'Non-Avail'
+                host_factors['host_freq_scale'][trace] = 'Non-Avail'
         except:
             mod_factors['freq_scale'][trace] = 'NaN'
+            host_factors['host_freq_scale'][trace] = 'NaN'
 
         # freq scale + Serial I/O
         try:  # except NaN
@@ -1028,8 +952,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     mod_factors['inst_scale'][trace] = 'Non-Avail'
             else:
                 mod_factors['inst_scale'][trace] = 'Non-Avail'
+                host_factors['host_inst_scale'][trace] = 'Non-Avail'
         except:
             mod_factors['inst_scale'][trace] = 'NaN'
+            host_factors['host_inst_scale'][trace] = 'NaN'
 
         # ins scale + Serial I/O
         try:  # except NaN

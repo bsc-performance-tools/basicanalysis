@@ -62,12 +62,32 @@ _CPU_SCALABILITY_METRICS = (
 # factors are not presented as its multiplicative explanation. A GPU-inclusive
 # computation-scalability decomposition must be defined before those factors
 # can be exposed in this analytical view.
+
+
 _ACCELERATOR_SCALABILITY_METRICS = (
     (
         "comp_scale",
         "Computation scalability",
         "scalability",
         0,
+    ),
+    (
+        "ipc_scale",
+        "IPC scalability",
+        "scalability",
+        1,
+    ),
+    (
+        "inst_scale",
+        "Instruction scalability",
+        "scalability",
+        1,
+    ),
+    (
+        "freq_scale",
+        "Frequency scalability",
+        "scalability",
+        1,
     ),
 )
 
@@ -95,10 +115,11 @@ class ScalabilityAnalysisBuilder:
         * more than one trace is present; and
         * at least one valid scalability metric is available.
 
-        For CUDA/HIP executions, only the application-level
-        ``comp_scale`` metric is currently exposed.
+        For CUDA/HIP executions, Computation Scalability is presented together
+        with IPC, instruction, and frequency scalability. The three submetrics
+        characterize host-side computation and must not be interpreted as a
+        GPU-inclusive decomposition.
         """
-
         context.validate()
 
         if not self._has_scaling_experiment(
@@ -135,6 +156,13 @@ class ScalabilityAnalysisBuilder:
             for metric in metrics
         }
 
+        # Computation Scalability is the root metric of this analysis.
+        # Do not create the section when the root is unavailable, even if
+        # one or more host-side scalability submetrics are present.
+        if "comp_scale" not in available_ids:
+            return None
+        
+
         analysis = MetricAnalysisData(
             analysis_id="computation-scalability",
             title="Computation Scalability",
@@ -144,7 +172,6 @@ class ScalabilityAnalysisBuilder:
             metrics=metrics,
             tree=self._build_scalability_tree(
                 available_ids=available_ids,
-                has_accelerator=has_accelerator,
             ),
         )
 
@@ -294,33 +321,25 @@ class ScalabilityAnalysisBuilder:
     def _build_scalability_tree(
         self,
         available_ids: Set[str],
-        has_accelerator: bool,
     ) -> Tuple[MetricAnalysisTreeNode, ...]:
         """Build the computation-scalability hierarchy."""
 
-        if has_accelerator:
-            complete_tree = (
-                MetricAnalysisTreeNode(
-                    metric_id="comp_scale",
-                ),
-            )
-        else:
-            complete_tree = (
-                MetricAnalysisTreeNode(
-                    metric_id="comp_scale",
-                    children=(
-                        MetricAnalysisTreeNode(
-                            metric_id="ipc_scale",
-                        ),
-                        MetricAnalysisTreeNode(
-                            metric_id="inst_scale",
-                        ),
-                        MetricAnalysisTreeNode(
-                            metric_id="freq_scale",
-                        ),
+        complete_tree = (
+            MetricAnalysisTreeNode(
+                metric_id="comp_scale",
+                children=(
+                    MetricAnalysisTreeNode(
+                        metric_id="ipc_scale",
+                    ),
+                    MetricAnalysisTreeNode(
+                        metric_id="inst_scale",
+                    ),
+                    MetricAnalysisTreeNode(
+                        metric_id="freq_scale",
                     ),
                 ),
-            )
+            ),
+        )
 
         return self._prune_tree(
             tree=complete_tree,
@@ -414,12 +433,13 @@ class ScalabilityAnalysisBuilder:
 
         if has_accelerator:
             return (
-                "Application-level Computation Scalability across the "
-                "evaluated configurations. CPU IPC, instruction, and "
-                "frequency scalability are intentionally not presented as "
-                "its multiplicative decomposition for CUDA/HIP executions "
-                "because a GPU-inclusive computation-scalability model is "
-                "not yet available."
+                "Computation Scalability across the evaluated configurations. "
+                "For CUDA/HIP executions, IPC, Instruction, and Frequency "
+                "Scalability are derived from host-side computation and hardware "
+                "counter information. These submetrics therefore characterize "
+                "host execution only and must not be interpreted as a GPU-inclusive "
+                "decomposition of Computation Scalability. Device-side computation "
+                "scalability is analyzed separately in the Execution Domains view."
             )
 
         return (

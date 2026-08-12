@@ -515,7 +515,7 @@ class ScalabilityAnalysisBuilderTests(unittest.TestCase):
     # Accelerator model
     # ------------------------------------------------------------------
 
-    def test_mpi_cuda_exposes_only_computation_scalability(self):
+    def test_mpi_cuda_exposes_computation_scalability_with_host_submetrics(self):
         section = self._build_section(
             self._mpi_cuda_report_data(
                 trace_count=2
@@ -530,6 +530,9 @@ class ScalabilityAnalysisBuilderTests(unittest.TestCase):
             ),
             [
                 "comp_scale",
+                "ipc_scale",
+                "inst_scale",
+                "freq_scale",
             ],
         )
 
@@ -539,8 +542,25 @@ class ScalabilityAnalysisBuilderTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            analysis.tree[0].children,
-            (),
+            [
+                child.metric_id
+                for child in analysis.tree[0].children
+            ],
+            [
+                "ipc_scale",
+                "inst_scale",
+                "freq_scale",
+            ],
+        )
+
+        self.assertIn(
+            "host-side computation",
+            analysis.description,
+        )
+
+        self.assertIn(
+            "Device-side computation scalability",
+            analysis.description,
         )
 
     def test_mpi_cuda_payload_marks_limited_model(self):
