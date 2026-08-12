@@ -15,14 +15,14 @@ from .analysis_catalogue import (
 _PRIMARY_VIEW_IDS = (
     "overview",
     "parallel-runtime-model",
+    "execution-domains",
     "computation-scalability",
 )
 
+
 _DRILLDOWN_GROUPS = (
     "runtime",
-    "domain",
 )
-
 
 def _safe_dom_id(value: str) -> str:
     """Return a stable HTML identifier."""
@@ -94,7 +94,7 @@ def _primary_views(
 def _drilldown_views(
     catalogue: AnalysisCatalogue,
 ) -> Tuple[AnalysisCatalogueView, ...]:
-    """Return runtime and execution-domain drill-down views."""
+    """Return runtime-specific drill-down views."""
 
     return tuple(
         view
@@ -103,46 +103,18 @@ def _drilldown_views(
     )
 
 
-def _comparison_targets(
-    catalogue: AnalysisCatalogue,
-    source_view_id: str,
-) -> Tuple[AnalysisCatalogueView, ...]:
-    """Return meaningful comparison targets for one primary view."""
-
-    permitted_ids = {
-        "overview": (
-            "parallel-runtime-model",
-            "computation-scalability",
-        ),
-        "parallel-runtime-model": (
-            "overview",
-            "computation-scalability",
-        ),
-        "computation-scalability": (
-            "overview",
-            "parallel-runtime-model",
-        ),
-    }
-
-    return tuple(
-        view
-        for view_id in permitted_ids.get(source_view_id, ())
-        for view in (catalogue.get_view(view_id),)
-        if view is not None
-    )
-
-
 def _render_primary_tabs(
     views: Sequence[AnalysisCatalogueView],
 ) -> str:
-    """Render the primary analytical navigation."""
+    """Render primary navigation and the split-view control."""
 
     lines = [
+        '<div class="guided-primary-tabs">',
         (
-            '<nav class="guided-primary-tabs" '
+            '<nav class="guided-primary-tab-list" '
             'role="tablist" '
             'aria-label="Primary performance analyses">'
-        )
+        ),
     ]
 
     for index, view in enumerate(views):
@@ -175,170 +147,132 @@ def _render_primary_tabs(
 
     lines.append("</nav>")
 
-    return "\n".join(lines)
+    lines.append(
+        """
+        <div
+            class="guided-split-control"
+            data-guided-split-control
+        >
+            <button
+                type="button"
+                class="guided-split-button"
+                data-guided-split-button
+                aria-label="Open complementary analysis view"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                title="Open complementary analysis view"
+            >
+                <svg
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                    focusable="false"
+                >
+                    <rect
+                        x="3"
+                        y="4"
+                        width="18"
+                        height="16"
+                        rx="2"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                    ></rect>
 
+                    <line
+                        x1="12"
+                        y1="4"
+                        x2="12"
+                        y2="20"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                    ></line>
+                </svg>
+            </button>
 
-def _render_compare_control(
-    catalogue: AnalysisCatalogue,
-    source_view: AnalysisCatalogueView,
-) -> str:
-    """Render controlled comparison options for one primary view."""
-
-    targets = _comparison_targets(
-        catalogue=catalogue,
-        source_view_id=source_view.view_id,
+            <div
+                class="guided-split-menu"
+                data-guided-split-menu
+                role="menu"
+                hidden
+            >
+                <div class="guided-split-menu-title">
+                    Open second view
+                </div>
+        """
     )
 
-    if not targets:
-        return ""
-
-    options = [
-        '<option value="">Compare with…</option>'
-    ]
-
-    for target in targets:
-        options.append(
-            '<option value="{view_id}">{label}</option>'.format(
+    for view in views:
+        lines.append(
+            """
+            <button
+                type="button"
+                class="guided-split-option"
+                data-guided-split-target="{view_id}"
+                role="menuitem"
+            >
+                {label}
+            </button>
+            """.format(
                 view_id=html.escape(
-                    target.view_id,
+                    view.view_id,
                     quote=True,
                 ),
-                label=html.escape(target.label),
+                label=html.escape(view.label),
             )
         )
 
-    return """
-    <div
-        class="guided-comparison-control"
-        data-guided-comparison-control="{source_view_id}"
-        hidden
-    >
-        <label for="guided-compare-{safe_id}">
-            Compare current analysis
-        </label>
-
-        <select
-            id="guided-compare-{safe_id}"
-            class="guided-comparison-selector"
-            data-guided-comparison-selector
-        >
-            {options}
-        </select>
-    </div>
-    """.format(
-        source_view_id=html.escape(
-            source_view.view_id,
-            quote=True,
-        ),
-        safe_id=html.escape(
-            _safe_dom_id(source_view.view_id),
-            quote=True,
-        ),
-        options="\n".join(options),
+    lines.extend(
+        [
+            "</div>",
+            "</div>",
+            "</div>",
+        ]
     )
 
-
-def _render_comparison_controls(
-    catalogue: AnalysisCatalogue,
-    primary_views: Sequence[AnalysisCatalogueView],
-) -> str:
-    """Render comparison controls for every primary analysis."""
-
-    return "\n".join(
-        _render_compare_control(
-            catalogue=catalogue,
-            source_view=view,
-        )
-        for view in primary_views
-    )
+    return "\n".join(lines)
 
 
 def _render_drilldown_selector(
     views: Sequence[AnalysisCatalogueView],
 ) -> str:
-    """Render runtime and execution-domain analysis buttons."""
+    """Render the compact runtime-analysis selector."""
 
     if not views:
-        return """
-        <aside class="guided-drilldown-selector is-empty">
-            <p>
-                No additional runtime-specific or execution-domain
-                analysis is available.
-            </p>
-        </aside>
-        """.strip()
-
-    groups = (
-        (
-            "runtime",
-            "Runtime analysis",
-            "Inspect the behavior of an active parallel runtime.",
-        ),
-        (
-            "domain",
-            "Resource analysis",
-            "Inspect where accelerator-related inefficiencies manifest.",
-        ),
-    )
+        return ""
 
     lines = [
         (
-            '<aside class="guided-drilldown-selector" '
-            'aria-label="Detailed runtime and resource analyses">'
-        )
+            '<nav class="guided-drilldown-selector" '
+            'aria-label="Runtime analysis">'
+        ),
+        '<span class="guided-runtime-selector-label">Runtime Analysis</span>',
+        '<div class="guided-drilldown-buttons">',
     ]
 
-    for group_id, title, description in groups:
-        group_views = [
-            view
-            for view in views
-            if view.group == group_id
-        ]
-
-        if not group_views:
-            continue
-
+    for view in views:
         lines.append(
             """
-            <section
-                class="guided-drilldown-group"
-                data-guided-drilldown-group="{group_id}"
+            <button
+                type="button"
+                class="guided-drilldown-button"
+                data-guided-drilldown-target="{view_id}"
+                aria-pressed="false"
             >
-                <h3>{title}</h3>
-                <p>{description}</p>
-
-                <div class="guided-drilldown-buttons">
+                {label}
+            </button>
             """.format(
-                group_id=html.escape(group_id, quote=True),
-                title=html.escape(title),
-                description=html.escape(description),
+                view_id=html.escape(
+                    view.view_id,
+                    quote=True,
+                ),
+                label=html.escape(view.label),
             )
         )
 
-        for view in group_views:
-            lines.append(
-                """
-                <button
-                    type="button"
-                    class="guided-drilldown-button"
-                    data-guided-drilldown-target="{view_id}"
-                    aria-pressed="false"
-                >
-                    {label}
-                </button>
-                """.format(
-                    view_id=html.escape(
-                        view.view_id,
-                        quote=True,
-                    ),
-                    label=html.escape(view.label),
-                )
-            )
-
-        lines.append("</div>")
-        lines.append("</section>")
-
-    lines.append("</aside>")
+    lines.extend([
+        "</div>",
+        "</nav>",
+    ])
 
     return "\n".join(lines)
 
@@ -437,6 +371,10 @@ def _render_navigation_script() -> str:
                 "[data-guided-comparison-region]"
             );
 
+            const comparisonDivider = root.querySelector(
+                "[data-guided-comparison-divider]"
+            );
+
             const comparisonSlot = root.querySelector(
                 "[data-guided-comparison-slot]"
             );
@@ -455,6 +393,10 @@ def _render_navigation_script() -> str:
 
             const runtimeLayout = root.querySelector(
                 "[data-guided-runtime-layout]"
+            );
+
+            const panelDivider = root.querySelector(
+                "[data-guided-panel-divider]"
             );
 
             const drilldownSlot = root.querySelector(
@@ -479,15 +421,21 @@ def _render_navigation_script() -> str:
                 )
             );
 
-            const comparisonControls = Array.from(
-                root.querySelectorAll(
-                    "[data-guided-comparison-control]"
-                )
+            const splitControl = root.querySelector(
+                "[data-guided-split-control]"
             );
 
-            const comparisonSelectors = Array.from(
+            const splitButton = root.querySelector(
+                "[data-guided-split-button]"
+            );
+
+            const splitMenu = root.querySelector(
+                "[data-guided-split-menu]"
+            );
+
+            const splitOptions = Array.from(
                 root.querySelectorAll(
-                    "[data-guided-comparison-selector]"
+                    "[data-guided-split-target]"
                 )
             );
 
@@ -506,6 +454,359 @@ def _render_navigation_script() -> str:
                     '[data-guided-view-id="' + viewId + '"]'
                 );
             }
+
+            function initializePanelResize() {
+                if (!panelDivider || !runtimeLayout) {
+                    return;
+                }
+
+                let dragging = false;
+
+                function updatePanelWidth(clientX) {
+                    if (
+                        !runtimeLayout.classList.contains(
+                            "has-drilldown"
+                        )
+                    ) {
+                        return;
+                    }
+
+                    const bounds =
+                        runtimeLayout.getBoundingClientRect();
+
+                    const selectorWidth = 155;
+                    const dividerWidth = 8;
+                    const gapsWidth = 24;
+
+                    const usableWidth =
+                        bounds.width
+                        - selectorWidth
+                        - dividerWidth
+                        - gapsWidth;
+
+                    if (usableWidth <= 0) {
+                        return;
+                    }
+
+                    const pointerOffset =
+                        clientX - bounds.left;
+
+                    const minimumPanelWidth = 360;
+
+                    const minimumPercentage =
+                        minimumPanelWidth
+                        / usableWidth
+                        * 100;
+
+                    let percentage =
+                        pointerOffset
+                        / usableWidth
+                        * 100;
+
+                    percentage = Math.max(
+                        minimumPercentage,
+                        Math.min(
+                            100 - minimumPercentage,
+                            percentage
+                        )
+                    );
+
+                    runtimeLayout.style.setProperty(
+                        "--primary-panel-width",
+                        percentage.toFixed(2) + "%"
+                    );
+
+                    window.requestAnimationFrame(function () {
+                        resizeVisiblePlots(primarySlot);
+                        resizeVisiblePlots(drilldownSlot);
+                    });
+                }
+
+                panelDivider.addEventListener(
+                    "pointerdown",
+                    function (event) {
+                        dragging = true;
+
+                        panelDivider.classList.add(
+                            "is-dragging"
+                        );
+
+                        panelDivider.setPointerCapture(
+                            event.pointerId
+                        );
+
+                        event.preventDefault();
+                    }
+                );
+
+                panelDivider.addEventListener(
+                    "pointermove",
+                    function (event) {
+                        if (!dragging) {
+                            return;
+                        }
+
+                        updatePanelWidth(
+                            event.clientX
+                        );
+                    }
+                );
+
+                panelDivider.addEventListener(
+                    "pointerup",
+                    function (event) {
+                        dragging = false;
+
+                        panelDivider.classList.remove(
+                            "is-dragging"
+                        );
+
+                        if (
+                            panelDivider.hasPointerCapture(
+                                event.pointerId
+                            )
+                        ) {
+                            panelDivider.releasePointerCapture(
+                                event.pointerId
+                            );
+                        }
+                    }
+                );
+
+                panelDivider.addEventListener(
+                    "pointercancel",
+                    function () {
+                        dragging = false;
+
+                        panelDivider.classList.remove(
+                            "is-dragging"
+                        );
+                    }
+                );
+
+                panelDivider.addEventListener(
+                    "keydown",
+                    function (event) {
+                        if (
+                            event.key !== "ArrowLeft"
+                            && event.key !== "ArrowRight"
+                        ) {
+                            return;
+                        }
+
+                        const currentValue =
+                            parseFloat(
+                                getComputedStyle(
+                                    runtimeLayout
+                                ).getPropertyValue(
+                                    "--primary-panel-width"
+                                )
+                            )
+                            || 52;
+
+                        const adjustment =
+                            event.key === "ArrowLeft"
+                                ? -3
+                                : 3;
+
+                        const newValue = Math.max(
+                            30,
+                            Math.min(
+                                70,
+                                currentValue + adjustment
+                            )
+                        );
+
+                        runtimeLayout.style.setProperty(
+                            "--primary-panel-width",
+                            newValue + "%"
+                        );
+
+                        window.requestAnimationFrame(function () {
+                            resizeVisiblePlots(primarySlot);
+                            resizeVisiblePlots(drilldownSlot);
+                        });
+
+                        event.preventDefault();
+                    }
+                );
+            }
+
+            function initializeComparisonResize() {
+                if (!comparisonDivider || !comparisonRegion) {
+                    return;
+                }
+
+                const analysisStage = root.querySelector(
+                    ".guided-analysis-stage"
+                );
+
+                if (!analysisStage) {
+                    return;
+                }
+
+                let dragging = false;
+
+                function updateComparisonWidth(clientX) {
+                    if (comparisonRegion.hidden) {
+                        return;
+                    }
+
+                    const bounds =
+                        analysisStage.getBoundingClientRect();
+
+                    if (bounds.width <= 0) {
+                        return;
+                    }
+
+                    const pointerOffset =
+                        clientX - bounds.left;
+
+                    let primaryPercentage =
+                        pointerOffset
+                        / bounds.width
+                        * 100;
+
+                    /*
+                    * Keep both analysis views usable.
+                    */
+                    primaryPercentage = Math.max(
+                        30,
+                        Math.min(
+                            70,
+                            primaryPercentage
+                        )
+                    );
+
+                    const comparisonPercentage =
+                        100 - primaryPercentage;
+
+                    analysisStage.style.setProperty(
+                        "--comparison-panel-width",
+                        comparisonPercentage.toFixed(2) + "%"
+                    );
+
+                    window.requestAnimationFrame(function () {
+                        resizeVisiblePlots(primarySlot);
+                        resizeVisiblePlots(comparisonSlot);
+                    });
+                }
+
+                comparisonDivider.addEventListener(
+                    "pointerdown",
+                    function (event) {
+                        dragging = true;
+
+                        comparisonDivider.classList.add(
+                            "is-dragging"
+                        );
+
+                        comparisonDivider.setPointerCapture(
+                            event.pointerId
+                        );
+
+                        event.preventDefault();
+                    }
+                );
+
+                comparisonDivider.addEventListener(
+                    "pointermove",
+                    function (event) {
+                        if (!dragging) {
+                            return;
+                        }
+
+                        updateComparisonWidth(
+                            event.clientX
+                        );
+                    }
+                );
+
+                comparisonDivider.addEventListener(
+                    "pointerup",
+                    function (event) {
+                        dragging = false;
+
+                        comparisonDivider.classList.remove(
+                            "is-dragging"
+                        );
+
+                        if (
+                            comparisonDivider.hasPointerCapture(
+                                event.pointerId
+                            )
+                        ) {
+                            comparisonDivider.releasePointerCapture(
+                                event.pointerId
+                            );
+                        }
+                    }
+                );
+
+                comparisonDivider.addEventListener(
+                    "pointercancel",
+                    function () {
+                        dragging = false;
+
+                        comparisonDivider.classList.remove(
+                            "is-dragging"
+                        );
+                    }
+                );
+
+                comparisonDivider.addEventListener(
+                    "keydown",
+                    function (event) {
+                        if (
+                            event.key !== "ArrowLeft"
+                            && event.key !== "ArrowRight"
+                        ) {
+                            return;
+                        }
+
+                        const currentValue =
+                            parseFloat(
+                                getComputedStyle(
+                                    analysisStage
+                                ).getPropertyValue(
+                                    "--comparison-panel-width"
+                                )
+                            )
+                            || 48;
+
+                        /*
+                        * Arrow right makes the second panel smaller.
+                        * Arrow left makes the second panel larger.
+                        */
+                        const adjustment =
+                            event.key === "ArrowLeft"
+                                ? 3
+                                : -3;
+
+                        const newValue = Math.max(
+                            30,
+                            Math.min(
+                                70,
+                                currentValue + adjustment
+                            )
+                        );
+
+                        analysisStage.style.setProperty(
+                            "--comparison-panel-width",
+                            newValue + "%"
+                        );
+
+                        window.requestAnimationFrame(function () {
+                            resizeVisiblePlots(primarySlot);
+                            resizeVisiblePlots(comparisonSlot);
+                        });
+
+                        event.preventDefault();
+                    }
+                );
+            }
+
+
 
             function resizeVisiblePlots(container) {
                 if (
@@ -568,9 +869,11 @@ def _render_navigation_script() -> str:
                     comparisonRegion.hidden = true;
                 }
 
-                comparisonSelectors.forEach(function (selector) {
-                    selector.value = "";
-                });
+                if (comparisonDivider) {
+                    comparisonDivider.hidden = true;
+                }
+
+                updateSplitControl();
             }
 
             function closeDrilldown() {
@@ -596,12 +899,74 @@ def _render_navigation_script() -> str:
                 });
             }
 
-            function updateComparisonControl() {
-                comparisonControls.forEach(function (control) {
-                    control.hidden =
-                        control.dataset.guidedComparisonControl
-                        !== activePrimaryId;
+            function setSplitMenuOpen(isOpen) {
+                if (!splitMenu || !splitButton) {
+                    return;
+                }
+
+                splitMenu.hidden = !isOpen;
+
+                splitButton.setAttribute(
+                    "aria-expanded",
+                    isOpen ? "true" : "false"
+                );
+
+                splitControl.classList.toggle(
+                    "is-open",
+                    isOpen
+                );
+            }
+
+
+            function updateSplitControl() {
+                splitOptions.forEach(function (option) {
+                    const viewId =
+                        option.dataset.guidedSplitTarget;
+
+                    const isPrimary =
+                        viewId === activePrimaryId;
+
+                    option.hidden = isPrimary;
+
+                    option.classList.toggle(
+                        "is-selected",
+                        viewId === activeComparisonId
+                    );
                 });
+
+                if (splitControl) {
+                    splitControl.classList.toggle(
+                        "has-secondary-view",
+                        Boolean(activeComparisonId)
+                    );
+                }
+
+                if (splitButton) {
+                    splitButton.setAttribute(
+                        "aria-label",
+                        activeComparisonId
+                            ? "Change complementary analysis view"
+                            : "Open complementary analysis view"
+                    );
+
+                    splitButton.title =
+                        activeComparisonId
+                            ? "Change complementary analysis view"
+                            : "Open complementary analysis view";
+                }
+            }
+
+
+            function toggleSplitMenu() {
+                if (!splitMenu) {
+                    return;
+                }
+
+                updateSplitControl();
+
+                setSplitMenuOpen(
+                    splitMenu.hidden
+                );
             }
 
             function showPrimary(viewId) {
@@ -645,7 +1010,8 @@ def _render_navigation_script() -> str:
                     === "parallel-runtime-model"
                 );
 
-                updateComparisonControl();
+                updateSplitControl();
+                setSplitMenuOpen(false);
 
                 if (selectedView && primarySlot) {
                     primarySlot.scrollTop = 0;
@@ -689,6 +1055,13 @@ def _render_navigation_script() -> str:
                 if (comparisonRegion) {
                     comparisonRegion.hidden = false;
                 }
+
+                if (comparisonDivider) {
+                    comparisonDivider.hidden = false;
+                }
+
+                updateSplitControl();
+                setSplitMenuOpen(false);
 
                 window.requestAnimationFrame(function () {
                     resizeVisiblePlots(primarySlot);
@@ -774,11 +1147,38 @@ def _render_navigation_script() -> str:
                 });
             });
 
-            comparisonSelectors.forEach(function (selector) {
-                selector.addEventListener("change", function () {
-                    openComparison(selector.value);
-                });
+            if (splitButton) {
+                splitButton.addEventListener(
+                    "click",
+                    function (event) {
+                        event.stopPropagation();
+                        toggleSplitMenu();
+                    }
+                );
+            }
+
+            splitOptions.forEach(function (option) {
+                option.addEventListener(
+                    "click",
+                    function () {
+                        openComparison(
+                            option.dataset.guidedSplitTarget
+                        );
+                    }
+                );
             });
+
+            document.addEventListener(
+                "click",
+                function (event) {
+                    if (
+                        splitControl
+                        && !splitControl.contains(event.target)
+                    ) {
+                        setSplitMenuOpen(false);
+                    }
+                }
+            );
 
             drilldownButtons.forEach(function (button) {
                 button.addEventListener("click", function () {
@@ -805,6 +1205,9 @@ def _render_navigation_script() -> str:
 
             activePrimaryId =
                 root.dataset.activePrimaryView || "overview";
+            
+            initializePanelResize();
+            initializeComparisonResize();
 
             mountView(activePrimaryId, primarySlot);
 
@@ -814,7 +1217,7 @@ def _render_navigation_script() -> str:
                 === "parallel-runtime-model"
             );
 
-            updateComparisonControl();
+            updateSplitControl();
         });
     }());
     </script>
@@ -838,26 +1241,6 @@ def render_analysis_navigation(
         data-active-primary-view="overview"
         aria-label="Guided performance analysis"
     >
-        <header class="guided-navigation-header">
-            <div>
-                <p class="guided-navigation-eyebrow">
-                    Performance-analysis workflow
-                </p>
-
-                <h1>Interactive Report</h1>
-
-                <p>
-                    Start from the execution overview, continue with runtime
-                    attribution, and inspect computation scalability when a
-                    scaling experiment is available.
-                </p>
-            </div>
-
-            <div class="guided-navigation-actions">
-                {comparison_controls}
-            </div>
-        </header>
-
         {primary_tabs}
 
         <div class="guided-analysis-stage">
@@ -865,16 +1248,27 @@ def render_analysis_navigation(
                 class="guided-primary-region"
                 data-guided-runtime-layout
             >
+                
                 <main
                     class="guided-primary-panel"
                     data-guided-primary-slot
                     aria-label="Primary analysis"
                 ></main>
 
+                <div
+                    class="guided-panel-divider"
+                    data-guided-panel-divider
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize analysis panels"
+                    tabindex="0"
+                ></div>
+
                 <section
                     class="guided-drilldown-panel"
                     aria-label="Selected detailed analysis"
-                >
+                >                
+
                     <header class="guided-secondary-header">
                         <div>
                             <p class="guided-secondary-eyebrow">
@@ -904,25 +1298,34 @@ def render_analysis_navigation(
                     ></div>
                 </section>
 
-                <div class="guided-runtime-selector-region">
-                    {drilldown_selector}
-                </div>
+                {drilldown_selector_region}
+
             </div>
+
+            <div
+                class="guided-comparison-divider"
+                data-guided-comparison-divider
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize analysis views"
+                tabindex="0"
+                hidden
+            ></div>
 
             <section
                 class="guided-comparison-region"
                 data-guided-comparison-region
                 hidden
-                aria-label="Comparison analysis"
+                aria-label="Complementary analysis view"
             >
                 <header class="guided-secondary-header">
                     <div>
                         <p class="guided-secondary-eyebrow">
-                            Comparative analysis
+                            Complementary view
                         </p>
 
                         <h2 data-guided-comparison-title>
-                            Comparison
+                            Second analysis
                         </h2>
 
                         <p data-guided-comparison-description></p>
@@ -950,13 +1353,19 @@ def render_analysis_navigation(
 
     {navigation_script}
     """.format(
-        comparison_controls=_render_comparison_controls(
-            catalogue=catalogue,
-            primary_views=primary_views,
-        ),
         primary_tabs=_render_primary_tabs(primary_views),
-        drilldown_selector=_render_drilldown_selector(
-            drilldown_views
+        drilldown_selector_region=(
+            """
+            <div class="guided-runtime-selector-region">
+                {selector}
+            </div>
+            """.format(
+                selector=_render_drilldown_selector(
+                    drilldown_views
+                )
+            )
+            if drilldown_views
+            else ""
         ),
         view_store=_render_view_store(catalogue),
         navigation_script=_render_navigation_script(),

@@ -1,9 +1,8 @@
-"""Build the HTML analysis-view catalogue used by comparison panels."""
+"""Build the HTML analysis-view catalogue used by the interactive report."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Mapping, Optional, Tuple
+from typing import Mapping, Optional
 
 from ...model import ReportSection
 from ...sections import (
@@ -13,28 +12,39 @@ from ...sections import (
 )
 
 
-@dataclass(frozen=True)
 class AnalysisCatalogueView:
-    """One analysis view available to a comparison panel."""
+    """One analysis view available to the interactive report."""
 
-    view_id: str
-    label: str
-    title: str
-    group: str
-    description: str
-    body_html: str
+    def __init__(
+        self,
+        view_id,
+        label,
+        title,
+        group,
+        description,
+        body_html,
+    ):
+        self.view_id = view_id
+        self.label = label
+        self.title = title
+        self.group = group
+        self.description = description
+        self.body_html = body_html
 
 
-@dataclass(frozen=True)
 class AnalysisCatalogue:
-    """Ordered collection of available comparison views."""
+    """Ordered collection of available analysis views."""
 
-    views: Tuple[AnalysisCatalogueView, ...]
+    def __init__(
+        self,
+        views,
+    ):
+        self.views = tuple(views)
 
     def get_view(
         self,
-        view_id: str,
-    ) -> Optional[AnalysisCatalogueView]:
+        view_id,
+    ):
         """Return one view by semantic identifier."""
 
         for view in self.views:
@@ -45,8 +55,8 @@ class AnalysisCatalogue:
 
     def has_view(
         self,
-        view_id: str,
-    ) -> bool:
+        view_id,
+    ):
         """Return whether the catalogue contains a view."""
 
         return self.get_view(
@@ -55,8 +65,8 @@ class AnalysisCatalogue:
 
     def views_by_group(
         self,
-        group: str,
-    ) -> Tuple[AnalysisCatalogueView, ...]:
+        group,
+    ):
         """Return all views belonging to one analytical group."""
 
         return tuple(
@@ -64,7 +74,6 @@ class AnalysisCatalogue:
             for view in self.views
             if view.group == group
         )
-
 
 def _validate_section(
     section: ReportSection,
@@ -91,6 +100,46 @@ def _validate_section(
         )
 
 
+def _build_execution_domains_html(
+    rendered_html: Mapping[str, str],
+) -> str:
+    """Build the combined Host/Device execution-domain view.
+
+    Prefer a dedicated Execution Domains renderer when available.
+
+    During the transition to the new navigation architecture, fall back
+    to composing the existing Host and Device HTML bodies. This keeps
+    the new primary view functional without duplicating metric logic.
+    """
+
+    execution_domains_html = rendered_html.get(
+        "execution-domains",
+        "",
+    )
+
+    if execution_domains_html:
+        return execution_domains_html
+
+    host_html = rendered_html.get(
+        "host-analysis",
+        "",
+    )
+
+    device_html = rendered_html.get(
+        "device-analysis",
+        "",
+    )
+
+    return "\n".join(
+        html_body
+        for html_body in (
+            host_html,
+            device_html,
+        )
+        if html_body
+    )
+
+
 def build_analysis_catalogue(
     overview_section: ReportSection,
     runtime_section: ReportSection,
@@ -99,6 +148,30 @@ def build_analysis_catalogue(
     rendered_html: Mapping[str, str],
 ) -> AnalysisCatalogue:
     """Build the ordered catalogue of available analysis views.
+
+    Primary analytical views are organized according to the
+    performance-analysis workflow:
+
+        Overview
+            Application and execution context together with the
+            application-level performance assessment.
+
+        Parallel Runtime Model
+            Attributes parallel-efficiency losses to the active
+            parallel runtimes.
+
+        Execution Domains
+            For accelerator executions, identifies where inefficiencies
+            manifest across host execution, the offload path, and
+            device execution.
+
+        Computation Scalability
+            Evaluates how useful computation changes across multiple
+            execution configurations.
+
+    Runtime-specific and execution-domain-specific views are also kept
+    in the catalogue as secondary views so they can later be used for
+    detailed analysis, correlation, and export operations.
 
     Parameters
     ----------
@@ -110,10 +183,13 @@ def build_analysis_catalogue(
 
     resource_section
         Optional Resource Analysis section for accelerator executions.
+        When present, the catalogue exposes an Execution Domains primary
+        view composed of the Host and Device analyses.
 
     scalability_section
-        Optional Scalability Analysis section. It is absent for single-trace
-        reports and when no valid scalability metric is available.
+        Optional Scalability Analysis section. It is absent for
+        single-trace reports and when no valid scalability metric is
+        available.
 
     rendered_html
         HTML bodies indexed by semantic view identifier.
@@ -146,7 +222,7 @@ def build_analysis_catalogue(
             view_id="overview",
             label="Overview",
             title=overview_section.title,
-            group="assessment",
+            group="primary",
             description=overview_section.description,
             body_html=rendered_html.get(
                 "overview",
@@ -157,7 +233,7 @@ def build_analysis_catalogue(
             view_id="parallel-runtime-model",
             label="Parallel Runtime Model",
             title=runtime_data.parallel_runtime_model.title,
-            group="assessment",
+            group="primary",
             description=(
                 runtime_data.parallel_runtime_model.description
             ),
@@ -167,6 +243,43 @@ def build_analysis_catalogue(
             ),
         ),
     ]
+
+    resource_data = None
+
+    if resource_section is not None:
+        _validate_section(
+            section=resource_section,
+            expected_id="resource-analysis",
+            expected_type="resource-analysis",
+        )
+
+        resource_data = resource_section.payload
+
+        if not isinstance(
+            resource_data,
+            ResourceAnalysisData,
+        ):
+            raise TypeError(
+                "Section 'resource-analysis' requires "
+                "ResourceAnalysisData."
+            )
+
+        views.append(
+            AnalysisCatalogueView(
+                view_id="execution-domains",
+                label="Execution Domains",
+                title="Execution Domains",
+                group="primary",
+                description=(
+                    "Analyze where accelerator-related inefficiencies "
+                    "manifest across host execution, the offload path, "
+                    "and device execution."
+                ),
+                body_html=_build_execution_domains_html(
+                    rendered_html
+                ),
+            )
+        )
 
     if scalability_section is not None:
         _validate_section(
@@ -191,7 +304,7 @@ def build_analysis_catalogue(
                 view_id="computation-scalability",
                 label="Computation Scalability",
                 title=scalability_data.analysis.title,
-                group="assessment",
+                group="primary",
                 description=scalability_data.analysis.description,
                 body_html=rendered_html.get(
                     "computation-scalability",
@@ -200,6 +313,7 @@ def build_analysis_catalogue(
             )
         )
 
+    # Runtime-specific views remain available as secondary analyses.
     for component in runtime_data.runtime_components:
         views.append(
             AnalysisCatalogueView(
@@ -215,24 +329,12 @@ def build_analysis_catalogue(
             )
         )
 
-    if resource_section is not None:
-        _validate_section(
-            section=resource_section,
-            expected_id="resource-analysis",
-            expected_type="resource-analysis",
-        )
-
-        resource_data = resource_section.payload
-
-        if not isinstance(
-            resource_data,
-            ResourceAnalysisData,
-        ):
-            raise TypeError(
-                "Section 'resource-analysis' requires "
-                "ResourceAnalysisData."
-            )
-
+    # Keep Host and Device as separate secondary views.
+    #
+    # The primary Execution Domains view presents both together, while
+    # these entries remain useful for future detailed inspection,
+    # correlation, and export functionality.
+    if resource_data is not None:
         views.extend(
             (
                 AnalysisCatalogueView(

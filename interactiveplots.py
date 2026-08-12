@@ -1820,6 +1820,243 @@ def _build_metric_tree_html(metric_keys, metric_info, section_id, tree_kind):
     )
 
 
+def _build_execution_domains_section(
+    host_metric_keys,
+    device_metric_keys,
+    host_sources,
+    device_sources,
+    trace_list,
+    trace_labels,
+    trace_header_note,
+):
+    """Build the combined Host/Device Execution Domains analysis.
+
+    The Execution Domains view presents Host and Device metrics as two
+    complementary parts of the same analytical scope.
+
+    Common information such as the efficiency scale, trace-column
+    description, metric-details panel, and analysis summary is rendered
+    only once.
+    """
+
+    all_metric_keys = (
+        list(host_metric_keys)
+        + list(device_metric_keys)
+    )
+
+    metric_knowledge = _build_metric_knowledge(
+        metric_keys=all_metric_keys,
+    )
+
+    # --------------------------------------------------
+    # Host table
+    # --------------------------------------------------
+
+    host_table_html = _build_efficiency_table_html(
+        metric_keys=host_metric_keys,
+        metric_info=TALP_METRIC_INFO,
+        metric_sources=host_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        section_id="execution-domains",
+        tree=HOST_TREE,
+        metric_knowledge=metric_knowledge,
+    )
+
+    # --------------------------------------------------
+    # Device table
+    # --------------------------------------------------
+
+    device_table_html = _build_efficiency_table_html(
+        metric_keys=device_metric_keys,
+        metric_info=TALP_METRIC_INFO,
+        metric_sources=device_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        section_id="execution-domains",
+        tree=DEVICE_TREE,
+        metric_knowledge=metric_knowledge,
+    )
+
+    # --------------------------------------------------
+    # Shared metric-information dictionary
+    # --------------------------------------------------
+
+    info_json = _metric_info_json(
+        all_metric_keys,
+        TALP_METRIC_INFO,
+        metric_knowledge,
+    )
+
+    # --------------------------------------------------
+    # Host observations
+    # --------------------------------------------------
+
+    host_performance = (
+        observations.build_performance_interpretation(
+            tree=HOST_TREE,
+            metric_info=TALP_METRIC_INFO,
+            metric_sources=host_sources,
+            trace_list=trace_list,
+            metric_knowledge=metric_knowledge,
+        )
+    )
+
+    host_performance_html = (
+        observations.build_performance_interpretation_html(
+            host_performance
+        )
+    )
+
+    host_scaling = (
+        observations.build_scaling_interpretation(
+            tree=HOST_TREE,
+            metric_info=TALP_METRIC_INFO,
+            metric_sources=host_sources,
+            trace_list=trace_list,
+            metric_knowledge=metric_knowledge,
+        )
+    )
+
+    host_scaling_html = (
+        observations.build_scaling_interpretation_html(
+            host_scaling
+        )
+    )
+
+    # --------------------------------------------------
+    # Device observations
+    # --------------------------------------------------
+
+    device_performance = (
+        observations.build_performance_interpretation(
+            tree=DEVICE_TREE,
+            metric_info=TALP_METRIC_INFO,
+            metric_sources=device_sources,
+            trace_list=trace_list,
+            metric_knowledge=metric_knowledge,
+        )
+    )
+
+    device_performance_html = (
+        observations.build_performance_interpretation_html(
+            device_performance
+        )
+    )
+
+    device_scaling = (
+        observations.build_scaling_interpretation(
+            tree=DEVICE_TREE,
+            metric_info=TALP_METRIC_INFO,
+            metric_sources=device_sources,
+            trace_list=trace_list,
+            metric_knowledge=metric_knowledge,
+        )
+    )
+
+    device_scaling_html = (
+        observations.build_scaling_interpretation_html(
+            device_scaling
+        )
+    )
+
+    # --------------------------------------------------
+    # Shared context
+    # --------------------------------------------------
+
+    efficiency_scale_html = _build_efficiency_scale_html()
+
+    analysis_focus_html = """
+    <div class="analysis-scope-note execution-domains-focus">
+        <h3>Analysis focus</h3>
+
+        <p>
+            The Execution Domains view identifies where
+            accelerator-related inefficiencies manifest across host
+            execution, the accelerator offload path, and device execution.
+        </p>
+
+        <p>
+            Host and Device metrics provide complementary evidence and
+            should not be interpreted as direct decompositions of the
+            runtime-specific metrics shown in the Parallel Runtime Model.
+        </p>
+    </div>
+    """
+
+    return """
+    <section
+        class="execution-domains-analysis"
+        aria-label="Execution Domains"
+    >
+        <script>
+        window["metricInfo_execution-domains"] = {info_json};
+        </script>
+
+        {trace_header_note}
+
+        <section
+            class="execution-domain-block execution-domain-host"
+            aria-label="Host execution domain"
+        >
+            <div class="execution-domain-title">
+                HOST
+            </div>
+
+            <div class="metric-table-card">
+                {host_table_html}
+            </div>
+        </section>
+
+        <section
+            class="execution-domain-block execution-domain-device"
+            aria-label="Device execution domain"
+        >
+            <div class="execution-domain-title">
+                DEVICE
+            </div>
+
+            <div class="metric-table-card">
+                {device_table_html}
+            </div>
+        </section>
+
+        <div class="observation-box execution-domains-analysis-summary">
+            <h3>Analysis</h3>
+
+            <section class="execution-domain-analysis-group">
+                <h4>HOST</h4>
+
+                {host_performance_html}
+                {host_scaling_html}
+            </section>
+
+            <section class="execution-domain-analysis-group">
+                <h4>DEVICE</h4>
+
+                {device_performance_html}
+                {device_scaling_html}
+            </section>
+        </div>
+
+        {efficiency_scale_html}
+
+        {analysis_focus_html}
+    </section>
+    """.format(
+        info_json=info_json,
+        efficiency_scale_html=efficiency_scale_html,
+        trace_header_note=trace_header_note,
+        host_table_html=host_table_html,
+        device_table_html=device_table_html,
+        host_performance_html=host_performance_html,
+        host_scaling_html=host_scaling_html,
+        device_performance_html=device_performance_html,
+        device_scaling_html=device_scaling_html,
+        analysis_focus_html=analysis_focus_html,
+    )
+
+
 def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
                                         trace_list, trace_labels, title, section_id,
                                         tree_kind=None,
@@ -1948,22 +2185,16 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
     <script>
     window["metricInfo_{section_id}"] = {info_json};
     </script>
-    {efficiency_scale_html}
+
     {trace_header_note}
+
     <div class="metric-table-card">
         {efficiency_table_html}
-    </div>    
-
-    <div class="metric-info-panel" id="{section_id}-info-panel">
-        <h3 id="{section_id}-info-title">Select a metric</h3>
-        <p id="{section_id}-info-type" class="metric-info-type"></p>
-        <p id="{section_id}-info-meaning">Click a cell in the table to see its value, description, and diagnostic hints.</p>
-        <p id="{section_id}-info-interpretation"></p>
-        <p id="{section_id}-info-action"></p>
     </div>
 
     {observations_html}
 
+    {efficiency_scale_html}
     """.format(
         section_id=section_id,
         info_json=info_json,
@@ -3147,6 +3378,84 @@ def _build_openmp_runtime_scope_note(is_hybrid):
     )
 
 
+def _build_execution_domains_view(
+    host_html,
+    device_html,
+):
+    """Build the combined Host and Device execution-domain view.
+
+    Host and Device remain independent analytical domains, but they are
+    presented together in the primary Execution Domains view because they
+    provide complementary evidence for accelerator-oriented executions.
+
+    This function does not compute or reinterpret any metric. It only
+    composes the already-rendered Host and Device analyses.
+    """
+
+    if not host_html and not device_html:
+        return ""
+
+    sections = []
+
+    if host_html:
+        sections.append(
+            """
+            <section
+                class="execution-domain-section execution-domain-host"
+                aria-label="Host execution domain"
+            >
+                {host_html}
+            </section>
+            """.format(
+                host_html=host_html,
+            )
+        )
+
+    if device_html:
+        sections.append(
+            """
+            <section
+                class="execution-domain-section execution-domain-device"
+                aria-label="Device execution domain"
+            >
+                {device_html}
+            </section>
+            """.format(
+                device_html=device_html,
+            )
+        )
+
+    focus_note = """
+    <div class="analysis-scope-note execution-domains-focus">
+        <h3>Analysis focus</h3>
+
+        <p>
+            The Execution Domains view identifies where accelerator-related
+            inefficiencies manifest across host execution, the accelerator
+            offload path, and device execution.
+        </p>
+
+        <p>
+            These metrics complement the Parallel Runtime Model but represent
+            a different analytical scope. Runtime-specific efficiency factors
+            should therefore not be interpreted as direct equivalents of the
+            Host or Device metrics shown here.
+        </p>
+    </div>
+    """
+
+    return """
+    <div class="execution-domains-view">
+        {sections}
+
+        {focus_note}
+    </div>
+    """.format(
+        sections="\n".join(sections),
+        focus_note=focus_note,
+    )
+
+
 
 def _build_overview_view(trace_config_html, trace_header_note,
                          overview_html, resources_html, global_html):
@@ -3830,6 +4139,10 @@ def _build_interactive_report_document(workspace_html):
         <html>
         <head>
         <meta charset="utf-8">
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes"
+        >
         <title>BasicAnalysis Interactive Report</title>
         <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
         <style>
@@ -4381,6 +4694,158 @@ def _build_interactive_report_document(workspace_html):
             font-weight: 700;
         }
 
+
+        /* -------------------------------------------------- */
+        /* Metric details modal                                */
+        /* -------------------------------------------------- */
+
+        body.metric-details-open {
+            overflow: hidden !important;
+        }
+
+        html:has(body.metric-details-open) {
+            overflow: hidden !important;
+        }
+
+        .metric-details-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 3000;
+
+            display: grid;
+            place-items: center;
+
+            padding: 24px;
+        }
+
+        .metric-details-modal[hidden] {
+            display: none;
+        }
+
+        .metric-details-backdrop {
+            position: absolute;
+            inset: 0;
+
+            background: rgba(12, 25, 42, 0.50);
+            backdrop-filter: blur(2px);
+        }
+
+        .metric-details-dialog {
+            position: relative;
+            z-index: 1;
+
+            width: min(620px, calc(100vw - 32px));
+            max-height: min(720px, calc(100vh - 48px));
+            overflow-y: auto;
+
+            padding: 22px 24px;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+
+            background: var(--surface);
+            box-shadow: 0 18px 50px rgba(20, 38, 63, 0.28);
+        }
+
+        .metric-details-close {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+
+            display: grid;
+            width: 34px;
+            height: 34px;
+
+            place-items: center;
+
+            border: 1px solid #aabed2;
+            border-radius: 8px;
+
+            background: #fff;
+            color: var(--primary);
+
+            cursor: pointer;
+            font: inherit;
+            font-size: 22px;
+            line-height: 1;
+        }
+
+        .metric-details-close:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .metric-details-eyebrow {
+            margin-bottom: 4px;
+
+            color: #527397;
+            font-size: 10px;
+            font-weight: 750;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+
+        .metric-details-dialog h2 {
+            margin: 0 44px 10px 0;
+            font-size: 21px;
+        }
+
+        .metric-details-context {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px;
+
+            margin-bottom: 18px;
+        }
+
+        .metric-details-context span {
+            padding: 4px 9px;
+
+            border-radius: 999px;
+            background: #eef4fa;
+            color: #36536f;
+
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .metric-details-section {
+            padding: 13px 0;
+
+            border-top: 1px solid var(--border);
+        }
+
+        .metric-details-section h3 {
+            margin: 0 0 5px;
+
+            color: var(--primary);
+            font-size: 14px;
+        }
+
+        .metric-details-section p {
+            margin: 0;
+
+            color: #31465d;
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        .metric-details-next-step {
+            margin-top: 2px;
+        }
+
+        @media (max-width: 620px) {
+            .metric-details-modal {
+                padding: 12px;
+            }
+
+            .metric-details-dialog {
+                width: 100%;
+                max-height: calc(100vh - 24px);
+                padding: 18px;
+            }
+        }
+
         /* -------------------------------------------------- */
         /* Heatmap                                             */
         /* -------------------------------------------------- */
@@ -4549,12 +5014,18 @@ def _build_interactive_report_document(workspace_html):
         /* Severity badges */
 
         .metric-value {
-            display: inline-block;
-            min-width: 78px;
-            padding: 6px 10px;
+            display: inline-flex;
 
-            border: 1px solid rgba(30, 50, 70, 0.14);
-            border-radius: 999px;
+            width: 96px;
+            min-width: 96px;
+            height: 30px;
+            padding: 0 8px;
+
+            align-items: center;
+            justify-content: center;
+
+            border: 1px solid rgba(30, 50, 70, 0.10);
+            border-radius: 3px;
 
             cursor: pointer;
 
@@ -4565,8 +5036,7 @@ def _build_interactive_report_document(workspace_html):
 
             transition:
                 transform 0.15s ease,
-                box-shadow 0.15s ease,
-                filter 0.15s ease;
+                box-shadow 0.15s ease;
         }
 
         .metric-value:hover {
@@ -4611,7 +5081,7 @@ def _build_interactive_report_document(workspace_html):
             border-collapse: separate;
             border-spacing: 0;
             background: white;
-            font-size: 14px;
+            font-size: clamp(15px, 0.9vw, 18px);
         }
 
         .efficiency-table th,
@@ -4627,7 +5097,7 @@ def _build_interactive_report_document(workspace_html):
 
             background: #edf3f9;
             color: #29435f;
-            font-size: 13px;
+            font-size: clamp(14px, 0.82vw, 16px);
             font-weight: 700;
             text-align: center;
         }
@@ -4664,27 +5134,42 @@ def _build_interactive_report_document(workspace_html):
             min-width: 330px;
             color: #20344d;
             text-align: left;
+
+            font-size: clamp(15px, 0.9vw, 18px);
+            line-height: 1.35;
+
             box-shadow: 7px 0 10px -10px rgba(20, 38, 63, 0.55);
         }
 
         .metric-value-cell {
-            min-width: 120px;
+            min-width: 112px;
+            padding-left: 6px !important;
+            padding-right: 6px !important;
+
             background: white;
             text-align: center;
+
             transition: background 0.15s ease;
         }
 
         .metric-value {
-            display: inline-block;
-            min-width: 78px;
-            padding: 6px 10px;
+            display: inline-flex;
 
-            border-radius: 999px;
+            width: 104px;
+            min-width: 104px;
+            height: 34px;
+            padding: 0 8px;
+
+            align-items: center;
+            justify-content: center;
+
+            border: 1px solid rgba(30, 50, 70, 0.10);
+            border-radius: 3px;
 
             cursor: pointer;
 
             font-family: inherit;
-            font-size: 13px;
+            font-size: clamp(14px, 0.85vw, 17px);
             font-weight: 700;
             font-variant-numeric: tabular-nums;
 
@@ -4904,9 +5389,11 @@ def _build_interactive_report_document(workspace_html):
 
         .performance-interpretation h3,
         .scaling-interpretation h3 {
-            margin: 16px 0 10px;
-            color: var(--primary);
             font-size: 17px;
+        }
+
+        .execution-domains-analysis-summary h4 {
+            font-size: 13px;
         }
 
         .performance-interpretation h3 {
@@ -4950,31 +5437,125 @@ def _build_interactive_report_document(workspace_html):
             font-size: 14px;
             line-height: 1.7;
         }
-
       
+        /* -------------------------------------------------- */
+        /* Execution Domains                                  */
+        /* -------------------------------------------------- */
+
+        .execution-domains-analysis {
+            min-width: 0;
+        }
+
+        .execution-domain-block {
+            margin-bottom: 10px;
+        }
+
+        .execution-domain-title {
+            margin: 4px 0;
+            padding: 4px 8px;
+
+            border-left: 4px solid var(--primary);
+
+            background: #f3f7fb;
+            color: var(--primary);
+
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: .09em;
+        }
+
+        .execution-domain-host .execution-domain-title {
+            border-left-color: #8066bf;
+        }
+
+        .execution-domain-device .execution-domain-title {
+            border-left-color: #318c82;
+        }
+
+        .execution-domains-analysis-summary h4 {
+            margin: 12px 0 6px;
+
+            color: var(--primary);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: .08em;
+        }
+
+        .execution-domain-analysis-group
+        + .execution-domain-analysis-group {
+            margin-top: 18px;
+            padding-top: 14px;
+
+            border-top: 1px solid var(--border);
+        }
+
+
+        /* -------------------------------------------------- */
+        /* Additional Execution Domains                       */
+        /* -------------------------------------------------- */
+        .execution-domains-analysis .efficiency-table th,
+        .execution-domains-analysis .efficiency-table td {
+            padding: 5px 8px;
+        }
+
+        .execution-domains-analysis .metric-name-cell,
+        .execution-domains-analysis
+        .efficiency-table
+        .metric-column-header {
+            min-width: 220px;
+        }
+
+        .execution-domains-analysis .metric-name-cell {
+            padding-left: calc(
+                9px + (var(--metric-depth, 0) * 14px)
+            ) !important;
+        }
+
+        .execution-domains-analysis .metric-value-cell {
+            min-width: 88px;
+        }
+
+        .execution-domains-analysis .metric-value {
+            min-width: 66px;
+            padding: 4px 6px;
+            font-size: 12px;
+        }
+
+        .execution-domains-analysis .metric-table-card {
+            margin-bottom: 8px;
+        }
+
+
+
         /* -------------------------------------------------- */
         /* Analysis scope notes                                */
         /* -------------------------------------------------- */
 
         .analysis-scope-note {
-            margin-bottom: 22px;
-            padding: 18px 20px;
+            margin-bottom: 12px;
+            padding: 10px 14px;
+
             border: 1px solid #d9c98c;
-            border-left: 5px solid #c79a20;
+            border-left: 4px solid #c79a20;
             border-radius: var(--radius-md);
+
             background: #fffaf0;
             color: #4f452d;
+
+            font-size: 13px;
         }
 
         .analysis-scope-note h3 {
-            margin: 0 0 8px;
+            margin: 0 0 4px;
+
             color: #6f5617;
-            font-size: 17px;
+            font-size: 14px;
+            line-height: 1.3;
         }
 
         .analysis-scope-note p {
-            margin: 7px 0;
-            line-height: 1.65;
+            margin: 4px 0;
+            line-height: 1.45;
         }
 
         /* -------------------------------------------------- */
@@ -6551,54 +7132,31 @@ def _build_interactive_report_document(workspace_html):
             text-transform: uppercase;
         }
 
-        .guided-navigation-actions {
-            min-width: 230px;
-        }
-
-        .guided-comparison-control {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .guided-comparison-control[hidden] {
-            display: none;
-        }
-
-        .guided-comparison-control label {
-            color: var(--text-secondary);
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: .05em;
-            text-transform: uppercase;
-        }
-
-        .guided-comparison-selector {
-            min-height: 38px;
-            padding: 7px 10px;
-
-            border: 1px solid #aabed2;
-            border-radius: 8px;
-
-            background: white;
-            color: var(--primary);
-
-            font: inherit;
-            font-size: 12px;
-            font-weight: 650;
-        }
-
         .guided-primary-tabs {
+            position: relative;
+
             display: flex;
             flex: 0 0 auto;
+            align-items: center;
             gap: 8px;
-            padding: 8px;
+
+            padding: 5px 6px;
 
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
 
             background: var(--surface);
             box-shadow: var(--shadow-sm);
+        }
+
+        .guided-primary-tab-list {
+            display: flex;
+            flex: 1 1 auto;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px;
+
+            min-width: 0;
         }
 
         .guided-primary-tab {
@@ -6628,11 +7186,145 @@ def _build_interactive_report_document(workspace_html):
             color: white;
         }
 
+
+        /* -------------------------------------------------- */
+        /* Split analysis view                                 */
+        /* -------------------------------------------------- */
+
+        .guided-split-control {
+            position: relative;
+
+            flex: 0 0 auto;
+
+            margin-left: auto;
+        }
+
+        .guided-split-button {
+            display: grid;
+
+            width: 34px;
+            height: 34px;
+
+            place-items: center;
+
+            padding: 0;
+
+            border: 1px solid #aabed2;
+            border-radius: 7px;
+
+            background: white;
+            color: var(--primary);
+
+            cursor: pointer;
+
+            transition:
+                border-color .15s ease,
+                background .15s ease,
+                color .15s ease,
+                box-shadow .15s ease;
+        }
+
+        .guided-split-button svg {
+            width: 19px;
+            height: 19px;
+        }
+
+        .guided-split-button:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .guided-split-button:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+        .guided-split-control.has-secondary-view
+        .guided-split-button {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: white;
+        }
+
+        .guided-split-menu {
+            position: absolute;
+            top: calc(100% + 7px);
+            right: 0;
+            z-index: 1200;
+
+            width: 245px;
+
+            padding: 6px;
+
+            border: 1px solid var(--border);
+            border-radius: 10px;
+
+            background: white;
+            box-shadow: 0 12px 30px rgba(20, 38, 63, .18);
+        }
+
+        .guided-split-menu[hidden] {
+            display: none;
+        }
+
+        .guided-split-menu-title {
+            padding: 5px 8px 7px;
+
+            color: var(--text-secondary);
+
+            font-size: 10px;
+            font-weight: 750;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+        }
+
+        .guided-split-option {
+            display: block;
+
+            width: 100%;
+
+            padding: 8px 10px;
+
+            border: 0;
+            border-radius: 6px;
+
+            background: transparent;
+            color: #31465d;
+
+            cursor: pointer;
+
+            font: inherit;
+            font-size: 12px;
+            font-weight: 650;
+            text-align: left;
+        }
+
+        .guided-split-option:hover {
+            background: var(--primary-light);
+            color: var(--primary);
+        }
+
+        .guided-split-option.is-selected {
+            background: #edf4fb;
+            color: var(--primary);
+            font-weight: 750;
+        }
+
+        .guided-split-option[hidden] {
+            display: none;
+        }
+
+        /* -------------------------------------------------- */
+        /* END Split analysis view                            */
+        /* -------------------------------------------------- */
+
         .guided-analysis-stage {
+            --comparison-panel-width: 48%;
+
             display: flex;
             flex: 1 1 auto;
             min-height: 0;
-            gap: 16px;
+            gap: 8px;
         }
 
         .guided-primary-region {
@@ -6696,85 +7388,6 @@ def _build_interactive_report_document(workspace_html):
             flex-direction: column;
         }
 
-        .guided-runtime-selector-region {
-            min-width: 0;
-            overflow-y: auto;
-        }
-
-        .guided-drilldown-selector {
-            display: flex;
-            flex-direction: column;
-            gap: 13px;
-        }
-
-        .guided-drilldown-selector.is-empty {
-            padding: 14px;
-
-            border: 1px dashed var(--border);
-            border-radius: var(--radius-md);
-
-            background: var(--surface-soft);
-            color: var(--text-secondary);
-        }
-
-        .guided-drilldown-group {
-            padding: 12px;
-
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-
-            background: #f7faff;
-        }
-
-        .guided-drilldown-group h3 {
-            margin: 0 0 3px;
-            color: var(--primary);
-            font-size: 13px;
-        }
-
-        .guided-drilldown-group > p {
-            margin: 0 0 10px;
-
-            color: var(--text-secondary);
-            font-size: 11px;
-            line-height: 1.4;
-        }
-
-        .guided-drilldown-buttons {
-            display: flex;
-            flex-direction: column;
-            gap: 7px;
-        }
-
-        .guided-drilldown-button {
-            min-height: 39px;
-            padding: 8px 10px;
-
-            border: 1px solid #9fb6cf;
-            border-radius: 8px;
-
-            background: white;
-            color: var(--primary);
-
-            cursor: pointer;
-            text-align: left;
-
-            font: inherit;
-            font-size: 12px;
-            font-weight: 700;
-        }
-
-        .guided-drilldown-button:hover {
-            border-color: var(--primary);
-            background: #edf5fd;
-        }
-
-        .guided-drilldown-button.is-selected {
-            border-color: var(--primary);
-            background: var(--primary);
-            color: white;
-        }
-
         .guided-secondary-header {
             display: flex;
             flex: 0 0 auto;
@@ -6827,7 +7440,10 @@ def _build_interactive_report_document(workspace_html):
 
         .guided-comparison-region {
             display: flex;
-            flex: 0 0 min(48%, 720px);
+
+            flex: 0 0 var(--comparison-panel-width);
+
+            min-width: 0;
             flex-direction: column;
         }
 
@@ -6860,8 +7476,31 @@ def _build_interactive_report_document(workspace_html):
         .guided-analysis-view
         .efficiency-table
         .metric-column-header {
-            min-width: 255px;
+            width: clamp(190px, 30%, 275px);
+            min-width: 190px;
         }
+
+        .guided-primary-panel,
+        .guided-secondary-content {
+            overflow: auto;
+        }
+
+        .guided-analysis-view {
+            width: 100%;
+            min-width: 0;
+        }
+
+        .guided-analysis-view .metric-table-card {
+            width: 100%;
+            max-width: 100%;
+            overflow-x: auto;
+        }
+
+        .guided-analysis-view .efficiency-table {
+            width: max-content;
+            min-width: 100%;
+        }
+
 
         .guided-view-unavailable {
             padding: 24px;
@@ -6874,31 +7513,18 @@ def _build_interactive_report_document(workspace_html):
             text-align: center;
         }
 
-        @media (max-width: 1150px) {
-            .guided-primary-region.has-drilldown {
-                grid-template-columns:
-                    minmax(0, 1fr)
-                    minmax(290px, .8fr);
-            }
-
-            .guided-primary-region.has-drilldown
-            .guided-runtime-selector-region {
-                grid-column: 1 / -1;
-            }
-
-            .guided-primary-region.has-drilldown
-            .guided-drilldown-selector {
-                display: grid;
-                grid-template-columns:
-                    repeat(auto-fit, minmax(230px, 1fr));
-            }
-        }
-
         @media (max-width: 850px) {
-            html,
-            body {
+            html {
                 height: auto;
-                overflow: auto;
+                overflow-x: hidden;
+                overflow-y: auto;
+            }
+
+            body {
+                min-height: 100%;
+                height: auto;
+                overflow-x: hidden;
+                overflow-y: visible;
             }
 
             .report-container,
@@ -6911,10 +7537,6 @@ def _build_interactive_report_document(workspace_html):
                 flex-direction: column;
             }
 
-            .guided-navigation-actions {
-                min-width: 0;
-            }
-
             .guided-primary-tabs {
                 flex-direction: column;
             }
@@ -6925,7 +7547,30 @@ def _build_interactive_report_document(workspace_html):
 
             .guided-primary-region,
             .guided-primary-region.has-drilldown {
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .guided-primary-region.has-drilldown
+            .guided-primary-panel,
+            .guided-primary-region.has-drilldown
+            .guided-panel-divider,
+            .guided-primary-region.has-drilldown
+            .guided-drilldown-panel,
+            .guided-primary-region.has-drilldown
+            .guided-runtime-selector-region {
+                grid-column: 1;
+                grid-row: auto;
+            }
+
+            .guided-primary-region.has-drilldown
+            .guided-panel-divider {
+                display: none;
+            }            
+
+            .guided-drilldown-selector {
+                display: grid;
+                grid-template-columns:
+                    repeat(auto-fit, minmax(180px, 1fr));
             }
 
             .guided-primary-panel,
@@ -6939,6 +7584,24 @@ def _build_interactive_report_document(workspace_html):
             }
         }
 
+        @media (max-width: 1450px) {
+            .guided-analysis-view .metric-name-cell,
+            .guided-analysis-view
+            .efficiency-table
+            .metric-column-header {
+                width: 185px;
+                min-width: 185px;
+            }
+
+            .guided-analysis-view
+            .efficiency-table th,
+            .guided-analysis-view
+            .efficiency-table td {
+                padding-left: 8px;
+                padding-right: 8px;
+            }
+        }
+
 
         /* -------------------------------------------------- */
         /* Compact layout for analysis-focused use             */
@@ -6947,21 +7610,89 @@ def _build_interactive_report_document(workspace_html):
         /* Main report header */
 
         .report-header {
-            padding: 16px 24px;
+            padding: 9px 20px;
+        }
+
+        .report-header-content {
+            max-width: 1760px;
         }
 
         .report-header h1 {
-            font-size: 25px;
+            margin: 0;
+            font-size: 22px;
+            line-height: 1.15;
         }
 
         .report-brand {
-            margin-bottom: 2px;
-            font-size: 11px;
+            margin-bottom: 1px;
+            font-size: 10px;
+            line-height: 1.2;
         }
 
         .subtitle {
-            margin-top: 4px;
-            font-size: 13px;
+            margin-top: 2px;
+            font-size: 12px;
+            line-height: 1.25;
+        }
+
+        /* Compact Overview */
+        .guided-analysis-view
+        .application-panel
+        > .workspace-panel:first-child
+        > h2 {
+            display: none;
+        }
+
+        .guided-analysis-view
+        .application-panel
+        > .workspace-panel:first-child {
+            padding: 12px 14px;
+        }
+
+        .guided-analysis-view
+        .application-panel
+        > .workspace-panel:first-child
+        .report-section {
+            margin-bottom: 16px;
+        }
+
+        .guided-analysis-view
+        .application-panel
+        > .workspace-panel:first-child
+        .report-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .guided-analysis-view
+        .application-panel
+        .report-section h3,
+        .guided-analysis-view
+        .application-panel
+        > .workspace-panel
+        > h2 {
+            margin: 4px 0 10px;
+            color: var(--primary);
+            font-size: 18px;
+            line-height: 1.25;
+            font-weight: 700;
+        }
+
+        .guided-analysis-view
+        .application-panel
+        > .workspace-panel:first-child
+        .metric-table {
+            margin-top: 6px;
+        }
+
+        .guided-analysis-view
+        .application-panel
+        > .workspace-panel:first-child
+        .metric-table th,
+        .guided-analysis-view
+        .application-panel
+        > .workspace-panel:first-child
+        .metric-table td {
+            padding: 7px 10px;
         }
 
 
@@ -6981,57 +7712,53 @@ def _build_interactive_report_document(workspace_html):
 
         .guided-navigation-header {
             min-height: 0;
-            padding: 10px 14px;
-            gap: 16px;
+            padding: 7px 12px;
+            gap: 12px;
         }
 
         .guided-navigation-header h1 {
-            margin-bottom: 2px;
-            font-size: 19px;
+            margin: 0 0 1px;
+            font-size: 17px;
+            line-height: 1.2;
         }
 
         .guided-navigation-header > div:first-child > p:last-child {
-            font-size: 12px;
-            line-height: 1.35;
+            margin: 0;
+            font-size: 11px;
+            line-height: 1.25;
         }
 
         .guided-navigation-eyebrow {
-            margin-bottom: 1px;
-            font-size: 9px;
+            display: none;
         }
-
-        .guided-navigation-actions {
-            min-width: 205px;
-        }
-
-        .guided-comparison-control {
-            gap: 2px;
-        }
-
-        .guided-comparison-control label {
-            font-size: 9px;
-        }
-
-        .guided-comparison-selector {
-            min-height: 32px;
-            padding: 4px 8px;
-            font-size: 11px;
-        }
-
 
         /* Primary navigation tabs */
 
         .guided-primary-tabs {
-            gap: 4px;
-            padding: 4px 6px;
+            gap: 3px;
+            padding: 3px 5px;
+        }
+
+        .guided-primary-tab-list {
+            gap: 3px;
         }
 
         .guided-primary-tab {
             min-height: 34px;
-            padding: 5px 14px;
-            font-size: 12px;
+            padding: 6px 14px;
+            font-size: 13px;
+            line-height: 1.2;
         }
 
+        .guided-split-button {
+            width: 34px;
+            height: 34px;
+        }
+
+        .guided-split-button svg {
+            width: 18px;
+            height: 18px;
+        }
 
         /* Analysis regions */
 
@@ -7040,18 +7767,165 @@ def _build_interactive_report_document(workspace_html):
         }
 
         .guided-primary-region {
-            gap: 10px;
-            grid-template-columns:
-                minmax(0, 1fr)
-                155px;
+            display: grid;
+
+            grid-template-columns: minmax(0, 1fr);
+            grid-template-rows:
+                auto
+                minmax(0, 1fr);
+
+            grid-template-areas:
+                "selector"
+                "primary";
+
+            gap: 6px;
+
+            min-width: 0;
+            min-height: 0;
         }
 
         .guided-primary-region.has-drilldown {
+            --primary-panel-width: 52%;
+
             grid-template-columns:
-                minmax(0, 1fr)
-                minmax(300px, 0.82fr)
-                155px;
+                minmax(360px, var(--primary-panel-width))
+                8px
+                minmax(360px, 1fr);
+
+            grid-template-rows:
+                auto
+                minmax(0, 1fr);
+
+            grid-template-areas:
+                "selector divider detail"
+                "primary  divider detail";
+
+            gap: 6px 8px;
         }
+
+        /***********************************/
+        /*     Assign the grid areas       */    
+        /***********************************/
+        .guided-runtime-selector-region {
+            grid-area: selector;
+
+            min-width: 0;
+        }
+
+        .guided-primary-panel {
+            grid-area: primary;
+        }
+
+        .guided-primary-region.has-drilldown
+        .guided-panel-divider {
+            grid-area: divider;
+        }
+
+        .guided-primary-region.has-drilldown
+        .guided-drilldown-panel {
+            grid-area: detail;
+        }
+
+        /***********************************/
+        /*   END Assign the grid areas     */    
+        /***********************************/
+
+        .guided-panel-divider {
+            display: none;
+        }
+
+        .guided-primary-region.has-drilldown
+        .guided-panel-divider {
+            display: block;
+        }
+
+        .guided-panel-divider {
+            position: relative;
+
+            width: 8px;
+            min-width: 8px;
+
+            border-radius: 5px;
+            background: #d9e3ee;
+
+            cursor: col-resize;
+            touch-action: none;
+        }
+
+        .guided-panel-divider::after {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+
+            width: 3px;
+            height: 42px;
+
+            border-radius: 3px;
+            background: #7893ae;
+
+            content: "";
+            transform: translate(-50%, -50%);
+        }
+
+        .guided-panel-divider:hover,
+        .guided-panel-divider.is-dragging {
+            background: #bdd1e5;
+        }
+
+        .guided-panel-divider:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+        .guided-comparison-divider {
+            position: relative;
+
+            display: block;
+
+            width: 8px;
+            min-width: 8px;
+
+            border-radius: 5px;
+
+            background: #d9e3ee;
+
+            cursor: col-resize;
+            touch-action: none;
+        }
+
+        .guided-comparison-divider[hidden] {
+            display: none;
+        }
+
+        .guided-comparison-divider::after {
+            position: absolute;
+
+            top: 50%;
+            left: 50%;
+
+            width: 3px;
+            height: 42px;
+
+            border-radius: 3px;
+
+            background: #7893ae;
+
+            content: "";
+
+            transform: translate(-50%, -50%);
+        }
+
+        .guided-comparison-divider:hover,
+        .guided-comparison-divider.is-dragging {
+            background: #bdd1e5;
+        }
+
+        .guided-comparison-divider:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+
 
         .guided-primary-panel {
             padding: 10px;
@@ -7060,33 +7934,109 @@ def _build_interactive_report_document(workspace_html):
 
         /* Runtime and resource selector */
 
+        /* -------------------------------------------------- */
+        /* Runtime analysis selector                          */
+        /* -------------------------------------------------- */
+
+        .guided-runtime-selector-region {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+
+            width: 100%;
+            min-width: 0;
+
+            padding: 4px 8px;
+
+            border-left: 4px solid #4f86c6;
+            border-radius: 6px;
+
+            background: #edf5fd;
+
+            overflow: visible;
+        }
+
         .guided-drilldown-selector {
-            gap: 8px;
+            display: inline-flex;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            align-items: center;
+
+            gap: 10px;
+
+            width: auto;
+            min-height: 34px;
+
+            padding: 4px 7px;
+
+            border: 1px solid #b8cde2;
+            border-radius: 7px;
+
+            background: #eaf3fc;
         }
 
-        .guided-drilldown-group {
-            padding: 9px;
-        }
+        .guided-runtime-selector-label {
+            flex: 0 0 auto;
 
-        .guided-drilldown-group h3 {
-            margin-bottom: 1px;
+            padding: 0 3px;
+
+            color: #315b85;
+
             font-size: 12px;
-        }
+            font-weight: 750;
 
-        .guided-drilldown-group > p {
-            margin-bottom: 7px;
-            font-size: 10px;
-            line-height: 1.3;
+            white-space: nowrap;
         }
 
         .guided-drilldown-buttons {
-            gap: 5px;
+            display: inline-flex;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            align-items: center;
+
+            gap: 0;
+
+            overflow: hidden;
+
+            border: 1px solid #8faccc;
+            border-radius: 6px;
+
+            background: white;
         }
 
         .guided-drilldown-button {
-            min-height: 34px;
-            padding: 6px 9px;
+            flex: 0 0 auto;
+
+            min-height: 28px;
+            padding: 4px 12px;
+
+            border: 0;
+            border-right: 1px solid #b8cde2;
+            border-radius: 0;
+
+            background: white;
+            color: #244d78;
+
+            cursor: pointer;
+
+            font: inherit;
             font-size: 11px;
+            font-weight: 700;
+
+            white-space: nowrap;
+        }
+
+        .guided-drilldown-button:last-child {
+            border-right: 0;
+        }
+
+        .guided-drilldown-button:hover {
+            background: #dcecf9;
+        }
+
+        .guided-drilldown-button.is-selected {
+            background: #315f8d;
+            color: white;
         }
 
 
@@ -7184,8 +8134,8 @@ def _build_interactive_report_document(workspace_html):
 
         .efficiency-table th,
         .efficiency-table td {
-            padding-top: 8px;
-            padding-bottom: 8px;
+            padding-top: 4px;
+            padding-bottom: 4px;
         }
 
         .metric-info-panel {
@@ -7222,11 +8172,286 @@ def _build_interactive_report_document(workspace_html):
 
         .performance-interpretation p,
         .scaling-interpretation p {
-            font-size: 12px;
-            line-height: 1.5;
+            font-size: 14px;
+            line-height: 1.55;
+        }
+
+        /* -------------------------------------------------- */
+        /* Final responsive guided-layout overrides            */
+        /* Must remain after the compact desktop rules.         */
+        /* -------------------------------------------------- */
+
+        /* Medium width:
+        primary analysis above detailed analysis;
+        selector remains on the right. */
+        @media (max-width: 1250px) {
+            .guided-primary-region.has-drilldown {
+                grid-template-columns: minmax(0, 1fr);
+
+                grid-template-areas:
+                    "selector"
+                    "primary"
+                    "detail";
+
+                gap: 8px;
+            }
+
+            .guided-primary-region.has-drilldown
+            .guided-runtime-selector-region {
+                grid-area: selector;
+
+                width: 100%;
+                min-width: 0;
+            }
+
+            .guided-primary-region.has-drilldown
+            .guided-primary-panel {
+                grid-area: primary;
+
+                width: 100%;
+                min-width: 0;
+            }
+
+            .guided-primary-region.has-drilldown
+            .guided-drilldown-panel {
+                grid-area: detail;
+
+                width: 100%;
+                min-width: 0;
+                min-height: 520px;
+            }
+
+            .guided-primary-region.has-drilldown
+            .guided-panel-divider {
+                display: none;
+            }
         }
 
 
+        /* -------------------------------------------------- */
+        /* Final responsive guided-layout overrides            */
+        /* Must remain after the compact desktop rules.        */
+        /* -------------------------------------------------- */
+
+        /* Narrow width:
+        selector, primary analysis and detailed analysis are stacked. */
+        @media (max-width: 850px) {
+            .guided-primary-region,
+            .guided-primary-region.has-drilldown {
+                grid-template-columns: minmax(0, 1fr);
+
+                grid-template-areas:
+                    "selector"
+                    "primary"
+                    "detail";
+
+                gap: 10px;
+            }
+
+            .guided-primary-region
+            .guided-primary-panel,
+            .guided-primary-region.has-drilldown
+            .guided-primary-panel {
+                grid-area: primary;
+                width: 100%;
+                min-width: 0;
+            }
+
+            .guided-primary-region.has-drilldown
+            .guided-drilldown-panel {
+                grid-area: detail;
+                width: 100%;
+                min-width: 0;
+                min-height: 520px;
+            }
+
+            .guided-primary-region
+            .guided-runtime-selector-region,
+            .guided-primary-region.has-drilldown
+            .guided-runtime-selector-region {
+                grid-area: selector;
+                width: 100%;
+                min-width: 0;
+                order: initial;
+            }
+
+            .guided-primary-region.has-drilldown
+            .guided-panel-divider {
+                display: none;
+            }
+
+            .guided-drilldown-selector {
+                display: inline-flex;
+                flex-direction: row;
+                flex-wrap: nowrap;
+                align-items: center;
+                gap: 8px;
+
+                width: auto;
+                max-width: 100%;
+            }
+
+            .guided-drilldown-buttons {
+                display: inline-flex;
+                flex-direction: row;
+                flex-wrap: nowrap;
+            }
+
+            .guided-primary-tabs {
+                flex-direction: row;
+                flex-wrap: nowrap;
+                align-items: flex-start;
+            }
+
+            .guided-primary-tab-list {
+                display: grid;
+
+                flex: 1 1 auto;
+
+                grid-template-columns:
+                    repeat(auto-fit, minmax(170px, 1fr));
+
+                gap: 5px;
+            }
+
+            .guided-primary-tab {
+                width: 100%;
+                min-height: 38px;
+
+                padding: 7px 10px;
+
+                font-size: 13px;
+            }
+
+            .guided-split-control {
+                flex: 0 0 auto;
+            }
+
+            .guided-split-button {
+                width: 38px;
+                height: 38px;
+            }
+
+            .guided-split-button svg {
+                width: 20px;
+                height: 20px;
+            }
+
+            .guided-split-menu {
+                position: fixed;
+
+                top: auto;
+                right: 12px;
+                bottom: 12px;
+                left: 12px;
+
+                width: auto;
+
+                max-height: min(420px, calc(100vh - 24px));
+                overflow-y: auto;
+            }
+
+            .guided-comparison-divider {
+                display: none !important;
+            }
+
+            /* Mobile readability */
+
+            .report-header {
+                padding: 11px 14px;
+            }
+
+            .report-header h1 {
+                font-size: 21px;
+            }
+
+            .report-brand {
+                font-size: 10px;
+            }
+
+            .subtitle {
+                font-size: 12px;
+            }
+
+            .guided-navigation-header h1 {
+                font-size: 19px;
+            }
+
+            .guided-navigation-header > div:first-child > p:last-child {
+                font-size: 13px;
+                line-height: 1.4;
+            }
+
+            .guided-primary-tab {
+                min-height: 38px;
+                padding: 7px 10px;
+                font-size: 13px;
+            }
+
+            .trace-header-note {
+                font-size: 13px;
+            }
+
+            .efficiency-table {
+                font-size: 15px;
+            }
+
+            .efficiency-table thead th {
+                font-size: 14px;
+            }
+
+            .metric-name-cell {
+                font-size: 15px;
+                line-height: 1.35;
+            }
+
+            .metric-value {
+                width: 96px;
+                min-width: 96px;
+                height: 31px;
+                font-size: 14px;
+            }
+
+            .execution-domain-title {
+                font-size: 13px;
+            }
+
+            .performance-interpretation p,
+            .scaling-interpretation p {
+                font-size: 13px;
+                line-height: 1.5;
+            }
+
+            .observation-box {
+                font-size: 14px;
+            }
+
+            .analysis-scope-note {
+                font-size: 13px;
+            }
+
+            /* Mobile table scrolling */
+
+            .efficiency-table-wrapper,
+            .metric-table-card {
+                overflow-x: auto;
+                overflow-y: visible;
+
+                -webkit-overflow-scrolling: touch;
+                touch-action: pan-x pan-y pinch-zoom;
+            }
+
+            /* Let the page handle vertical scrolling */
+
+            .guided-primary-panel,
+            .guided-secondary-content,
+            .guided-drilldown-panel,
+            .guided-comparison-region {
+                overflow: visible;
+            }
+
+
+        }
 
 </style>
 
@@ -7660,7 +8885,15 @@ def _build_interactive_report_document(workspace_html):
             }
         }
 
-        function selectMetricCell(trigger, sectionId, metricKey, metricLabel, traceLabel, value) {
+        
+        function selectMetricCell(
+            trigger,
+            sectionId,
+            metricKey,
+            metricLabel,
+            traceLabel,
+            value
+        ) {
             const infoDict = window[
                 "metricInfo_" + sectionId
             ];
@@ -7669,118 +8902,127 @@ def _build_interactive_report_document(workspace_html):
                 return;
             }
 
-            const panelRoot = trigger
-                ? trigger.closest("[data-comparison-panel]")
-                : null;
-
-            const root = panelRoot || document;
-
-            function findInRoot(elementId) {
-                return root.querySelector(
-                    "#" + CSS.escape(elementId)
-                );
-            }
-
             const info = infoDict[metricKey];
+            const thresholds = info.thresholds;
 
             const valueText =
                 value === null || value === undefined
                     ? "Non-Avail"
                     : value.toFixed(2) + "%";
 
-            const titleElement = findInRoot(
-                sectionId + "-info-title"
-            );
+            let interpretation = "";
 
-            const typeElement = findInRoot(
-                sectionId + "-info-type"
-            );
-
-            const meaningElement = findInRoot(
-                sectionId + "-info-meaning"
-            );
-
-            const interpretationElement = findInRoot(
-                sectionId + "-info-interpretation"
-            );
-
-            const actionElement = findInRoot(
-                sectionId + "-info-action"
-            );
-
-            if (titleElement) {
-                titleElement.innerText =
-                    info.title + " — " + traceLabel;
-            }
-
-            if (typeElement) {
-                typeElement.innerText =
-                    info.type + " | Value: " + valueText;
-            }
-
-            if (meaningElement) {
-                meaningElement.innerText =
-                    info.meaning;
-            }
-
-            const thresholds = info.thresholds;
-
-            if (interpretationElement) {
-                if (
-                    value === null
-                    || value === undefined
-                ) {
-                    interpretationElement.innerText =
-                        "Interpretation: Metric is not available "
-                        + "for this trace or configuration.";
-                } else if (value > thresholds.reference) {
-                    interpretationElement.innerText =
-                        "Interpretation: " + info.above100;
-                } else if (value < thresholds.critical) {
-                    interpretationElement.innerText =
-                        "Interpretation: Critical value. "
-                        + info.low;
-                } else if (value < thresholds.attention) {
-                    interpretationElement.innerText =
-                        "Interpretation: Requires attention. "
-                        + info.low;
-                } else {
-                    interpretationElement.innerText =
-                        "Interpretation: This component is "
-                        + "probably not the dominant bottleneck.";
-                }
-            }
-
-            if (actionElement) {
-                actionElement.innerText =
-                    "Next diagnostic step: " + info.action;
-            }
-
-            const buttons = root.querySelectorAll(
-                "#" + CSS.escape(sectionId)
-                + " .metric-tree-button"
-            );
-
-            for (
-                let index = 0;
-                index < buttons.length;
-                index++
+            if (
+                value === null
+                || value === undefined
             ) {
-                buttons[index].classList.remove(
-                    "active"
-                );
+                interpretation =
+                    "Metric is not available for this trace or configuration.";
+            } else if (
+                value > thresholds.reference
+            ) {
+                interpretation =
+                    info.above100;
+            } else if (
+                value < thresholds.critical
+            ) {
+                interpretation =
+                    "Critical value. " + info.low;
+            } else if (
+                value < thresholds.attention
+            ) {
+                interpretation =
+                    "Requires attention. " + info.low;
+            } else {
+                interpretation =
+                    "This component is probably not the dominant bottleneck.";
+            }
 
-                if (
-                    buttons[index].getAttribute(
-                        "data-metric-key"
-                    ) === metricKey
-                ) {
-                    buttons[index].classList.add(
-                        "active"
-                    );
+            document.getElementById(
+                "metric-details-title"
+            ).innerText = info.title;
+
+            document.getElementById(
+                "metric-details-type"
+            ).innerText = info.type;
+
+            document.getElementById(
+                "metric-details-trace"
+            ).innerText = traceLabel;
+
+            document.getElementById(
+                "metric-details-value"
+            ).innerText = valueText;
+
+            document.getElementById(
+                "metric-details-definition"
+            ).innerText = info.meaning;
+
+            document.getElementById(
+                "metric-details-interpretation"
+            ).innerText = interpretation;
+
+            document.getElementById(
+                "metric-details-action"
+            ).innerText = info.action;
+
+            const modal = document.getElementById(
+                "metric-details-modal"
+            );
+
+            if (!modal) {
+                return;
+            }
+
+            modal.hidden = false;
+            modal.setAttribute(
+                "aria-hidden",
+                "false"
+            );
+
+            document.body.classList.add(
+                "metric-details-open"
+            );
+
+            const closeButton = modal.querySelector(
+                ".metric-details-close"
+            );
+
+            if (closeButton) {
+                closeButton.focus();
+            }
+        }        
+
+        function closeMetricDetails() {
+            const modal = document.getElementById(
+                "metric-details-modal"
+            );
+
+            if (!modal) {
+                return;
+            }
+
+            modal.hidden = true;
+            modal.setAttribute(
+                "aria-hidden",
+                "true"
+            );
+
+            document.body.classList.remove(
+                "metric-details-open"
+            );
+        }
+
+        /* Close the dialog with ESC */
+        document.addEventListener(
+            "keydown",
+            function(event) {
+                if (event.key === "Escape") {
+                    closeMetricDetails();
                 }
             }
-        }
+        );
+
 
         function copyCommand(cmd) {
             navigator.clipboard.writeText(cmd).then(function() {
@@ -7798,9 +9040,6 @@ def _build_interactive_report_document(workspace_html):
                 <div>
                     <div class="report-brand">BasicAnalysis</div>
                     <h1>Performance Report</h1>
-                    <p class="subtitle">
-                        Hierarchical efficiency analysis and guided performance diagnosis
-                    </p>
                 </div>
 
             </div>
@@ -7811,6 +9050,65 @@ def _build_interactive_report_document(workspace_html):
         {workspace_html}
 
     """ + """</main>
+
+        <div
+            id="metric-details-modal"
+            class="metric-details-modal"
+            hidden
+            aria-hidden="true"
+        >
+            <div
+                class="metric-details-backdrop"
+                onclick="closeMetricDetails()"
+            ></div>
+
+            <section
+                class="metric-details-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="metric-details-title"
+            >
+                <button
+                    type="button"
+                    class="metric-details-close"
+                    aria-label="Close metric details"
+                    onclick="closeMetricDetails()"
+                >
+                    ×
+                </button>
+
+                <div class="metric-details-eyebrow">
+                    Metric details
+                </div>
+
+                <h2 id="metric-details-title">
+                    Metric details
+                </h2>
+
+                <div class="metric-details-context">
+                    <span id="metric-details-type"></span>
+                    <span id="metric-details-trace"></span>
+                    <span id="metric-details-value"></span>
+                </div>
+
+                <div class="metric-details-section">
+                    <h3>Definition</h3>
+                    <p id="metric-details-definition"></p>
+                </div>
+
+                <div class="metric-details-section">
+                    <h3>Interpretation</h3>
+                    <p id="metric-details-interpretation"></p>
+                </div>
+
+                <div class="metric-details-section metric-details-next-step">
+                    <h3>Next diagnostic step</h3>
+                    <p id="metric-details-action"></p>
+                </div>
+            </section>
+        </div>
+
+
         </body>
         </html>
         """
@@ -7941,6 +9239,8 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     host_html = "<p>Host execution-domain metrics are only available for MPI+GPU traces.</p>"
     device_html = "<p>Device execution-domain metrics are only available for MPI+GPU traces.</p>"
 
+    execution_domains_html = ""
+
     if (
         metrics_result["kind"] == "hybrid"
         and trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"
@@ -8022,6 +9322,15 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             trace_header_note=trace_header_note,
         )
 
+        execution_domains_html = _build_execution_domains_section(
+            host_metric_keys=host_filtered_keys,
+            device_metric_keys=device_filtered_keys,
+            host_sources=host_sources,
+            device_sources=device_sources,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            trace_header_note=trace_header_note,
+        )        
 
     # ---- OpenMP runtime-specific efficiency metrics
     openmp_filtered_keys = []
@@ -8059,10 +9368,10 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                 trace_header_note=trace_header_note,
             )
             openmp_html = (
-                _build_openmp_runtime_scope_note(
+                openmp_metrics_html
+                + _build_openmp_runtime_scope_note(
                     is_hybrid=model["is_hybrid"]
                 )
-                + openmp_metrics_html
             )
         else:
             openmp_html = (
@@ -8180,8 +9489,8 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             )
 
             computation_scalability_html = (
-                scalability_scope_html
-                + scalability_metrics_html
+                scalability_metrics_html
+                + scalability_scope_html
             )
 
 
@@ -8292,10 +9601,13 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                 "<div class='analysis-scope-note'>"
                 "<h3>Metric scope</h3>"
                 "<p>These metrics quantify the {0} contribution within the "
-                "MPI+{0} multiplicative runtime model. Host and Device are "
-                "available as independent execution-domain analyses in the "
-                "left navigator.</p></div>"
-            ).format(html.escape(inner_model))
+                "MPI+{0} multiplicative runtime model. Use the Execution "
+                "Domains view to inspect complementary Host and Device "
+                "evidence and determine where the accelerator-related "
+                "inefficiency manifests.</p></div>"
+            ).format(
+                html.escape(inner_model)
+            )
 
             accelerator_metrics_html = _build_metric_tree_heatmap_section(
                 metric_keys=accelerator_filtered_keys,
@@ -8312,7 +9624,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             )
 
             accelerator_html = (
-                accelerator_scope_note + accelerator_metrics_html
+                accelerator_metrics_html + accelerator_scope_note
             )
 
     analysis_views = _build_component_views(
@@ -8343,19 +9655,26 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
     rendered_analysis_html = {
         "overview": overview_view_html,
+
         "parallel-runtime-model": (
             parallel_runtime_model_html
         ),
+
+        "execution-domains": (
+            execution_domains_html
+        ),
+
         "computation-scalability": (
             computation_scalability_html
         ),
+
         "mpi-runtime": mpi_html,
         "openmp-runtime": openmp_html,
         "accelerator-runtime": accelerator_html,
+
         "host-analysis": host_html,
         "device-analysis": device_html,
     }
-
 
     analysis_catalogue = build_analysis_catalogue(
         overview_section=overview_section,

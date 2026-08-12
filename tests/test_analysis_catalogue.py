@@ -766,12 +766,14 @@ class AnalysisCatalogueTests(unittest.TestCase):
             [
                 "overview",
                 "parallel-runtime-model",
+                "execution-domains",
                 "computation-scalability",
                 "mpi-runtime",
                 "accelerator-runtime",
                 "host-analysis",
                 "device-analysis",
             ],
+
         )
 
     def test_single_trace_mpi_cuda_omits_computation_scalability(self):
@@ -788,6 +790,7 @@ class AnalysisCatalogueTests(unittest.TestCase):
             [
                 "overview",
                 "parallel-runtime-model",
+                "execution-domains",
                 "mpi-runtime",
                 "accelerator-runtime",
                 "host-analysis",
@@ -815,6 +818,11 @@ class AnalysisCatalogueTests(unittest.TestCase):
         self.assertEqual(
             labels["parallel-runtime-model"],
             "Parallel Runtime Model",
+        )
+
+        self.assertEqual(
+            labels["execution-domains"],
+            "Execution Domains",
         )
 
         self.assertEqual(
@@ -953,6 +961,91 @@ class AnalysisCatalogueTests(unittest.TestCase):
                 scalability_section=scalability,
                 rendered_html={},
             )
+
+
+    def test_execution_domains_is_primary_for_mpi_cuda(self):
+        catalogue = self._build_catalogue(
+            self._mpi_cuda_report_data(
+                trace_count=2
+            )
+        )
+
+        execution_domains = catalogue.get_view(
+            "execution-domains"
+        )
+
+        self.assertIsNotNone(
+            execution_domains
+        )
+
+        self.assertEqual(
+            execution_domains.group,
+            "primary",
+        )
+
+        self.assertEqual(
+            execution_domains.label,
+            "Execution Domains",
+        )
+
+    def test_execution_domains_is_available_for_single_trace_mpi_cuda(self):
+        catalogue = self._build_catalogue(
+            self._mpi_cuda_report_data(
+                trace_count=1
+            )
+        )
+
+        self.assertTrue(
+            catalogue.has_view(
+                "execution-domains"
+            )
+        )
+
+    def test_mpi_openmp_has_no_execution_domains_primary_view(self):
+        catalogue = self._build_catalogue(
+            self._mpi_openmp_report_data(
+                trace_count=2
+            )
+        )
+
+        self.assertFalse(
+            catalogue.has_view(
+                "execution-domains"
+            )
+        )
+    
+    def test_execution_domains_combines_host_and_device_html(self):
+        catalogue = self._build_catalogue(
+            self._mpi_cuda_report_data(
+                trace_count=2
+            ),
+            rendered_html={
+                "host-analysis": (
+                    "<div id='host-body'></div>"
+                ),
+                "device-analysis": (
+                    "<div id='device-body'></div>"
+                ),
+            },
+        )
+
+        execution_domains = catalogue.get_view(
+            "execution-domains"
+        )
+
+        self.assertIsNotNone(
+            execution_domains
+        )
+
+        self.assertIn(
+            "host-body",
+            execution_domains.body_html,
+        )
+
+        self.assertIn(
+            "device-body",
+            execution_domains.body_html,
+        )
 
 
 if __name__ == "__main__":
