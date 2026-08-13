@@ -103,9 +103,7 @@ def _drilldown_views(
     )
 
 
-def _render_primary_tabs(
-    views: Sequence[AnalysisCatalogueView],
-) -> str:
+def _render_primary_tabs(views: Sequence[AnalysisCatalogueView],) -> str:
     """Render primary navigation and the split-view control."""
 
     lines = [
@@ -223,11 +221,144 @@ def _render_primary_tabs(
 
     lines.extend(
         [
-            "</div>",
-            "</div>",
-            "</div>",
+            "</div>",  # guided-split-menu
+            "</div>",  # guided-split-control
         ]
     )
+
+    lines.append(
+        """
+        <div
+            class="guided-export-control"
+            data-guided-export-control
+        >
+            <button
+                type="button"
+                class="guided-export-button"
+                data-guided-export-button
+                aria-label="Export report content"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                title="Export report content"
+            >
+                <svg
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                    focusable="false"
+                >
+                    <path
+                        d="M12 3v11"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                    ></path>
+
+                    <path
+                        d="M8 10l4 4 4-4"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    ></path>
+
+                    <path
+                        d="M5 17v3h14v-3"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    ></path>
+                </svg>
+            </button>
+
+            <div
+                class="guided-export-menu"
+                data-guided-export-menu
+                role="menu"
+                hidden
+            >
+                <div class="guided-export-menu-title">
+                    Export
+                </div>
+
+                <div class="guided-export-menu-group">
+                    <div class="guided-export-menu-group-title">
+                        Images
+                    </div>
+
+                    <button
+                        type="button"
+                        class="guided-export-option"
+                        data-guided-export-current-png
+                        role="menuitem"
+                    >
+                        Current efficiency table (PNG)
+                    </button>
+
+                    <button
+                        type="button"
+                        class="guided-export-option"
+                        data-guided-export-primary-png
+                        role="menuitem"
+                        hidden
+                    >
+                        Parallel Runtime Model table (PNG)
+                    </button>
+
+                    <button
+                        type="button"
+                        class="guided-export-option"
+                        data-guided-export-drilldown-png
+                        role="menuitem"
+                        hidden
+                    >
+                        Runtime Analysis table (PNG)
+                    </button>
+
+                    <button
+                        type="button"
+                        class="guided-export-option"
+                        data-guided-export-visible-png
+                        role="menuitem"
+                        hidden
+                    >
+                        Both visible tables (PNG)
+                    </button>
+
+
+                    <button
+                        type="button"
+                        class="guided-export-option"
+                        data-guided-export-all-png
+                        role="menuitem"
+                    >
+                        All efficiency tables (ZIP)
+                    </button>
+                </div>
+
+                <div class="guided-export-menu-group">
+                    <div class="guided-export-menu-group-title">
+                        Report
+                    </div>
+
+                    <button
+                        type="button"
+                        class="guided-export-option"
+                        data-guided-export-pdf
+                        role="menuitem"
+                    >
+                        Print / Save as PDF
+                    </button>
+                </div>
+            </div>
+        </div>
+        """
+    )
+
+    lines.append("</div>")  # guided-primary-tabs
 
     return "\n".join(lines)
 
@@ -431,6 +562,38 @@ def _render_navigation_script() -> str:
 
             const splitMenu = root.querySelector(
                 "[data-guided-split-menu]"
+            );
+
+            const exportControl = root.querySelector(
+                "[data-guided-export-control]"
+            );
+
+            const exportButton = root.querySelector(
+                "[data-guided-export-button]"
+            );
+
+            const exportMenu = root.querySelector(
+                "[data-guided-export-menu]"
+            );
+
+            const exportCurrentPngButton = root.querySelector(
+                "[data-guided-export-current-png]"
+            );
+
+            const exportPrimaryPngButton = root.querySelector(
+                "[data-guided-export-primary-png]"
+            );
+
+            const exportDrilldownPngButton = root.querySelector(
+                "[data-guided-export-drilldown-png]"
+            );
+
+            const exportVisiblePngButton = root.querySelector(
+                "[data-guided-export-visible-png]"
+            );
+
+            const exportAllPngButton = root.querySelector(
+                "[data-guided-export-all-png]"
             );
 
             const splitOptions = Array.from(
@@ -829,6 +992,905 @@ def _render_navigation_script() -> str:
                 });
             }
 
+            function visibleEfficiencyTables() {
+                return Array.from(
+                    root.querySelectorAll(
+                        "[data-efficiency-export]"
+                    )
+                ).filter(function (element) {
+                    return (
+                        element.offsetWidth > 0
+                        && element.offsetHeight > 0
+                        && !element.closest("[hidden]")
+                    );
+                });
+            }           
+
+            function activeDrilldownEfficiencyTable() {
+                if (
+                    activePrimaryId !== "parallel-runtime-model"
+                    || !activeDrilldownId
+                    || !drilldownSlot
+                ) {
+                    return null;
+                }
+
+                return drilldownSlot.querySelector(
+                    "[data-efficiency-export]"
+                );
+            }
+
+            function primaryEfficiencyTable() {
+                if (!primarySlot) {
+                    return null;
+                }
+
+                return primarySlot.querySelector(
+                    "[data-efficiency-export]"
+                );
+            }
+
+
+            function activeRuntimeName() {
+                if (!activeDrilldownId) {
+                    return "";
+                }
+
+                const selectedButton = drilldownButtons.find(
+                    function (button) {
+                        return (
+                            button.dataset.guidedDrilldownTarget
+                            === activeDrilldownId
+                        );
+                    }
+                );
+
+                if (!selectedButton) {
+                    return "";
+                }
+
+                return selectedButton.textContent.trim();
+            }
+
+            function safeExportFilename(value) {
+                return String(value || "efficiency-table")
+                    .trim()
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, "-")
+                    .replace(/^-+|-+$/g, "");
+            } 
+
+            function downloadCanvasAsPng(canvas, filename) {
+                const link = document.createElement("a");
+
+                link.download = filename;
+                link.href = canvas.toDataURL("image/png");
+
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+            }
+
+            function downloadBlob(blob, filename) {
+                const url = URL.createObjectURL(blob);
+
+                const link = document.createElement("a");
+
+                link.href = url;
+                link.download = filename;
+
+                document.body.appendChild(link);
+
+                link.click();
+                link.remove();
+
+                window.setTimeout(function () {
+                    URL.revokeObjectURL(url);
+                }, 1000);
+            }
+
+            function canvasToPngBlob(canvas) {
+                return new Promise(function (resolve, reject) {
+                    canvas.toBlob(
+                        function (blob) {
+                            if (!blob) {
+                                reject(
+                                    new Error(
+                                        "The PNG image could not be generated."
+                                    )
+                                );
+
+                                return;
+                            }
+
+                            resolve(blob);
+                        },
+                        "image/png"
+                    );
+                });
+            }
+
+            async function renderEfficiencyTableToPngBlob(
+                tableCard
+            ) {
+                if (!tableCard) {
+                    return null;
+                }
+
+                if (
+                    typeof window.html2canvas
+                    === "undefined"
+                ) {
+                    throw new Error(
+                        "PNG export is not available because "
+                        + "html2canvas could not be loaded."
+                    );
+                }
+
+                const canvas =
+                    await window.html2canvas(
+                        tableCard,
+                        {
+                            backgroundColor: "#ffffff",
+
+                            scale: Math.max(
+                                2,
+                                window.devicePixelRatio || 1
+                            ),
+
+                            useCORS: true,
+
+                            logging: false
+                        }
+                    );
+
+                return canvasToPngBlob(
+                    canvas
+                );
+            }
+
+            async function exportEfficiencyTableAsPng(tableCard) {
+                if (!tableCard) {
+                    return;
+                }
+
+                const exportName =
+                    tableCard.dataset.exportName
+                    || "efficiency-table";
+
+                try {
+                    const blob =
+                        await renderEfficiencyTableToPngBlob(
+                            tableCard
+                        );
+
+                    downloadBlob(
+                        blob,
+                        "basicanalysis-"
+                            + safeExportFilename(exportName)
+                            + ".png"
+                    );
+
+                } catch (error) {
+                    console.error(
+                        "BasicAnalysis PNG export failed:",
+                        error
+                    );
+
+                    window.alert(
+                        "The efficiency table could not "
+                        + "be exported as PNG."
+                    );
+                }
+            }
+
+            async function exportCurrentEfficiencyTable() {
+                /*
+                * Execution Domains is presented interactively as
+                * two tables but exported as one Host + Device table.
+                */
+                if (
+                    activePrimaryId
+                    === "execution-domains"
+                ) {
+                    setExportMenuOpen(false);
+
+                    await exportExecutionDomainsAsPng();
+
+                    return;
+                }
+
+                /*
+                * When a Runtime Analysis drilldown is open, it is
+                * the analyst's current detailed analysis. Export
+                * that table rather than the Parallel Runtime Model
+                * table that remains visible beside it.
+                */
+                const drilldownTable =
+                    activeDrilldownEfficiencyTable();
+
+                if (drilldownTable) {
+                    setExportMenuOpen(false);
+
+                    await exportSingleEfficiencyTableAsPng(
+                        drilldownTable,
+                        runtimeAnalysisExportName()
+                    );
+
+                    return;
+                }
+
+                /*
+                * Normal primary views contain one exportable
+                * efficiency table.
+                */
+                const tables =
+                    visibleEfficiencyTables();
+
+                if (tables.length === 0) {
+                    window.alert(
+                        "No efficiency table is currently visible."
+                    );
+
+                    return;
+                }
+
+                if (tables.length > 1) {
+                    window.alert(
+                        "More than one efficiency table is currently visible."
+                    );
+
+                    return;
+                }
+
+                setExportMenuOpen(false);
+
+                await exportSingleEfficiencyTableAsPng(
+                    tables[0]
+                );
+            }
+
+            function prepareTableForExport(table) {
+                if (!table) {
+                    return;
+                }
+
+                const headerCells = table.querySelectorAll(
+                    "thead th:not(.metric-column-header)"
+                );
+
+                headerCells.forEach(function (cell) {
+                    cell.textContent =
+                        cell.textContent.replace(
+                            /\s*\[T\d+\]\s*$/,
+                            ""
+                        );
+                });
+            }
+
+            function appendExportFooter(
+                exportCard,
+                columnDescription
+            ) {
+                if (
+                    !exportCard
+                    || !columnDescription
+                ) {
+                    return;
+                }
+
+                const footer =
+                    document.createElement("div");
+
+                footer.className =
+                    "export-table-footer";
+
+                footer.textContent =
+                    "Columns: " + columnDescription;
+
+                exportCard.appendChild(
+                    footer
+                );
+            }
+
+            function buildCombinedExecutionDomainsExport() {
+                const hostCard = root.querySelector(
+                    '[data-export-group="execution-domains"]'
+                    + '[data-export-domain="host"]'
+                );
+
+                const deviceCard = root.querySelector(
+                    '[data-export-group="execution-domains"]'
+                    + '[data-export-domain="device"]'
+                );
+
+                if (!hostCard || !deviceCard) {
+                    return null;
+                }
+
+                const hostTable = hostCard.querySelector(
+                    ".efficiency-table"
+                );
+
+                const deviceTable = deviceCard.querySelector(
+                    ".efficiency-table"
+                );
+
+                if (!hostTable || !deviceTable) {
+                    return null;
+                }
+
+                const exportCard = document.createElement("div");
+
+                exportCard.className =
+                    "metric-table-card export-combined-efficiency-table";
+
+                exportCard.dataset.exportName =
+                    "execution-domains";
+
+                const wrapper = document.createElement("div");
+
+                wrapper.className =
+                    "efficiency-table-wrapper";
+
+                /*
+                * Start from the Host table so we preserve exactly
+                * the existing header and table styling.
+                */
+                const combinedTable =
+                    hostTable.cloneNode(true);
+
+                prepareTableForExport(
+                    combinedTable
+                );
+
+                const combinedBody =
+                    combinedTable.querySelector("tbody");
+
+                const deviceBody =
+                    deviceTable.querySelector("tbody");
+
+                if (!combinedBody || !deviceBody) {
+                    return null;
+                }
+
+                const deviceRows = Array.from(
+                    deviceBody.children
+                );
+
+                deviceRows.forEach(function (row, index) {
+                    const clonedRow =
+                        row.cloneNode(true);
+
+                    if (index === 0) {
+                        clonedRow.classList.add(
+                            "export-device-start"
+                        );
+                    }
+
+                    combinedBody.appendChild(
+                        clonedRow
+                    );
+                });
+
+                wrapper.appendChild(combinedTable);
+                exportCard.appendChild(wrapper);
+
+                appendExportFooter(
+                    exportCard,
+                    hostCard.dataset.exportColumns || ""
+                );
+
+                return exportCard;
+            }
+
+            function buildTemporaryEfficiencyTableExport(sourceCard, exportName = null) {
+                if (!sourceCard) {
+                    return null;
+                }
+
+                const sourceTable = sourceCard.querySelector(
+                    ".efficiency-table"
+                );
+
+                if (!sourceTable) {
+                    return null;
+                }
+
+                const exportCard = document.createElement("div");
+
+                exportCard.className =
+                    "metric-table-card export-temporary-efficiency-table";
+
+                exportCard.dataset.exportName =
+                    exportName
+                    || sourceCard.dataset.exportName
+                    || "efficiency-table";
+
+                const wrapper = document.createElement("div");
+
+                wrapper.className =
+                    "efficiency-table-wrapper";
+
+                const clonedTable =
+                    sourceTable.cloneNode(true);
+
+                prepareTableForExport(
+                    clonedTable
+                );
+
+                wrapper.appendChild(
+                    clonedTable
+                );
+
+                exportCard.appendChild(
+                    wrapper
+                );
+
+                appendExportFooter(
+                    exportCard,
+                    sourceCard.dataset.exportColumns || ""
+                );
+
+                return exportCard;
+            }         
+
+            async function exportTemporaryCardAsPng(exportCard) {
+                if (!exportCard) {
+                    return;
+                }
+
+                exportCard.style.position = "fixed";
+                exportCard.style.left = "-100000px";
+                exportCard.style.top = "0";
+                exportCard.style.zIndex = "-1";
+
+                /*
+                * Let the temporary element use its intrinsic
+                * table width instead of the report-panel width.
+                */
+                exportCard.style.width = "max-content";
+                exportCard.style.maxWidth = "none";
+
+                document.body.appendChild(
+                    exportCard
+                );
+
+                try {
+                    await exportEfficiencyTableAsPng(
+                        exportCard
+                    );
+                } finally {
+                    exportCard.remove();
+                }
+            }
+
+            async function renderTemporaryCardToPngBlob(
+                exportCard
+            ) {
+                if (!exportCard) {
+                    return null;
+                }
+
+                exportCard.style.position = "fixed";
+                exportCard.style.left = "-100000px";
+                exportCard.style.top = "0";
+                exportCard.style.zIndex = "-1";
+
+                exportCard.style.width = "max-content";
+                exportCard.style.maxWidth = "none";
+
+                document.body.appendChild(
+                    exportCard
+                );
+
+                try {
+                    return await renderEfficiencyTableToPngBlob(
+                        exportCard
+                    );
+                } finally {
+                    exportCard.remove();
+                }
+            }
+
+            async function addEfficiencyTableToZip(
+                zip,
+                sourceCard,
+                usedNames
+            ) {
+                const exportCard =
+                    buildTemporaryEfficiencyTableExport(
+                        sourceCard
+                    );
+
+                if (!exportCard) {
+                    return;
+                }
+
+                const blob =
+                    await renderTemporaryCardToPngBlob(
+                        exportCard
+                    );
+
+                if (!blob) {
+                    return;
+                }
+
+                let baseName =
+                    safeExportFilename(
+                        sourceCard.dataset.exportName
+                        || "efficiency-table"
+                    );
+
+                let filename =
+                    baseName + ".png";
+
+                /*
+                * Prevent accidental replacement if two sections
+                * happen to expose the same export name.
+                */
+                let suffix = 2;
+
+                while (usedNames.has(filename)) {
+                    filename =
+                        baseName
+                        + "-"
+                        + suffix
+                        + ".png";
+
+                    suffix += 1;
+                }
+
+                usedNames.add(filename);
+
+                zip.file(
+                    filename,
+                    blob
+                );
+            }
+
+            async function addExecutionDomainsToZip(
+                zip,
+                usedNames
+            ) {
+                const exportCard =
+                    buildCombinedExecutionDomainsExport();
+
+                if (!exportCard) {
+                    return;
+                }
+
+                const blob =
+                    await renderTemporaryCardToPngBlob(
+                        exportCard
+                    );
+
+                if (!blob) {
+                    return;
+                }
+
+                const filename =
+                    "execution-domains.png";
+
+                usedNames.add(filename);
+
+                zip.file(
+                    filename,
+                    blob
+                );
+            }
+
+            async function exportAllEfficiencyTablesAsZip() {
+                setExportMenuOpen(false);
+
+                if (
+                    typeof window.JSZip
+                    === "undefined"
+                ) {
+                    window.alert(
+                        "ZIP export is not available because "
+                        + "the ZIP library could not be loaded."
+                    );
+
+                    return;
+                }
+
+                const allCards = Array.from(
+                    root.querySelectorAll(
+                        "[data-efficiency-export]"
+                    )
+                );
+
+                if (allCards.length === 0) {
+                    window.alert(
+                        "No efficiency tables are available "
+                        + "for export."
+                    );
+
+                    return;
+                }
+
+                const zip =
+                    new window.JSZip();
+
+                const usedNames =
+                    new Set();
+
+                try {
+                    /*
+                    * Export every normal logical table.
+                    *
+                    * Host and Device are skipped here because
+                    * Execution Domains is exported separately
+                    * as one combined table.
+                    */
+                    const normalCards =
+                        allCards.filter(
+                            function (card) {
+                                return (
+                                    card.dataset.exportGroup
+                                    !== "execution-domains"
+                                );
+                            }
+                        );
+
+                    for (const card of normalCards) {
+                        await addEfficiencyTableToZip(
+                            zip,
+                            card,
+                            usedNames
+                        );
+                    }
+
+                    /*
+                    * Add the combined Host + Device analysis once.
+                    */
+                    const hasExecutionDomains =
+                        allCards.some(
+                            function (card) {
+                                return (
+                                    card.dataset.exportGroup
+                                    === "execution-domains"
+                                );
+                            }
+                        );
+
+                    if (hasExecutionDomains) {
+                        await addExecutionDomainsToZip(
+                            zip,
+                            usedNames
+                        );
+                    }
+
+                    /*
+                    * Create one downloadable archive.
+                    */
+                    const zipBlob =
+                        await zip.generateAsync({
+                            type: "blob"
+                        });
+
+                    downloadBlob(
+                        zipBlob,
+                        "basicanalysis-efficiency-tables.zip"
+                    );
+
+                } catch (error) {
+                    console.error(
+                        "BasicAnalysis ZIP export failed:",
+                        error
+                    );
+
+                    window.alert(
+                        "The efficiency tables could not "
+                        + "be exported as a ZIP file."
+                    );
+                }
+            }
+
+            async function exportExecutionDomainsAsPng() {
+                const exportCard =
+                    buildCombinedExecutionDomainsExport();
+
+                if (!exportCard) {
+                    window.alert(
+                        "The Host and Device efficiency tables "
+                        + "could not be prepared for export."
+                    );
+
+                    return;
+                }
+
+                await exportTemporaryCardAsPng(
+                    exportCard
+                );
+            }
+
+            async function exportSingleEfficiencyTableAsPng(
+                sourceCard,
+                exportName = null
+            ) {
+                const exportCard =
+                    buildTemporaryEfficiencyTableExport(
+                        sourceCard,
+                        exportName
+                    );
+
+                if (!exportCard) {
+                    window.alert(
+                        "The efficiency table could not be "
+                        + "prepared for export."
+                    );
+
+                    return;
+                }
+
+                await exportTemporaryCardAsPng(
+                    exportCard
+                );
+            }
+
+            function buildCombinedRuntimeAnalysisExport() {
+                const primaryCard =
+                    primaryEfficiencyTable();
+
+                const drilldownCard =
+                    activeDrilldownEfficiencyTable();
+
+                if (!primaryCard || !drilldownCard) {
+                    return null;
+                }
+
+                const primaryTable =
+                    primaryCard.querySelector(
+                        ".efficiency-table"
+                    );
+
+                const drilldownTable =
+                    drilldownCard.querySelector(
+                        ".efficiency-table"
+                    );
+
+                if (!primaryTable || !drilldownTable) {
+                    return null;
+                }
+
+                const exportCard =
+                    document.createElement("div");
+
+                exportCard.className =
+                    "export-runtime-combined";
+
+                exportCard.dataset.exportName =
+                    "parallel-runtime-model-"
+                    + runtimeAnalysisExportName();
+
+                /*
+                * Parallel Runtime Model table.
+                */
+                const primaryWrapper =
+                    document.createElement("div");
+
+                primaryWrapper.className =
+                    "metric-table-card "
+                    + "export-temporary-efficiency-table";
+
+                const primaryTableWrapper =
+                    document.createElement("div");
+
+                primaryTableWrapper.className =
+                    "efficiency-table-wrapper";
+
+                const clonedPrimaryTable =
+                    primaryTable.cloneNode(true);
+
+                prepareTableForExport(
+                    clonedPrimaryTable
+                );
+
+                primaryTableWrapper.appendChild(
+                    clonedPrimaryTable
+                );
+
+                primaryWrapper.appendChild(
+                    primaryTableWrapper
+                );
+
+                exportCard.appendChild(
+                    primaryWrapper
+                );
+
+                /*
+                * Runtime Analysis table.
+                */
+                const drilldownWrapper =
+                    document.createElement("div");
+
+                drilldownWrapper.className =
+                    "metric-table-card "
+                    + "export-temporary-efficiency-table "
+                    + "export-runtime-detail";
+
+                const drilldownTableWrapper =
+                    document.createElement("div");
+
+                drilldownTableWrapper.className =
+                    "efficiency-table-wrapper";
+
+                const clonedDrilldownTable =
+                    drilldownTable.cloneNode(true);
+
+                prepareTableForExport(
+                    clonedDrilldownTable
+                );
+
+                drilldownTableWrapper.appendChild(
+                    clonedDrilldownTable
+                );
+
+                drilldownWrapper.appendChild(
+                    drilldownTableWrapper
+                );
+
+                exportCard.appendChild(
+                    drilldownWrapper
+                );
+
+                appendExportFooter(
+                    exportCard,
+                    primaryCard.dataset.exportColumns || ""
+                );
+
+                return exportCard;
+            }
+
+            async function exportVisibleRuntimeTablesAsPng() {
+                const exportCard =
+                    buildCombinedRuntimeAnalysisExport();
+
+                if (!exportCard) {
+                    window.alert(
+                        "The Parallel Runtime Model and Runtime "
+                        + "Analysis tables could not be prepared "
+                        + "for export."
+                    );
+
+                    return;
+                }
+
+                setExportMenuOpen(false);
+
+                await exportTemporaryCardAsPng(
+                    exportCard
+                );
+            }
+
+            function runtimeAnalysisExportName() {
+                if (!activeDrilldownId) {
+                    return "runtime-analysis";
+                }
+
+                const selectedButton = drilldownButtons.find(
+                    function (button) {
+                        return (
+                            button.dataset.guidedDrilldownTarget
+                            === activeDrilldownId
+                        );
+                    }
+                );
+
+                if (!selectedButton) {
+                    return activeDrilldownId;
+                }
+
+                const runtimeName =
+                    selectedButton.textContent
+                        .trim()
+                        .toLowerCase();
+
+                return runtimeName + "-runtime-analysis";
+            }
+
             function returnViewToStore(viewId) {
                 const view = findView(viewId);
 
@@ -917,6 +1979,119 @@ def _render_navigation_script() -> str:
                 );
             }
 
+            function setExportMenuOpen(isOpen) {
+                if (!exportMenu || !exportButton) {
+                    return;
+                }
+
+                exportMenu.hidden = !isOpen;
+
+                exportButton.setAttribute(
+                    "aria-expanded",
+                    isOpen ? "true" : "false"
+                );
+
+                exportControl.classList.toggle(
+                    "is-open",
+                    isOpen
+                );
+            }
+
+            function updateExportOptions() {
+                const hasRuntimeAnalysis =
+                    (
+                        activePrimaryId
+                        === "parallel-runtime-model"
+                        && Boolean(activeDrilldownId)
+                    );
+
+                if (exportCurrentPngButton) {
+                    exportCurrentPngButton.hidden =
+                        hasRuntimeAnalysis;
+                }
+
+                if (exportPrimaryPngButton) {
+                    exportPrimaryPngButton.hidden =
+                        !hasRuntimeAnalysis;
+                }
+
+                if (exportDrilldownPngButton) {
+                    exportDrilldownPngButton.hidden =
+                        !hasRuntimeAnalysis;
+
+                    if (hasRuntimeAnalysis) {
+                        const runtimeName =
+                            activeRuntimeName();
+
+                        exportDrilldownPngButton.textContent =
+                            runtimeName
+                                ? runtimeName
+                                    + " Runtime Analysis table (PNG)"
+                                : "Runtime Analysis table (PNG)";
+                    }
+                }
+
+                if (exportVisiblePngButton) {
+                    exportVisiblePngButton.hidden =
+                        !hasRuntimeAnalysis;
+                }
+            }
+
+            function toggleExportMenu() {
+                if (!exportMenu) {
+                    return;
+                }
+
+                setSplitMenuOpen(false);
+
+                updateExportOptions();
+
+                setExportMenuOpen(
+                    exportMenu.hidden
+                );
+            }
+
+            async function exportPrimaryEfficiencyTable() {
+                const table =
+                    primaryEfficiencyTable();
+
+                if (!table) {
+                    window.alert(
+                        "The Parallel Runtime Model efficiency "
+                        + "table is not available."
+                    );
+
+                    return;
+                }
+
+                setExportMenuOpen(false);
+
+                await exportSingleEfficiencyTableAsPng(
+                    table,
+                    "parallel-runtime-model"
+                );
+            }
+
+            async function exportDrilldownEfficiencyTable() {
+                const table =
+                    activeDrilldownEfficiencyTable();
+
+                if (!table) {
+                    window.alert(
+                        "The selected Runtime Analysis efficiency "
+                        + "table is not available."
+                    );
+
+                    return;
+                }
+
+                setExportMenuOpen(false);
+
+                await exportSingleEfficiencyTableAsPng(
+                    table,
+                    runtimeAnalysisExportName()
+                );
+            }
 
             function updateSplitControl() {
                 splitOptions.forEach(function (option) {
@@ -961,6 +2136,8 @@ def _render_navigation_script() -> str:
                 if (!splitMenu) {
                     return;
                 }
+
+                setExportMenuOpen(false);
 
                 updateSplitControl();
 
@@ -1157,6 +2334,73 @@ def _render_navigation_script() -> str:
                 );
             }
 
+            if (exportButton) {
+                exportButton.addEventListener(
+                    "click",
+                    function (event) {
+                        event.stopPropagation();
+                        toggleExportMenu();
+                    }
+                );
+            }
+
+            if (exportCurrentPngButton) {
+                exportCurrentPngButton.addEventListener(
+                    "click",
+                    function (event) {
+                        event.stopPropagation();
+
+                        exportCurrentEfficiencyTable();
+                    }
+                );
+            }
+
+            if (exportPrimaryPngButton) {
+                exportPrimaryPngButton.addEventListener(
+                    "click",
+                    function (event) {
+                        event.stopPropagation();
+
+                        exportPrimaryEfficiencyTable();
+                    }
+                );
+            }
+
+
+            if (exportDrilldownPngButton) {
+                exportDrilldownPngButton.addEventListener(
+                    "click",
+                    function (event) {
+                        event.stopPropagation();
+
+                        exportDrilldownEfficiencyTable();
+                    }
+                );
+            }
+
+
+            if (exportVisiblePngButton) {
+                exportVisiblePngButton.addEventListener(
+                    "click",
+                    function (event) {
+                        event.stopPropagation();
+
+                        exportVisibleRuntimeTablesAsPng();
+                    }
+                );
+            }
+
+            if (exportAllPngButton) {
+                exportAllPngButton.addEventListener(
+                    "click",
+                    function (event) {
+                        event.stopPropagation();
+
+                        exportAllEfficiencyTablesAsZip();
+                    }
+                );
+            }
+
             splitOptions.forEach(function (option) {
                 option.addEventListener(
                     "click",
@@ -1176,6 +2420,13 @@ def _render_navigation_script() -> str:
                         && !splitControl.contains(event.target)
                     ) {
                         setSplitMenuOpen(false);
+                    }
+
+                    if (
+                        exportControl
+                        && !exportControl.contains(event.target)
+                    ) {
+                        setExportMenuOpen(false);
                     }
                 }
             );

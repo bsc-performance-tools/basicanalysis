@@ -1410,8 +1410,8 @@ def _report_trace_label(trace_info):
     )
     
 
-def _build_trace_header_note(report):
-    """Explain the model-aware trace column labels."""
+def _build_trace_column_description(report):
+    """Return the model-aware meaning of efficiency-table columns."""
 
     traces = report.get("traces", [])
 
@@ -1426,50 +1426,58 @@ def _build_trace_header_note(report):
         programming_model
     )
 
-    notes = {
+    descriptions = {
         "mpi": (
-            "<b>Trace columns:</b> "
-            "<code>MPI ranks [Trace ID]</code>"
+            "MPI ranks"
         ),
         "openmp": (
-            "<b>Trace columns:</b> "
-            "<code>Threads [Trace ID]</code>"
+            "Threads"
         ),
         "pthreads": (
-            "<b>Trace columns:</b> "
-            "<code>Threads [Trace ID]</code>"
+            "Threads"
         ),
         "ompss": (
-            "<b>Trace columns:</b> "
-            "<code>Workers [Trace ID]</code>"
+            "Workers"
         ),
         "gpu": (
-            "<b>Trace columns:</b> "
-            "<code>GPU streams [Trace ID]</code>"
+            "GPU streams"
         ),
         "mpi_threads": (
-            "<b>Trace columns:</b> "
-            "<code>Parallel units (MPI ranks × threads/rank) [Trace ID]</code>"
+            "Parallel units (MPI ranks × threads/rank)"
         ),
         "mpi_ompss": (
-            "<b>Trace columns:</b> "
-            "<code>Parallel units (MPI ranks × workers/rank) [Trace ID]</code>"
+            "Parallel units (MPI ranks × workers/rank)"
         ),
         "mpi_gpu": (
-            "<b>Trace columns:</b> "
-            "<code>Parallel units (MPI ranks × streams/rank) "
-            "[nD = devices] [Trace ID]</code>"
+            "Parallel units (MPI ranks × streams/rank) "
+            "[nD = devices]"
         ),
-
         "generic": (
-            "<b>Trace columns:</b> "
-            "<code>Parallel units [Trace ID]</code>"
+            "Parallel units"
         ),
     }
 
+    return descriptions[model_key]
+
+
+def _build_trace_header_note(report):
+    """Explain the model-aware trace column labels."""
+
+    description = _build_trace_column_description(
+        report
+    )
+
+    if not description:
+        return ""
+
     return (
-        "<p class='trace-header-note'>{}</p>"
-    ).format(notes[model_key])
+        "<p class='trace-header-note'>"
+        "<b>Trace columns:</b> "
+        "<code>{} [Trace ID]</code>"
+        "</p>"
+    ).format(
+        html.escape(description)
+    )
 
 
 def _trace_resource_columns(model_key):
@@ -1820,15 +1828,7 @@ def _build_metric_tree_html(metric_keys, metric_info, section_id, tree_kind):
     )
 
 
-def _build_execution_domains_section(
-    host_metric_keys,
-    device_metric_keys,
-    host_sources,
-    device_sources,
-    trace_list,
-    trace_labels,
-    trace_header_note,
-):
+def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_sources, device_sources, trace_list, trace_labels, trace_header_note, trace_column_description="",):
     """Build the combined Host/Device Execution Domains analysis.
 
     The Execution Domains view presents Host and Device metrics as two
@@ -2003,9 +2003,17 @@ def _build_execution_domains_section(
                 HOST
             </div>
 
-            <div class="metric-table-card">
-                {host_table_html}
+            <div
+                class="metric-table-card"
+                data-efficiency-export
+                data-export-name="execution-domains-host"
+                data-export-group="execution-domains"
+                data-export-domain="host"
+                data-export-columns="{trace_column_description}"
+            >
+            {host_table_html}
             </div>
+
         </section>
 
         <section
@@ -2016,9 +2024,17 @@ def _build_execution_domains_section(
                 DEVICE
             </div>
 
-            <div class="metric-table-card">
+            <div
+                class="metric-table-card"
+                data-efficiency-export
+                data-export-name="execution-domains-device"
+                data-export-group="execution-domains"
+                data-export-domain="device"
+                data-export-columns="{trace_column_description}"
+            >
                 {device_table_html}
             </div>
+
         </section>
 
         <div class="observation-box execution-domains-analysis-summary">
@@ -2047,6 +2063,7 @@ def _build_execution_domains_section(
         info_json=info_json,
         efficiency_scale_html=efficiency_scale_html,
         trace_header_note=trace_header_note,
+        trace_column_description=html.escape(trace_column_description, quote=True,),        
         host_table_html=host_table_html,
         device_table_html=device_table_html,
         host_performance_html=host_performance_html,
@@ -2058,11 +2075,12 @@ def _build_execution_domains_section(
 
 
 def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
-                                        trace_list, trace_labels, title, section_id,
-                                        tree_kind=None,
-                                        trace_header_note="",
-                                        runtime=None,
-                                        runtime_family=None):
+        trace_list, trace_labels, title, section_id,
+        tree_kind=None,
+        trace_header_note="",
+        trace_column_description="",
+        runtime=None,
+        runtime_family=None):
     # Global Metrics deliberately stop at Communication Efficiency. Keep this
     # invariant here even if a caller supplies runtime-level metrics.
     if tree_kind in ("global", "global_gpu") or section_id == "global":
@@ -2188,7 +2206,12 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
 
     {trace_header_note}
 
-    <div class="metric-table-card">
+    <div
+        class="metric-table-card"
+        data-efficiency-export
+        data-export-name="{section_id}"
+        data-export-columns="{trace_column_description}"
+    >
         {efficiency_table_html}
     </div>
 
@@ -2200,6 +2223,9 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
         info_json=info_json,
         efficiency_scale_html=efficiency_scale_html,
         trace_header_note=trace_header_note,
+        trace_column_description=html.escape(
+            trace_column_description,
+            quote=True,),        
         observations_html=observations_html,
         efficiency_table_html=efficiency_table_html,
     )
@@ -3474,8 +3500,9 @@ def _build_overview_view(trace_config_html, trace_header_note,
     )
 
 
-def _build_parallel_runtime_model_views(model, mod_factors, trace_list,
+def _build_parallel_runtime_model_views(model, mod_factors, trace_list, 
                                         trace_labels, trace_header_note,
+                                        trace_column_description,
                                         hybrid_html, inner_model):
     """Build the semantic Parallel Runtime Model view definitions.
 
@@ -3525,6 +3552,7 @@ def _build_parallel_runtime_model_views(model, mod_factors, trace_list,
             section_id="runtime-model-simple-metrics",
             tree_kind="runtime_global",
             trace_header_note=trace_header_note,
+            trace_column_description=trace_column_description,
         )
 
         runtime_model_views.append({
@@ -4145,6 +4173,8 @@ def _build_interactive_report_document(workspace_html):
         >
         <title>BasicAnalysis Interactive Report</title>
         <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>        
+        <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
         <style>
         .metric-tree-children {
             margin-left: 14px;
@@ -5125,6 +5155,103 @@ def _build_interactive_report_document(workspace_html):
         .efficiency-table tbody tr:hover .metric-name-cell {
             filter: brightness(0.985);
         }
+
+        /* -------------------------------------------------- */
+        /* PNG export                                         */
+        /* -------------------------------------------------- */
+
+        .export-combined-efficiency-table {
+            background: #fff;
+        }
+
+        .export-combined-efficiency-table
+        .export-device-start
+        td {
+            border-top: 2px solid #66788a !important;
+        }
+
+        .export-temporary-efficiency-table,
+        .export-combined-efficiency-table {
+            width: max-content !important;
+            max-width: none !important;
+
+            background: #fff;
+        }
+
+        .export-temporary-efficiency-table
+        .efficiency-table-wrapper,
+        .export-combined-efficiency-table
+        .efficiency-table-wrapper {
+            width: max-content;
+            overflow: visible;
+        }
+
+        .export-temporary-efficiency-table
+        .efficiency-table,
+        .export-combined-efficiency-table
+        .efficiency-table {
+            width: max-content !important;
+            min-width: 0 !important;
+        }
+
+        .export-runtime-combined {
+            display: flex;
+            flex-direction: column;
+
+            width: max-content;
+            max-width: none;
+
+            gap: 12px;
+
+            background: white;
+        }
+
+        .export-runtime-combined
+        .export-runtime-detail {
+            border-top: 2px solid #66788a;
+        }
+
+        /*
+        * Let the metric-name column use the width required
+        * by its longest metric instead of the fixed 330px
+        * width used by the interactive report.
+        */
+
+        .export-temporary-efficiency-table
+        .metric-name-cell,
+        .export-temporary-efficiency-table
+        .metric-column-header,
+        .export-combined-efficiency-table
+        .metric-name-cell,
+        .export-combined-efficiency-table
+        .metric-column-header {
+            width: auto !important;
+            min-width: 0 !important;
+            white-space: nowrap;
+        }
+
+        .export-combined-efficiency-table
+        .export-device-start
+        td {
+            border-top: 2px solid #66788a !important;
+        }
+
+        .export-table-footer {
+            margin-top: 6px;
+            padding: 6px 4px 2px;
+
+            border-top: 1px solid #d7dde5;
+
+            color: #66788a;
+
+            font-size: 11px;
+            font-style: italic;
+            line-height: 1.35;
+        }
+
+        /* -------------------------------------------------- */
+        /* END PNG export                                     */
+        /* -------------------------------------------------- */
 
         .metric-name-cell {
             position: sticky;
@@ -7278,6 +7405,152 @@ def _build_interactive_report_document(workspace_html):
             text-transform: uppercase;
         }
 
+        /* -------------------------------------------------- */
+        /* Export menu                                        */
+        /* -------------------------------------------------- */
+
+        .guided-export-control {
+            position: relative;
+            flex: 0 0 auto;
+        }
+
+        .guided-export-button {
+            display: grid;
+
+            width: 34px;
+            height: 34px;
+
+            place-items: center;
+
+            padding: 0;
+
+            border: 1px solid #aabed2;
+            border-radius: 7px;
+
+            background: white;
+            color: var(--primary);
+
+            cursor: pointer;
+
+            transition:
+                border-color .15s ease,
+                background .15s ease,
+                color .15s ease,
+                box-shadow .15s ease;
+        }
+
+        .guided-export-button svg {
+            width: 19px;
+            height: 19px;
+        }
+
+        .guided-export-button:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .guided-export-button:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }
+
+        .guided-export-control.is-open
+        .guided-export-button {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: white;
+        }
+
+        .guided-export-menu {
+            position: absolute;
+            top: calc(100% + 7px);
+            right: 0;
+            z-index: 1200;
+
+            width: 280px;
+
+            padding: 6px;
+
+            border: 1px solid var(--border);
+            border-radius: 10px;
+
+            background: white;
+            box-shadow: 0 12px 30px rgba(20, 38, 63, .18);
+        }
+
+        .guided-export-menu[hidden] {
+            display: none;
+        }
+
+        .guided-export-menu-title {
+            padding: 5px 8px 7px;
+
+            color: var(--primary);
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .guided-export-menu-group {
+            padding: 5px 0;
+        }
+
+        .guided-export-menu-group
+        + .guided-export-menu-group {
+            margin-top: 4px;
+            padding-top: 9px;
+
+            border-top: 1px solid var(--border);
+        }
+
+        .guided-export-menu-group-title {
+            padding: 3px 8px 5px;
+
+            color: var(--text-secondary);
+            font-size: 10px;
+            font-weight: 750;
+            letter-spacing: .07em;
+            text-transform: uppercase;
+        }
+
+        .guided-export-option {
+            display: block;
+
+            width: 100%;
+            padding: 8px 10px;
+
+            border: 0;
+            border-radius: 7px;
+
+            background: transparent;
+            color: #31465d;
+
+            cursor: pointer;
+            text-align: left;
+
+            font: inherit;
+            font-size: 12px;
+            font-weight: 650;
+        }
+
+        .guided-export-option[hidden] {
+            display: none;
+        }
+
+        .guided-export-option:hover {
+            background: var(--primary-light);
+            color: var(--primary);
+        }
+
+        .guided-export-option:focus-visible {
+            outline: 2px solid #4f86c6;
+            outline-offset: -2px;
+        }
+
+        /* -------------------------------------------------- */
+        /* END Export menu                                    */
+        /* -------------------------------------------------- */
+
+
         .guided-split-option {
             display: block;
 
@@ -8327,6 +8600,10 @@ def _build_interactive_report_document(workspace_html):
                 flex: 0 0 auto;
             }
 
+            .guided-export-control {
+                flex: 0 0 auto;
+            }
+
             .guided-split-button {
                 width: 38px;
                 height: 38px;
@@ -8337,7 +8614,31 @@ def _build_interactive_report_document(workspace_html):
                 height: 20px;
             }
 
+            .guided-export-button {
+                width: 38px;
+                height: 38px;
+            }
+
+            .guided-export-button svg {
+                width: 20px;
+                height: 20px;
+            }
+
             .guided-split-menu {
+                position: fixed;
+
+                top: auto;
+                right: 12px;
+                bottom: 12px;
+                left: 12px;
+
+                width: auto;
+
+                max-height: min(420px, calc(100vh - 24px));
+                overflow-y: auto;
+            }
+
+            .guided-export-menu {
                 position: fixed;
 
                 top: auto;
@@ -9139,6 +9440,12 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         report
     )
 
+    trace_column_description = (
+        _build_trace_column_description(
+            report
+        )
+    )
+
     overview_html = _build_overview_table_html(
         other_metrics,
         trace_list,
@@ -9204,6 +9511,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         section_id="global",
         tree_kind=global_tree_kind,
         trace_header_note=trace_header_note,
+        trace_column_description=trace_column_description,
     )
 
 
@@ -9229,6 +9537,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             section_id="hybrid",
             tree_kind="hybrid",
             trace_header_note=trace_header_note,
+            trace_column_description=trace_column_description,
             runtime=inner_model,
             runtime_family=inner_model.lower(),
         )
@@ -9308,6 +9617,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             section_id="host",
             tree_kind="host",
             trace_header_note=trace_header_note,
+            trace_column_description=trace_column_description,
         )
 
         device_html = _build_metric_tree_heatmap_section(
@@ -9320,6 +9630,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             section_id="device",
             tree_kind="device",
             trace_header_note=trace_header_note,
+            trace_column_description=trace_column_description,
         )
 
         execution_domains_html = _build_execution_domains_section(
@@ -9330,6 +9641,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             trace_list=trace_list,
             trace_labels=trace_labels,
             trace_header_note=trace_header_note,
+            trace_column_description=trace_column_description,
         )        
 
     # ---- OpenMP runtime-specific efficiency metrics
@@ -9366,6 +9678,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                 section_id="openmp",
                 tree_kind="openmp",
                 trace_header_note=trace_header_note,
+                trace_column_description=trace_column_description,
             )
             openmp_html = (
                 openmp_metrics_html
@@ -9474,6 +9787,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                     section_id="computation-scalability",
                     tree_kind="scalability",
                     trace_header_note=trace_header_note,
+                    trace_column_description=trace_column_description,
                 )
             )
 
@@ -9513,6 +9827,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         trace_list=trace_list,
         trace_labels=trace_labels,
         trace_header_note=trace_header_note,
+        trace_column_description=trace_column_description,
         hybrid_html=hybrid_html,
         inner_model=inner_model,
     )
@@ -9570,6 +9885,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                 section_id="mpi-runtime",
                 tree_kind=mpi_tree_kind,
                 trace_header_note=trace_header_note,
+                trace_column_description=trace_column_description,
             )
 
     # --------------------------------------------------
@@ -9619,6 +9935,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                 section_id="accelerator-runtime",
                 tree_kind="runtime_inner",
                 trace_header_note=trace_header_note,
+                trace_column_description=trace_column_description,
                 runtime=inner_model,
                 runtime_family=inner_model.lower(),
             )
