@@ -1178,34 +1178,27 @@ def _build_efficiency_scale_html(thresholds=None):
         <div class="efficiency-gradient-container">
             <div class="efficiency-gradient"></div>
 
-            <div class="efficiency-gradient-markers">
-                <span style="left: 0%;">0%</span>
-                <span style="left: {critical}%;">{critical:g}%</span>
-                <span style="left: {attention}%;">{attention:g}%</span>
-                <span style="left: {reference}%;">{reference:g}%</span>
-            </div>
-        </div>
+            <div
+                class="efficiency-scale-compact-labels"
+                style="grid-template-columns:
+                    {critical_width}fr
+                    {attention_width}fr
+                    {acceptable_width}fr;"
+            >
+                <span>
+                    <strong>Critical</strong>
+                    &lt; {critical:g}%
+                </span>
 
-        <div
-            class="efficiency-scale-ranges"
-            style="grid-template-columns:
-                {critical_width}fr
-                {attention_width}fr
-                {acceptable_width}fr;"
-        >
-            <div class="scale-range scale-range-critical">
-                <strong>Critical</strong>
-                <span>&lt; {critical:g}%</span>
-            </div>
+                <span>
+                    <strong>Attention</strong>
+                    {critical:g}% – {attention:g}%
+                </span>
 
-            <div class="scale-range scale-range-attention">
-                <strong>Attention</strong>
-                <span>{critical:g}% – {attention:g}%</span>
-            </div>
-
-            <div class="scale-range scale-range-good">
-                <strong>Good</strong>
-                <span>{attention:g}% – {reference:g}%</span>
+                <span>
+                    <strong>Good</strong>
+                    ≥ {attention:g}%
+                </span>
             </div>
         </div>
 
@@ -1229,7 +1222,6 @@ def _build_efficiency_scale_html(thresholds=None):
         attention_width=attention_width,
         acceptable_width=acceptable_width,
     )
-
 
 
 def _split_trace_mode(mode):
@@ -1551,7 +1543,12 @@ def _build_trace_config_table_html(report):
 
     html_lines = []
 
-    html_lines.append("<table class='metric-table'>")
+    html_lines.append(
+        "<table class='metric-table trace-config-table "
+        "trace-config-{}'>".format(
+            html.escape(model_key)
+        )
+    )
     html_lines.append("<thead><tr>")
 
     html_lines.append("<th>ID</th>")
@@ -3042,67 +3039,366 @@ def _build_metric_depth_map(tree):
     return depth_map
 
 
-def _collect_metric_definitions(definition_registry, metric_keys, metric_info):
-    """Collect unique metric definitions in first-use order.
-
-    The printable report keeps analytical results close to their diagnosis and
-    moves documentation to a single appendix.  User-facing labels are used as
-    the deduplication key because some internal metric identifiers are reused
-    across runtime models.
+def _collect_metric_reference(
+        reference_registry,
+        metric_keys,
+        metric_info,
+        runtime=None,
+        runtime_family=None):
     """
+    Collect semantic metric information used by the printable
+    Metric Reference appendix.
+
+    Semantic information comes from definitions.yaml through the
+    PerformanceKnowledgeProvider. metric_info is used only for the
+    presentation label shown in the report.
+    """
+
     for metric_key in metric_keys:
-        info = metric_info.get(metric_key, {})
-        label = _clean_metric_label(info.get("label", metric_key))
-        meaning = info.get("meaning", "No definition available.")
-        normalized_label = " ".join(label.lower().split())
+        info = metric_info.get(
+            metric_key,
+            {}
+        )
 
-        if normalized_label not in definition_registry:
-            definition_registry[normalized_label] = {
-                "label": label,
-                "meaning": meaning,
-            }
+        try:
+            knowledge = KNOWLEDGE_PROVIDER.get(
+                metric_key,
+                runtime=runtime,
+                runtime_family=runtime_family,
+            )
+        except (KeyError, ValueError):
+            continue
+
+        label = _clean_metric_label(
+            info.get(
+                "label",
+                knowledge.name,
+            )
+        )
+
+        normalized_label = " ".join(
+            label.lower().split()
+        )
+
+        if normalized_label in reference_registry:
+            continue
+
+        reference_registry[
+            normalized_label
+        ] = {
+            "label": label,
+
+            # Temporary compatibility with current PDF renderer.
+            "meaning": knowledge.definition,
+
+            "definition": knowledge.definition,
+            "formula": knowledge.formula.get(
+                "text",
+                "",
+            ),
+            "typical_causes": list(
+                knowledge.typical_causes
+            ),
+        }
 
 
-def _build_metric_definition_appendix_html(definition_registry):
-    """Build one compact appendix containing all unique metric definitions."""
-    if not definition_registry:
+def _build_metric_reference_appendix_html(metric_reference):
+    """Build the printable metric-reference appendix."""
+
+    if not metric_reference:
         return ""
 
     lines = [
         '<section class="print-appendix print-page-section">',
         '<header class="print-section-header">',
-        '<p class="print-section-kicker">Reference</p>',
-        '<h2>Appendix A — Metric Definitions</h2>',
-        '<p class="print-section-description">Definitions are listed once, '
-        'in the order in which the metrics first appear in the report.</p>',
+        '<h2>Appendix A — Metric Reference</h2>',
+        '<p class="print-section-description">',
+        'Metrics are listed once, in the order in which they first appear '
+        'in the report. Each entry summarizes the metric definition, '
+        'formulation, and typical sources of performance inefficiency.',
+        '</p>',
         '</header>',
-        '<table class="metric-definition-table">',
-        '<thead><tr><th>Metric</th><th>Definition</th></tr></thead>',
-        '<tbody>',
+        '<div class="metric-reference-list">',
     ]
 
-    for item in definition_registry.values():
-        lines.append('<tr>')
+    for item in metric_reference.values():
+
         lines.append(
-            '<td><strong>{}</strong></td>'.format(
+            '<article class="metric-reference-card">'
+        )
+
+        lines.append(
+            '<h3 class="metric-reference-name">{}</h3>'.format(
                 html.escape(item["label"])
             )
         )
+
+        # --------------------------------------------------
+        # Definition
+        # --------------------------------------------------
+
         lines.append(
-            '<td>{}</td>'.format(
-                html.escape(item["meaning"])
+            '<div class="metric-reference-field">'
+            '<div class="metric-reference-label">'
+            'Definition'
+            '</div>'
+            '<div class="metric-reference-value">{}</div>'
+            '</div>'.format(
+                html.escape(
+                    item["definition"]
+                )
             )
         )
-        lines.append('</tr>')
+
+        # --------------------------------------------------
+        # Formula
+        # --------------------------------------------------
+
+        formula = item.get(
+            "formula",
+            "",
+        )
+
+        if formula:
+            lines.append(
+                '<div class="metric-reference-field">'
+                '<div class="metric-reference-label">'
+                'Formula'
+                '</div>'
+                '<div class="metric-reference-value '
+                'metric-reference-formula">'
+                '{}</div>'
+                '</div>'.format(
+                    html.escape(formula)
+                )
+            )
+
+        # --------------------------------------------------
+        # Typical causes
+        # --------------------------------------------------
+
+        typical_causes = item.get(
+            "typical_causes",
+            [],
+        )
+
+        if typical_causes:
+            lines.append(
+                '<div class="metric-reference-field">'
+                '<div class="metric-reference-label">'
+                'Typical performance issues'
+                '</div>'
+                '<ul class="metric-reference-causes">'
+            )
+
+            for cause in typical_causes:
+                lines.append(
+                    '<li>{}</li>'.format(
+                        html.escape(cause)
+                    )
+                )
+
+            lines.append(
+                '</ul>'
+                '</div>'
+            )
+
+        lines.append(
+            '</article>'
+        )
 
     lines.extend([
-        '</tbody>',
-        '</table>',
+        '</div>',
         '</section>',
     ])
 
     return "\n".join(lines)
 
+def _build_printable_execution_domains_section(
+        host_metric_keys,
+        device_metric_keys,
+        host_sources,
+        device_sources,
+        trace_list,
+        trace_labels,
+        trace_column_description):
+    """Build one combined Host + Device printable analysis."""
+
+    all_metric_keys = (
+        list(host_metric_keys)
+        + list(device_metric_keys)
+    )
+
+    metric_knowledge = _build_metric_knowledge(
+        metric_keys=all_metric_keys,
+    )
+
+    # --------------------------------------------------
+    # Host table
+    # --------------------------------------------------
+
+    host_table_html = _build_efficiency_table_html(
+        metric_keys=host_metric_keys,
+        metric_info=TALP_METRIC_INFO,
+        metric_sources=host_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        section_id="print-execution-domains",
+        tree=HOST_TREE,
+        printable=True,
+        metric_knowledge=metric_knowledge,
+    )
+
+    # --------------------------------------------------
+    # Device table
+    # --------------------------------------------------
+
+    device_table_html = _build_efficiency_table_html(
+        metric_keys=device_metric_keys,
+        metric_info=TALP_METRIC_INFO,
+        metric_sources=device_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        section_id="print-execution-domains",
+        tree=DEVICE_TREE,
+        printable=True,
+        metric_knowledge=metric_knowledge,
+    )
+
+    # --------------------------------------------------
+    # Host diagnosis
+    # --------------------------------------------------
+
+    host_performance = (
+        observations.build_performance_interpretation(
+            tree=HOST_TREE,
+            metric_info=TALP_METRIC_INFO,
+            metric_sources=host_sources,
+            trace_list=trace_list,
+            metric_knowledge=metric_knowledge,
+        )
+    )
+
+    host_performance_html = (
+        observations.build_performance_interpretation_html(
+            host_performance
+        )
+    )
+
+    host_scaling = (
+        observations.build_scaling_interpretation(
+            tree=HOST_TREE,
+            metric_info=TALP_METRIC_INFO,
+            metric_sources=host_sources,
+            trace_list=trace_list,
+            metric_knowledge=metric_knowledge,
+        )
+    )
+
+    host_scaling_html = (
+        observations.build_scaling_interpretation_html(
+            host_scaling
+        )
+    )
+
+    # --------------------------------------------------
+    # Device diagnosis
+    # --------------------------------------------------
+
+    device_performance = (
+        observations.build_performance_interpretation(
+            tree=DEVICE_TREE,
+            metric_info=TALP_METRIC_INFO,
+            metric_sources=device_sources,
+            trace_list=trace_list,
+            metric_knowledge=metric_knowledge,
+        )
+    )
+
+    device_performance_html = (
+        observations.build_performance_interpretation_html(
+            device_performance
+        )
+    )
+
+    device_scaling = (
+        observations.build_scaling_interpretation(
+            tree=DEVICE_TREE,
+            metric_info=TALP_METRIC_INFO,
+            metric_sources=device_sources,
+            trace_list=trace_list,
+            metric_knowledge=metric_knowledge,
+        )
+    )
+
+    device_scaling_html = (
+        observations.build_scaling_interpretation_html(
+            device_scaling
+        )
+    )
+
+    return """
+    <section
+        class="print-metric-section
+               print-page-section
+               print-execution-domains"
+    >
+        <header class="print-section-header">
+
+            <h2>5 Execution Domains</h2>
+
+            <p class="print-section-description">
+                Complementary Host and Device evidence used to identify
+                where accelerator-related inefficiencies manifest.
+            </p>
+        </header>
+
+        <div class="print-execution-domain-label">
+            HOST
+        </div>
+
+        <p class="trace-header-note">
+            <b>Trace columns:</b>
+            <code>{trace_column_description}</code>
+        </p>
+
+        <div class="print-metric-results metric-table-card">
+            {host_table_html}
+        </div>
+
+        <div class="print-execution-domain-label">
+            DEVICE
+        </div>
+
+        <div class="print-metric-results metric-table-card">
+            {device_table_html}
+        </div>
+
+        <div class="print-analysis-summary">
+            <div class="execution-domain-analysis-group">
+                <h3>HOST</h3>
+                {host_performance_html}
+                {host_scaling_html}
+            </div>
+
+            <div class="execution-domain-analysis-group">
+                <h3>DEVICE</h3>
+                {device_performance_html}
+                {device_scaling_html}
+            </div>
+        </div>
+    </section>
+    """.format(
+        host_table_html=host_table_html,
+        device_table_html=device_table_html,
+        trace_column_description=html.escape(
+            trace_column_description
+        ),
+        host_performance_html=host_performance_html,
+        host_scaling_html=host_scaling_html,
+        device_performance_html=device_performance_html,
+        device_scaling_html=device_scaling_html,
+    )
 
 def _build_printable_metric_section(
         metric_keys,
@@ -3113,6 +3409,7 @@ def _build_printable_metric_section(
         title,
         tree,
         trace_header_note="",
+        trace_column_description="",
         scope_note_html="",
         section_kicker="Performance analysis",
         section_description=""):
@@ -3188,18 +3485,21 @@ def _build_printable_metric_section(
     return """
     <section class="print-metric-section print-page-section">
         <header class="print-section-header">
-            <p class="print-section-kicker">{section_kicker}</p>
             <h2>{title}</h2>
             {description_html}
-            {trace_header_note}
         </header>
 
         {scope_note_html}
 
+        <p class="trace-header-note">
+            <b>Trace columns:</b>
+            <code>{trace_column_description}</code>
+        </p>
+
         <div class="print-metric-results metric-table-card">
             {efficiency_table_html}
         </div>
-
+        
         <div class="print-analysis-summary">
             {analysis_html}
         </div>
@@ -3209,6 +3509,9 @@ def _build_printable_metric_section(
         title=html.escape(title),
         description_html=description_html,
         trace_header_note=trace_header_note,
+        trace_column_description=html.escape(
+            trace_column_description
+        ),
         scope_note_html=scope_note_html,
         efficiency_table_html=efficiency_table_html,
         analysis_html=analysis_html,
@@ -3918,7 +4221,7 @@ def _assemble_interactive_report(overview_view_html, runtime_model_views,
     )
 
     return _build_interactive_report_document(
-        workspace_html=workspace_html,
+        workspace_html=workspace_html, printable_report_html=printable_report_body,
     )
 
 
@@ -4160,7 +4463,8 @@ def _build_primary_report_navigation(
     )
 
 
-def _build_interactive_report_document(workspace_html):
+def _build_interactive_report_document(workspace_html,
+        printable_report_html=""):
     """Build the complete interactive HTML document."""
     document = """
         <!DOCTYPE html>
@@ -5351,7 +5655,7 @@ def _build_interactive_report_document(workspace_html):
 
         .efficiency-gradient-container {
             position: relative;
-            margin: 24px 8px 30px;
+            margin: 18px 8px 14px;
         }
 
         .efficiency-gradient {
@@ -5395,6 +5699,36 @@ def _build_interactive_report_document(workspace_html):
 
         .efficiency-gradient-markers span:last-child {
             transform: translateX(-100%);
+        }
+
+        .efficiency-scale-compact-labels {
+            display: grid;
+            align-items: start;
+
+            margin-top: 7px;
+
+            color: var(--text-secondary);
+            font-size: 11px;
+            line-height: 1.3;
+        }
+
+        .efficiency-scale-compact-labels span {
+            padding: 0 5px;
+            text-align: center;
+        }
+
+        .efficiency-scale-compact-labels span:first-child {
+            padding-left: 0;
+            text-align: left;
+        }
+
+        .efficiency-scale-compact-labels span:last-child {
+            padding-right: 0;
+            text-align: right;
+        }
+
+        .efficiency-scale-compact-labels strong {
+            color: #243b58;
         }
 
         /* Semantic ranges */
@@ -8754,6 +9088,748 @@ def _build_interactive_report_document(workspace_html):
 
         }
 
+        @page {
+            size: A4;
+            margin: 16mm 18mm 16mm 18mm;
+        }
+
+        @media print {
+
+            body.basicanalysis-print-mode {
+                display: block !important;
+                overflow: visible !important;
+                background: white !important;
+            }
+        
+            body.basicanalysis-print-mode
+            .print-analysis-summary
+            .analysis-summary-title {
+                display: none !important;
+            }
+
+            body.basicanalysis-print-mode {
+                font-size: 11pt;
+                line-height: 1.45;
+            }
+
+            body.basicanalysis-print-mode p,
+            body.basicanalysis-print-mode li,
+            body.basicanalysis-print-mode
+            .print-section-description,
+            body.basicanalysis-print-mode
+            .print-analysis-summary,
+            body.basicanalysis-print-mode
+            .metric-reference-value,
+            body.basicanalysis-print-mode
+            .metric-reference-causes {
+                font-size: 11pt !important;
+                line-height: 1.45 !important;
+            }
+
+            body.basicanalysis-print-mode h1 {
+                font-size: 20pt !important;
+                line-height: 1.2;
+            }
+
+            body.basicanalysis-print-mode h2 {
+                font-size: 16pt !important;
+                line-height: 1.25;
+            }
+
+            body.basicanalysis-print-mode h3 {
+                font-size: 12pt !important;
+                line-height: 1.3;
+            }
+
+            body.basicanalysis-print-mode
+            > *:not(.basicanalysis-printable-report) {
+                display: none !important;
+            }
+
+            body.basicanalysis-print-mode
+            .basicanalysis-printable-report {
+                display: block !important;
+            }
+
+            .basicanalysis-printable-report[hidden] {
+                display: none;
+            }
+
+            body.basicanalysis-print-mode
+            .print-export-style {
+                width: max-content;
+                max-width: 100%;
+                overflow: visible;
+            }
+
+            body.basicanalysis-print-mode
+            .print-export-style
+            .efficiency-table-wrapper {
+                width: max-content;
+                max-width: 100%;
+                overflow: visible;
+            }
+
+            body.basicanalysis-print-mode
+            .print-export-style
+            .efficiency-table {
+                width: max-content !important;
+                min-width: 0 !important;
+            }
+
+            body.basicanalysis-print-mode
+            .print-export-style
+            .metric-name-cell,
+            body.basicanalysis-print-mode
+            .print-export-style
+            .metric-column-header {
+                width: auto !important;
+                min-width: 0 !important;
+                white-space: nowrap;
+            }
+
+            body.basicanalysis-print-mode,
+            body.basicanalysis-print-mode * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+
+            /* -------------------------------------------------- */
+            /* Printable diagnosis as report prose                */
+            /* -------------------------------------------------- */
+
+            body.basicanalysis-print-mode
+            .print-analysis-summary {
+                margin: 14px 0 20px !important;
+                padding: 0 !important;
+
+                border: 0 !important;
+                background: transparent !important;
+                box-shadow: none !important;
+            }
+
+
+            /*
+            * build_analysis_summary_html() creates its own
+            * observation-box inside print-analysis-summary.
+            */
+            body.basicanalysis-print-mode
+            .print-analysis-summary
+            .observation-box {
+                margin: 0 !important;
+                padding: 0 !important;
+
+                max-width: none !important;
+
+                border: 0 !important;
+                border-left: 0 !important;
+                border-radius: 0 !important;
+
+                background: transparent !important;
+                background-image: none !important;
+
+                box-shadow: none !important;
+            }
+
+
+            /*
+            * Do not show the UI-oriented "Automatic diagnosis"
+            * heading in the printable report.
+            */
+            body.basicanalysis-print-mode
+            .print-analysis-summary
+            .observation-box > h3:first-child {
+                display: none !important;
+            }
+
+
+            body.basicanalysis-print-mode
+            .print-analysis-summary h3,
+            body.basicanalysis-print-mode
+            .print-analysis-summary h4 {
+                margin: 12px 0 5px !important;
+
+                color: #17365d;
+
+                font-size: 12pt !important;
+                font-weight: 700;
+                line-height: 1.3;
+            }
+
+
+            body.basicanalysis-print-mode
+            .print-analysis-summary p {
+                margin: 0 0 10px !important;
+
+                color: #26394d;
+
+                font-size: 11pt !important;
+                line-height: 1.45 !important;
+            }
+
+            /* -------------------------------------------------- */
+            /* END Printable diagnosis as report prose            */
+            /* -------------------------------------------------- */
+
+
+            body.basicanalysis-print-mode
+            .print-analysis-summary h3,
+            body.basicanalysis-print-mode
+            .print-analysis-summary h4 {
+                margin: 12px 0 5px !important;
+
+                color: #17365d;
+
+                font-size: 12pt !important;
+                font-weight: 700;
+                line-height: 1.3;
+            }
+
+            body.basicanalysis-print-mode
+            .print-analysis-summary h3:first-of-type,
+            body.basicanalysis-print-mode
+            .print-analysis-summary h4:first-of-type {
+                margin-top: 0 !important;
+            }
+
+
+            body.basicanalysis-print-mode
+            .print-analysis-summary p {
+                margin: 0 0 10px !important;
+
+                font-size: 11pt !important;
+                line-height: 1.45 !important;
+
+                color: #26394d;
+            }
+
+            body.basicanalysis-print-mode
+            .execution-domain-analysis-group {
+                margin-top: 14px;
+                padding: 0 !important;
+
+                border: 0 !important;
+                background: transparent !important;
+            }
+
+            .print-execution-domain-label {
+                margin: 10px 0 4px;
+                padding: 4px 8px;
+
+                color: #17365d;
+                font-size: 12px;
+                font-weight: 800;
+                letter-spacing: .08em;
+            }
+
+            .print-execution-domains
+            .print-analysis-summary
+            .execution-domain-analysis-group
+            + .execution-domain-analysis-group {
+                margin-top: 16px;
+                padding-top: 12px;
+                border-top: 1px solid #dce3ec;
+            }
+
+
+            body.basicanalysis-print-mode
+            .trace-table th,
+            body.basicanalysis-print-mode
+            .trace-table td {
+                white-space: normal !important;
+
+                overflow-wrap: anywhere;
+                word-break: normal;
+
+                font-size: 10px;
+                padding: 6px 7px;
+            }
+
+
+            body.basicanalysis-print-mode
+            .print-overview-block
+            .metric-table {
+                width: max-content !important;
+                max-width: 100% !important;
+
+                min-width: 0 !important;
+
+                display: table !important;
+
+                overflow: visible !important;
+            }
+
+            body.basicanalysis-print-mode
+            .trace-header-note
+            + .metric-table {
+                width: max-content !important;
+                max-width: 100% !important;
+
+                min-width: 0 !important;
+
+                display: table !important;
+                overflow: visible !important;
+            }
+
+            body.basicanalysis-print-mode
+            .trace-header-note
+            + .metric-table {
+                border-radius: 0 !important;
+                border-left: 0 !important;
+                border-right: 0 !important;
+
+                box-shadow: none !important;
+            }
+
+            body.basicanalysis-print-mode
+            .trace-header-note {
+                font-size: 10pt !important;
+                line-height: 1.35;
+            }
+
+            body.basicanalysis-print-mode
+            .efficiency-scale-panel p,
+            body.basicanalysis-print-mode
+            .efficiency-scale-compact-labels {
+                font-size: 10pt !important;
+                line-height: 1.35;
+            }
+
+            /* -------------------------------------------------- */
+            /* Only for GPU traces                                */
+            /* -------------------------------------------------- */
+
+            body.basicanalysis-print-mode
+            .trace-config-mpi_gpu {
+                width: 100% !important;
+            }
+
+            body.basicanalysis-print-mode
+            .trace-config-mpi_gpu {
+                width: 100% !important;
+            }
+
+            /* -------------------------------------------------- */
+            /* Only for second column Trace config table          */
+            /* -------------------------------------------------- */
+
+            body.basicanalysis-print-mode
+            .trace-config-table th:nth-child(2),
+            body.basicanalysis-print-mode
+            .trace-config-table td:nth-child(2) {
+                width: 180px !important;
+                min-width: 180px !important;
+                max-width: 180px !important;
+
+                white-space: normal !important;
+
+                overflow-wrap: anywhere;
+                word-break: break-word;
+            }
+
+            body.basicanalysis-print-mode
+            .trace-config-table td:nth-child(2) code {
+                white-space: normal !important;
+
+                overflow-wrap: anywhere;
+                word-break: break-word;
+
+                font-size: 9.5pt !important;
+            }
+
+            /* -------------------------------------------------- */
+            /* Printable Trace Configuration                      */
+            /* -------------------------------------------------- */
+
+            body.basicanalysis-print-mode
+            .trace-config-table {
+                display: table !important;
+
+                width: max-content !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+
+                table-layout: auto !important;
+
+                overflow: visible !important;
+                white-space: normal !important;
+
+                font-size: 10pt !important;
+            }
+
+
+            body.basicanalysis-print-mode
+            .trace-config-table th,
+            body.basicanalysis-print-mode
+            .trace-config-table td {
+                width: auto !important;
+
+                padding: 5px 8px !important;
+
+                white-space: nowrap !important;
+
+                font-size: 10pt !important;
+                line-height: 1.3;
+            }
+
+
+            /* -------------------------------------------------- */
+            /* Compact printable efficiency tables                */
+            /* -------------------------------------------------- */
+
+            body.basicanalysis-print-mode
+            .print-metric-results {
+                margin-bottom: 12px !important;
+
+                border: 1px solid #dce3ec !important;
+                border-radius: 4px !important;
+
+                box-shadow: none !important;
+            }
+
+
+            body.basicanalysis-print-mode
+            .print-metric-results
+            .efficiency-table-wrapper {
+                width: 100%;
+                overflow: visible !important;
+            }
+
+
+            body.basicanalysis-print-mode
+            .print-metric-results
+            .efficiency-table {
+                width: 100% !important;
+
+                font-size: 10pt !important;
+
+                border-collapse: separate;
+                border-spacing: 0;
+            }
+
+
+            /*
+            * Reduce row height.
+            */
+            body.basicanalysis-print-mode
+            .print-metric-results
+            .efficiency-table th,
+            body.basicanalysis-print-mode
+            .print-metric-results
+            .efficiency-table td {
+                padding-top: 4px !important;
+                padding-bottom: 4px !important;
+
+                padding-left: 7px !important;
+                padding-right: 7px !important;
+
+                border-bottom: 1px solid #e2e7ed !important;
+            }
+
+            /*
+            * Preserve metric hierarchy in the first column.
+            * This must override the generic printable TD padding above.
+            */
+            body.basicanalysis-print-mode
+            .print-metric-results
+            .efficiency-table
+            td.metric-name-cell {
+                padding-left: calc(
+                    8px + (var(--metric-depth, 0) * 14px)
+                ) !important;
+            }
+
+            /*
+            * Column headers.
+            */
+            body.basicanalysis-print-mode
+            .print-metric-results
+            .efficiency-table thead th {
+                position: static !important;
+
+                font-size: 9.5pt !important;
+                line-height: 1.25;
+
+                background: #edf3f9;
+            }
+
+
+            /*
+            * Metric names.
+            */
+            body.basicanalysis-print-mode
+            .print-metric-results
+            .metric-name-cell {
+                position: static !important;
+
+                min-width: 0 !important;
+
+                font-size: 10pt !important;
+                line-height: 1.3;
+
+                box-shadow: none !important;
+            }
+
+            /*
+            * Value columns should not reserve the large
+            * interactive-report width.
+            */
+            body.basicanalysis-print-mode
+            .print-metric-results
+            .metric-value-cell {
+                min-width: 0 !important;
+
+                padding-left: 5px !important;
+                padding-right: 5px !important;
+            }
+
+
+            /*
+            * Compact colored efficiency cells.
+            */
+            body.basicanalysis-print-mode
+            .print-metric-results
+            .metric-value {
+                width: auto !important;
+                min-width: 62px !important;
+                height: 25px !important;
+
+                padding: 2px 6px !important;
+
+                border-radius: 2px !important;
+
+                font-size: 9.5pt !important;
+                line-height: 1.15;
+
+                box-shadow: none !important;
+            }
+
+            /* -------------------------------------------------- */
+            /* Justify the report prose                           */
+            /* -------------------------------------------------- */
+
+            body.basicanalysis-print-mode
+            .print-section-description,
+
+            body.basicanalysis-print-mode
+            .print-analysis-summary p,
+
+            body.basicanalysis-print-mode
+            .metric-reference-value,
+
+            body.basicanalysis-print-mode
+            .metric-reference-causes li,
+
+            body.basicanalysis-print-mode
+            .analysis-scope-note p {
+
+                text-align: justify;
+                text-justify: inter-word;
+            }
+
+            /* -------------------------------------------------- */
+            /* Add space before every new analytical section      */
+            /* -------------------------------------------------- */
+            
+            body.basicanalysis-print-mode
+            .print-metric-section {
+                margin-top: 30px;
+            }
+
+            body.basicanalysis-print-mode
+            .print-metric-section:first-of-type {
+                margin-top: 0;
+            }
+
+            body.basicanalysis-print-mode
+            .print-section-header {
+                margin-bottom: 14px;
+            }
+
+            /*
+            * Compact colored efficiency cells.
+            */
+            body.basicanalysis-print-mode
+            .efficiency-scale-panel {
+                margin-top: 24px !important;
+                margin-bottom: 30px !important;
+            }
+
+            /* -------------------------------------------------- */
+            /* Metric Scope ordinary report text      */
+            /* -------------------------------------------------- */
+            body.basicanalysis-print-mode
+            .analysis-scope-note {
+                margin: 16px 0 20px !important;
+                padding: 0 !important;
+
+                border: 0 !important;
+                border-left: 0 !important;
+                border-radius: 0 !important;
+
+                background: transparent !important;
+                box-shadow: none !important;
+
+                color: #26394d !important;
+            }
+
+            body.basicanalysis-print-mode
+            .analysis-scope-note h3 {
+                margin: 0 0 6px !important;
+
+                color: #17365d !important;
+
+                font-size: 12pt !important;
+                font-weight: 700;
+                letter-spacing: normal !important;
+            }
+
+            body.basicanalysis-print-mode
+            .analysis-scope-note p {
+                margin: 0 0 8px !important;
+
+                color: #26394d !important;
+
+                font-size: 11pt !important;
+                line-height: 1.45 !important;
+
+                text-align: justify;
+            }
+
+            /* -------------------------------------------------- */
+            /* Appendix                                           */
+            /* -------------------------------------------------- */
+
+            body.basicanalysis-print-mode
+            .print-appendix {
+                break-before: page;
+                page-break-before: always;
+            }    
+
+
+        }        
+
+        /* -------------------------------------------------- */
+        /* Printable metric reference                         */
+        /* -------------------------------------------------- */
+
+        .metric-reference-list {
+            display: block;
+        }
+
+        .metric-reference-card {
+            margin: 0 0 14px;
+            padding: 11px 13px;
+
+            border: 1px solid #d7e0ea;
+            border-radius: 8px;
+
+            background: #ffffff;
+
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+
+        .metric-reference-name {
+            margin: 0 0 9px;
+
+            color: #17365d;
+
+            font-size: 15px;
+            font-weight: 750;
+        }
+
+        .metric-reference-field {
+            margin-top: 8px;
+        }
+
+        .metric-reference-field:first-of-type {
+            margin-top: 0;
+        }
+
+        .metric-reference-label {
+            margin-bottom: 3px;
+
+            color: #53697f;
+
+            font-size: 10px;
+            font-weight: 750;
+
+            letter-spacing: .04em;
+            text-transform: uppercase;
+        }
+
+        .metric-reference-value {
+            color: #26394d;
+
+            font-size: 11px;
+            line-height: 1.45;
+        }
+
+        .metric-reference-formula {
+            padding: 6px 8px;
+
+            border-radius: 5px;
+
+            background: #f3f6f9;
+
+            font-family:
+                "SFMono-Regular",
+                Consolas,
+                "Liberation Mono",
+                monospace;
+
+            font-size: 10.5px;
+        }
+
+        .metric-reference-causes {
+            margin: 4px 0 0;
+            padding-left: 20px;
+
+            color: #26394d;
+
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .metric-reference-causes li {
+            margin-bottom: 2px;
+        }
+
+        body.basicanalysis-print-mode
+        .metric-reference-name {
+            font-size: 12pt !important;
+            line-height: 1.3;
+        }
+
+        body.basicanalysis-print-mode
+        .metric-reference-label {
+            font-size: 9pt !important;
+            line-height: 1.25;
+        }
+
+        body.basicanalysis-print-mode
+        .metric-reference-value,
+        body.basicanalysis-print-mode
+        .metric-reference-causes {
+            font-size: 11pt !important;
+            line-height: 1.45;
+        }
+
+        body.basicanalysis-print-mode
+        .metric-reference-formula {
+            font-size: 10.5pt !important;
+            line-height: 1.35;
+
+            font-family:
+                "SFMono-Regular",
+                Consolas,
+                "Liberation Mono",
+                monospace;
+        }
+
+
 </style>
 
         <script>
@@ -9409,12 +10485,22 @@ def _build_interactive_report_document(workspace_html):
             </section>
         </div>
 
+        <section
+            class="basicanalysis-printable-report"
+            data-basicanalysis-printable-report
+            hidden
+        >
+            {printable_report_html}
+        </section>
 
         </body>
         </html>
         """
 
-    return document.replace('{workspace_html}', workspace_html)
+    return(document.replace('{workspace_html}', workspace_html,)
+         .replace('{printable_report_html}',printable_report_html,)
+      )
+
 
 
 def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
@@ -10025,8 +11111,23 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             ),
         )
 
+    printable_report_body = (
+        _build_basicanalysis_printable_report_html(
+            metrics_result=metrics_result,
+            analysis_result=analysis_result,
+            report=report,
+            trace_list=trace_list,
+            trace_processes=trace_processes,
+            trace_tasks=trace_tasks,
+            trace_threads=trace_threads,
+            trace_mode=trace_mode,
+            cmdl_args=cmdl_args,
+            standalone=False,
+        )
+    )
+
     html_content = _build_interactive_report_document(
-        workspace_html=workspace_html,
+        workspace_html=workspace_html, printable_report_html=printable_report_body,
     )
 
     with open(output_html, "w") as output_file:
@@ -10136,7 +11237,7 @@ def _filter_available_metric_keys(metric_keys, metric_sources,
     return filtered
 
 
-def generate_basicanalysis_printable_report(
+def _build_basicanalysis_printable_report_html(
         metrics_result,
         analysis_result,
         report,
@@ -10145,7 +11246,8 @@ def generate_basicanalysis_printable_report(
         trace_tasks,
         trace_threads,
         trace_mode,
-        cmdl_args):
+        cmdl_args,
+        standalone=True):
     """Generate the printable BasicAnalysis HTML report.
 
     The printable report follows the same analytical architecture as the
@@ -10164,9 +11266,10 @@ def generate_basicanalysis_printable_report(
     execution domains are intentionally represented as different layers.
     """
 
-    output_html = os.path.join(
-        os.getcwd(),
-        "basicanalysis_printable_report.html",
+    trace_column_description = (
+        _build_trace_column_description(
+            report
+        )
     )
 
     model = _report_execution_model(
@@ -10205,7 +11308,7 @@ def generate_basicanalysis_printable_report(
         is_hybrid=model["is_hybrid"]
     )
 
-    definition_registry = {}
+    metric_reference = {}
 
     # --------------------------------------------------
     # 2. Application efficiency analysis
@@ -10242,8 +11345,8 @@ def generate_basicanalysis_printable_report(
         trace_list,
     )
 
-    _collect_metric_definitions(
-        definition_registry,
+    _collect_metric_reference(
+        metric_reference,
         global_filtered_keys,
         global_metric_info,
     )
@@ -10257,6 +11360,7 @@ def generate_basicanalysis_printable_report(
         title="2 Application Efficiency Analysis",
         tree=global_tree,
         trace_header_note=trace_header_note,
+        trace_column_description=trace_column_description,
         section_kicker="Application-level model",
         section_description=(
             "Overall efficiency decomposition and scaling behavior of the "
@@ -10288,8 +11392,8 @@ def generate_basicanalysis_printable_report(
         )
 
         if hybrid_filtered_keys:
-            _collect_metric_definitions(
-                definition_registry,
+            _collect_metric_reference(
+                metric_reference,
                 hybrid_filtered_keys,
                 hybrid_metric_info,
             )
@@ -10304,6 +11408,7 @@ def generate_basicanalysis_printable_report(
                 ),
                 tree=HYBRID_TREE,
                 trace_header_note=trace_header_note,
+                trace_column_description=trace_column_description,
                 section_kicker="Composed runtime model",
                 section_description=(
                     "Multiplicative decomposition of Parallel Efficiency "
@@ -10341,8 +11446,8 @@ def generate_basicanalysis_printable_report(
             single_runtime_info = _build_single_runtime_metric_info(
                 runtime_name
             )
-            _collect_metric_definitions(
-                definition_registry,
+            _collect_metric_reference(
+                metric_reference,
                 single_runtime_filtered_keys,
                 single_runtime_info,
             )
@@ -10355,6 +11460,7 @@ def generate_basicanalysis_printable_report(
                 title="3 {} Runtime Analysis".format(runtime_name),
                 tree=GLOBAL_PARALLEL_TREE,
                 trace_header_note=trace_header_note,
+                trace_column_description=trace_column_description,
                 section_kicker="Runtime model",
                 section_description=(
                     "Runtime-level decomposition of Parallel Efficiency, "
@@ -10388,8 +11494,8 @@ def generate_basicanalysis_printable_report(
         )
 
         if mpi_filtered_keys:
-            _collect_metric_definitions(
-                definition_registry,
+            _collect_metric_reference(
+                metric_reference,
                 mpi_filtered_keys,
                 hybrid_metric_info,
             )
@@ -10405,6 +11511,7 @@ def generate_basicanalysis_printable_report(
                     ),
                     tree=MPI_RUNTIME_TREE,
                     trace_header_note=trace_header_note,
+                    trace_column_description=trace_column_description,
                     section_kicker="Runtime-specific diagnosis",
                     section_description=(
                         "Isolated diagnosis of MPI load balance, "
@@ -10428,10 +11535,12 @@ def generate_basicanalysis_printable_report(
         )
 
         if openmp_filtered_keys:
-            _collect_metric_definitions(
-                definition_registry,
+            _collect_metric_reference(
+                metric_reference,
                 openmp_filtered_keys,
                 OPENMP_METRIC_INFO,
+                runtime="OpenMP",
+                runtime_family="openmp",
             )
             runtime_specific_sections.append(
                 _build_printable_metric_section(
@@ -10445,6 +11554,7 @@ def generate_basicanalysis_printable_report(
                     ),
                     tree=OPENMP_TREE,
                     trace_header_note=trace_header_note,
+                    trace_column_description=trace_column_description,
                     scope_note_html=_build_openmp_runtime_scope_note(
                         is_hybrid=model["is_hybrid"]
                     ),
@@ -10480,8 +11590,8 @@ def generate_basicanalysis_printable_report(
         )
 
         if accelerator_filtered_keys:
-            _collect_metric_definitions(
-                definition_registry,
+            _collect_metric_reference(
+                metric_reference,
                 accelerator_filtered_keys,
                 hybrid_metric_info,
             )
@@ -10498,6 +11608,7 @@ def generate_basicanalysis_printable_report(
                     ),
                     tree=INNER_RUNTIME_TREE,
                     trace_header_note=trace_header_note,
+                    trace_column_description=trace_column_description,
                     section_kicker="Runtime contribution",
                     section_description=(
                         "Isolated view of the {} contribution derived from "
@@ -10514,8 +11625,7 @@ def generate_basicanalysis_printable_report(
     # --------------------------------------------------
     # 5. Execution-domain analysis
     # --------------------------------------------------
-    host_domain_html = ""
-    device_domain_html = ""
+    execution_domains_html = ""
 
     if metrics_result.get("kind") == "hybrid" and model["has_cuda"]:
         host_factors = metrics_result.get("host_factors", {})
@@ -10568,52 +11678,90 @@ def generate_basicanalysis_printable_report(
         )
 
         if host_filtered_keys:
-            _collect_metric_definitions(
-                definition_registry,
+            _collect_metric_reference(
+                metric_reference,
                 host_filtered_keys,
                 TALP_METRIC_INFO,
             )
-            host_domain_html = _build_printable_metric_section(
-                metric_keys=host_filtered_keys,
-                metric_info=TALP_METRIC_INFO,
-                metric_sources=host_sources,
-                trace_list=trace_list,
-                trace_labels=trace_labels,
-                title="5.1 Host Execution Domain",
-                tree=HOST_TREE,
-                trace_header_note=trace_header_note,
-                section_kicker="Execution-domain analysis",
-                section_description=(
-                    "Host-side MPI behavior, accelerator offload path, and "
-                    "host computation scalability."
-                ),
-            )
+
 
         if device_filtered_keys:
-            _collect_metric_definitions(
-                definition_registry,
+            _collect_metric_reference(
+                metric_reference,
                 device_filtered_keys,
                 TALP_METRIC_INFO,
             )
-            device_domain_html = _build_printable_metric_section(
-                metric_keys=device_filtered_keys,
-                metric_info=TALP_METRIC_INFO,
-                metric_sources=device_sources,
-                trace_list=trace_list,
-                trace_labels=trace_labels,
-                title="5.2 Device Execution Domain",
-                tree=DEVICE_TREE,
-                trace_header_note=trace_header_note,
-                section_kicker="Execution-domain analysis",
-                section_description=(
-                    "Device-side parallel efficiency, data movement, "
-                    "orchestration, and computation scalability."
-                ),
+
+        if host_filtered_keys or device_filtered_keys:
+            execution_domains_html = (
+                _build_printable_execution_domains_section(
+                    host_metric_keys=host_filtered_keys,
+                    device_metric_keys=device_filtered_keys,
+                    host_sources=host_sources,
+                    device_sources=device_sources,
+                    trace_list=trace_list,
+                    trace_labels=trace_labels,
+                    trace_column_description=trace_column_description,
+                )
             )
 
-    appendix_html = _build_metric_definition_appendix_html(
-        definition_registry
+    appendix_html = _build_metric_reference_appendix_html(
+        metric_reference
     )
+
+
+    body_html = """
+        <header class="print-header">
+            <h1>BasicAnalysis Performance Report</h1>
+            <p>Hierarchical efficiency analysis and guided performance diagnosis</p>
+        </header>
+
+        <section class="print-overview">
+            <header class="print-section-header">
+                <h2>1 Execution Overview</h2>
+                <p class="print-section-description">
+                    Execution configuration, general performance indicators, and
+                    the efficiency scale used throughout the report.
+                </p>
+            </header>
+
+            <div class="print-overview-grid">
+                <div class="print-overview-block">
+                    <h3>Trace configuration</h3>
+                    {trace_config_html}
+                </div>
+
+                <div class="print-overview-block">
+                    <h3>General metrics</h3>
+                    {trace_header_note}
+                    {overview_html}
+                </div>
+
+                <div class="print-overview-block">
+                    {efficiency_scale_html}
+                </div>
+            </div>
+        </section>
+
+        {global_html}
+        {runtime_model_html}
+        {runtime_specific_html}
+        {execution_domains_html}
+        {appendix_html}
+    """.format(
+        trace_config_html=trace_config_html,
+        trace_header_note=trace_header_note,
+        overview_html=overview_html,
+        efficiency_scale_html=efficiency_scale_html,
+        global_html=global_html,
+        runtime_model_html=runtime_model_html,
+        runtime_specific_html=runtime_specific_html,
+        execution_domains_html=execution_domains_html,
+        appendix_html=appendix_html,
+    )
+
+    if not standalone:
+        return body_html
 
     html_content = """
     <!DOCTYPE html>
@@ -10939,62 +12087,51 @@ def generate_basicanalysis_printable_report(
     </head>
 
     <body>
-        <header class="print-header">
-            <h1>BasicAnalysis Performance Report</h1>
-            <p>Hierarchical efficiency analysis and guided performance diagnosis</p>
-        </header>
-
-        <section class="print-overview">
-            <header class="print-section-header">
-                <p class="print-section-kicker">Application context</p>
-                <h2>1 Execution Overview</h2>
-                <p class="print-section-description">
-                    Execution configuration, general performance indicators, and
-                    the efficiency scale used throughout the report.
-                </p>
-            </header>
-
-            <div class="print-overview-grid">
-                <div class="print-overview-block">
-                    <h3>Trace configuration</h3>
-                    {trace_config_html}
-                </div>
-
-                <div class="print-overview-block">
-                    <h3>General metrics</h3>
-                    {trace_header_note}
-                    {overview_html}
-                </div>
-
-                <div class="print-overview-block">
-                    {efficiency_scale_html}
-                </div>
-            </div>
-        </section>
-
-        {global_html}
-        {runtime_model_html}
-        {runtime_specific_html}
-        {host_domain_html}
-        {device_domain_html}
-        {appendix_html}
+       {body_html}
     </body>
     </html>
     """.format(
-        trace_config_html=trace_config_html,
-        trace_header_note=trace_header_note,
-        overview_html=overview_html,
-        efficiency_scale_html=efficiency_scale_html,
-        global_html=global_html,
-        runtime_model_html=runtime_model_html,
-        runtime_specific_html=runtime_specific_html,
-        host_domain_html=host_domain_html,
-        device_domain_html=device_domain_html,
-        appendix_html=appendix_html,
+    body_html=body_html
+    )
+
+    return html_content
+
+def generate_basicanalysis_printable_report(
+        metrics_result,
+        analysis_result,
+        report,
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        cmdl_args):
+    """Write the standalone printable BasicAnalysis HTML report."""
+
+    html_content = _build_basicanalysis_printable_report_html(
+        metrics_result=metrics_result,
+        analysis_result=analysis_result,
+        report=report,
+        trace_list=trace_list,
+        trace_processes=trace_processes,
+        trace_tasks=trace_tasks,
+        trace_threads=trace_threads,
+        trace_mode=trace_mode,
+        cmdl_args=cmdl_args,
+    )
+
+    output_html = os.path.join(
+        os.getcwd(),
+        "basicanalysis_printable_report.html",
     )
 
     with open(output_html, "w") as output_file:
         output_file.write(html_content)
 
-    print("Printable report written to {}".format(output_html))
+    print(
+        "Printable report written to {}".format(
+            output_html
+        )
+    )
+
     return output_html

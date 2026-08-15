@@ -596,6 +596,10 @@ def _render_navigation_script() -> str:
                 "[data-guided-export-all-png]"
             );
 
+            const exportPdfButton = root.querySelector(
+                "[data-guided-export-pdf]"
+            );
+
             const splitOptions = Array.from(
                 root.querySelectorAll(
                     "[data-guided-split-target]"
@@ -1106,6 +1110,100 @@ def _render_navigation_script() -> str:
                             resolve(blob);
                         },
                         "image/png"
+                    );
+                });
+            }
+
+            function printEmbeddedReport() {
+                const printableReport =
+                    document.querySelector(
+                        "[data-basicanalysis-printable-report]"
+                    );
+
+                if (!printableReport) {
+                    window.alert(
+                        "The printable report is not available."
+                    );
+
+                    return;
+                }
+
+                setExportMenuOpen(false);
+
+                document.body.classList.add(
+                    "basicanalysis-print-mode"
+                );
+
+                printableReport.hidden = false;
+
+                preparePrintableEfficiencyTables(
+                    printableReport
+                );
+
+                window.setTimeout(function () {
+                    window.print();
+                }, 50);
+            }
+
+            /*
+            * Restore the interactive report after the browser
+            * print dialog has been closed.
+            */
+            window.addEventListener(
+                "afterprint",
+                function () {
+                    const printableReport =
+                        document.querySelector(
+                            "[data-basicanalysis-printable-report]"
+                        );
+
+                    document.body.classList.remove(
+                        "basicanalysis-print-mode"
+                    );
+
+                    if (printableReport) {
+                        printableReport.hidden = true;
+                    }
+                }
+            );
+
+            function preparePrintableEfficiencyTables(
+                printableReport
+            ) {
+                if (!printableReport) {
+                    return;
+                }
+
+                const tableCards = Array.from(
+                    printableReport.querySelectorAll(
+                        ".print-metric-results"
+                    )
+                );
+
+                tableCards.forEach(function (card) {
+                    const table =
+                        card.querySelector(
+                            ".efficiency-table"
+                        );
+
+                    if (!table) {
+                        return;
+                    }
+
+                    /*
+                    * Apply the same presentation rule used
+                    * by PNG exports:
+                    *
+                    *   [T1], [T2], ... are useful in the
+                    *   interactive report but are omitted
+                    *   from publication-oriented output.
+                    */
+                    prepareTableForExport(
+                        table
+                    );
+
+                    card.classList.add(
+                        "print-export-style"
                     );
                 });
             }
@@ -2397,6 +2495,17 @@ def _render_navigation_script() -> str:
                         event.stopPropagation();
 
                         exportAllEfficiencyTablesAsZip();
+                    }
+                );
+            }
+
+            if (exportPdfButton) {
+                exportPdfButton.addEventListener(
+                    "click",
+                    function (event) {
+                        event.stopPropagation();
+
+                        printEmbeddedReport();
                     }
                 );
             }
