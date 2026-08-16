@@ -33,6 +33,7 @@ PCF_OMPSS = b'   9200001'
 PCF_OPENCL_1 = b'   642000'
 PCF_OPENCL_2 = b'   6400001'
 PCF_OPENCL_3 = b'   641000'
+PCF_HIP = b'   635000'
 
 # Regex patterns for trace fallback detection
 RX_MPI = re.compile(rb'\n2:\w+:\w+:[1-4]:1:\w+:50000\w\w\w:')
@@ -41,7 +42,7 @@ RX_CUDA = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:630\w\w\w\w\w:')
 RX_PTHREADS = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:610000\w\w:')
 RX_OMPSS = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:9200001:')
 RX_OPENCL = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:64\w\w\w\w\w\w:')
-# RX_HIP = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:635\w\w\w\w\w:')
+RX_HIP = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:635\w{5}:')
 
 
 def get_traces_from_args(cmdl_args):
@@ -417,24 +418,21 @@ def get_device_stream_id_mapping(
     pad: int = 3
 ) -> Dict[str, Tuple[int, List[str]]]:
     """
-    Number entries in the THREAD section sequentially:
-      - THREAD line -> consumes an ID
-      - GPU/CUDA line -> consumes an ID and is counted for its device
+    Supports three row formats:
 
-    Supports both row formats:
-
-      Legacy:
+    Legacy CUDA:
         CUDA-D1.S1-as07r1b02
         -> as07r1b02:D1
 
-      New UUID-based:
+    UUID-based:
         GPU_a2f80454.1
         -> as07r4b27:a2f80454
 
-    Returns:
-        { "node:device_id": (count, [id_str...]) }
+    Generic Extrae GPU:
+        GPU-D1.S1
+        -> <node>:D1
+        where <node> is obtained positionally from LEVEL CPU.
     """
-
     THREAD_RE = re.compile(r"^THREAD\s+\d+\.\d+\.\d+\s*$")
 
     # New format: GPU_<uuid>.<stream>
@@ -442,6 +440,10 @@ def get_device_stream_id_mapping(
 
     # Legacy format: CUDA-D1.S2-as04r1b15
     CUDA_RE = re.compile(r"^CUDA-(D\d+)\.[^-]*-([^\s]+)\s*$")
+
+    # New Extrae generic GPU format:
+    #   GPU-D1.S2
+    GPU_DEVICE_RE = re.compile(r"^GPU-(D\d+)\.S(\d+)\s*$")
 
     dev_to_ids: Dict[str, List[str]] = defaultdict(list)
     next_id = start_id
@@ -477,6 +479,23 @@ def get_device_stream_id_mapping(
 
             if node is not None:
                 key = f"{node}:{gpu_uuid}"
+                dev_to_ids[key].append(fmt(next_id))
+
+            next_id += 1
+            continue
+
+
+        # New Extrae format:
+        # GPU-D1.S2
+        m_gpu_device = GPU_DEVICE_RE.match(s)
+        if m_gpu_device:
+            dev = m_gpu_device.group(1)  # D1
+
+            # LEVEL CPU and LEVEL THREAD are positional.
+            node = cpu_to_node.get(next_id)
+
+            if node is not None:
+                key = f"{node}:{dev}"
                 dev_to_ids[key].append(fmt(next_id))
 
             next_id += 1
@@ -577,10 +596,12 @@ def _detect_mode_from_pcf(file_pcf, base_mode):
         has_cuda = (mm.find(PCF_CUDA_1) != -1 or
                     mm.find(PCF_CUDA_2) != -1 or
                     mm.find(PCF_CUDA_3) != -1)
+        has_hip = mm.find(PCF_HIP) != -1
         has_ompss = mm.find(PCF_OMPSS) != -1
         has_opencl = (mm.find(PCF_OPENCL_1) != -1 or
                       mm.find(PCF_OPENCL_2) != -1 or
                       mm.find(PCF_OPENCL_3) != -1)
+        
 
     if has_mpi:
         mode_trace += '+MPI'
@@ -595,8 +616,8 @@ def _detect_mode_from_pcf(file_pcf, base_mode):
         mode_trace += '+OmpSs'
     if has_opencl:
         mode_trace += '+OpenCL'
-    # if has_hip:
-    #     mode_trace += '+HIP'
+    if has_hip:
+        mode_trace += '+HIP'
 
     return mode_trace
 
@@ -614,7 +635,7 @@ def _detect_mode_from_trace_streaming(prv_file, base_mode, chunk_size=8 * 1024 *
     found_pthreads = False
     found_ompss = False
     found_opencl = False
-    # found_hip = False
+    found_hip = False
 
     tail = b''
 
@@ -638,11 +659,11 @@ def _detect_mode_from_trace_streaming(prv_file, base_mode, chunk_size=8 * 1024 *
                 found_ompss = True
             if not found_opencl and RX_OPENCL.search(data):
                 found_opencl = True
-            # if not found_hip and RX_HIP.search(data):
-            #     found_hip = True
+            if not found_hip and RX_HIP.search(data):
+                found_hip = True
 
             if (found_mpi and found_omp and found_cuda and found_pthreads and
-                    found_ompss and found_opencl):
+                    found_ompss and found_opencl and found_hip):
                 break
 
             tail = data[-overlap:]
@@ -660,8 +681,8 @@ def _detect_mode_from_trace_streaming(prv_file, base_mode, chunk_size=8 * 1024 *
         mode_trace += '+OmpSs'
     if found_opencl:
         mode_trace += '+OpenCL'
-    # if found_hip:
-    #     mode_trace += '+HIP'
+    if found_hip:
+        mode_trace += '+HIP'
 
     return mode_trace
 

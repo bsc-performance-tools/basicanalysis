@@ -141,15 +141,23 @@ def parse_total_average_max(path):
 
     for line in iter_stats_lines(path):
         parts = line.split()
-        if not parts:
+
+        if len(parts) < 2:
             continue
+
         key = parts[0]
+
+        try:
+            value = float(parts[1])
+        except (ValueError, IndexError):
+            continue
+
         if key == 'Total':
-            total = float(parts[1])
+            total = value
         elif key == 'Average':
-            avg = float(parts[1])
+            avg = value
         elif key == 'Maximum':
-            maximum = float(parts[1])
+            maximum = value
 
     return total, avg, maximum
 
@@ -768,12 +776,16 @@ def count_gpu_streams_by_mpi_rank(row_path):
         >0 -> homogeneous number of streams per MPI rank
         -1 -> non-uniform number of streams across MPI ranks
     """
+    def is_gpu_stream_label(label):
+        label = str(label).strip()
+        return label.startswith("GPU_") or label.startswith("GPU-")
+
     thread_to_label = parse_row_thread_labels(row_path)
 
     streams_by_rank = defaultdict(int)
 
     for thread_obj, label in thread_to_label.items():
-        if not str(label).startswith("GPU_"):
+        if not is_gpu_stream_label(label):
             continue
 
         rank_id = mpi_rank_from_thread_object(thread_obj)
@@ -863,6 +875,90 @@ def device_uuid_from_row_label(label):
     return gpu_uuid if gpu_uuid else None
 
 
+def parse_row_thread_nodes(row_path):
+    """
+    Map each Paraver thread object to its node using the positional
+    correspondence between LEVEL THREAD and LEVEL CPU.
+
+    For the new Extrae GPU row format, LEVEL THREAD and LEVEL CPU
+    entries describe the same execution objects in the same order.
+
+    Returns:
+        {
+            "THREAD 1.1.1": "nid005274",
+            "THREAD 1.1.2": "nid005274",
+            ...
+            "THREAD 1.5.1": "nid005307",
+            "THREAD 1.5.2": "nid005307",
+            ...
+        }
+    """
+    cpu_to_node = parse_row_cpu_nodes(row_path)
+    thread_to_node = {}
+
+    in_thread_section = False
+    current_prefix = None
+    current_index = None
+    position = 0
+
+    with open(row_path) as f:
+        for raw_line in f:
+            line = raw_line.strip()
+
+            if not line:
+                continue
+
+            if line.startswith("LEVEL THREAD SIZE"):
+                in_thread_section = True
+                current_prefix = None
+                current_index = None
+                position = 0
+                continue
+
+            if in_thread_section and line.startswith("LEVEL "):
+                break
+
+            if not in_thread_section:
+                continue
+
+            # Every entry in LEVEL THREAD corresponds to one
+            # positional entry in LEVEL CPU.
+            position += 1
+            node = cpu_to_node.get(position)
+
+            if line.startswith("THREAD "):
+                obj = line.split()[1]
+                parts = obj.split(".")
+
+                if len(parts) != 3:
+                    continue
+
+                a, b, c = parts
+                current_prefix = (a, b)
+
+                try:
+                    current_index = int(c)
+                except ValueError:
+                    current_prefix = None
+                    current_index = None
+                    continue
+
+                thread_obj = f"THREAD {a}.{b}.{current_index}"
+
+            else:
+                if current_prefix is None or current_index is None:
+                    continue
+
+                current_index += 1
+                a, b = current_prefix
+                thread_obj = f"THREAD {a}.{b}.{current_index}"
+
+            if node is not None:
+                thread_to_node[thread_obj] = node
+
+    return thread_to_node
+
+
 def node_from_thread_object(thread_obj, cpu_to_node):
     """
     Infer node from Paraver thread object:
@@ -884,6 +980,7 @@ def node_from_thread_object(thread_obj, cpu_to_node):
 def build_thread_to_device_map_from_row(row_path):
     thread_to_label = parse_row_thread_labels(row_path)
     cpu_to_node = parse_row_cpu_nodes(row_path)
+    thread_to_node = parse_row_thread_nodes(row_path)
 
     thread_to_device = {}
 
@@ -891,7 +988,8 @@ def build_thread_to_device_map_from_row(row_path):
         device_key = device_key_from_row_label(
             label,
             thread_obj=thread_obj,
-            cpu_to_node=cpu_to_node
+            cpu_to_node=cpu_to_node,
+            thread_to_node=thread_to_node
         )
 
         if device_key is not None:
@@ -1043,41 +1141,79 @@ def sum_intervals(intervals):
     return sum(end - start for start, end in intervals)
 
 
-def device_key_from_row_label(label, thread_obj=None, cpu_to_node=None):
+def device_key_from_row_label(
+    label,
+    thread_obj=None,
+    cpu_to_node=None,
+    thread_to_node=None
+):
     """
-    Support both legacy and UUID-based GPU labels.
+    Support legacy, UUID-based, and new generic GPU labels.
 
     Legacy:
         CUDA-D1.S1-as07r1b02 -> as07r1b02:D1
 
-    New:
+    UUID:
         GPU_a2f80454.1 -> <node>:a2f80454
+
+    New Extrae:
+        GPU-D1.S1 -> <node>:D1
     """
     label = label.strip()
 
-    # New UUID-based format
+    # ---------------------------------------------------------
+    # UUID-based format
+    # Keep current behavior for backwards compatibility.
+    # ---------------------------------------------------------
     if label.startswith("GPU_"):
         body = label[len("GPU_"):]
         gpu_uuid = body.split(".", 1)[0]
 
         node = None
         if thread_obj is not None and cpu_to_node is not None:
-            node = node_from_thread_object(thread_obj, cpu_to_node)
+            node = node_from_thread_object(
+                thread_obj,
+                cpu_to_node
+            )
 
         if node is None:
             return None
 
         return f"{node}:{gpu_uuid}"
 
-    # Legacy CUDA-Dx format
+    # ---------------------------------------------------------
+    # New Extrae generic GPU format:
+    #     GPU-D1.S1
+    #
+    # Node comes from positional LEVEL THREAD <-> LEVEL CPU
+    # correspondence.
+    # ---------------------------------------------------------
+    if label.startswith("GPU-"):
+        body = label[len("GPU-"):]          # D1.S1
+        device_part = body.split(".", 1)[0] # D1
+
+        node = None
+        if thread_obj is not None and thread_to_node is not None:
+            node = thread_to_node.get(thread_obj)
+
+        if node is None:
+            return None
+
+        return f"{node}:{device_part}"
+
+    # ---------------------------------------------------------
+    # Legacy CUDA format
+    # Node is already encoded in the label.
+    # ---------------------------------------------------------
     if label.startswith("CUDA-"):
         parts = label.split("-")
+
         if len(parts) < 3:
             return None
 
-        ds_part = parts[1]                  # D1.S1
-        node_part = "-".join(parts[2:])     # node
-        device_part = ds_part.split(".")[0] # D1
+        ds_part = parts[1]
+        node_part = "-".join(parts[2:])
+        device_part = ds_part.split(".")[0]
 
         return f"{node_part}:{device_part}"
 
@@ -1105,6 +1241,12 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
       - only transfer not already covered by useful adds extra duration
     """
     thread_to_device = build_thread_to_device_map_from_row(row_path)
+
+    for thread_obj, device_key in thread_to_device.items():
+        print(
+            f"==DEBUG== GPU mapping: "
+            f"{thread_obj} -> {device_key}"
+        )
 
     useful_rows = parse_gpu_stream_stats(useful_stats_path, positive_only=True)
 
@@ -1286,11 +1428,18 @@ def init_cfgs():
     cfgs['flushing_cycles'] = os.path.join(cfgs['root_dir'], 'flushing-cycles.cfg')
     cfgs['flushing_inst'] = os.path.join(cfgs['root_dir'], 'flushing-inst.cfg')
     cfgs['burst_useful'] = os.path.join(cfgs['root_dir'], 'burst_useful.cfg')
-    cfgs['useful_host'] = os.path.join(cfgs['root_dir'], 'useful_host.cfg')
+    
 
-    # New global GPU stream extractors
+    # Global GPU stream extractors
+    ### CUDA
+    cfgs['useful_host'] = os.path.join(cfgs['root_dir'], 'useful_host.cfg')
     cfgs['useful_streams'] = os.path.join(cfgs['root_dir'], 'useful_streams.cfg')
     cfgs['memtransfer_streams'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams.cfg')
+
+    ### HIP
+    cfgs['useful_host_hip'] = os.path.join(cfgs['root_dir'], 'useful_host_hip.cfg')
+    cfgs['useful_streams_hip'] = os.path.join(cfgs['root_dir'], 'useful_streams_hip.cfg')
+    cfgs['memtransfer_streams_hip'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams_hip.cfg')    
 
     # OpenMP TALP-style timing extractors
     cfgs['omp_useful_regions'] = os.path.join(cfgs['root_dir'], '2d-Useful-duration-in-parallelregion.cfg')
@@ -1499,8 +1648,11 @@ def process_one_trace(
         trace_mode_value == 'Detailed+MPI+OpenMP'
     )
 
-    is_talp_cuda = (trace_mode_value == 'Detailed+MPI+CUDA' and cmdl_args.pop_model_to_apply == 'talp')
-    is_mpi_gpu = (trace_mode_value == 'Detailed+MPI+CUDA')
+    is_cuda = trace_mode_value == 'Detailed+MPI+CUDA'
+    is_hip = trace_mode_value == 'Detailed+MPI+HIP'
+
+    is_mpi_gpu = is_cuda or is_hip
+    is_talp_gpu = (is_mpi_gpu and cmdl_args.pop_model_to_apply == 'talp')
 
     mapping_devices = None
     trace_sim = ''
@@ -1509,6 +1661,7 @@ def process_one_trace(
     gpu_useful_stats = None
     gpu_memtransfer_stats = None
     time_pmd_sim = 0.0
+
     # ------------------------------------------------------------
     # 1) Run paramedir on original trace
     # ------------------------------------------------------------
@@ -1535,9 +1688,22 @@ def process_one_trace(
     if is_burst_mpi:
         cmd_base.extend([cfgs['burst_useful'], trace_name + '.burst_useful.stats.csv'])
 
-    if is_talp_cuda or is_mpi_gpu:
+    
+    if is_cuda:
+        useful_host_cfg = cfgs['useful_host']
+        useful_streams_cfg = cfgs['useful_streams']
+        memtransfer_streams_cfg = cfgs['memtransfer_streams']
+
+    elif is_hip:
+        useful_host_cfg = cfgs['useful_host_hip']
+        useful_streams_cfg = cfgs['useful_streams_hip']
+        memtransfer_streams_cfg = cfgs['memtransfer_streams_hip']    
+    
+    
+    
+    if is_talp_gpu or is_mpi_gpu:
         cmd_base.extend([
-            cfgs['useful_host'],
+            useful_host_cfg,
             trace_name + '.useful_host.stats.csv'
         ])
 
@@ -1600,12 +1766,12 @@ def process_one_trace(
         )
 
         cmd_base.extend([
-            cfgs['useful_streams'],
+            useful_streams_cfg,
             gpu_useful_stats
         ])
 
         cmd_base.extend([
-            cfgs['memtransfer_streams'],
+            memtransfer_streams_cfg,
             gpu_memtransfer_stats
         ])
 
@@ -1778,12 +1944,18 @@ def process_one_trace(
     else:
         trace_raw_data['useful_cyc'] = 'NaN'
 
-    # runtime
+    # frequency
     if os.path.exists(trace_name + '.frequency.stats.csv'):
-        _, frequency_avg, _ = parse_total_average_max(trace_name + '.frequency.stats.csv')
-        trace_raw_data['frequency'] = frequency_avg
+        _, frequency_avg, _ = parse_total_average_max(
+            trace_name + '.frequency.stats.csv'
+        )
+
+        if frequency_avg is not None:
+            trace_raw_data['frequency'] = frequency_avg
+        else:
+            trace_raw_data['frequency'] = 'Non-Avail'
     else:
-        trace_raw_data['frequency'] = 'NaN'
+        trace_raw_data['frequency'] = 'Non-Avail'
 
 
     # useful_ins + procs_ins + instructions mask
