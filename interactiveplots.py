@@ -110,6 +110,18 @@ EFFICIENCY_COLOR_SCALE = [
     (1.00, "#4dac26"),
 ]
 
+def _format_unavailable_metric_value(raw_value):
+    if raw_value == "Non-Avail":
+        return "Non-Avail"
+
+    if raw_value == "NaN":
+        return "NaN"
+
+    if raw_value == "N/A":
+        return "N/A"
+
+    return "Non-Avail"
+
 def _build_simple_metric_info():
     """Build the standard POP metric metadata from the knowledge base.
 
@@ -3600,7 +3612,7 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
             trace_label = headers[index]
 
             if value is None:
-                display_value = "N/A"
+                display_value = _format_unavailable_metric_value(raw_value)
                 js_value = "null"
             else:
                 display_value = "{:.2f}%".format(value)
@@ -10638,7 +10650,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
     if (
         metrics_result["kind"] == "hybrid"
-        and trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"
+        and trace_mode[trace_list[0]] in ("Detailed+MPI+CUDA","Detailed+MPI+HIP")
     ):
         host_factors = metrics_result["host_factors"]
         device_factors = metrics_result["device_factors"]

@@ -158,8 +158,13 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
             other_metrics, trace_list, trace_processes, trace_tasks, trace_threads, trace_mode
         )
         hybridmetrics.print_other_metrics_csv(other_metrics, trace_list, trace_processes)
+        
+        is_mpi_gpu = trace_mode[trace_list[0]] in (
+            "Detailed+MPI+CUDA",
+            "Detailed+MPI+HIP",
+        )
 
-        if (cmdl_args.pop_model_to_apply == 'talp') and (trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"):
+        if (cmdl_args.pop_model_to_apply == 'talp') and is_mpi_gpu:
             hybridmetrics.print_talp_metrics_csv(
                 device_factors, host_factors, trace_list, trace_processes, raw_data
             )
@@ -247,8 +252,13 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
                     print(output_gnuplot_h)
         error_plot_table = True
 
+    is_mpi_gpu = trace_mode[trace_list[0]] in (
+        "Detailed+MPI+CUDA",
+        "Detailed+MPI+HIP",
+    )    
+
     if not error_plot_table:
-        if (cmdl_args.pop_model_to_apply == 'talp') and (trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"):
+        if (cmdl_args.pop_model_to_apply == 'talp') and is_mpi_gpu:
             hybridmetrics.plots_talp_efficiency_table_matplot(
                 trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data, cmdl_args
             )
@@ -258,7 +268,7 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
             )
 
         if not error_import_interactiveplots:
-            if (cmdl_args.pop_model_to_apply == 'talp') and (trace_mode[trace_list[0]] == "Detailed+MPI+CUDA"):
+            if (cmdl_args.pop_model_to_apply == 'talp') and is_mpi_gpu:
                 interactiveplots.plot_talp_efficiency_interactive(
                     metrics_result,
                     analysis_result,

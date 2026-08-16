@@ -75,6 +75,7 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_memtransf_device', 'Useful+MemoryTransfer on the device'),
                             ('useful_memtransf_device_max', 'Useful+MemoryTransfer on the device (maximum)'),
                             ('count_devices', 'Count of Devices'),
+                            ('count_host_threads', 'Count of Host Threads'),
                             ('count_gpu_streams', 'Count of GPU streams'),
                             ('gpu_streams_per_rank', 'GPU streams per MPI rank'),
                             ('time_no_omp', 'Useful + MPI time.'),
@@ -116,6 +117,30 @@ def get_trace_result_path(output_dir, trace):
     elif base.endswith('.prv'):
         base = base[:-4]
     return os.path.join(output_dir, base + '.rawdata.json')
+
+
+def count_host_threads_from_row(row_path):
+    """
+    Count host execution threads from the LEVEL THREAD section.
+
+    Host execution contexts are explicitly labelled:
+        THREAD app.task.thread
+
+    GPU execution contexts may use different labels, for example:
+        CUDA-D1.S1-node
+        GPU_<uuid>.1
+        GPU-D1.S1
+
+    Returns:
+        Number of host execution threads.
+    """
+    thread_to_label = parse_row_thread_labels(row_path)
+
+    return sum(
+        1
+        for label in thread_to_label.values()
+        if str(label).strip().startswith("THREAD ")
+    )
 
 # ----------------------------------------------------------------------
 # Helper functions to parser data from paramedir outputs.
@@ -176,15 +201,32 @@ def parse_total_as_int(path):
 
 def parse_positive_value_sum(path, skip_header=True):
     total = 0.0
+    count_positive = 0
+
     for line in iter_stats_lines(path, skip_header=skip_header):
         parts = line.split()
+
         if not parts:
             continue
+
         if parts[0] in SUMMARY_KEYS:
             continue
-        value = float(parts[-1])
+
+        try:
+            value = float(parts[-1])
+        except (ValueError, IndexError):
+            continue
+
+        if math.isnan(value):
+            continue
+
         if value > 0.0:
             total += value
+            count_positive += 1
+
+    if count_positive == 0:
+        return None
+
     return total
 
 
@@ -195,18 +237,32 @@ def parse_positive_value_sum_and_mask(path, skip_header=True):
 
     for line in iter_stats_lines(path, skip_header=skip_header):
         parts = line.split()
+
         if not parts:
             continue
+
         if parts[0] in SUMMARY_KEYS:
             continue
 
-        value = float(parts[-1])
+        try:
+            value = float(parts[-1])
+        except (ValueError, IndexError):
+            continue
+
+        if math.isnan(value):
+            continue
+
         if value > 0.0:
             total += value
             count_positive += 1
             mask.append(1)
         else:
             mask.append(0)
+
+    # No process/thread reported instructions:
+    # treat the hardware counter as unavailable.
+    if count_positive == 0:
+        return None, 0, []
 
     return total, count_positive, mask
 
@@ -1242,12 +1298,6 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
     """
     thread_to_device = build_thread_to_device_map_from_row(row_path)
 
-    for thread_obj, device_key in thread_to_device.items():
-        print(
-            f"==DEBUG== GPU mapping: "
-            f"{thread_obj} -> {device_key}"
-        )
-
     useful_rows = parse_gpu_stream_stats(useful_stats_path, positive_only=True)
 
     useful_by_rank = defaultdict(list)
@@ -1579,18 +1629,9 @@ def parse_master_thread_values(path, skip_header=True):
     return values
 
 
-def process_one_trace(
-    trace,
-    trace_process_count,
-    trace_task_per_node_value,
-    trace_mode_value,
-    trace_tasks_value,
-    trace_threads_value,
-    cmdl_args,
-    cfgs,
-    dimemas_available,
-    path_dest,
-):
+def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
+                      trace_mode_value, trace_tasks_value, trace_threads_value,
+                      cmdl_args, cfgs, dimemas_available, path_dest,):
     """
     Analyze one trace and return isolated per-trace results.
 
@@ -1621,6 +1662,12 @@ def process_one_trace(
 
     trace_name_control, trace_name = get_trace_names(trace, trace_process_count)
     row_path = trace_name_control + '.row'
+
+    if os.path.exists(row_path):
+        trace_raw_data['count_host_threads'] = \
+            count_host_threads_from_row(row_path)
+    else:
+        trace_raw_data['count_host_threads'] = 0
 
     time_tot = time.time()
 
@@ -1940,9 +1987,18 @@ def process_one_trace(
 
     # useful_cyc
     if os.path.exists(trace_name + '.cycles.stats.csv'):
-        trace_raw_data['useful_cyc'] = parse_positive_value_sum(trace_name + '.cycles.stats.csv', skip_header=True)
+        useful_cyc = parse_positive_value_sum(
+            trace_name + '.cycles.stats.csv',
+            skip_header=True
+        )
+
+        if useful_cyc is None:
+            trace_raw_data['useful_cyc'] = 'Non-Avail'
+        else:
+            trace_raw_data['useful_cyc'] = useful_cyc
     else:
-        trace_raw_data['useful_cyc'] = 'NaN'
+        trace_raw_data['useful_cyc'] = 'Non-Avail'
+
 
     # frequency
     if os.path.exists(trace_name + '.frequency.stats.csv'):
@@ -1961,15 +2017,20 @@ def process_one_trace(
     # useful_ins + procs_ins + instructions mask
     procs_ins = 0
     content_insttructions = []
-    if os.path.exists(trace_name + '.instructions.stats.csv'):
-        useful_ins, procs_ins, content_insttructions = parse_positive_value_sum_and_mask(
+    useful_ins, procs_ins, content_insttructions = \
+        parse_positive_value_sum_and_mask(
             trace_name + '.instructions.stats.csv',
             skip_header=True
         )
-        trace_raw_data['procs_ins'] = procs_ins
-        trace_raw_data['useful_ins'] = float(useful_ins)
+
+    if useful_ins is None:
+        trace_raw_data['useful_ins'] = 'Non-Avail'
+        trace_raw_data['procs_ins'] = 0
+        content_insttructions = []
     else:
-        trace_raw_data['useful_ins'] = 'NaN'
+        trace_raw_data['useful_ins'] = float(useful_ins)
+        trace_raw_data['procs_ins'] = procs_ins
+
 
     # POSIX-IO aggregates
     posixio_totals = None
