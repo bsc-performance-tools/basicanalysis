@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List, Mapping
+from typing import Any, List, Mapping, Optional
 
 
 @dataclass(frozen=True)
@@ -45,6 +45,7 @@ class AnalysisContext:
     traces: List[TraceInfo]
     resources: List[ResourceInfo]
     metrics: Mapping[str, Any]
+    scaling_info: Optional[Any] = None
     raw_data: Mapping[str, Any] = field(default_factory=dict)
     diagnosis: List[Any] = field(default_factory=list)
     evidence: List[Any] = field(default_factory=list)

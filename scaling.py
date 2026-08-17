@@ -91,8 +91,8 @@ def _compute_scaling_detection(
 ):
     """Detect weak or strong scaling from execution measurements.
 
-    This function implements the automatic scaling-detection algorithm
-    historically used by BasicAnalysis.
+    This function implements the automatic scaling-detection algorithm 
+    used by BasicAnalysis.
 
     Three indicators are evaluated:
 

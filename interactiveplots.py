@@ -850,6 +850,80 @@ def _inner_model_name(trace_mode, trace_list):
     return "X"
 
 
+def _build_scaling_model_html(scaling_model):
+    """Build the scaling-model summary shown in Computation Scalability."""
+
+    if scaling_model is None:
+        return ""
+
+    detected = (
+        scaling_model.detected.capitalize()
+        if scaling_model.detected
+        else "Non-Avail"
+    )
+
+    selected = scaling_model.selected.capitalize()
+
+    if scaling_model.selection_mode == "auto":
+        selection = "Automatic"
+    elif scaling_model.selection_mode == "manual":
+        selection = "Manual"
+    else:
+        selection = "Implicit"
+
+    warning_html = ""
+
+    if scaling_model.overridden:
+        warning_html = """
+        <div class="scaling-model-warning">
+            <strong>Manual override:</strong>
+            the scaling model used to compute the metrics differs from
+            the automatically detected scaling behavior.
+        </div>
+        """
+
+    return """
+    <section class="scaling-model-panel">
+        <div class="scaling-model-header">
+            <h3>Scaling model</h3>
+            <p>
+                Scaling behavior detected from the analyzed executions and
+                the model used to compute the scalability metrics.
+            </p>
+        </div>
+
+        <div class="scaling-model-grid">
+            <div class="scaling-model-item">
+                <span class="scaling-model-label">
+                    Detected scaling
+                </span>
+                <strong>{detected}</strong>
+            </div>
+
+            <div class="scaling-model-item">
+                <span class="scaling-model-label">
+                    Scaling used
+                </span>
+                <strong>{selected}</strong>
+            </div>
+
+            <div class="scaling-model-item">
+                <span class="scaling-model-label">
+                    Selection
+                </span>
+                <strong>{selection}</strong>
+            </div>
+        </div>
+
+        {warning_html}
+    </section>
+    """.format(
+        detected=html.escape(detected),
+        selected=html.escape(selected),
+        selection=html.escape(selection),
+        warning_html=warning_html,
+    )
+
 def _build_global_metric_info(is_hybrid):
     """Build application-level metric guidance for the execution model."""
     metric_info = METRIC_PROVIDER.clone(SIMPLE_METRIC_INFO)
@@ -8544,8 +8618,6 @@ def _build_interactive_report_document(workspace_html,
             outline-offset: 2px;
         }
 
-
-
         .guided-primary-panel {
             padding: 10px;
         }
@@ -9841,6 +9913,82 @@ def _build_interactive_report_document(workspace_html,
                 monospace;
         }
 
+        /* -------------------------------------------------- */
+        /* Scaling model                                      */
+        /* -------------------------------------------------- */
+
+        .scaling-model-panel {
+            margin-bottom: 16px;
+            padding: 14px 16px;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+
+            background: #f8fbff;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .scaling-model-header h3 {
+            margin: 0 0 3px;
+            color: var(--primary);
+            font-size: 16px;
+        }
+
+        .scaling-model-header p {
+            margin: 0 0 12px;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .scaling-model-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(140px, 1fr));
+            gap: 10px;
+        }
+
+        .scaling-model-item {
+            padding: 9px 11px;
+
+            border: 1px solid var(--border);
+            border-radius: 8px;
+
+            background: white;
+        }
+
+        .scaling-model-label {
+            display: block;
+            margin-bottom: 2px;
+
+            color: var(--text-secondary);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+        }
+
+        .scaling-model-item strong {
+            color: var(--primary);
+            font-size: 14px;
+        }
+
+        .scaling-model-warning {
+            margin-top: 12px;
+            padding: 9px 11px;
+
+            border-left: 4px solid #c79a20;
+            border-radius: 6px;
+
+            background: #fff8e7;
+            color: #5c4b1c;
+
+            font-size: 12px;
+        }
+
+        @media (max-width: 700px) {
+            .scaling-model-grid {
+                grid-template-columns: 1fr;
+            }
+        }
 
 </style>
 
@@ -10863,6 +11011,10 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         scalability_data = scalability_section.payload
         scalability_analysis = scalability_data.analysis
 
+        scaling_model_html = _build_scaling_model_html(
+            scalability_data.scaling_info
+        )
+
         scalability_keys = [
             metric.metric_id
             for metric in scalability_analysis.metrics
@@ -10901,7 +11053,8 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             )
 
             computation_scalability_html = (
-                scalability_metrics_html
+                scaling_model_html
+                + scalability_metrics_html
                 + scalability_scope_html
             )
 

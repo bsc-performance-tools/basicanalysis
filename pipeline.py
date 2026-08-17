@@ -100,6 +100,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
             host_factors,
             hybrid_gpu_factors,
             omp_talp_factors,
+            scaling_info,
         ) = hybridmetrics.compute_model_factors(
                 raw_data,
                 trace_list,
@@ -119,10 +120,16 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
             "device_factors": device_factors,
             "host_factors": host_factors,
             "omp_talp_factors": omp_talp_factors,
+            "scaling_info": scaling_info,
         }
 
 
-    (mod_factors, mod_factors_scale_plus_io, other_metrics, omp_talp_factors) = compute_model_factors(
+    (mod_factors, 
+    mod_factors_scale_plus_io, 
+    other_metrics, 
+    omp_talp_factors,
+    scaling_info,
+    ) = compute_model_factors(
         raw_data,
         trace_list,
         trace_processes,
@@ -137,12 +144,47 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
         "mod_factors_scale_plus_io": mod_factors_scale_plus_io,
         "other_metrics": other_metrics,
         "omp_talp_factors": omp_talp_factors,
+        "scaling_info": scaling_info,
     }
+
+def print_scaling_info(scaling_info):
+    """Print the scaling model used by the analysis."""
+
+    if (
+        scaling_info is None
+        or not scaling_info.has_scaling_analysis
+    ):
+        return
+
+    detected = (
+        scaling_info.detected.capitalize()
+        if scaling_info.detected
+        else "Non-Avail"
+    )
+
+    selected = scaling_info.selected.capitalize()
+
+    if scaling_info.selection_mode == "auto":
+        selection = "Automatic"
+    elif scaling_info.selection_mode == "manual":
+        selection = "Manual"
+    else:
+        selection = "Implicit"
+
+    ##print("")
+    print("Scaling model:")
+    print("  Detected scaling : {}".format(detected))
+    print("  Scaling used     : {}".format(selected))
+    print("  Selection        : {}".format(selection))
+    print("")
 
 def generate_reports(metrics_result, analysis_result, trace_list, trace_processes,
                      trace_tasks, trace_threads, trace_mode, cmdl_args):
     """Generate tables and CSV files."""
     raw_data = analysis_result["raw_data"]
+
+    scaling_info = metrics_result.get("scaling_info")
+    print_scaling_info(scaling_info)    
 
     if metrics_result["kind"] == "hybrid":
         mod_factors = metrics_result["mod_factors"]
@@ -500,6 +542,7 @@ def generate_plots(
     analysis_context = build_analysis_context(
         report,
         raw_data=analysis_result.get("raw_data", {}),
+        scaling_info=metrics_result.get("scaling_info"),
     )
 
     report_model = build_report_model(analysis_context)
@@ -539,6 +582,25 @@ def generate_plots(
                     for value in metric.values
                 ],
             )
+
+        scalability = report_model.get_section(
+            "scalability-analysis"
+        )
+
+        if scalability is not None:
+            scaling_info = scalability.payload.scaling_info
+
+            print("==DEBUG== Scaling detected:", scaling_info.detected)
+            print("==DEBUG== Scaling selected:", scaling_info.selected)
+            print(
+                "==DEBUG== Scaling selection mode:",
+                scaling_info.selection_mode,
+            )
+            print(
+                "==DEBUG== Scaling overridden:",
+                scaling_info.overridden,
+            )
+
 
     if metrics_result["kind"] == "hybrid":
         generate_hybrid_plots(

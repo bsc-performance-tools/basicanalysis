@@ -95,10 +95,10 @@ _ACCELERATOR_SCALABILITY_METRICS = (
 @dataclass(frozen=True)
 class ScalabilityAnalysisData:
     """Semantic information presented in Computation Scalability."""
-
     analysis: MetricAnalysisData
     trace_count: int
     accelerator_limited_model: bool
+    scaling_info: Any = None
 
 
 class ScalabilityAnalysisBuilder:
@@ -181,6 +181,7 @@ class ScalabilityAnalysisBuilder:
                 context.traces
             ),
             accelerator_limited_model=has_accelerator,
+            scaling_info=context.scaling_info,
         )
 
         section = ReportSection(
@@ -400,7 +401,12 @@ class ScalabilityAnalysisBuilder:
     def _has_scaling_experiment(
         context: AnalysisContext,
     ) -> bool:
-        """Return whether the report contains multiple configurations."""
+        """Return whether scaling analysis is applicable."""
+
+        if context.scaling_info is not None:
+            return bool(
+                context.scaling_info.has_scaling_analysis
+            )
 
         return len(
             context.traces

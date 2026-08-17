@@ -8,7 +8,7 @@ import math
 
 from rawdata import *
 from collections import OrderedDict
-from scaling import get_scaling_type
+from scaling import get_scaling_info
 
 # error import variables
 error_import_pandas = False
@@ -262,8 +262,15 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     omp_talp_factors = create_omp_talp_factors(trace_list)
 
 
-    # Guess the weak or strong scaling
-    scaling = get_scaling_type(raw_data, trace_list, trace_processes, cmdl_args)
+    # Detect and select the scaling model.
+    scaling_info = get_scaling_info(
+        raw_data,
+        trace_list,
+        trace_processes,
+        cmdl_args,
+    )
+
+    scaling = scaling_info.selected
 
     # Loop over all traces
     for trace in trace_list:
@@ -1125,7 +1132,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         device_factors,
         host_factors,
         hybrid_gpu_factors,
-        omp_talp_factors
+        omp_talp_factors,
+        scaling_info,
     )
 
 def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io,

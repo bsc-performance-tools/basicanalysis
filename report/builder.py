@@ -24,6 +24,7 @@ from .model import (
 def build_analysis_context(
     report_data: Mapping[str, Any],
     raw_data: Optional[Mapping[str, Any]] = None,
+    scaling_info: Optional[Any] = None,
 ) -> AnalysisContext:
     """Adapt the current ``reportdata`` dictionary to typed objects."""
 
@@ -138,6 +139,7 @@ def build_analysis_context(
             "metrics",
             {},
         ),
+        scaling_info=scaling_info,
         raw_data=raw_data or {},
         diagnosis=list(
             report_data.get(
@@ -152,6 +154,7 @@ def build_analysis_context(
             )
         ),
     )
+
 
     context.validate()
 
