@@ -238,8 +238,19 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
             )
 
         hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
-        hybridmetrics.print_omp_talp_metrics_csv(omp_talp_factors, trace_list, trace_processes, trace_tasks,\
-         trace_threads, trace_mode)
+
+        if any(
+            trace_mode[trace] == "Detailed+MPI+OpenMP"
+            for trace in trace_list
+        ):
+            hybridmetrics.print_omp_talp_metrics_csv(
+                omp_talp_factors,
+                trace_list,
+                trace_processes,
+                trace_tasks,
+                trace_threads,
+                trace_mode
+            )
         
         return
 
@@ -253,7 +264,17 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
     print_other_metrics_csv(other_metrics, trace_list, trace_processes)
     print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes, trace_mode)
     print_mod_factors_csv(mod_factors, trace_list, trace_processes)
-    print_omp_talp_metrics_csv(omp_talp_factors, trace_list, trace_processes)    
+
+    if any(
+        trace_mode[trace] == "Detailed+OpenMP"
+        for trace in trace_list
+    ):
+        print_omp_talp_metrics_csv(
+            omp_talp_factors,
+            trace_list,
+            trace_processes
+        )
+    
     print_efficiency_table(mod_factors, trace_list, trace_processes)
 
 
@@ -309,29 +330,7 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
                 trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args
             )
 
-        if not error_import_interactiveplots:
-            if (cmdl_args.pop_model_to_apply == 'talp') and is_mpi_gpu:
-                interactiveplots.plot_talp_efficiency_interactive(
-                    metrics_result,
-                    analysis_result,
-                    trace_list,
-                    trace_processes,
-                    trace_tasks,
-                    trace_threads,
-                    trace_mode,
-                    cmdl_args,
-                )
-            else:
-                interactiveplots.plot_hybrid_efficiency_interactive(
-                    metrics_result,
-                    trace_list,
-                    trace_processes,
-                    trace_tasks,
-                    trace_threads,
-                    trace_mode,
-                    cmdl_args,
-                )
-            
+        if not error_import_interactiveplots:           
             interactiveplots.plot_basicanalysis_interactive_report(
                 metrics_result,
                 analysis_result,
@@ -345,36 +344,6 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
                 cmdl_args,
             )
 
-            printable_html = (
-                interactiveplots.generate_basicanalysis_printable_report(
-                    metrics_result,
-                    analysis_result,
-                    report,
-                    trace_list,
-                    trace_processes,
-                    trace_tasks,
-                    trace_threads,
-                    trace_mode,
-                    cmdl_args,
-                )
-            )
-
-            output_pdf = os.path.join(
-                os.getcwd(),
-                "basicanalysis_performance_report.pdf",
-            )
-
-            try:
-                html_to_pdf.html_to_pdf(
-                    printable_html,
-                    output_pdf,
-                )
-
-            except Exception as error:
-                print(
-                    "==WARNING== PDF report could not be generated: "
-                    "{}".format(error)
-                )
         else:
             print('Plotly/interactiveplots module not available. '
                  'Skipping interactive HTML report.')            
@@ -437,16 +406,6 @@ def generate_simple_plots(metrics_result, analysis_result, report,
     if not error_plot_table:
         plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, cmdl_args)
         if not error_import_interactiveplots:
-            interactiveplots.plot_simple_efficiency_interactive(
-                metrics_result,
-                trace_list,
-                trace_processes,
-                trace_tasks,
-                trace_threads,
-                trace_mode,
-                cmdl_args,
-            )
-
             interactiveplots.plot_basicanalysis_interactive_report(
                 metrics_result,
                 analysis_result,
@@ -460,36 +419,6 @@ def generate_simple_plots(metrics_result, analysis_result, report,
                 cmdl_args,
             )
 
-            printable_html = (
-                interactiveplots.generate_basicanalysis_printable_report(
-                    metrics_result,
-                    analysis_result,
-                    report,
-                    trace_list,
-                    trace_processes,
-                    trace_tasks,
-                    trace_threads,
-                    trace_mode,
-                    cmdl_args,
-                )
-            )
-
-            output_pdf = os.path.join(
-                os.getcwd(),
-                "basicanalysis_performance_report.pdf",
-            )
-
-            try:
-                html_to_pdf.html_to_pdf(
-                    printable_html,
-                    output_pdf,
-                )
-
-            except Exception as error:
-                print(
-                    "==WARNING== PDF report could not be generated: "
-                    "{}".format(error)
-                )
         else:
             print('Plotly/interactiveplots module not available. '
                       'Skipping interactive HTML report.')

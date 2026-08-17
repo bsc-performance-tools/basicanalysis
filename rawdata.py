@@ -1948,6 +1948,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         print('==ERROR== Failed to compute outside MPI timing information with paramedir.')
         error_timing = 1
 
+
     if not os.path.exists(trace_name + '.cycles.stats.csv') or \
             not os.path.exists(trace_name + '.instructions.stats.csv'):
         print('==ERROR== Failed to compute counter information with paramedir.')
@@ -2017,19 +2018,27 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     # useful_ins + procs_ins + instructions mask
     procs_ins = 0
     content_insttructions = []
-    useful_ins, procs_ins, content_insttructions = \
-        parse_positive_value_sum_and_mask(
-            trace_name + '.instructions.stats.csv',
-            skip_header=True
-        )
 
-    if useful_ins is None:
+    if os.path.exists(trace_name + '.instructions.stats.csv'):
+
+        useful_ins, procs_ins, content_insttructions = \
+            parse_positive_value_sum_and_mask(
+                trace_name + '.instructions.stats.csv',
+                skip_header=True
+            )
+
+        if useful_ins is None:
+            trace_raw_data['useful_ins'] = 'Non-Avail'
+            trace_raw_data['procs_ins'] = 0
+            content_insttructions = []
+        else:
+            trace_raw_data['useful_ins'] = float(useful_ins)
+            trace_raw_data['procs_ins'] = procs_ins
+
+    else:
         trace_raw_data['useful_ins'] = 'Non-Avail'
         trace_raw_data['procs_ins'] = 0
         content_insttructions = []
-    else:
-        trace_raw_data['useful_ins'] = float(useful_ins)
-        trace_raw_data['procs_ins'] = procs_ins
 
 
     # POSIX-IO aggregates
