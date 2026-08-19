@@ -12,6 +12,8 @@ import observations
 
 import plotly.graph_objects as go
 
+from configuration import format_configuration_label
+
 from report.renderer.html import (
     build_analysis_catalogue,
     render_analysis_navigation,
@@ -1362,6 +1364,7 @@ def _programming_model_key(programming_model):
 
     return "generic"
 
+
 def _report_trace_label(trace_info):
     """Build a model-aware report column label."""
 
@@ -1378,29 +1381,48 @@ def _report_trace_label(trace_info):
     )
 
     # --------------------------------------------------
-    # Single programming models
+    # MPI
     # --------------------------------------------------
 
     if model_key == "mpi":
-        return "{} [{}]".format(
-            trace_info.get("tasks", "-"),
-            trace_id,
+        return format_configuration_label(
+            model_key="mpi",
+            processes=trace_info.get("processes"),
+            mpi_ranks=trace_info.get("tasks"),
+            trace_id=trace_id,
+            separator='×',
         )
+
+    # --------------------------------------------------
+    # Host threading
+    # --------------------------------------------------
 
     if model_key in (
         "openmp",
         "pthreads",
         "ompss",
     ):
-        return "{} [{}]".format(
-            trace_info.get("threads", "-"),
-            trace_id,
+        return format_configuration_label(
+            model_key=model_key,
+            processes=trace_info.get("processes"),
+            inner_units=trace_info.get("threads"),
+            trace_id=trace_id,
+            separator='×',
         )
 
+    # --------------------------------------------------
+    # GPU
+    # --------------------------------------------------
+
     if model_key == "gpu":
-        return "{} [{}]".format(
-            trace_info.get("gpu_streams", "-"),
-            trace_id,
+        return format_configuration_label(
+            model_key="gpu",
+            processes=trace_info.get("processes"),
+            gpu_streams=trace_info.get(
+                "gpu_streams"
+            ),
+            trace_id=trace_id,
+            separator='×',
         )
 
     # --------------------------------------------------
@@ -1411,80 +1433,49 @@ def _report_trace_label(trace_info):
         "mpi_threads",
         "mpi_ompss",
     ):
-        mpi_ranks = trace_info.get("tasks", 0)
-        inner_units = trace_info.get("threads", 0)
-
-        try:
-            parallel_units = (
-                int(mpi_ranks)
-                * int(inner_units)
-            )
-        except (TypeError, ValueError):
-            parallel_units = trace_info.get(
-                "processes",
-                "-",
-            )
-
-        return "{} ({}×{}) [{}]".format(
-            parallel_units,
-            mpi_ranks,
-            inner_units,
-            trace_id,
+        return format_configuration_label(
+            model_key=model_key,
+            processes=trace_info.get("processes"),
+            mpi_ranks=trace_info.get("tasks"),
+            inner_units=trace_info.get("threads"),
+            trace_id=trace_id,
+            separator='×',
         )
 
     # --------------------------------------------------
     # MPI + GPU
     # --------------------------------------------------
 
-    
     if model_key == "mpi_gpu":
-        mpi_ranks = trace_info.get("tasks", 0)
-
-        streams_per_rank = trace_info.get(
-            "gpu_streams_per_rank",
-            0,
+        return format_configuration_label(
+            model_key="mpi_gpu",
+            processes=trace_info.get("processes"),
+            mpi_ranks=trace_info.get("tasks"),
+            gpu_streams=trace_info.get(
+                "gpu_streams"
+            ),
+            streams_per_rank=trace_info.get(
+                "gpu_streams_per_rank"
+            ),
+            devices=trace_info.get(
+                "devices"
+            ),
+            trace_id=trace_id,
+            separator='×',
         )
-
-        devices = trace_info.get(
-            "devices",
-            0,
-        )
-
-        if streams_per_rank == -1:
-            return "{} ({}×var) [{}D] [{}]".format(
-                trace_info.get("gpu_streams", "-"),
-                mpi_ranks,
-                devices,
-                trace_id,
-            )
-
-        try:
-            parallel_units = (
-                int(mpi_ranks)
-                * int(streams_per_rank)
-            )
-        except (TypeError, ValueError):
-            parallel_units = trace_info.get(
-                "gpu_streams",
-                "-",
-            )
-
-        return "{} ({}×{}) [{}D] [{}]".format(
-            parallel_units,
-            mpi_ranks,
-            streams_per_rank,
-            devices,
-            trace_id,
-        )
-
 
     # --------------------------------------------------
     # Fallback
     # --------------------------------------------------
 
-    return "{} [{}]".format(
-        trace_info.get("processes", "-"),
-        trace_id,
+    return format_configuration_label(
+        model_key="generic",
+        processes=trace_info.get(
+            "processes",
+            "-"
+        ),
+        trace_id=trace_id,
+        separator='×',
     )
     
 
@@ -2505,17 +2496,22 @@ def _has_mode(trace_mode, trace_list, token):
 
 def _report_execution_model(trace_mode, trace_list, metrics_result):
     is_hybrid = metrics_result.get("kind") == "hybrid"
+
     has_mpi = _has_mode(trace_mode, trace_list, "MPI")
     has_omp = _has_mode(trace_mode, trace_list, "OpenMP")
     has_cuda = _has_mode(trace_mode, trace_list, "CUDA")
+    has_hip = _has_mode(trace_mode, trace_list, "HIP")
+
+    has_gpu = has_cuda or has_hip
 
     return {
         "is_hybrid": is_hybrid,
         "has_mpi": has_mpi,
         "has_omp": has_omp,
         "has_cuda": has_cuda,
+        "has_hip": has_hip,
+        "has_gpu": has_gpu,
     }
-
 
 def _build_report_tabs(model):
     tabs = [
@@ -3595,7 +3591,7 @@ def _build_component_views(model, inner_model, mpi_html,
             "html": openmp_html,
         })
 
-    if model["is_hybrid"] and model["has_cuda"] and accelerator_html:
+    if model["is_hybrid"] and model["has_gpu"] and accelerator_html:
         analysis_views.append({
             "id": "analysis-runtime-accelerator",
             "label": inner_model,
@@ -3629,7 +3625,7 @@ def _build_component_views(model, inner_model, mpi_html,
     if (
         model["is_hybrid"]
         and not model["has_omp"]
-        and not model["has_cuda"]
+        and not model["has_gpu"]
         and inner_model
     ):
         analysis_views.append({
@@ -10739,7 +10735,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     # --------------------------------------------------
     accelerator_html = ""
 
-    if model["is_hybrid"] and model["has_cuda"]:
+    if model["is_hybrid"] and model["has_gpu"]:
         accelerator_keys = [
             "omp_parallel_eff",
             "omp_load_balance",
@@ -11331,7 +11327,7 @@ def _build_basicanalysis_printable_report_html(
     # This is kept separate from Host and Device execution-domain analysis.
     if (
         model["is_hybrid"]
-        and model["has_cuda"]
+        and model["has_gpu"]
         and inner_model in ("CUDA", "HIP")
     ):
         accelerator_keys = [
@@ -11387,7 +11383,7 @@ def _build_basicanalysis_printable_report_html(
     # --------------------------------------------------
     execution_domains_html = ""
 
-    if metrics_result.get("kind") == "hybrid" and model["has_cuda"]:
+    if metrics_result.get("kind") == "hybrid" and model["has_gpu"]:
         host_factors = metrics_result.get("host_factors", {})
         device_factors = metrics_result.get("device_factors", {})
 

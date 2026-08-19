@@ -197,8 +197,15 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
         omp_talp_factors = metrics_result["omp_talp_factors"]
 
         hybridmetrics.print_other_metrics_table(
-            other_metrics, trace_list, trace_processes, trace_tasks, trace_threads, trace_mode
+            other_metrics,
+            trace_list,
+            trace_processes,
+            trace_tasks,
+            trace_threads,
+            trace_mode,
+            raw_data,
         )
+
         hybridmetrics.print_other_metrics_csv(other_metrics, trace_list, trace_processes)
         
         is_mpi_gpu = trace_mode[trace_list[0]] in (
@@ -208,8 +215,16 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
 
         if (cmdl_args.pop_model_to_apply == 'talp') and is_mpi_gpu:
             hybridmetrics.print_talp_metrics_csv(
-                device_factors, host_factors, trace_list, trace_processes, raw_data
+                device_factors,
+                host_factors,
+                trace_list,
+                trace_processes,
+                trace_tasks,
+                trace_threads,
+                trace_mode,
+                raw_data,
             )
+
             hybridmetrics.print_mod_factors_table_talp(
                 mod_factors,
                 other_metrics,
@@ -232,9 +247,16 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
                 trace_mode, raw_data, cmdl_args
             )
             hybridmetrics.print_efficiency_table(
-                mod_factors, hybrid_factors, hyb_comm_omp_factors,
-                trace_list, trace_processes, trace_tasks, trace_threads,
-                trace_mode, cmdl_args
+                mod_factors,
+                hybrid_factors,
+                hyb_comm_omp_factors,
+                trace_list,
+                trace_processes,
+                trace_tasks,
+                trace_threads,
+                trace_mode,
+                raw_data,
+                cmdl_args,
             )
 
         hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
@@ -275,7 +297,7 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
             trace_processes
         )
     
-    print_efficiency_table(mod_factors, trace_list, trace_processes)
+    print_efficiency_table(mod_factors, trace_list, trace_processes, trace_tasks,trace_threads)
 
 
 def can_plot_tables():

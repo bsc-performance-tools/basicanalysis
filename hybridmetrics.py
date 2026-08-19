@@ -9,6 +9,10 @@ import math
 from rawdata import *
 from collections import OrderedDict
 from scaling import get_scaling_info
+from configuration import (
+    format_configuration_label,
+    disambiguate_configuration_labels,
+)
 
 # error import variables
 error_import_pandas = False
@@ -120,13 +124,14 @@ def safe_float_for_plot(value):
     """
     Convert metric values to float for plotting.
 
-    Non-numeric values such as 'Warning!', 'Non-Avail', 'N/A', or 'NaN'
-    are mapped to 0.0 so matplotlib can still render the table.
+    Non-numeric values such as 'Warning!', 'Non-Avail',
+    'N/A', or 'NaN' are represented as NaN so that
+    heatmaps leave those cells empty.
     """
     try:
         return float(value)
     except (TypeError, ValueError):
-        return 0.0
+        return np.nan
 
 def create_mod_factors(trace_list):
     """Creates 2D dictionary of the model factors and initializes with an empty
@@ -246,6 +251,441 @@ def is_mpi_gpu_mode(mode):
     'Detailed+MPI+CUDA',
     'Detailed+MPI+HIP',
     )  
+
+def _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+        separator='x'):
+    """Build model-aware configuration labels for hybrid output."""
+
+    labels = []
+
+    for trace in trace_list:
+
+        # --------------------------------------------------
+        # MPI + GPU
+        # --------------------------------------------------
+
+        if is_mpi_gpu_mode(trace_mode[trace]):
+            parallel_units = trace_processes[trace]
+            mpi_ranks = trace_tasks[trace]
+            devices = raw_data['count_devices'][trace]
+
+            try:
+                total_gpu_streams = (
+                    int(parallel_units)
+                    - int(mpi_ranks)
+                )
+
+                if int(mpi_ranks) > 0:
+                    if total_gpu_streams % int(mpi_ranks) == 0:
+                        streams_per_rank = (
+                            total_gpu_streams
+                            // int(mpi_ranks)
+                        )
+                    else:
+                        streams_per_rank = -1
+                else:
+                    streams_per_rank = -1
+
+            except (TypeError, ValueError):
+                total_gpu_streams = None
+                streams_per_rank = -1
+
+            label = format_configuration_label(
+                model_key="mpi_gpu",
+                processes=parallel_units,
+                mpi_ranks=mpi_ranks,
+                gpu_streams=total_gpu_streams,
+                streams_per_rank=streams_per_rank,
+                devices=devices,
+                separator=separator,
+            )
+
+        # --------------------------------------------------
+        # MPI + other runtime
+        # --------------------------------------------------
+
+        elif trace_mode[trace].startswith(
+                "Detailed+MPI+"):
+
+            label = format_configuration_label(
+                model_key="mpi_threads",
+                processes=trace_processes[trace],
+                mpi_ranks=trace_tasks[trace],
+                inner_units=trace_threads[trace],
+                separator=separator,
+            )
+
+        # --------------------------------------------------
+        # Fallback
+        # --------------------------------------------------
+
+        else:
+            label = format_configuration_label(
+                model_key="generic",
+                processes=trace_processes[trace],
+                separator=separator,
+            )
+
+        labels.append(label)
+
+    trace_ids = [
+        index + 1
+        for index in range(len(trace_list))
+    ]
+
+    return disambiguate_configuration_labels(
+        labels,
+        trace_ids=trace_ids,
+    )
+
+
+def _format_heatmap_metric_labels(labels, output_name):
+    """
+    Convert the textual hierarchy used by stdout (-- / ==)
+    into clean metric names plus indentation levels for plots.
+    """
+
+    formatted_labels = []
+    indent_levels = []
+
+    is_hybrid_table = 'hybrid' in output_name
+
+    for label in labels:
+        raw_label = str(label)
+
+        # Existing metric dictionaries encode hierarchy using
+        # leading spaces plus '--' / '==' markers.
+        leading_spaces = len(raw_label) - len(raw_label.lstrip())
+        text = raw_label.strip()
+
+        has_marker = False
+
+        if text.startswith('=='):
+            text = text[2:].strip()
+            has_marker = True
+        elif text.startswith('--'):
+            text = text[2:].strip()
+            has_marker = True
+
+        if is_hybrid_table:
+            # Hybrid Parallel efficiency is the root of this table.
+            if text == 'Hybrid Parallel efficiency':
+                level = 0
+            else:
+                level = int(round(leading_spaces / 3.0))
+
+        else:
+            # Global and HOST/DEVICE tables have unmarked root rows.
+            if not has_marker:
+                level = 0
+            elif leading_spaces == 0:
+                level = 1
+            else:
+                level = 1 + int(round(leading_spaces / 3.0))
+
+        formatted_labels.append(text)
+        indent_levels.append(level)
+
+    return formatted_labels, indent_levels
+
+
+def _plot_efficiency_heatmap(df, output_name, separator_row=None):
+    """
+    Render an efficiency table as a publication-quality heatmap.
+
+    Layout:
+        metric hierarchy | efficiency values | colorbar
+
+    The metric-label area and data-column widths are computed from
+    the actual text so that long metric names and configuration
+    headers are not clipped or overlapped.
+    """
+
+    nrows, ncols = df.shape
+
+    # --------------------------------------------------
+    # Metric hierarchy
+    # --------------------------------------------------
+
+    formatted_labels, indent_levels = _format_heatmap_metric_labels(
+        df.index,
+        output_name,
+    )
+
+    # --------------------------------------------------
+    # Figure dimensions
+    # --------------------------------------------------
+
+    # Estimate the width required by the metric-label column.
+    #
+    # Hierarchy indentation also consumes horizontal space, so add
+    # a few equivalent characters for each indentation level.
+    max_metric_chars = max(
+        len(label) + level * 3
+        for label, level in zip(
+            formatted_labels,
+            indent_levels,
+        )
+    )
+
+    # Width reserved for metric names.
+    #
+    # The multiplication factor is intentionally conservative so
+    # that long names such as "Device Communication efficiency"
+    # are not clipped.
+    label_width = max(
+        3.4,
+        max_metric_chars * 0.12
+    )
+
+    # --------------------------------------------------
+    # Configuration/header width
+    # --------------------------------------------------
+
+    header_labels = [
+        str(column)
+        for column in df.columns
+    ]
+
+    max_header_chars = max(
+        len(label)
+        for label in header_labels
+    )
+
+    # Minimum width needed for numeric values.
+    value_column_width = 1.25
+
+    # Width required by the configuration header.
+    #
+    # Long labels such as:
+    #
+    #     36 (8xvar) [8D] [1]
+    #
+    # therefore produce wider columns than:
+    #
+    #     64 (8x8)
+    #
+    header_column_width = max(
+        1.25,
+        max_header_chars * 0.105
+    )
+
+    column_width = max(
+        value_column_width,
+        header_column_width
+    )
+
+    data_width = (
+        ncols * column_width
+    )
+
+    # Independent narrow colorbar.
+    colorbar_width = 0.28
+
+    # Small extra spacing for figure boundaries.
+    extra_width = 0.35
+
+    figure_width = (
+        label_width
+        + data_width
+        + colorbar_width
+        + extra_width
+    )
+
+    figure_height = max(
+        3.0,
+        nrows * 0.54
+    )
+
+    # --------------------------------------------------
+    # Three-column layout
+    # --------------------------------------------------
+
+    fig = plt.figure(
+        figsize=(
+            figure_width,
+            figure_height
+        )
+    )
+
+    grid = fig.add_gridspec(
+        nrows=1,
+        ncols=3,
+        width_ratios=[
+            label_width,
+            data_width,
+            colorbar_width,
+        ],
+        wspace=0.04
+    )
+
+    # Dedicated axis for metric names.
+    label_ax = fig.add_subplot(
+        grid[0, 0]
+    )
+
+    # Heatmap itself.
+    ax = fig.add_subplot(
+        grid[0, 1]
+    )
+
+    # Dedicated colorbar axis.
+    cbar_ax = fig.add_subplot(
+        grid[0, 2]
+    )
+
+    # --------------------------------------------------
+    # Heatmap
+    # --------------------------------------------------
+
+    heatmap = sns.heatmap(
+        df,
+        ax=ax,
+        cbar_ax=cbar_ax,
+        cmap='RdYlGn',
+        linewidths=0.6,
+        linecolor='white',
+        annot=True,
+        vmin=0,
+        vmax=100,
+        center=75,
+        fmt='.2f',
+        annot_kws={
+            'fontsize': 12
+        }
+    )
+
+    # --------------------------------------------------
+    # Configuration labels
+    # --------------------------------------------------
+
+    ax.xaxis.tick_top()
+    ax.xaxis.set_label_position(
+        'top'
+    )
+
+    # Adapt header font slightly when configuration names become long.
+    if max_header_chars > 24:
+        header_fontsize = 9
+    elif max_header_chars > 18:
+        header_fontsize = 10
+    else:
+        header_fontsize = 11
+
+    ax.tick_params(
+        axis='x',
+        labelsize=header_fontsize,
+        rotation=0,
+        pad=6,
+        length=0
+    )
+
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+
+    # Metric names are rendered in label_ax, not as heatmap ticks.
+    ax.set_yticklabels([])
+
+    ax.tick_params(
+        axis='y',
+        length=0
+    )
+
+    # --------------------------------------------------
+    # Metric-label column
+    # --------------------------------------------------
+
+    # Match seaborn's vertical coordinate system exactly.
+    label_ax.set_ylim(
+        nrows,
+        0
+    )
+
+    label_ax.set_xlim(
+        0,
+        1
+    )
+
+    # No visible axis around the metric-label column.
+    label_ax.axis('off')
+
+    # Root metrics begin here.
+    base_x = 0.01
+
+    # Horizontal shift for each hierarchy level.
+    #
+    # Because label_ax has its own width, indentation is independent
+    # from the width of the heatmap.
+    indent_step = 0.07
+
+    for row, (metric, level) in enumerate(
+            zip(
+                formatted_labels,
+                indent_levels,
+            )
+    ):
+        y = row + 0.5
+
+        label_ax.text(
+            base_x + level * indent_step,
+            y,
+            metric,
+            fontsize=12,
+            ha='left',
+            va='center',
+            clip_on=False
+        )
+
+    # --------------------------------------------------
+    # Optional HOST / DEVICE separator
+    # --------------------------------------------------
+
+    if separator_row is not None:
+        ax.hlines(
+            separator_row,
+            *ax.get_xlim(),
+            colors='white',
+            linewidth=5
+        )
+
+    # --------------------------------------------------
+    # Colorbar
+    # --------------------------------------------------
+
+    cbar = heatmap.collections[0].colorbar
+
+    cbar.ax.tick_params(
+        labelsize=10
+    )
+
+    cbar.set_label(
+        'Percentage (%)',
+        fontsize=11,
+        labelpad=8
+    )
+
+    # --------------------------------------------------
+    # Output
+    # --------------------------------------------------
+
+    fig.savefig(
+        output_name + '.png',
+        dpi=400,
+        bbox_inches='tight'
+    )
+
+    fig.savefig(
+        output_name + '.pdf',
+        bbox_inches='tight'
+    )
+
+    plt.close(fig)
 
 
 def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, list_mpi_procs_count, cmdl_args):
@@ -1195,79 +1635,39 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
     if show_hyb_comm_omp:
         longest_name = max(longest_name, len(sorted(mod_hyb_comm_omp_factors_doc.values(), key=len)[-1]))
 
-    if is_mpi_gpu_mode(trace_mode[trace]):
-        line = '#Procs(ProcsxThreads)(#GPUs)[TraceOrder]'.rjust(longest_name)
-    else:
-        line = '#Procs(ProcsxThreads)[TraceOrder]'.rjust(longest_name)
+    line = 'Configuration'.rjust(longest_name)
 
     line_trace_mode = 'Trace mode'.rjust(longest_name)
 
-    if len(trace_list) == 1:
-        limit_min = trace_processes[trace_list[0]]
-        limit_max = trace_processes[trace_list[0]]
-    else:
-        limit_min = trace_processes[trace_list[0]]
-        limit_max = trace_processes[trace_list[len(trace_list)-1]]
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
 
-    # To control same number of processes for the header on plots and table
-    same_procs = True
-    procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev = trace_tasks[trace_list[0]]
-    threads_trace_prev = trace_threads[trace_list[0]]
+    max_len_header = max(
+        len(label)
+        for label in configuration_labels
+    )
 
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
-                and threads_trace_prev == threads:
-            same_procs *= True
-        else:
-            same_procs *= False
-
-    # BEGIN To adjust header to big number of processes
-    procs_header = []
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        if is_mpi_gpu_mode(trace_mode[trace]):
-            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')' +
-                       '(#' + str(raw_data['count_devices'][trace]) + ')')
-        elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
-            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
-        else:
-            s_xtics = str(trace_processes[trace])
-
-        s_xtics += '[' + str(index + 1) + ']'
-        procs_header.append(s_xtics)
-
-    max_len_header = 0
-    for proc_h in procs_header:
-        if max_len_header < len(proc_h):
-            max_len_header = len(proc_h)
-
-    value_to_adjust = 14
-    if max_len_header > value_to_adjust:
-        value_to_adjust = max_len_header + 1
-    # END To adjust header to big number of processes
+    value_to_adjust = max(
+        14,
+        max_len_header + 1,
+    )
 
     label_xtics = []
     label_trace_mode = []
     mode_string = ""
+
     for index, trace in enumerate(trace_list):
         line += ' | '
         line_trace_mode += ' | '
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
 
-        if is_mpi_gpu_mode(trace_mode[trace]):
-            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')' +
-                       '(#' + str(raw_data['count_devices'][trace]) + ')')
-        elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
-            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
-        else:
-            s_xtics = str(trace_processes[trace])
+        s_xtics = configuration_labels[index]
 
-        s_xtics += '[' + str(index + 1) + ']'
         label_xtics.append(s_xtics)
         line += s_xtics.rjust(value_to_adjust)
 
@@ -1277,6 +1677,7 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
             mode_string = trace_mode[trace]
         elif trace_mode[trace] == "Sampling":
             mode_string = trace_mode[trace]
+
         line_trace_mode += mode_string.rjust(value_to_adjust)
         label_trace_mode.append(mode_string)
 
@@ -1411,91 +1812,48 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
 
     longest_name = len(sorted(mod_hybrid_factors_doc.values(), key=len)[-1])
     
-    if is_mpi_gpu_mode(trace_mode[trace]):
-        line = '#Procs(ProcsxThreads)(#GPUs)[TraceOrder]'.rjust(longest_name)
-    else:
-        line = '#Procs(ProcsxThreads)[TraceOrder]'.rjust(longest_name)
-
-    
+    line = 'Configuration'.rjust(longest_name)
     line_trace_mode = 'Trace mode'.rjust(longest_name)
-    if len(trace_list) == 1:
-        limit_min = trace_processes[trace_list[0]]
-        limit_max = trace_processes[trace_list[0]]
-    else:
-        limit_min = trace_processes[trace_list[0]]
-        limit_max = trace_processes[trace_list[len(trace_list)-1]]
 
-    # To control same number of processes for the header on plots and table
-    same_procs = True
-    procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev = trace_tasks[trace_list[0]]
-    threads_trace_prev = trace_threads[trace_list[0]]
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
 
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
-                and threads_trace_prev == threads:
-            same_procs *= True
-        else:
-            same_procs *= False
+    max_len_header = max(
+        len(label)
+        for label in configuration_labels
+    )
 
-    # BEGIN To adjust header to big number of processes
-    procs_header = []
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        #if limit_min == limit_max and same_procs and len(trace_list) > 1:
-        #    s_xtics = (str(trace_processes[trace]) + '[' + str(index+1) + ']')
-        #else:
-        if is_mpi_gpu_mode(trace_mode[trace]):
-            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'+'(#'+ str(raw_data['count_devices'][trace]))+')'
-        elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
-            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
-        else:
-            s_xtics = (str(trace_processes[trace]))
-        #if s_xtics in procs_header:
-        s_xtics += '[' + str(index + 1) + ']'
-        procs_header.append(s_xtics)
-
-    max_len_header = 0
-    for proc_h in procs_header:
-        if max_len_header < len(proc_h):
-            max_len_header = len(proc_h)
-
-    value_to_adjust = 14
-    if max_len_header > value_to_adjust:
-        value_to_adjust = max_len_header + 1
-    # END To adjust header to big number of processes
+    value_to_adjust = max(
+        14,
+        max_len_header + 1,
+    )
 
     label_xtics = []
     label_trace_mode = []
     mode_string = ""
+
     for index, trace in enumerate(trace_list):
         line += ' | '
         line_trace_mode += ' | '
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        #if limit_min == limit_max and same_procs and len(trace_list) > 1:
-        #    s_xtics = (str(trace_processes[trace]) + '[' + str(index+1) + ']')
-        #else:
-        if is_mpi_gpu_mode(trace_mode[trace]):
-            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'+'(#'+ str(raw_data['count_devices'][trace]))+')'
-        elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
-            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
-        else:
-            s_xtics = (str(trace_processes[trace]))
-        #if s_xtics in label_xtics:
-        s_xtics += '[' + str(index + 1) + ']'
+
+        s_xtics = configuration_labels[index]
+
         label_xtics.append(s_xtics)
         line += s_xtics.rjust(value_to_adjust)
-        # For trace mode
+
         if trace_mode[trace][0:len("Detailed")] == "Detailed":
             mode_string = trace_mode[trace][len("Detailed+"):]
         elif trace_mode[trace][0:len("Burst")] == "Burst":
             mode_string = trace_mode[trace]
         elif trace_mode[trace] == "Sampling":
             mode_string = trace_mode[trace]
+
         line_trace_mode += mode_string.rjust(value_to_adjust)
         label_trace_mode.append(mode_string)
 
@@ -1567,7 +1925,14 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
     print('')
 
 
-def print_other_metrics_table(other_metrics, trace_list, trace_processes, trace_tasks, trace_threads, trace_mode):
+def print_other_metrics_table(
+        other_metrics,
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data):    
     """Prints the other metrics table in human readable form on stdout."""
     global other_metrics_doc
 
@@ -1575,72 +1940,30 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes, trace_
 
     longest_name = len(sorted(other_metrics_doc.values(), key=len)[-1])
 
-    line = ''.rjust(longest_name)
-    if len(trace_list) == 1:
-        limit_min = trace_processes[trace_list[0]]
-        limit_max = trace_processes[trace_list[0]]
-    else:
-        limit_min = trace_processes[trace_list[0]]
-        limit_max = trace_processes[trace_list[len(trace_list)-1]]
+    line = 'Configuration'.rjust(longest_name)
 
-    # To control same number of processes for the header on plots and table
-    same_procs = True
-    procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev = trace_tasks[trace_list[0]]
-    threads_trace_prev = trace_threads[trace_list[0]]
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
-                and threads_trace_prev == threads:
-            same_procs *= True
-        else:
-            same_procs *= False
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
 
-    # BEGIN To adjust header to big number of processes
-    procs_header = []
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        s_xtics = (str(trace_processes[trace]))
-        #if limit_min == limit_max and same_procs and len(trace_list) > 1:
-        #    s_xtics = (str(trace_processes[trace]) + '[' + str(index+1) + ']')
-        #else:
-        if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
-            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
-        else:
-            s_xtics = (str(trace_processes[trace]))
-        #if s_xtics in procs_header:
-        s_xtics += '[' + str(index + 1) + ']'
-        procs_header.append(s_xtics)
+    max_len_header = max(
+        len(label)
+        for label in configuration_labels
+    )
 
-    max_len_header = 0
-    for proc_h in procs_header:
-        if max_len_header < len(proc_h):
-            max_len_header = len(proc_h)
+    value_to_adjust = max(
+        10,
+        max_len_header + 1,
+    )
 
-    value_to_adjust = 10
-    if max_len_header > value_to_adjust:
-        value_to_adjust = max_len_header + 1
-    # END To adjust header to big number of processes
-    s_xtics = ''
-    label_xtics = []
-    for index, trace in enumerate(trace_list):
+    for label in configuration_labels:
         line += ' | '
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        s_xtics = (str(trace_processes[trace]))
-        #if limit_min == limit_max and same_procs and len(trace_list) > 1:
-        #    s_xtics = (str(trace_processes[trace]) + '[' + str(index+1) + ']')
-        #else:
-        if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
-            s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
-        else:
-            s_xtics = (str(trace_processes[trace]))
-        #if s_xtics in procs_header:
-        s_xtics += '[' + str(index + 1) + ']'
-        label_xtics.append(s_xtics)
-        line += s_xtics.rjust(value_to_adjust)
+        line += label.rjust(value_to_adjust)
 
     print(''.ljust(len(line), '-'))
     print(line)
@@ -1730,7 +2053,7 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes, trace_
 
 def print_efficiency_table(mod_factors, hybrid_factors, hyb_comm_omp_factors,
                            trace_list, trace_processes, trace_tasks, trace_threads,
-                           trace_mode, cmdl_args):
+                           trace_mode, raw_data, cmdl_args):
     """Prints the model factors table in a csv file for the efficiency heatmaps."""
     global mod_factors_doc, mod_hybrid_factors_doc, mod_hyb_comm_omp_factors_doc
 
@@ -1740,64 +2063,49 @@ def print_efficiency_table(mod_factors, hybrid_factors, hyb_comm_omp_factors,
 
     delimiter = ','
 
-    # To control same number of processes for the header on plots and table
-    same_procs = True
-    procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev = trace_tasks[trace_list[0]]
-    threads_trace_prev = trace_threads[trace_list[0]]
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
-                and threads_trace_prev == threads:
-            same_procs *= True
-        else:
-            same_procs *= False
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
 
-    if len(trace_list) == 1:
-        limit_min = trace_processes[trace_list[0]]
-        limit_max = trace_processes[trace_list[0]]
-    else:
-        limit_min = trace_processes[trace_list[0]]
-        limit_max = trace_processes[trace_list[len(trace_list) - 1]]
 
     file_path = os.path.join(os.getcwd(), 'efficiency_table_global.csv')
     with open(file_path, 'w') as output:
 
-        line = '\"Number of processes\"'
-        label_xtics = []
-        for index, trace in enumerate(trace_list):
+        line = '"Metric"'
+
+        for label in configuration_labels:
             line += delimiter
-            tasks = trace_tasks[trace]
-            threads = trace_threads[trace]
-
-            if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
-                s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
-            else:
-                s_xtics = str(trace_processes[trace])
-
-            s_xtics += '[' + str(index + 1) + ']'
-            label_xtics.append(s_xtics)
-            line += s_xtics
+            line += label        
 
         output.write(line + '\n')
 
         for mod_key in mod_factors_doc:
-            if mod_key not in ['speedup', 'ipc', 'freq', 'elapsed_time', 'efficiency', 'flushing', 'io_mpiio', 'io_posix']:
-                if mod_key in ['parallel_eff', 'comp_scale']:
-                    line = "\"" + mod_factors_doc[mod_key].replace('  ', '', 2) + "\""
-                elif mod_key in ['load_balance', 'comm_eff', 'ipc_scale', 'inst_scale', 'freq_scale']:
-                    line = "\"" + mod_factors_doc[mod_key].replace('     ', '', 2) + "\""
-                else:
-                    line = "\"" + mod_factors_doc[mod_key] + "\""
+            if mod_key not in ['speedup', 
+                                'ipc', 'freq', 'elapsed_time', 
+                                'efficiency', 'flushing', 
+                                'io_mpiio', 'io_posix']:
+
+                line = "\"" + mod_factors_doc[mod_key] + "\""
 
                 for trace in trace_list:
                     line += delimiter
                     try:
-                        if mod_factors[mod_key][trace] == "Non-Avail" or mod_factors[mod_key][trace] == "Warning!":
-                            line += '0.00'
+                        if mod_factors[mod_key][trace] in (
+                                "Non-Avail",
+                                "Warning!",
+                                "N/A",
+                                "NaN",
+                        ):
+                            line += str(mod_factors[mod_key][trace])
                         else:
-                            line += '{0:.2f}'.format(mod_factors[mod_key][trace])
+                            line += '{0:.2f}'.format(
+                                mod_factors[mod_key][trace]
+                            )
                     except ValueError:
                         line += '{}'.format(mod_factors[mod_key][trace])
                 output.write(line + '\n')
@@ -1824,42 +2132,37 @@ def print_efficiency_table(mod_factors, hybrid_factors, hyb_comm_omp_factors,
 
     file_path = os.path.join(os.getcwd(), 'efficiency_table_hybrid.csv')
     with open(file_path, 'w') as output:
-        line = '\"Number of processes\"'
-        label_xtics = []
-        for index, trace in enumerate(trace_list):
+
+        line = '"Metric"'
+
+        for label in configuration_labels:
             line += delimiter
-            tasks = trace_tasks[trace]
-            threads = trace_threads[trace]
-
-            if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
-                s_xtics = (str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')')
-            else:
-                s_xtics = str(trace_processes[trace])
-
-            s_xtics += '[' + str(index + 1) + ']'
-            label_xtics.append(s_xtics)
-            line += s_xtics
+            line += label
         output.write(line + '\n')
 
         for mod_key in mod_hybrid_factors_doc:
-            if mod_key in ['mpi_parallel_eff', 'omp_parallel_eff']:
-                line = "\"" + mod_hybrid_factors_doc[mod_key].replace('     ', '', 2) + "\""
-            elif mod_key in ['mpi_load_balance', 'mpi_comm_eff', 'omp_load_balance', 'omp_comm_eff']:
-                line = "\"" + mod_hybrid_factors_doc[mod_key].replace('       ', '', 2) + "\""
-            elif mod_key in ['serial_eff', 'transfer_eff']:
-                line = "\"" + mod_hybrid_factors_doc[mod_key] + "\""
-            else:
-                line = "\"" + mod_hybrid_factors_doc[mod_key] + "\""
+
+        # Preserve the complete hierarchy encoded in the
+        # metric description. Do not strip leading spaces.
+            line = "\"" + mod_hybrid_factors_doc[mod_key] + "\""
 
             for trace in trace_list:
                 line += delimiter
                 try:
-                    if hybrid_factors[mod_key][trace] == "Non-Avail" or hybrid_factors[mod_key][trace] == "Warning!":
-                        line += '0.00'
+                    if hybrid_factors[mod_key][trace] in (
+                            "Non-Avail",
+                            "Warning!",
+                            "N/A",
+                            "NaN",
+                    ):
+                        line += str(hybrid_factors[mod_key][trace])
                     else:
-                        line += '{0:.2f}'.format(hybrid_factors[mod_key][trace])
+                        line += '{0:.2f}'.format(
+                            hybrid_factors[mod_key][trace]
+                        )
                 except ValueError:
                     line += '{}'.format(hybrid_factors[mod_key][trace])
+
             output.write(line + '\n')
 
         if show_hyb_comm_omp:
@@ -1981,106 +2284,54 @@ def plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, tra
 
     file_path = os.path.join(os.getcwd(), 'efficiency_table_hybrid.csv')
     df = pd.read_csv(file_path)
-    metrics = df['Number of processes'].tolist()
+    metrics = df['Metric'].tolist()
 
     ## remove complete nan columns and put to DF1
     df1 = df.dropna(axis='columns', how='all')
 
     traces_procs = list(df.keys())[1:]
-    # To control same number of processes for the header on plots and table
-    same_procs = True
-    procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev = trace_tasks[trace_list[0]]
-    threads_trace_prev = trace_threads[trace_list[0]]
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
-                and threads_trace_prev == threads:
-            same_procs *= True
-        else:
-            same_procs *= False
 
-    # Set limit for projection
-    if cmdl_args.limit:
-        limit = cmdl_args.limit
-    else:
-        limit = str(trace_processes[trace_list[len(trace_list)-1]])
-
-    limit_min = trace_processes[trace_list[0]]
-
-    # To xticks label
-    label_xtics = []
-    label_xtics_hybrid = []
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        #if int(limit) == int(limit_min) and same_procs:
-        #    s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
-        #else:
-        if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
-            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')' \
-                          + '[' + str(index + 1) + ']'
-            label_xtics_hybrid.append(s_xtics)
-        else:
-            s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
-        label_xtics.append(s_xtics)
-    ##### End xticks
-
-    # BEGIN To adjust header to big number of processes
-    max_len_header = 7
-    for labelx in label_xtics:
-        if len(labelx) > max_len_header:
-            max_len_header = len(labelx)
-
-    # END To adjust header to big number of processes
+    
 
     list_data = []
 
     for index, rows in df1.iterrows():
-        list_temp = []
+        list_temp = []             
         for value in list(rows)[1:]:
-            if pd.isna(value) or value == 0.0:
+            if pd.isna(value):
                 list_temp.append(np.nan)
             else:
-                list_temp.append(float(value))
+                numeric_value = safe_float_for_plot(value)
+
+                if pd.isna(numeric_value):
+                    list_temp.append(np.nan)
+                elif numeric_value == 0.0:
+                    list_temp.append(np.nan)
+                else:
+                    list_temp.append(numeric_value)
+
         list_data.append(list_temp)
 
     list_np = np.array(list_data)
 
     idx = metrics
-    #cols = label_xtics
-    cols = label_xtics_hybrid
-    # cols = traces_procs
-    df = pd.DataFrame(list_np, index=idx, columns=cols)
+    cols = traces_procs
 
-    # min for 1 trace is x=3 for the (x,y) in figsize
-    size_figure_y = len(idx) * 0.40
-    size_figure_x = len(cols) * 0.14 * max_len_header
-    plt.figure(figsize=(size_figure_x, size_figure_y))
+    df = pd.DataFrame(
+        list_np,
+        index=idx,
+        columns=cols
+    )
 
-    ax = sns.heatmap(df, cmap='RdYlGn', linewidths=0.05, annot=True, vmin=0, vmax=100, center=75, \
-                     fmt='.2f', annot_kws={"size": 10}, cbar_kws={'label': 'Percentage(%)'})
-    ## to align ylabels to left
-    plt.yticks(rotation=0, ha='left')
+    _plot_efficiency_heatmap(df, 'efficiency_table_hybrid_matplot')
 
-    ax.xaxis.tick_top()
-    # to adjust metrics
-    len_pad = 0
-    for metric in metrics:
-        if len(metric) > len_pad:
-            len_pad = len(metric)
-
-    ax.yaxis.set_tick_params(pad=len_pad + 164)
-
-    plt.savefig('efficiency_table_hybrid_matplot.png', bbox_inches='tight')
 
     # General Metrics plot
 
     file_path = os.path.join(os.getcwd(), 'efficiency_table_global.csv')
     df = pd.read_csv(file_path)
-    #print(df)
-    metrics = df['Number of processes'].tolist()
+
+    metrics = df['Metric'].tolist()
 
     traces_procs = list(df.keys())[1:]
 
@@ -2088,41 +2339,33 @@ def plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, tra
     for index, rows in df.iterrows():
         list_temp = []
         for value in list(rows)[1:]:
-            if float(value) == 0.0:
+            if pd.isna(value):
                 list_temp.append(np.nan)
             else:
-                list_temp.append(float(value))
+                numeric_value = safe_float_for_plot(value)
+
+                if pd.isna(numeric_value):
+                    list_temp.append(np.nan)
+                elif numeric_value == 0.0:
+                    list_temp.append(np.nan)
+                else:
+                    list_temp.append(numeric_value)
+
         # print(list_temp)
         list_data.append(list_temp)
 
     list_np = np.array(list_data)
 
     idx = metrics
-    cols = label_xtics
-    # cols = traces_procs
+    cols = traces_procs
 
-    df = pd.DataFrame(list_np, index=idx, columns=cols)
+    df = pd.DataFrame(
+        list_np,
+        index=idx,
+        columns=cols
+    )
 
-    # min for 1 traces is x=3 for the (x,y) in figsize
-    size_figure_y = len(idx) * 0.40
-    size_figure_x = len(cols) * 0.14 * max_len_header
-    plt.figure(figsize=(size_figure_x, size_figure_y))
-
-    ax = sns.heatmap(df, cmap='RdYlGn', linewidths=0.05, annot=True, vmin=0, vmax=100, center=75, \
-                     fmt='.2f', annot_kws={"size": 10}, cbar_kws={'label': 'Percentage(%)'})
-    ## to align ylabels to left
-    plt.yticks(rotation=0, ha='left')
-    ax.xaxis.tick_top()
-    # to adjust metrics
-    len_pad = 0
-    for metric in metrics:
-        if len(metric) > len_pad:
-            len_pad = len(metric)
-
-    ax.yaxis.set_tick_params(pad=len_pad + 140)
-
-    plt.savefig('efficiency_table_global_matplot.png', bbox_inches='tight')
-
+    _plot_efficiency_heatmap(df, 'efficiency_table_global_matplot')
 
 def plots_modelfactors_matplot(trace_list, trace_processes,trace_tasks, trace_threads, trace_mode, cmdl_args):
     # Plotting using python
@@ -2494,23 +2737,43 @@ def plots_speedup_matplot(trace_list, trace_processes, trace_tasks, trace_thread
     plt.legend()
     plt.savefig('efficiency_matplot.png', bbox_inches='tight')
 
-def print_talp_metrics_csv(device_factors, host_factors, trace_list, trace_processes, raw_data):
+def print_talp_metrics_csv(
+        device_factors,
+        host_factors,
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data):
     """Prints the model factors table in a csv file."""
     global mod_device_factors_doc, mod_host_factors_doc
 
     delimiter = ','
     file_path = os.path.join(os.getcwd(), 'talp_metrics.csv')
 
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
+
+
     with open(file_path, 'w') as output:
-        line = "\"#Proc(#GPU)\""
-        for trace in trace_list:
+        line = '"Metric"'
+
+        for label in configuration_labels:
             line += delimiter
-            line += str(trace_processes[trace]) + "(" + str(raw_data['count_devices'][trace]) + ")"
+            line += label
+
         output.write(line + '\n')
 
         # HOST metrics
         for mod_key in mod_host_factors_doc:
-            line = "\"" + mod_host_factors_doc[mod_key].replace('  ', '', 2) + "\""
+            line = "\"" + mod_host_factors_doc[mod_key] + "\""
             for trace in trace_list:
                 line += delimiter
                 try:
@@ -2523,9 +2786,10 @@ def print_talp_metrics_csv(device_factors, host_factors, trace_list, trace_proce
                     line += '{}'.format(host_factors[mod_key][trace])
             output.write(line + '\n')
 
+
         # DEVICE metrics
         for mod_key in mod_device_factors_doc:
-            line = "\"" + mod_device_factors_doc[mod_key].replace('  ', '', 2) + "\""
+            line = "\"" + mod_device_factors_doc[mod_key] + "\""
             for trace in trace_list:
                 line += delimiter
                 try:
@@ -2542,141 +2806,69 @@ def print_talp_metrics_csv(device_factors, host_factors, trace_list, trace_proce
     print('Device Metrics written to ' + file_path)
 
 
-def plots_talp_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads,
-                                        trace_mode, raw_data, cmdl_args):
-    # Plotting using python
-    # For plotting using python, read the csv file
+def plots_talp_efficiency_table_matplot(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+        cmdl_args):
+
     global mod_host_factors_doc
 
-    file_path = os.path.join(os.getcwd(), 'talp_metrics.csv')
+    file_path = os.path.join(
+        os.getcwd(),
+        'talp_metrics.csv'
+    )
+
     df = pd.read_csv(file_path)
 
-    metrics = df['#Proc(#GPU)'].tolist()
+    metrics = df['Metric'].tolist()
 
-    # remove complete nan columns and put to DF1
-    df1 = df.dropna(axis='columns', how='all')
+    # Remove completely empty columns.
+    df1 = df.dropna(
+        axis='columns',
+        how='all'
+    )
 
+    # Canonical configuration labels are already stored
+    # in the CSV column names.
     traces_procs = list(df.keys())[1:]
 
-    # To control same number of processes for the header on plots and table
-    same_procs = True
-    procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev = trace_tasks[trace_list[0]]
-    threads_trace_prev = trace_threads[trace_list[0]]
-
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        if (procs_trace_prev == trace_processes[trace] and
-                tasks_trace_prev == tasks and
-                threads_trace_prev == threads):
-            same_procs *= True
-        else:
-            same_procs *= False
-
-    # Set limit for projection
-    if cmdl_args.limit:
-        limit = cmdl_args.limit
-    else:
-        limit = str(trace_processes[trace_list[len(trace_list) - 1]])
-
-    limit_min = trace_processes[trace_list[0]]
-
-    # To xticks label
-    label_xtics = []
-    label_xtics_hybrid = []
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-
-        if is_mpi_gpu_mode(trace_mode[trace]):
-            s_xtics = (
-                str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
-                + "(" + str(raw_data['count_devices'][trace]) + "GPUs)"
-                + '[' + str(index + 1) + ']'
-            )
-            label_xtics_hybrid.append(s_xtics)
-        elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
-            s_xtics = (
-                str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
-                + '[' + str(index + 1) + ']'
-            )
-            label_xtics_hybrid.append(s_xtics)
-        else:
-            s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
-
-        label_xtics.append(s_xtics)
-
-    # BEGIN To adjust header to big number of processes
-    max_len_header = 7
-    for labelx in label_xtics:
-        if len(labelx) > max_len_header:
-            max_len_header = len(labelx)
-    # END To adjust header to big number of processes
-
     list_data = []
+
     for index, rows in df1.iterrows():
         list_temp = []
+
         for value in list(rows)[1:]:
             if pd.isna(value) or value == 0.0:
                 list_temp.append(np.nan)
             else:
-                list_temp.append(safe_float_for_plot(value))
+                list_temp.append(
+                    safe_float_for_plot(value)
+                )
+
         list_data.append(list_temp)
 
     list_np = np.array(list_data)
 
     idx = metrics
-    cols = label_xtics_hybrid
-    df_plot = pd.DataFrame(list_np, index=idx, columns=cols)
+    cols = traces_procs
 
-    # min for 1 trace is x=3 for the (x,y) in figsize
-    size_figure_y = len(idx) * 0.40
-    size_figure_x = len(cols) * 0.14 * max_len_header
-    plt.figure(figsize=(size_figure_x, size_figure_y))
-
-    ax = sns.heatmap(
-        df_plot,
-        cmap='RdYlGn',
-        linewidths=0.05,
-        annot=True,
-        vmin=0,
-        vmax=100,
-        center=75,
-        fmt='.2f',
-        annot_kws={"size": 10},
-        cbar_kws={'label': 'Percentage(%)'}
+    df_plot = pd.DataFrame(
+        list_np,
+        index=idx,
+        columns=cols
     )
 
-    # Draw a white separator line between HOST and DEVICE metrics
     host_rows = len(mod_host_factors_doc)
-    ax.hlines(host_rows, *ax.get_xlim(), colors='white', linewidth=8)
 
-    # Extend separator into the y-label (metrics name) area
-    x0, x1 = ax.get_xlim()
-    ax.hlines(
-    host_rows,
-    x0 - 2.0,   # enough to cover all label padding
-    x1,
-    colors='white',
-    linewidth=8,
-    clip_on=False
+    _plot_efficiency_heatmap(
+        df_plot,
+        'efficiency_table_talp_matplot',
+        separator_row=host_rows
     )
-
-    # to align ylabels to left
-    plt.yticks(rotation=0, ha='left')
-
-    ax.xaxis.tick_top()
-
-    # to adjust metrics
-    len_pad = 0
-    for metric in metrics:
-        if len(metric) > len_pad:
-            len_pad = len(metric)
-
-    ax.yaxis.set_tick_params(pad=len_pad + 164)
-
-    plt.savefig('efficiency_table_talp_matplot.png', bbox_inches='tight')
 
 
 def print_omp_talp_metrics_csv(omp_talp_factors, trace_list, trace_processes,

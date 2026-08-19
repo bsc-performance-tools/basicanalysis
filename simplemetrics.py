@@ -142,6 +142,336 @@ def create_omp_talp_factors(trace_list):
     return omp_talp_factors
 
 
+def _format_heatmap_metric_labels(labels, output_name=None):
+    """
+    Convert the textual hierarchy used by stdout (-- / ==)
+    into clean metric names plus indentation levels for plots.
+    """
+
+    formatted_labels = []
+    indent_levels = []
+
+    for label in labels:
+        raw_label = str(label)
+
+        leading_spaces = len(raw_label) - len(raw_label.lstrip())
+        text = raw_label.strip()
+
+        has_marker = False
+
+        if text.startswith('=='):
+            text = text[2:].strip()
+            has_marker = True
+        elif text.startswith('--'):
+            text = text[2:].strip()
+            has_marker = True
+
+        if not has_marker:
+            level = 0
+        elif leading_spaces == 0:
+            level = 1
+        else:
+            level = 1 + int(round(leading_spaces / 3.0))
+
+        formatted_labels.append(text)
+        indent_levels.append(level)
+
+    return formatted_labels, indent_levels
+
+
+def _plot_efficiency_heatmap(df, output_name, separator_row=None):
+    """
+    Render an efficiency table as a publication-quality heatmap.
+
+    Layout:
+        metric hierarchy | efficiency values | colorbar
+
+    The metric-label area and data-column widths are computed from
+    the actual text so that long metric names and configuration
+    headers are not clipped or overlapped.
+    """
+
+    nrows, ncols = df.shape
+
+    # --------------------------------------------------
+    # Metric hierarchy
+    # --------------------------------------------------
+
+    formatted_labels, indent_levels = _format_heatmap_metric_labels(
+        df.index,
+        output_name,
+    )
+
+    # --------------------------------------------------
+    # Figure dimensions
+    # --------------------------------------------------
+
+    # Estimate the width required by the metric-label column.
+    #
+    # Hierarchy indentation also consumes horizontal space, so add
+    # a few equivalent characters for each indentation level.
+    max_metric_chars = max(
+        len(label) + level * 3
+        for label, level in zip(
+            formatted_labels,
+            indent_levels,
+        )
+    )
+
+    # Width reserved for metric names.
+    #
+    # The multiplication factor is intentionally conservative so
+    # that long names such as "Device Communication efficiency"
+    # are not clipped.
+    label_width = max(
+        3.4,
+        max_metric_chars * 0.12
+    )
+
+    # --------------------------------------------------
+    # Configuration/header width
+    # --------------------------------------------------
+
+    header_labels = [
+        str(column)
+        for column in df.columns
+    ]
+
+    max_header_chars = max(
+        len(label)
+        for label in header_labels
+    )
+
+    # Minimum width needed for numeric values.
+    value_column_width = 1.25
+
+    # Width required by the configuration header.
+    #
+    # Long labels such as:
+    #
+    #     36 (8xvar) [8D] [1]
+    #
+    # therefore produce wider columns than:
+    #
+    #     64 (8x8)
+    #
+    header_column_width = max(
+        1.25,
+        max_header_chars * 0.105
+    )
+
+    column_width = max(
+        value_column_width,
+        header_column_width
+    )
+
+    data_width = (
+        ncols * column_width
+    )
+
+    # Independent narrow colorbar.
+    colorbar_width = 0.28
+
+    # Small extra spacing for figure boundaries.
+    extra_width = 0.35
+
+    figure_width = (
+        label_width
+        + data_width
+        + colorbar_width
+        + extra_width
+    )
+
+    figure_height = max(
+        3.0,
+        nrows * 0.54
+    )
+
+    # --------------------------------------------------
+    # Three-column layout
+    # --------------------------------------------------
+
+    fig = plt.figure(
+        figsize=(
+            figure_width,
+            figure_height
+        )
+    )
+
+    grid = fig.add_gridspec(
+        nrows=1,
+        ncols=3,
+        width_ratios=[
+            label_width,
+            data_width,
+            colorbar_width,
+        ],
+        wspace=0.04
+    )
+
+    # Dedicated axis for metric names.
+    label_ax = fig.add_subplot(
+        grid[0, 0]
+    )
+
+    # Heatmap itself.
+    ax = fig.add_subplot(
+        grid[0, 1]
+    )
+
+    # Dedicated colorbar axis.
+    cbar_ax = fig.add_subplot(
+        grid[0, 2]
+    )
+
+    # --------------------------------------------------
+    # Heatmap
+    # --------------------------------------------------
+
+    heatmap = sns.heatmap(
+        df,
+        ax=ax,
+        cbar_ax=cbar_ax,
+        cmap='RdYlGn',
+        linewidths=0.6,
+        linecolor='white',
+        annot=True,
+        vmin=0,
+        vmax=100,
+        center=75,
+        fmt='.2f',
+        annot_kws={
+            'fontsize': 12
+        }
+    )
+
+    # --------------------------------------------------
+    # Configuration labels
+    # --------------------------------------------------
+
+    ax.xaxis.tick_top()
+    ax.xaxis.set_label_position(
+        'top'
+    )
+
+    # Adapt header font slightly when configuration names become long.
+    if max_header_chars > 24:
+        header_fontsize = 9
+    elif max_header_chars > 18:
+        header_fontsize = 10
+    else:
+        header_fontsize = 11
+
+    ax.tick_params(
+        axis='x',
+        labelsize=header_fontsize,
+        rotation=0,
+        pad=6,
+        length=0
+    )
+
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+
+    # Metric names are rendered in label_ax, not as heatmap ticks.
+    ax.set_yticklabels([])
+
+    ax.tick_params(
+        axis='y',
+        length=0
+    )
+
+    # --------------------------------------------------
+    # Metric-label column
+    # --------------------------------------------------
+
+    # Match seaborn's vertical coordinate system exactly.
+    label_ax.set_ylim(
+        nrows,
+        0
+    )
+
+    label_ax.set_xlim(
+        0,
+        1
+    )
+
+    # No visible axis around the metric-label column.
+    label_ax.axis('off')
+
+    # Root metrics begin here.
+    base_x = 0.01
+
+    # Horizontal shift for each hierarchy level.
+    #
+    # Because label_ax has its own width, indentation is independent
+    # from the width of the heatmap.
+    indent_step = 0.07
+
+    for row, (metric, level) in enumerate(
+            zip(
+                formatted_labels,
+                indent_levels,
+            )
+    ):
+        y = row + 0.5
+
+        label_ax.text(
+            base_x + level * indent_step,
+            y,
+            metric,
+            fontsize=12,
+            ha='left',
+            va='center',
+            clip_on=False
+        )
+
+    # --------------------------------------------------
+    # Optional HOST / DEVICE separator
+    # --------------------------------------------------
+
+    if separator_row is not None:
+        ax.hlines(
+            separator_row,
+            *ax.get_xlim(),
+            colors='white',
+            linewidth=5
+        )
+
+    # --------------------------------------------------
+    # Colorbar
+    # --------------------------------------------------
+
+    cbar = heatmap.collections[0].colorbar
+
+    cbar.ax.tick_params(
+        labelsize=10
+    )
+
+    cbar.set_label(
+        'Percentage (%)',
+        fontsize=11,
+        labelpad=8
+    )
+
+    # --------------------------------------------------
+    # Output
+    # --------------------------------------------------
+
+    fig.savefig(
+        output_name + '.png',
+        dpi=400,
+        bbox_inches='tight'
+    )
+
+    fig.savefig(
+        output_name + '.pdf',
+        bbox_inches='tight'
+    )
+
+    plt.close(fig)
+
+
 def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, list_mpi_procs_count, cmdl_args):
     """Computes the model factors from the gathered raw data and returns the
     according dictionary of model factors."""
@@ -856,74 +1186,122 @@ def print_other_metrics_table(other_metrics, trace_list, trace_processes):
     print('')
 
 
-def print_efficiency_table(mod_factors, trace_list, trace_processes):
-    """Prints the model factors table in human readable form on stdout."""
+def print_efficiency_table(
+        mod_factors,
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads):
+
+    """Writes the efficiency metrics table and creates the Gnuplot file."""
+
     global mod_factors_doc
 
-    longest_name = len(sorted(mod_factors_doc.values(), key=len)[-1])
     delimiter = ','
-    file_path = os.path.join(os.getcwd(), 'efficiency_table.csv')
-    with open(file_path, 'w') as output:
-        line = '\"Number of processes\"'
-        if len(trace_list) == 1:
-            limit_min = trace_processes[trace_list[0]]
-            limit_max = trace_processes[trace_list[0]]
-        else:
-            limit_min = trace_processes[trace_list[0]]
-            limit_max = trace_processes[trace_list[len(trace_list)-1]]
 
-        for index, trace in enumerate(trace_list):
+    file_path = os.path.join(
+        os.getcwd(),
+        'efficiency_table.csv'
+    )
+
+    # --------------------------------------------------
+    # Build canonical configuration labels
+    # --------------------------------------------------
+
+    configuration_labels = []
+
+    base_labels = [
+        str(trace_processes[trace])
+        for trace in trace_list
+    ]
+
+    for index, label in enumerate(base_labels):
+        if base_labels.count(label) > 1:
+            label += ' [' + str(index + 1) + ']'
+
+        configuration_labels.append(label)
+
+    # --------------------------------------------------
+    # Write efficiency-table CSV
+    # --------------------------------------------------
+
+    with open(file_path, 'w') as output:
+
+        line = '"Metric"'
+
+        for label in configuration_labels:
             line += delimiter
-            if limit_min == limit_max and len(trace_list) > 1:
-                line += str(trace_processes[trace]) + '[' + str(index+1) + ']'
-            else:
-                line += str(trace_processes[trace])
+            line += label
+
         output.write(line + '\n')
 
         for mod_key in mod_factors_doc:
-            if mod_key not in ['speedup', 'ipc', 'freq', 'elapsed_time', 'efficiency', 'flushing', 'io_mpiio', 'io_posix']:
-                if mod_key in ['parallel_eff', 'comp_scale']:
-                    line = "\"" + mod_factors_doc[mod_key].replace('  ', '', 2) + "\""
-                elif mod_key in ['load_balance', 'comm_eff','ipc_scale', 'inst_scale','freq_scale']:
-                    line = "\"" + mod_factors_doc[mod_key].replace('  ', '  ', 2) + "\""
-                elif mod_key in ['serial_eff', 'transfer_eff']:
-                    line = "\"    " + mod_factors_doc[mod_key].replace('  ', ' ', 4) + "\""
+
+            # Preserve metric hierarchy.
+            line = '"' + mod_factors_doc[mod_key] + '"'
+
+            for trace in trace_list:
+                line += delimiter
+
+                value = mod_factors[mod_key][trace]
+
+                if value in (
+                        'Non-Avail',
+                        'Warning!',
+                        'N/A',
+                        'NaN'):
+                    line += str(value)
                 else:
-                    line = "\"" + mod_factors_doc[mod_key] + "\""
-                for trace in trace_list:
-                    line += delimiter
-                    try:  # except NaN
-                        if mod_factors[mod_key][trace] == "Non-Avail" or mod_factors[mod_key][trace] == "Warning!":
-                            line += '0.00'
-                        else:
-                            line += '{0:.2f}'.format(mod_factors[mod_key][trace])
-                    except ValueError:
-                        line += '{}'.format(mod_factors[mod_key][trace])
-                output.write(line + '\n')
-        # print('')
+                    try:
+                        line += '{0:.2f}'.format(value)
+                    except (ValueError, TypeError):
+                        line += '{}'.format(value)
 
-        # Create Gnuplot file for efficiency plot
-        gp_template = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', 'efficiency_table.gp')
-        content = []
+            output.write(line + '\n')
 
-        with open(gp_template) as f:
-            content = f.readlines()
+    # --------------------------------------------------
+    # Create Gnuplot file for efficiency plot
+    # --------------------------------------------------
 
-        limit_procs = 500 + len(trace_list) * 60
+    gp_template = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        'cfgs',
+        'efficiency_table.gp'
+    )
 
-        # Replace xrange
-        content = [line.replace('#REPLACE_BY_SIZE', ''.join(['set terminal pngcairo enhanced dashed crop size ',
-                                                             str(limit_procs), ',460 font "Latin Modern Roman,14"']))
-                   for line in content]
+    content = []
 
-        file_path = os.path.join(os.getcwd(), 'efficiency_table.gp')
-        with open(file_path, 'w') as f:
-            f.writelines(content)
+    with open(gp_template) as f:
+        content = f.readlines()
 
-        # print('======== Plot (gnuplot File): EFFICIENCY Table ========')
-        if len(trace_list) > 1:
-            print('Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.gp')
-        # print('')
+    limit_procs = 500 + len(trace_list) * 60
+
+    content = [
+        line.replace(
+            '#REPLACE_BY_SIZE',
+            ''.join([
+                'set terminal pngcairo enhanced dashed crop size ',
+                str(limit_procs),
+                ',460 font "Latin Modern Roman,14"'
+            ])
+        )
+        for line in content
+    ]
+
+    file_path = os.path.join(
+        os.getcwd(),
+        'efficiency_table.gp'
+    )
+
+    with open(file_path, 'w') as f:
+        f.writelines(content)
+
+    if len(trace_list) > 1:
+        print(
+            'Efficiency Table written to '
+            + file_path[:len(file_path) - 3]
+            + '.gp'
+        )
 
 
 def print_mod_factors_csv(mod_factors, trace_list, trace_processes):
@@ -993,96 +1371,61 @@ def print_other_metrics_csv(other_metrics, trace_list, trace_processes):
     print('')
 
 
-def plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, cmdl_args):
-    # Plotting using python
-    # For plotting using python, read the csv file
+def plots_efficiency_table_matplot(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        cmdl_args):
+    """Render the simple-model efficiency table using Matplotlib."""
 
-    file_path = os.path.join(os.getcwd(), 'efficiency_table.csv')
+    file_path = os.path.join(
+        os.getcwd(),
+        'efficiency_table.csv'
+    )
+
     df = pd.read_csv(file_path)
-    metrics = df['Number of processes'].tolist()
-    traces_procs = list(df.keys())[1:]
 
-    # To control same number of processes for the header on plots and table
-    same_procs = True
-    procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev = trace_tasks[trace_list[0]]
-    threads_trace_prev = trace_threads[trace_list[0]]
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
-                and threads_trace_prev == threads:
-            same_procs *= True
-        else:
-            same_procs *= False
+    # First CSV column contains metric names.
+    metrics = df['Metric'].tolist()
 
-    # Set limit for projection
-    if cmdl_args.limit:
-        limit = cmdl_args.limit
-    else:
-        limit = str(trace_processes[trace_list[len(trace_list)-1]])
-
-    limit_min = trace_processes[trace_list[0]]
-
-    # To xticks label
-    label_xtics = []
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        if int(limit) == int(limit_min) and same_procs:
-            s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
-        elif int(limit) == int(limit_min) and not same_procs:
-            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
-        else:
-            s_xtics = str(trace_processes[trace])
-        if s_xtics in label_xtics:
-            s_xtics += '[' + str(index + 1) + ']'
-        label_xtics.append(s_xtics)
-    ##### End xticks
-
-    # BEGIN To adjust header to big number of processes
-    max_len_header = 7
-    for labelx in label_xtics:
-        if len(labelx) > max_len_header:
-            max_len_header = len(labelx)
-    # END To adjust header to big number of processes
+    # Remaining CSV columns already contain the canonical
+    # execution-configuration labels.
+    configuration_labels = list(df.columns)[1:]
 
     list_data = []
-    for index, rows in df.iterrows():
+
+    for _, rows in df.iterrows():
         list_temp = []
+
         for value in list(rows)[1:]:
-            if float(value) == 0.0:
+
+            if pd.isna(value):
                 list_temp.append(np.nan)
-            else:
-                list_temp.append(float(value))
-        # print(list_temp)
+                continue
+
+            try:
+                numeric_value = float(value)
+            except (TypeError, ValueError):
+                # Non-Avail, Warning!, N/A, NaN, ...
+                numeric_value = np.nan
+
+            list_temp.append(numeric_value)
+
         list_data.append(list_temp)
 
     list_np = np.array(list_data)
 
-    idx = metrics
-    cols = label_xtics
-    #cols = traces_procs
-    df = pd.DataFrame(list_np, index=idx, columns=cols)
+    df_plot = pd.DataFrame(
+        list_np,
+        index=metrics,
+        columns=configuration_labels
+    )
 
-    # min for 1 traces is x=3 for the (x,y) in figsize
-    size_figure_y = len(idx) * 0.40
-    size_figure_x = len(cols) * 0.16 * max_len_header
-    plt.figure(figsize=(size_figure_x, size_figure_y))
-
-    ax = sns.heatmap(df, cmap='RdYlGn', linewidths=0.05, annot=True, vmin=0, vmax=100, center=75, \
-                     fmt='.2f', annot_kws={"size": 10}, cbar_kws={'label': 'Percentage(%)'})
-    ## to align ylabels to left
-    plt.yticks(rotation=0, ha='left')
-    ax.xaxis.tick_top()
-    # to adjust metrics
-    len_pad = 0
-    for metric in metrics:
-        if len(metric) > len_pad:
-            len_pad = len(metric)
-
-    ax.yaxis.set_tick_params(pad=len_pad + 120)
-    plt.savefig('efficiency_table-matplot.png', bbox_inches='tight')
+    _plot_efficiency_heatmap(
+        df_plot,
+        'efficiency_table-matplot'
+    )
 
 
 def plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, trace_tasks, trace_threads, cmdl_args):
