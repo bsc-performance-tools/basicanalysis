@@ -3,7 +3,7 @@
 
 #REPLACE_BY_TRACE_NAMES
 #REPLACE_BY_XRANGE
-set xlabel "Number of Processes"
+#REPLACE_BY_XLABEL
 #REPLACE_BY_XTICS_LABEL
 # set logscale x
 #REPLACE_BY_YRANGE

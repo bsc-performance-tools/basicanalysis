@@ -394,9 +394,9 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
                 trace_tasks,
                 trace_threads,
                 trace_mode,
+                raw_data,
                 cmdl_args,
             )
-
     if len(trace_list) == 1 and (cmdl_args.pop_model_to_apply == 'classic'):
         subprocess.check_output(["rm", "efficiency_table_global.gp"])
         subprocess.check_output(["rm", "efficiency_table_hybrid.gp"])

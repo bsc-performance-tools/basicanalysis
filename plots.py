@@ -6,6 +6,11 @@ from __future__ import print_function, division
 import os
 from collections import OrderedDict
 
+from configuration import (
+    format_configuration_label,
+    disambiguate_configuration_labels,
+)
+
 # error import variables
 error_import_scipy = False
 error_import_numpy = False
@@ -35,7 +40,235 @@ mod_hybrid_factors_doc = OrderedDict([
                                ('omp_comm_eff', '      -- OMP Communication efficiency')])
 
 
-def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args):
+
+def is_mpi_gpu_mode(mode):
+    """Return True for supported MPI+GPU execution modes."""
+    return mode in (
+        'Detailed+MPI+CUDA',
+        'Detailed+MPI+HIP',
+    )
+
+
+def _build_simple_plot_axis(
+        trace_list,
+        trace_processes,
+        offset=5):
+    """
+    Build display labels and numeric x coordinates for simple-model plots.
+
+    Repeated parallel-unit configurations are disambiguated with
+    [Trace ID] and shifted slightly on the numeric x-axis so that
+    their points remain individually visible.
+
+    Returns:
+        labels: displayed x-tick labels
+        x_values: numeric x coordinates used for plotting
+    """
+
+    base_labels = [
+        str(trace_processes[trace])
+        for trace in trace_list
+    ]
+
+    labels = []
+    x_values = []
+
+    # Track how many times each parallel-unit count has appeared.
+    occurrences = {}
+
+    for index, trace in enumerate(trace_list):
+        units = int(
+            float(trace_processes[trace])
+        )
+
+        label = base_labels[index]
+
+        # Add Trace ID only if this configuration is repeated.
+        if base_labels.count(label) > 1:
+            label += ' [' + str(index + 1) + ']'
+
+        labels.append(label)
+
+        occurrence = occurrences.get(
+            units,
+            0
+        )
+
+        x_value = (
+            units
+            + occurrence * offset
+        )
+
+        x_values.append(
+            x_value
+        )
+
+        occurrences[units] = (
+            occurrence + 1
+        )
+
+    return labels, x_values
+
+
+def _build_hybrid_plot_axis(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+        offset=5):
+    """
+    Build configuration labels and numeric x coordinates for
+    hybrid-model Gnuplot figures.
+
+    The displayed configuration is independent from the numeric
+    plotting coordinate. Traces with the same number of parallel
+    units therefore remain individually visible.
+
+    Returns:
+        configuration_labels
+        plot_x_values
+    """
+
+    base_labels = []
+
+    # --------------------------------------------------
+    # Build canonical configuration labels
+    # --------------------------------------------------
+
+    for trace in trace_list:
+
+        # MPI + GPU
+        if is_mpi_gpu_mode(trace_mode[trace]):
+
+            parallel_units = trace_processes[trace]
+            mpi_ranks = trace_tasks[trace]
+            devices = raw_data['count_devices'][trace]
+
+            try:
+                total_gpu_streams = (
+                    int(parallel_units)
+                    - int(mpi_ranks)
+                )
+
+                if int(mpi_ranks) > 0:
+                    if (
+                            total_gpu_streams
+                            % int(mpi_ranks)
+                            == 0
+                    ):
+                        streams_per_rank = (
+                            total_gpu_streams
+                            // int(mpi_ranks)
+                        )
+                    else:
+                        streams_per_rank = -1
+                else:
+                    streams_per_rank = -1
+
+            except (TypeError, ValueError):
+                total_gpu_streams = None
+                streams_per_rank = -1
+
+            label = format_configuration_label(
+                model_key='mpi_gpu',
+                processes=parallel_units,
+                mpi_ranks=mpi_ranks,
+                gpu_streams=total_gpu_streams,
+                streams_per_rank=streams_per_rank,
+                devices=devices,
+                separator='x',
+            )
+
+        # MPI + threaded/runtime model
+        elif trace_mode[trace].startswith(
+                'Detailed+MPI+'):
+
+            label = format_configuration_label(
+                model_key='mpi_threads',
+                processes=trace_processes[trace],
+                mpi_ranks=trace_tasks[trace],
+                inner_units=trace_threads[trace],
+                separator='x',
+            )
+
+        # Generic fallback
+        else:
+
+            label = format_configuration_label(
+                model_key='generic',
+                processes=trace_processes[trace],
+                separator='x',
+            )
+
+        base_labels.append(label)
+
+    # --------------------------------------------------
+    # Add Trace IDs only where configuration labels
+    # actually need disambiguation.
+    # --------------------------------------------------
+
+    trace_ids = [
+        index + 1
+        for index in range(len(trace_list))
+    ]
+
+    configuration_labels = (
+        disambiguate_configuration_labels(
+            base_labels,
+            trace_ids=trace_ids,
+        )
+    )
+
+    # --------------------------------------------------
+    # Numeric plotting coordinates
+    # --------------------------------------------------
+
+    plot_x_values = []
+
+    occurrences = {}
+
+    for trace in trace_list:
+
+        parallel_units = int(
+            float(trace_processes[trace])
+        )
+
+        occurrence = occurrences.get(
+            parallel_units,
+            0
+        )
+
+        x_value = (
+            parallel_units
+            + occurrence * offset
+        )
+
+        plot_x_values.append(
+            x_value
+        )
+
+        occurrences[parallel_units] = (
+            occurrence + 1
+        )
+
+    return (
+        configuration_labels,
+        plot_x_values,
+    )
+
+
+def plot_hybrid_metrics(
+        mod_factors,
+        hybrid_factors,
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+        cmdl_args):
     """Computes the projection from the gathered model factors and returns the
     according dictionary of fitted prediction functions."""
 
@@ -54,7 +287,21 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     if cmdl_args.debug:
         print('==DEBUG== Plotting Modelfactors metrics.')
 
+    x_axis_label = 'set xlabel "Parallel units"'
+
     number_traces = len(trace_list)
+
+    configuration_labels, plot_x_values = (
+        _build_hybrid_plot_axis(
+            trace_list,
+            trace_processes,
+            trace_tasks,
+            trace_threads,
+            trace_mode,
+            raw_data,
+        )
+    )
+
     x_proc = numpy.zeros(number_traces)
     y_para = numpy.zeros(number_traces)
     y_load = numpy.zeros(number_traces)
@@ -112,9 +359,12 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
             y_mpi_comm[index] = hybrid_factors['mpi_comm_eff'][trace]
         else:
             y_mpi_comm[index] = 0.0
-        if trace_mode[trace] == 'Detailed+MPI' \
-                or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
-                or trace_mode[trace] == 'Detailed+MPI+CUDA':
+
+        if (
+                trace_mode[trace] == 'Detailed+MPI'
+                or trace_mode[trace] == 'Detailed+MPI+OpenMP'
+                or is_mpi_gpu_mode(trace_mode[trace])
+        ):
             if hybrid_factors['serial_eff'][trace] != 'N/A' and hybrid_factors['serial_eff'][trace] != 'Warning!' \
             and hybrid_factors['serial_eff'][trace] != 'Non-Avail':
                 y_comm_serial[index] = hybrid_factors['serial_eff'][trace]
@@ -144,13 +394,6 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
             y_omp_comm[index] = 0.0
 
 
-            # Set limit for projection
-    if cmdl_args.limit:
-        limit = cmdl_args.limit
-    else:
-        limit = str(trace_processes[trace_list[len(trace_list)-1]])
-
-    limit_min = str(int(x_proc[0]))
     # limit_min = str(0)
     # To extract the trace name to show in the plots
     title_string = ""
@@ -161,19 +404,45 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
 
     title_string += '"' + " noenhanced"
 
-    # To control same number of processes for the header on plots and table
-    same_procs = True
-    procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev = trace_tasks[trace_list[0]]
-    threads_trace_prev = trace_threads[trace_list[0]]
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
-                and threads_trace_prev == threads:
-            same_procs *= True
-        else:
-            same_procs *= False
+    # --------------------------------------------------
+    # Build Gnuplot x-axis once for all hybrid plots
+    # --------------------------------------------------
+
+    label_xtics = 'set xtics ('
+
+    for label, x_value in zip(
+            configuration_labels,
+            plot_x_values):
+
+        label_xtics += (
+            '"'
+            + label
+            + '" '
+            + str(x_value)
+            + ', '
+        )
+
+    label_xtics = (
+        label_xtics[:-2]
+        + ')'
+    )
+
+    x_min = min(plot_x_values)
+    x_max = max(plot_x_values)
+
+    if x_min == x_max:
+        x_margin = 1
+    else:
+        x_margin = max(
+            1,
+            int((x_max - x_min) * 0.05)
+        )
+
+    x_range = 'set xrange [{}:{}]'.format(
+        x_min - x_margin,
+        x_max + x_margin
+    )
+
 
     # Create Gnuplot file for main plot
     gp_template = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', 'modelfactors-onlydata.gp')
@@ -181,53 +450,32 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     with open(gp_template) as f:
         content = f.readlines()
 
-    # Replace xrange
-    if int(limit) == int(limit_min):
-        limit_plot = int(limit_min) + 5 * (len(trace_list) - 1)
-    else:
-        limit_plot = int(limit)
+    content = [
+        line.replace(
+            '#REPLACE_BY_XLABEL',
+            x_axis_label
+        )
+        for line in content
+    ]
 
-    # To xticks label
-    label_xtics = 'set xtics ('
-    glabel_xtics = []
-    temp_procs = []
-    list_real_procs = []
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
-        if int(limit) == int(limit_min) and same_procs:
-            proc_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')' \
-                         + '[' + str(index + 1) + ']'
-            real_procs = str(trace_processes[trace] + index * 5)
-        elif int(limit) == int(limit_min) and not same_procs:
-            proc_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
-            real_procs = str(trace_processes[trace] + index * 5)
-            if s_xtics in glabel_xtics:
-                proc_xtics += '[' + str(index + 1) + ']'
-            glabel_xtics.append(s_xtics)
-        else:
-            proc_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
-            real_procs = str(trace_processes[trace])
-            if s_xtics in glabel_xtics:
-                proc_xtics += '[' + str(index + 1) + ']'
-            glabel_xtics.append(s_xtics)
-        temp_procs.append(real_procs)
 
-        count_real_procs = 0
-        for procs in temp_procs:
-            if real_procs == procs:
-                count_real_procs += 1
+    content = [
+        line.replace(
+            '#REPLACE_BY_XRANGE',
+            x_range
+        )
+        for line in content
+    ]
 
-        real_procs_before_string = int(real_procs) + (count_real_procs-1) * 5
-        list_real_procs.append(real_procs_before_string)
-        label_xtics += '"' + proc_xtics + '" ' + str(real_procs_before_string) + ', '
+    content = [
+        line.replace(
+            '#REPLACE_BY_XTICS_LABEL',
+            label_xtics
+        )
+        for line in content
+    ]
 
-    content = [line.replace('#REPLACE_BY_XRANGE', ''
-                            .join(['set xrange [', str(min(list_real_procs)), ':',
-                                   str(max(list_real_procs)), ']'])) for line in content]
-    content = [line.replace('#REPLACE_BY_XTICS_LABEL', ''.join([label_xtics[:-2] + ') '])) for
-               line in content]
+
     content = [line.replace('#REPLACE_BY_TRACE_NAMES', ''.join(["set title " + '"' + ''])) for line in
                content]
 
@@ -242,27 +490,27 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     # Add data points to gnuplot file
     with open(file_path, 'a') as f:
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_para[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_para[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_load[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_load[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_comm[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_comm[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_comp[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_comp[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_glob[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_glob[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
@@ -276,14 +524,36 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     # Create Gnuplot file for scalability plot
     gp_template = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', 'modelfactors_scale.gp')
     content = []
+
     with open(gp_template) as f:
         content = f.readlines()
 
-    # Replace xrange
-    content = [line.replace('#REPLACE_BY_XRANGE', ''.join(['set xrange [', str(min(list_real_procs)), ':',
-                                                           str(max(list_real_procs)),']']) ) for line in content]
-    content = [line.replace('#REPLACE_BY_XTICS_LABEL', ''.join([label_xtics[:-2]+') '])) for
-               line in content]
+    content = [
+        line.replace(
+            '#REPLACE_BY_XLABEL',
+            x_axis_label
+        )
+        for line in content
+    ]
+
+ 
+    content = [
+        line.replace(
+            '#REPLACE_BY_XRANGE',
+            x_range
+        )
+        for line in content
+    ]
+
+    content = [
+        line.replace(
+            '#REPLACE_BY_XTICS_LABEL',
+            label_xtics
+        )
+        for line in content
+    ]
+
+    
     content = [line.replace('#REPLACE_BY_TRACE_NAMES', ''.join(["set title " + '"' + ''])) for line in
                content]
 
@@ -298,22 +568,22 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     # Add data points to gnuplot file
     with open(file_path, 'a') as f:
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_comp[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_comp[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_ipc_scale[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_ipc_scale[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_inst_scale[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_inst_scale[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_freq_scale[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_freq_scale[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
@@ -329,11 +599,30 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     with open(gp_template) as f:
         content = f.readlines()
 
-    # Replace xrange
-    content = [line.replace('#REPLACE_BY_XRANGE', ''.join(['set xrange [',str(min(list_real_procs)), ':',
-                                                           str(max(list_real_procs)),']']) ) for line in content]
-    content = [line.replace('#REPLACE_BY_XTICS_LABEL', ''.join([label_xtics[:-2]+') '])) for
-               line in content]
+    content = [
+        line.replace(
+            '#REPLACE_BY_XLABEL',
+            x_axis_label
+        )
+        for line in content
+    ]
+
+    content = [
+        line.replace(
+            '#REPLACE_BY_XRANGE',
+            x_range
+        )
+        for line in content
+    ]
+
+    content = [
+        line.replace(
+            '#REPLACE_BY_XTICS_LABEL',
+            label_xtics
+        )
+        for line in content
+    ]
+
     content = [line.replace('#REPLACE_BY_TRACE_NAMES', ''.join(["set title " + '"' + ''])) for line in
                content]
 
@@ -358,37 +647,37 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     # Add data points to gnuplot file
     with open(file_path, 'a') as f:
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_hybrid_par[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_hybrid_par[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_mpi_par[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_mpi_par[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_mpi_load[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_mpi_load[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_mpi_comm[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_mpi_comm[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_omp_par[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_omp_par[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_omp_load[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_omp_load[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_omp_comm[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_omp_comm[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
@@ -403,11 +692,30 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     with open(gp_template) as f:
         content = f.readlines()
 
-    # Replace xrange
-    content = [line.replace('#REPLACE_BY_XRANGE', ''.join(['set xrange [',str(min(list_real_procs)), ':',
-                                                           str(max(list_real_procs)),']'])) for line in content]
-    content = [line.replace('#REPLACE_BY_XTICS_LABEL', ''.join([label_xtics[:-2]+') '])) for
-               line in content]
+    content = [
+        line.replace(
+            '#REPLACE_BY_XLABEL',
+            x_axis_label
+        )
+        for line in content
+    ]
+
+    content = [
+        line.replace(
+            '#REPLACE_BY_XRANGE',
+            x_range
+        )
+        for line in content
+    ]
+
+    content = [
+        line.replace(
+            '#REPLACE_BY_XTICS_LABEL',
+            label_xtics
+        )
+        for line in content
+    ]
+
     content = [line.replace('#REPLACE_BY_TRACE_NAMES', ''.join(["set title " + '"' + ''])) for line in
                content]
 
@@ -423,29 +731,29 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     # Add data points to gnuplot file
     with open(file_path, 'a') as f:
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_mpi_par[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_mpi_par[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_mpi_load[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_mpi_load[index]), '\n'])
             f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
-            line = ' '.join([str(list_real_procs[index]), str(y_mpi_comm[index]), '\n'])
+            line = ' '.join([str(plot_x_values[index]), str(y_mpi_comm[index]), '\n'])
             f.write(line)
         f.write('e\n')
         
         for index in range(0, number_traces):
             if str(y_comm_serial[index]) != 0.0:
-                line = ' '.join([str(list_real_procs[index]), str(y_comm_serial[index]), '\n'])
+                line = ' '.join([str(plot_x_values[index]), str(y_comm_serial[index]), '\n'])
                 f.write(line)
         f.write('e\n')
 
         for index in range(0, number_traces):
             if str(y_comm_transfer[index]) != 0.0:
-                line = ' '.join([str(list_real_procs[index]), str(y_comm_transfer[index]), '\n'])
+                line = ' '.join([str(plot_x_values[index]), str(y_comm_transfer[index]), '\n'])
                 f.write(line)
         f.write('e\n')
 
@@ -455,271 +763,519 @@ def plot_hybrid_metrics(mod_factors, hybrid_factors, trace_list, trace_processes
     print('MPI hybrid metrics plot written to ' + file_path)
 
 
-def plot_simple_metrics(mod_factors, trace_list, trace_processes, trace_mode, cmdl_args):
-    """Computes the projection from the gathered model factors and returns the
-    according dictionary of fitted prediction functions."""
+def plot_simple_metrics(
+        mod_factors,
+        trace_list,
+        trace_processes,
+        trace_mode,
+        cmdl_args):
+    """
+    Generate Gnuplot files for simple-model efficiency,
+    communication, and scalability metrics.
+
+    Displayed configuration labels are kept independent from the
+    numeric x coordinates. Repeated parallel-unit configurations
+    therefore remain individually visible in the plots.
+    """
 
     if cmdl_args.debug:
         print('==DEBUG== Computing projection of model factors.')
 
+    x_axis_label = 'set xlabel "Parallel units"'
+
     number_traces = len(trace_list)
-    x_proc = numpy.zeros(number_traces)
+
+    # --------------------------------------------------
+    # X-axis configuration
+    # --------------------------------------------------
+
+    label_xtics_list, plot_x_values = _build_simple_plot_axis(
+        trace_list,
+        trace_processes,
+    )
+
+    # Build Gnuplot xtics once and reuse them in all plots.
+    label_xtics = 'set xtics ('
+
+    for label, x_value in zip(
+            label_xtics_list,
+            plot_x_values):
+        label_xtics += (
+            '"'
+            + label
+            + '" '
+            + str(x_value)
+            + ', '
+        )
+
+    label_xtics = (
+        label_xtics[:-2]
+        + ')'
+    )
+
+    # Compute a common x-range for all simple-model plots.
+    x_min = min(plot_x_values)
+    x_max = max(plot_x_values)
+
+    if x_min == x_max:
+        x_margin = 1
+    else:
+        x_margin = max(
+            1,
+            int((x_max - x_min) * 0.05)
+        )
+
+    x_range = 'set xrange [{}:{}]'.format(
+        x_min - x_margin,
+        x_max + x_margin
+    )
+
+    # --------------------------------------------------
+    # Metric arrays
+    # --------------------------------------------------
+
     y_para = numpy.zeros(number_traces)
     y_load = numpy.zeros(number_traces)
     y_comm = numpy.zeros(number_traces)
     y_comp = numpy.zeros(number_traces)
     y_glob = numpy.zeros(number_traces)
+
     y_comm_serial = numpy.zeros(number_traces)
     y_comm_transfer = numpy.zeros(number_traces)
+
     y_ipc_scale = numpy.zeros(number_traces)
     y_inst_scale = numpy.zeros(number_traces)
     y_freq_scale = numpy.zeros(number_traces)
 
-    #Convert dictionaries to NumPy arrays
+    # Convert dictionaries to NumPy arrays.
     for index, trace in enumerate(trace_list):
-        x_proc[index] = trace_processes[trace]
+
         y_para[index] = mod_factors['parallel_eff'][trace]
         y_load[index] = mod_factors['load_balance'][trace]
         y_comm[index] = mod_factors['comm_eff'][trace]
         y_comp[index] = mod_factors['comp_scale'][trace]
         y_glob[index] = mod_factors['global_eff'][trace]
-        if trace_mode[trace][:5] != 'Burst' and trace_mode[trace]!= 'Sampling':
+
+        if (
+                trace_mode[trace][:5] != 'Burst'
+                and trace_mode[trace] != 'Sampling'
+        ):
             y_ipc_scale[index] = mod_factors['ipc_scale'][trace]
             y_inst_scale[index] = mod_factors['inst_scale'][trace]
             y_freq_scale[index] = mod_factors['freq_scale'][trace]
+
         else:
             y_ipc_scale[index] = 0.0
             y_inst_scale[index] = 0.0
             y_freq_scale[index] = 0.0
+
         if trace_mode[trace] == 'Detailed+MPI':
-            if (mod_factors['serial_eff'][trace] != 'Warning!') and (mod_factors['serial_eff'][trace] != 'Non-Avail'):
-                y_comm_serial[index] = mod_factors['serial_eff'][trace]
+
+            if (
+                    mod_factors['serial_eff'][trace] != 'Warning!'
+                    and mod_factors['serial_eff'][trace] != 'Non-Avail'
+            ):
+                y_comm_serial[index] = \
+                    mod_factors['serial_eff'][trace]
             else:
                 y_comm_serial[index] = 0.0
-            if mod_factors['transfer_eff'][trace] != 'Warning!' and (mod_factors['serial_eff'][trace] != 'Non-Avail'):
-                y_comm_transfer[index] = mod_factors['transfer_eff'][trace]
+
+            if (
+                    mod_factors['transfer_eff'][trace] != 'Warning!'
+                    and mod_factors['serial_eff'][trace] != 'Non-Avail'
+            ):
+                y_comm_transfer[index] = \
+                    mod_factors['transfer_eff'][trace]
             else:
                 y_comm_transfer[index] = 0.0
+
         else:
             y_comm_serial[index] = 0.0
             y_comm_transfer[index] = 0.0
 
-    #Set limit for projection
-    if cmdl_args.limit:
-        limit = cmdl_args.limit
-    else:
-        limit = str(trace_processes[trace_list[len(trace_list) - 1]])
+    # --------------------------------------------------
+    # Trace names
+    # --------------------------------------------------
 
-    limit_min = str(int(x_proc[0]))
-    # limit_min = str(0)
-    # To extract the trace name to show in the plots
     title_string = ""
+
     for index, trace in enumerate(trace_list):
         folder_trace_name = trace.split('/')
-        trace_name_to_show = folder_trace_name[len(folder_trace_name) - 1]
-        title_string += '(' + str(index+1) + ') ' + trace_name_to_show + "\\" + 'n'
+        trace_name_to_show = folder_trace_name[
+            len(folder_trace_name) - 1
+        ]
+
+        title_string += (
+            '('
+            + str(index + 1)
+            + ') '
+            + trace_name_to_show
+            + "\\n"
+        )
+
     title_string += '"' + " noenhanced"
 
-    #Create Gnuplot file for main plot
-    gp_template = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', 'modelfactors-onlydata.gp')
-    content = []
+    # ==================================================
+    # GLOBAL EFFICIENCY METRICS
+    # ==================================================
+
+    gp_template = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        'cfgs',
+        'modelfactors-onlydata.gp'
+    )
+
     with open(gp_template) as f:
         content = f.readlines()
 
-    #Replace xrange
-    if int(limit) == int(limit_min):
-        limit_plot = int(limit_min) + 5 * (len(trace_list) - 1)
-    else:
-        limit_plot = int(limit)
+    content = [
+        line.replace(
+            '#REPLACE_BY_XLABEL',
+            x_axis_label
+        )
+        for line in content
+    ]
 
-    # To xticks label
-    label_xtics = 'set xtics ('
-    for index, trace in enumerate(trace_list):
+    content = [
+        line.replace(
+            '#REPLACE_BY_XRANGE',
+            x_range
+        )
+        for line in content
+    ]
 
-        if int(limit) == int(limit_min):
-            label_xtics += '"' + str(trace_processes[trace]) + '[' + str(index + 1) + ']' + '" ' \
-                           + str(trace_processes[trace] + index * 5) + ', '
-        else:
-            label_xtics += '"' + str(trace_processes[trace]) + '" ' + str(trace_processes[trace]) + ', '
+    content = [
+        line.replace(
+            '#REPLACE_BY_XTICS_LABEL',
+            label_xtics
+        )
+        for line in content
+    ]
 
-    content = [line.replace('#REPLACE_BY_XRANGE', ''
-                            .join(['set xrange [',limit_min,':', str(limit_plot),']'])) for line in content]
-    content = [line.replace('#REPLACE_BY_XTICS_LABEL', ''.join([label_xtics[:-2] + ') '])) for
-               line in content]
+    content = [
+        line.replace(
+            '#REPLACE_BY_TRACE_NAMES',
+            'set title ""'
+        )
+        for line in content
+    ]
 
-    content = [line.replace('#REPLACE_BY_TRACE_NAMES', ''.join(["set title " + '"' + ''])) for line in
-               content]
+    max_global = max([
+        max(y_para),
+        max(y_load),
+        max(y_comm),
+        max(y_comp),
+        max(y_glob)
+    ])
 
-    max_global = max([max(y_para), max(y_load), max(y_comm), max(y_comp), max(y_glob)])
-    content = [line.replace('#REPLACE_BY_YRANGE', ''
-                            .join(['set yrange [0:', str(max_global+5), ']'])) for line in content]
+    content = [
+        line.replace(
+            '#REPLACE_BY_YRANGE',
+            'set yrange [0:{}]'.format(
+                max_global + 5
+            )
+        )
+        for line in content
+    ]
 
-    file_path = os.path.join(os.getcwd(), 'modelfactors.gp')
+    file_path = os.path.join(
+        os.getcwd(),
+        'modelfactors.gp'
+    )
+
     with open(file_path, 'w') as f:
         f.writelines(content)
 
-    #Add data points to gnuplot file
+    # Add data points.
     with open(file_path, 'a') as f:
-        for index in range(0, number_traces):
-            if int(limit) == int(limit_min):
-                line = ' '.join([str(x_proc[index]+index*5), str(y_para[index]), '\n'])
-            else:
-                line = ' '.join([str(x_proc[index]), str(y_para[index]), '\n'])
+
+        for index in range(number_traces):
+            line = ' '.join([
+                str(plot_x_values[index]),
+                str(y_para[index]),
+                '\n'
+            ])
             f.write(line)
+
         f.write('e\n')
 
-        for index in range(0, number_traces):
-            if int(limit) == int(limit_min):
-                line = ' '.join([str(x_proc[index]+index*5), str(y_load[index]), '\n'])
-            else:
-                line = ' '.join([str(x_proc[index]), str(y_load[index]), '\n'])
+        for index in range(number_traces):
+            line = ' '.join([
+                str(plot_x_values[index]),
+                str(y_load[index]),
+                '\n'
+            ])
             f.write(line)
+
         f.write('e\n')
 
-        for index in range(0, number_traces):
-            if int(limit) == int(limit_min):
-                line = ' '.join([str(x_proc[index]+index*5), str(y_comm[index]), '\n'])
-            else:
-                line = ' '.join([str(x_proc[index]), str(y_comm[index]), '\n'])
+        for index in range(number_traces):
+            line = ' '.join([
+                str(plot_x_values[index]),
+                str(y_comm[index]),
+                '\n'
+            ])
             f.write(line)
+
         f.write('e\n')
 
-        for index in range(0, number_traces):
-            if int(limit) == int(limit_min):
-                line = ' '.join([str(x_proc[index]+index*5), str(y_comp[index]), '\n'])
-            else:
-                line = ' '.join([str(x_proc[index]), str(y_comp[index]), '\n'])
+        for index in range(number_traces):
+            line = ' '.join([
+                str(plot_x_values[index]),
+                str(y_comp[index]),
+                '\n'
+            ])
             f.write(line)
+
         f.write('e\n')
 
-        for index in range(0, number_traces):
-            if int(limit) == int(limit_min):
-                line = ' '.join([str(x_proc[index]+index*5), str(y_glob[index]), '\n'])
-            else:
-                line = ' '.join([str(x_proc[index]), str(y_glob[index]), '\n'])
+        for index in range(number_traces):
+            line = ' '.join([
+                str(plot_x_values[index]),
+                str(y_glob[index]),
+                '\n'
+            ])
             f.write(line)
+
         f.write('e\n')
 
         f.write('\n')
         f.write('pause -1\n')
 
-    # print('========= Plot (gnuplot File): EFFICIENCY METRICS ==========')
-    print('Efficiency metrics plot written to ' + file_path)
-    # print('')
+    print(
+        'Efficiency metrics plot written to '
+        + file_path
+    )
 
-    # Create Gnuplot file for communication plot
-    gp_template = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', 'modelfactors_comm.gp')
-    content = []
+    # ==================================================
+    # COMMUNICATION METRICS
+    # ==================================================
+
+    gp_template = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        'cfgs',
+        'modelfactors_comm.gp'
+    )
+
     with open(gp_template) as f:
         content = f.readlines()
 
-    # Replace xrange
-    content = [line.replace('#REPLACE_BY_XRANGE', ''.join(['set xrange [',limit_min,':',str(limit_plot),']']) ) for line in content]
-    content = [line.replace('#REPLACE_BY_XTICS_LABEL', ''.join([label_xtics[:-2]+') '])) for
-               line in content]
+    content = [
+        line.replace(
+            '#REPLACE_BY_XLABEL',
+            x_axis_label
+        )
+        for line in content
+    ]
 
-    content = [line.replace('#REPLACE_BY_TRACE_NAMES', ''.join(["set title " + '"' + ''])) for line in
-               content]
+    content = [
+        line.replace(
+            '#REPLACE_BY_XRANGE',
+            x_range
+        )
+        for line in content
+    ]
 
-    max_comm = max([max(y_comm), max(y_comm_serial), max(y_comm_transfer)])
-    content = [line.replace('#REPLACE_BY_YRANGE', ''
-                            .join(['set yrange [0:', str(max_comm+5), ']'])) for line in content]
+    content = [
+        line.replace(
+            '#REPLACE_BY_XTICS_LABEL',
+            label_xtics
+        )
+        for line in content
+    ]
 
-    file_path = os.path.join(os.getcwd(), 'modelfactors_comm.gp')
+    content = [
+        line.replace(
+            '#REPLACE_BY_TRACE_NAMES',
+            'set title ""'
+        )
+        for line in content
+    ]
+
+    max_comm = max([
+        max(y_comm),
+        max(y_comm_serial),
+        max(y_comm_transfer)
+    ])
+
+    content = [
+        line.replace(
+            '#REPLACE_BY_YRANGE',
+            'set yrange [0:{}]'.format(
+                max_comm + 5
+            )
+        )
+        for line in content
+    ]
+
+    file_path = os.path.join(
+        os.getcwd(),
+        'modelfactors_comm.gp'
+    )
+
     with open(file_path, 'w') as f:
         f.writelines(content)
 
-    # Add data points to gnuplot file
     with open(file_path, 'a') as f:
-        for index in range(0, number_traces):
-            if int(limit) == int(limit_min):
-                line = ' '.join([str(x_proc[index]+index*5), str(y_comm[index]), '\n'])
-            else:
-                line = ' '.join([str(x_proc[index]), str(y_comm[index]), '\n'])
+
+        for index in range(number_traces):
+            line = ' '.join([
+                str(plot_x_values[index]),
+                str(y_comm[index]),
+                '\n'
+            ])
             f.write(line)
+
         f.write('e\n')
 
-        for index in range(0, number_traces):
-            if str(y_comm_serial[index]) != 0.0:
-                if int(limit) == int(limit_min):
-                    line = ' '.join([str(x_proc[index]+index*5), str(y_comm_serial[index]), '\n'])
-                else:
-                    line = ' '.join([str(x_proc[index]), str(y_comm_serial[index]), '\n'])
+        for index in range(number_traces):
+
+            if y_comm_serial[index] != 0.0:
+                line = ' '.join([
+                    str(plot_x_values[index]),
+                    str(y_comm_serial[index]),
+                    '\n'
+                ])
                 f.write(line)
+
         f.write('e\n')
 
-        for index in range(0, number_traces):
-            if str(y_comm_transfer[index]) != 0.0:
-                if int(limit) == int(limit_min):
-                    line = ' '.join([str(x_proc[index]+index*5), str(y_comm_transfer[index]), '\n'])
-                else:
-                    line = ' '.join([str(x_proc[index]), str(y_comm_transfer[index]), '\n'])
+        for index in range(number_traces):
+
+            if y_comm_transfer[index] != 0.0:
+                line = ' '.join([
+                    str(plot_x_values[index]),
+                    str(y_comm_transfer[index]),
+                    '\n'
+                ])
                 f.write(line)
+
         f.write('e\n')
 
         f.write('\n')
         f.write('pause -1\n')
 
-    # print('======= Plot (gnuplot File): COMMUNICATION METRICS ========')
-    print('Communication Efficiency plot written to ' + file_path)
-    # print('')
+    print(
+        'Communication Efficiency plot written to '
+        + file_path
+    )
 
-    # Create Gnuplot file for scalability plot
-    gp_template = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cfgs', 'modelfactors_scale.gp')
-    content = []
+    # ==================================================
+    # SCALABILITY METRICS
+    # ==================================================
+
+    gp_template = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        'cfgs',
+        'modelfactors_scale.gp'
+    )
+
     with open(gp_template) as f:
         content = f.readlines()
 
-    # Replace xrange
-    content = [line.replace('#REPLACE_BY_XRANGE', ''.join(['set xrange [',limit_min,':',str(limit_plot),']']) ) for line in content]
-    content = [line.replace('#REPLACE_BY_XTICS_LABEL', ''.join([label_xtics[:-2]+') '])) for
-               line in content]
-    content = [line.replace('#REPLACE_BY_TRACE_NAMES', ''.join(["set title " + '"' + ''])) for line in
-               content]
-    max_comp = max([max(y_comp), max(y_ipc_scale), max(y_inst_scale), max(y_freq_scale)])
-    content = [line.replace('#REPLACE_BY_YRANGE', ''
-                            .join(['set yrange [0:', str(max_comp+5), ']'])) for line in content]
+    content = [
+        line.replace(
+            '#REPLACE_BY_XLABEL',
+            x_axis_label
+        )
+        for line in content
+    ]
 
-    file_path = os.path.join(os.getcwd(), 'modelfactors_scale.gp')
+    content = [
+        line.replace(
+            '#REPLACE_BY_XRANGE',
+            x_range
+        )
+        for line in content
+    ]
+
+    content = [
+        line.replace(
+            '#REPLACE_BY_XTICS_LABEL',
+            label_xtics
+        )
+        for line in content
+    ]
+
+    content = [
+        line.replace(
+            '#REPLACE_BY_TRACE_NAMES',
+            'set title ""'
+        )
+        for line in content
+    ]
+
+    max_comp = max([
+        max(y_comp),
+        max(y_ipc_scale),
+        max(y_inst_scale),
+        max(y_freq_scale)
+    ])
+
+    content = [
+        line.replace(
+            '#REPLACE_BY_YRANGE',
+            'set yrange [0:{}]'.format(
+                max_comp + 5
+            )
+        )
+        for line in content
+    ]
+
+    file_path = os.path.join(
+        os.getcwd(),
+        'modelfactors_scale.gp'
+    )
+
     with open(file_path, 'w') as f:
         f.writelines(content)
 
-    # Add data points to gnuplot file
     with open(file_path, 'a') as f:
-        for index in range(0, number_traces):
-            if int(limit) == int(limit_min):
-                line = ' '.join([str(x_proc[index]+index*5), str(y_comp[index]), '\n'])
-            else:
-                line = ' '.join([str(x_proc[index]), str(y_comp[index]), '\n'])
+
+        for index in range(number_traces):
+            line = ' '.join([
+                str(plot_x_values[index]),
+                str(y_comp[index]),
+                '\n'
+            ])
             f.write(line)
+
         f.write('e\n')
 
-        for index in range(0, number_traces):
-            if int(limit) == int(limit_min):
-                line = ' '.join([str(x_proc[index]+index*5), str(y_ipc_scale[index]), '\n'])
-            else:
-                line = ' '.join([str(x_proc[index]), str(y_ipc_scale[index]), '\n'])
+        for index in range(number_traces):
+            line = ' '.join([
+                str(plot_x_values[index]),
+                str(y_ipc_scale[index]),
+                '\n'
+            ])
             f.write(line)
+
         f.write('e\n')
 
-        for index in range(0, number_traces):
-            if int(limit) == int(limit_min):
-                line = ' '.join([str(x_proc[index]+index*5), str(y_inst_scale[index]), '\n'])
-            else:
-                line = ' '.join([str(x_proc[index]), str(y_inst_scale[index]), '\n'])
+        for index in range(number_traces):
+            line = ' '.join([
+                str(plot_x_values[index]),
+                str(y_inst_scale[index]),
+                '\n'
+            ])
             f.write(line)
+
         f.write('e\n')
 
-        for index in range(0, number_traces):
-            if int(limit) == int(limit_min):
-                line = ' '.join([str(x_proc[index]+index*5), str(y_freq_scale[index]), '\n'])
-            else:
-                line = ' '.join([str(x_proc[index]), str(y_freq_scale[index]), '\n'])
+        for index in range(number_traces):
+            line = ' '.join([
+                str(plot_x_values[index]),
+                str(y_freq_scale[index]),
+                '\n'
+            ])
             f.write(line)
+
         f.write('e\n')
 
         f.write('\n')
         f.write('pause -1\n')
 
-    # print('========  Plot (gnuplot File): SCALABILITY METRICS ========')
-    print('Scalability metrics plot written to ' + file_path)
+    print(
+        'Scalability metrics plot written to '
+        + file_path
+    )
