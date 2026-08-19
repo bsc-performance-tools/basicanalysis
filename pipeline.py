@@ -376,7 +376,7 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
                     trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args
                 )
             hybridmetrics.plots_speedup_matplot(
-                trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args
+                trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data, cmdl_args
             )
 
     error_plot_lineal = False

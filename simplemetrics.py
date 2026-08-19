@@ -1543,120 +1543,343 @@ def plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, trace_ta
         plt.savefig('modelfactors-scale-matplot.png', bbox_inches='tight')
 
 
-def plots_speedup_matplot(trace_list, trace_processes, trace_tasks, trace_threads, cmdl_args):
-    # Plotting using python
-    # For plotting using python, read the csv file
-    file_path = os.path.join(os.getcwd(), 'other_metrics.csv')
-    df = pd.read_csv(file_path, sep=';')
+def plots_speedup_matplot(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        cmdl_args):
+    """
+    Plot measured Speedup and Efficiency against their ideal values.
 
-    traces_procs = list(df.keys())[1:]
+    The numeric x coordinates are kept separate from the displayed
+    configuration labels so that traces with the same number of
+    parallel units can still be represented individually.
+    """
+
+    file_path = os.path.join(
+        os.getcwd(),
+        'other_metrics.csv'
+    )
+
+    df = pd.read_csv(
+        file_path,
+        sep=';'
+    )
+
+    # --------------------------------------------------
+    # Read metric values
+    # --------------------------------------------------
 
     list_data = []
-    for index, rows in df.iterrows():
+
+    for _, rows in df.iterrows():
         list_temp = []
+
         for value in list(rows)[1:]:
-            if value != 'Non-Avail':
+
+            if pd.isna(value):
+                list_temp.append(np.nan)
+                continue
+
+            try:
                 list_temp.append(float(value))
-            elif value == 'Non-Avail':
-                list_temp.append(float('nan'))
-        # print(list_temp)
+            except (TypeError, ValueError):
+                # Non-Avail, NaN, ...
+                list_temp.append(np.nan)
+
         list_data.append(list_temp)
 
-    # To control same number of processes for the header on plots and table
-    same_procs = True
-    procs_trace_prev = trace_processes[trace_list[0]]
-    tasks_trace_prev = trace_tasks[trace_list[0]]
-    threads_trace_prev = trace_threads[trace_list[0]]
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        if procs_trace_prev == trace_processes[trace] and tasks_trace_prev == tasks \
-                and threads_trace_prev == threads:
-            same_procs *= True
+    # Current other_metrics.csv ordering:
+    #
+    # 0 elapsed_time
+    # 1 efficiency
+    # 2 speedup
+    # 3 ipc
+    # 4 freq
+    # ...
+    efficiency_values = list_data[1]
+    speedup_values = list_data[2]
+
+    # --------------------------------------------------
+    # Configuration labels
+    # --------------------------------------------------
+
+    # Simple metrics use only the number of parallel units.
+    #
+    # MPI    -> ranks
+    # OpenMP -> threads
+    # OmpSs  -> workers
+    #
+    # Repeated configurations are distinguished with [Trace ID].
+    base_labels = [
+        str(trace_processes[trace])
+        for trace in trace_list
+    ]
+
+    configuration_labels = []
+
+    for index, label in enumerate(base_labels):
+        if base_labels.count(label) > 1:
+            label += ' [' + str(index + 1) + ']'
+
+        configuration_labels.append(label)
+
+    # --------------------------------------------------
+    # Numeric x coordinates
+    # --------------------------------------------------
+
+    # Preserve the previous BasicAnalysis behavior:
+    # repeated configurations receive slightly different numeric
+    # positions so that individual points and connecting lines remain
+    # visible.
+    x_values = []
+
+    previous_procs = None
+    repeated_count = 0
+
+    for trace in trace_list:
+
+        procs = int(trace_processes[trace])
+
+        if previous_procs == procs:
+            repeated_count += 1
+            x = procs + (2 * repeated_count)
         else:
-            same_procs *= False
+            repeated_count = 0
+            x = procs
 
-    # Set limit for projection
-    if cmdl_args.limit:
-        limit = cmdl_args.limit
-    else:
-        limit = str(trace_processes[trace_list[len(trace_list) - 1]])
+        x_values.append(x)
+        previous_procs = procs
 
-    limit_min = trace_processes[trace_list[0]]
+    # --------------------------------------------------
+    # Ideal values
+    # --------------------------------------------------
 
-    # proc_ratio to ideal speedup
-    proc_ratio = []
-    for index, trace in enumerate(trace_list):
-        proc_ratio.append(trace_processes[trace]/trace_processes[trace_list[0]])
-    # print(proc_ratio)
+    reference_units = float(
+        trace_processes[trace_list[0]]
+    )
 
-    # To xticks label
-    label_xtics = []
-    for index, trace in enumerate(trace_list):
-        tasks = trace_tasks[trace]
-        threads = trace_threads[trace]
-        if int(limit) == int(limit_min) and same_procs:
-            s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
-        elif int(limit) == int(limit_min) and not same_procs:
-            s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' \
-                          + str(threads) + ')'
-        else:
-            s_xtics = str(trace_processes[trace])
-        label_xtics.append(s_xtics)
+    ideal_speedup = [
+        float(trace_processes[trace]) / reference_units
+        for trace in trace_list
+    ]
 
-    ### Plot: SpeedUp
-    # print(list_data)
+    ideal_efficiency = [
+        1.0
+        for _ in trace_list
+    ]
 
-    int_traces_procs = []
-    prev_procs = int(float(traces_procs[0]))
-    int_traces_procs.append(int(float(traces_procs[0])))
-    count_rep = 0
-    for procs in traces_procs[1:]:
-        if prev_procs == int(float(procs)):
-            count_rep += 1
-            int_traces_procs.append(int(float(procs)) + (2 * count_rep))
-            prev_procs = int(float(procs))
-        else:
-            int_traces_procs.append(int(float(procs)))
-            prev_procs = int(float(procs))
-            count_rep = 0
+    # --------------------------------------------------
+    # SPEEDUP
+    # --------------------------------------------------
 
+    fig, ax = plt.subplots(
+        figsize=(7.2, 4.8),
+        constrained_layout=True
+    )
 
-    plt.figure()
-    for x, y in zip(int_traces_procs, list_data[2]):
-        label = "{:.2f}".format(y)
-        plt.annotate(label, (x, y), textcoords="offset points", xytext=(0, 10), ha='center')
-    plt.plot(int_traces_procs, list_data[2], 'o-', color='blue', label='measured')
-    plt.plot(int_traces_procs, proc_ratio, 'o-', color='black', label='ideal')
-    plt.xlabel("Number of Processes")
-    plt.ylabel("SpeedUp")
-    plt.xticks(tuple(int_traces_procs), tuple(label_xtics))
-    #plt.yscale('log')
-    plt.legend()
-    # plt.xlim(0, )
-    plt.ylim(0, )
-    plt.savefig('speedup-matplot.png', bbox_inches='tight')
+    ax.plot(
+        x_values,
+        speedup_values,
+        marker='o',
+        linewidth=2.0,
+        markersize=7,
+        label='Measured'
+    )
 
-    ### Plot: Efficiency
-    # print(list_data)
-    plt.figure()
-    for x, y in zip(int_traces_procs, list_data[1]):
-        label = "{:.2f}".format(y)
-        plt.annotate(label, (x, y), textcoords="offset points", xytext=(0, 10), ha='center')
+    ax.plot(
+        x_values,
+        ideal_speedup,
+        marker='o',
+        linewidth=1.6,
+        markersize=6,
+        linestyle='--',
+        label='Ideal'
+    )
 
-    plt.plot(int_traces_procs, list_data[1], 'o-', color='blue', label='measured')
-    plt.axhline(y=1, color='black', linestyle='-', label='ideal')
-    plt.xlabel("Number of Processes")
-    plt.ylabel("Efficiency")
-    plt.xticks(tuple(int_traces_procs), tuple(label_xtics))
-    # plt.yscale('log')
-    max_y = max(list_data[1])
-    if max_y < 1.1:
-        max_y = 1.1
-    plt.ylim(0,max_y+0.1)
-    # plt.xlim(0, )
-    plt.legend()
-    plt.savefig('efficiency-matplot.png', bbox_inches='tight')
+    # Numeric annotations for measured values.
+    for x, y in zip(
+            x_values,
+            speedup_values):
+
+        if np.isnan(y):
+            continue
+
+        ax.annotate(
+            '{:.2f}'.format(y),
+            (x, y),
+            textcoords='offset points',
+            xytext=(0, 9),
+            ha='center',
+            fontsize=10
+        )
+
+    ax.set_xticks(
+        x_values
+    )
+
+    ax.set_xticklabels(
+        configuration_labels,
+        fontsize=11
+    )
+
+    ax.set_xlabel(
+        'Parallel units',
+        fontsize=12
+    )
+
+    ax.set_ylabel(
+        'Speedup',
+        fontsize=12
+    )
+
+    ax.tick_params(
+        axis='y',
+        labelsize=11
+    )
+
+    ax.set_ylim(
+        bottom=0
+    )
+
+    ax.grid(
+        axis='y',
+        linewidth=0.5,
+        alpha=0.35
+    )
+
+    ax.legend(
+        fontsize=10,
+        frameon=True
+    )
+
+    fig.savefig(
+        'speedup-matplot.png',
+        dpi=400,
+        bbox_inches='tight'
+    )
+
+    fig.savefig(
+        'speedup-matplot.pdf',
+        bbox_inches='tight'
+    )
+
+    plt.close(fig)
+
+    # --------------------------------------------------
+    # EFFICIENCY
+    # --------------------------------------------------
+
+    fig, ax = plt.subplots(
+        figsize=(7.2, 4.8),
+        constrained_layout=True
+    )
+
+    ax.plot(
+        x_values,
+        efficiency_values,
+        marker='o',
+        linewidth=2.0,
+        markersize=7,
+        label='Measured'
+    )
+
+    ax.plot(
+        x_values,
+        ideal_efficiency,
+        linewidth=1.6,
+        linestyle='--',
+        label='Ideal'
+    )
+
+    # Numeric annotations for measured values.
+    for x, y in zip(
+            x_values,
+            efficiency_values):
+
+        if np.isnan(y):
+            continue
+
+        ax.annotate(
+            '{:.2f}'.format(y),
+            (x, y),
+            textcoords='offset points',
+            xytext=(0, 9),
+            ha='center',
+            fontsize=10
+        )
+
+    ax.set_xticks(
+        x_values
+    )
+
+    ax.set_xticklabels(
+        configuration_labels,
+        fontsize=11
+    )
+
+    ax.set_xlabel(
+        'Parallel units',
+        fontsize=12
+    )
+
+    ax.set_ylabel(
+        'Efficiency',
+        fontsize=12
+    )
+
+    ax.tick_params(
+        axis='y',
+        labelsize=11
+    )
+
+    # Leave a little room above the ideal-efficiency line.
+    finite_efficiency = [
+        value
+        for value in efficiency_values
+        if not np.isnan(value)
+    ]
+
+    max_efficiency = (
+        max(finite_efficiency)
+        if finite_efficiency
+        else 1.0
+    )
+
+    upper_limit = max(
+        1.10,
+        max_efficiency + 0.10
+    )
+
+    ax.set_ylim(
+        0,
+        upper_limit
+    )
+
+    ax.grid(
+        axis='y',
+        linewidth=0.5,
+        alpha=0.35
+    )
+
+    ax.legend(
+        fontsize=10,
+        frameon=True
+    )
+
+    fig.savefig(
+        'efficiency-matplot.png',
+        dpi=400,
+        bbox_inches='tight'
+    )
+
+    fig.savefig(
+        'efficiency-matplot.pdf',
+        bbox_inches='tight'
+    )
+
+    plt.close(fig)
 
 
 def print_omp_talp_metrics_csv(omp_talp_factors, trace_list, trace_processes):
