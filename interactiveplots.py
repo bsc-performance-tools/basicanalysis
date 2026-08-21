@@ -926,6 +926,576 @@ def _build_scaling_model_html(scaling_model):
         warning_html=warning_html,
     )
 
+
+def _build_scaling_trends_html(
+        trend_values,
+        trace_labels,
+        configuration_description):
+    """
+    Build interactive Speedup and Efficiency trend plots.
+
+    The x-axis uses report configuration labels as ordered categories.
+    This avoids introducing artificial numeric offsets when several
+    traces use the same number of parallel units.
+    """
+
+    if not trend_values:
+        return ""
+
+    # --------------------------------------------------
+    # Prepare trace/configuration data
+    # --------------------------------------------------
+
+    labels = []
+    speedup_values = []
+    efficiency_values = []
+    parallel_units = []
+
+    for index, trend in enumerate(trend_values):
+
+        if index < len(trace_labels):
+            label = trace_labels[index]
+        else:
+            label = "T{}".format(
+                trend.trace_id
+            )
+
+        labels.append(label)
+
+        speedup_values.append(
+            trend.speedup
+        )
+
+        efficiency_values.append(
+            trend.efficiency
+        )
+
+        try:
+            parallel_units.append(
+                float(trend.parallel_units)
+            )
+        except (TypeError, ValueError):
+            parallel_units.append(None)
+
+    # --------------------------------------------------
+    # Ideal speedup
+    # --------------------------------------------------
+
+    reference_units = next(
+        (
+            value
+            for value in parallel_units
+            if value is not None
+        ),
+        None,
+    )
+
+    if reference_units not in (
+            None,
+            0.0):
+        ideal_speedup = [
+            (
+                value / reference_units
+                if value is not None
+                else None
+            )
+            for value in parallel_units
+        ]
+    else:
+        ideal_speedup = [
+            None
+            for _ in parallel_units
+        ]
+
+    # Efficiency is represented as a ratio in other_metrics.
+    ideal_efficiency = [
+        1.0
+        for _ in trend_values
+    ]
+
+    # --------------------------------------------------
+    # Speedup plot
+    # --------------------------------------------------
+
+    speedup_fig = go.Figure()
+
+    speedup_fig.add_trace(
+        go.Scatter(
+            x=labels,
+            y=speedup_values,
+            mode="lines+markers+text",
+            name="Measured",
+            text=[
+                (
+                    "{:.2f}".format(value)
+                    if value is not None
+                    else ""
+                )
+                for value in speedup_values
+            ],
+            textposition="top center",
+            cliponaxis=False,
+            connectgaps=False,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Measured speedup: %{y:.2f}×"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    speedup_fig.add_trace(
+        go.Scatter(
+            x=labels,
+            y=ideal_speedup,
+            mode="lines+markers",
+            name="Ideal",
+            line=dict(
+                dash="dash"
+            ),
+            connectgaps=False,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Ideal speedup: %{y:.2f}×"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    finite_speedup_values = [
+        value
+        for value in (
+            speedup_values
+            + ideal_speedup
+        )
+        if value is not None
+    ]
+
+    if finite_speedup_values:
+        max_speedup = max(
+            finite_speedup_values
+        )
+    else:
+        max_speedup = 1.0
+
+    speedup_upper = max(
+        1.10,
+        max_speedup * 1.12,
+    )
+
+    speedup_fig.update_layout(
+        title=dict(
+            text="Speedup",
+            x=0.02,
+            xanchor="left",
+        ),
+        height=340,
+        autosize=True,
+        margin=dict(
+            l=70,
+            r=35,
+            t=60,
+            b=80,
+        ),
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1.0,
+        ),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+    )
+
+    speedup_fig.update_xaxes(
+        title=configuration_description,
+        type="category",
+        categoryorder="array",
+        categoryarray=labels,
+        tickangle=0,
+        showgrid=True,
+        gridcolor="#b8b8b8",
+        gridwidth=1,
+        zeroline=False,
+    )
+
+    speedup_fig.update_yaxes(
+        title="Speedup (×)",
+        range=[
+            0,
+            speedup_upper,
+        ],
+        showgrid=True,
+        gridcolor="#b8b8b8",
+        gridwidth=1,
+        zeroline=True,
+        zerolinecolor="#8f8f8f",
+        zerolinewidth=1,
+    )
+
+    speedup_html = speedup_fig.to_html(
+        full_html=False,
+        include_plotlyjs=False,
+        config={
+            "responsive": True,
+            "displaylogo": False,
+        },
+    )
+
+    # --------------------------------------------------
+    # Efficiency plot
+    # --------------------------------------------------
+
+    efficiency_fig = go.Figure()
+
+    efficiency_fig.add_trace(
+        go.Scatter(
+            x=labels,
+            y=efficiency_values,
+            mode="lines+markers+text",
+            name="Measured",
+            text=[
+                (
+                    "{:.2f}".format(value)
+                    if value is not None
+                    else ""
+                )
+                for value in efficiency_values
+            ],
+            textposition="top center",
+            cliponaxis=False,
+            connectgaps=False,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Measured efficiency: %{y:.2f}"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    efficiency_fig.add_trace(
+        go.Scatter(
+            x=labels,
+            y=ideal_efficiency,
+            mode="lines",
+            name="Ideal",
+            line=dict(
+                dash="dash"
+            ),
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Ideal efficiency: %{y:.2f}"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    finite_efficiency_values = [
+        value
+        for value in efficiency_values
+        if value is not None
+    ]
+
+    if finite_efficiency_values:
+        max_efficiency = max(
+            finite_efficiency_values
+        )
+    else:
+        max_efficiency = 1.0
+
+    efficiency_upper = max(
+        1.10,
+        max_efficiency + 0.10,
+    )
+
+    efficiency_fig.update_layout(
+        title=dict(
+            text="Efficiency",
+            x=0.02,
+            xanchor="left",
+        ),
+        height=340,
+        autosize=True,
+        margin=dict(
+            l=70,
+            r=35,
+            t=60,
+            b=80,
+        ),
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1.0,
+        ),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+    )
+
+    efficiency_fig.update_xaxes(
+        title=configuration_description,
+        type="category",
+        categoryorder="array",
+        categoryarray=labels,
+        tickangle=0,
+        showgrid=True,
+        gridcolor="#b8b8b8",
+        gridwidth=1,
+        zeroline=False,
+    )
+
+    efficiency_fig.update_yaxes(
+        title="Efficiency",
+        range=[
+            0,
+            efficiency_upper,
+        ],
+        showgrid=True,
+        gridcolor="#b8b8b8",
+        gridwidth=1,
+        zeroline=True,
+        zerolinecolor="#8f8f8f",
+        zerolinewidth=1,
+    )
+    
+    efficiency_html = efficiency_fig.to_html(
+        full_html=False,
+        include_plotlyjs=False,
+        config={
+            "responsive": True,
+            "displaylogo": False,
+        },
+    )
+
+    # --------------------------------------------------
+    # Combined scalability-trend view
+    # --------------------------------------------------
+
+    return """
+    <section
+        class="scaling-trends-panel"
+        aria-label="Performance scaling trends"
+    >
+        <div class="scaling-trends-header">
+            <h3>Performance scaling</h3>
+            <p>
+                Compare measured Speedup and Efficiency with their
+                ideal scaling behavior across the analyzed configurations.
+            </p>
+        </div>
+
+        <div class="scaling-trends-grid">
+            <div class="scaling-trend-card">
+                {speedup_html}
+            </div>
+
+            <div class="scaling-trend-card">
+                {efficiency_html}
+            </div>
+        </div>
+    </section>
+    """.format(
+        speedup_html=speedup_html,
+        efficiency_html=efficiency_html,
+    )
+
+
+def _build_metric_trend_plot_html(
+        metric_keys,
+        metric_info,
+        metric_sources,
+        trace_list,
+        trace_labels,
+        title,
+        description,
+        x_axis_title,
+        y_axis_title="Efficiency (%)",
+        bounded_percentage=True):
+    """
+    Build an interactive trend plot for a group of efficiency metrics.
+
+    Each metric is represented as one line across the analyzed
+    execution configurations.
+    """
+
+    if not metric_keys:
+        return ""
+
+    # --------------------------------------------------
+    # Keep only metrics with at least one valid value
+    # --------------------------------------------------
+
+    available_metrics = []
+
+    for metric_key in metric_keys:
+
+        source = metric_sources.get(
+            metric_key
+        )
+
+        if source is None:
+            continue
+
+        values = []
+
+        for trace in trace_list:
+            raw_value = _read_metric(
+                source,
+                metric_key,
+                trace,
+            )
+
+            values.append(
+                _clean_value(raw_value)
+            )
+
+        if any(
+            value is not None
+            for value in values
+        ):
+            available_metrics.append(
+                (
+                    metric_key,
+                    values,
+                )
+            )
+
+    if not available_metrics:
+        return ""
+
+    # --------------------------------------------------
+    # Build Plotly figure
+    # --------------------------------------------------
+
+    fig = go.Figure()
+
+    for metric_key, values in available_metrics:
+
+        info = metric_info.get(
+            metric_key,
+            {}
+        )
+
+        metric_label = _clean_metric_label(
+            info.get(
+                "label",
+                metric_key,
+            )
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=trace_labels,
+                y=values,
+                mode="lines+markers",
+                name=metric_label,
+                connectgaps=False,
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    + html.escape(metric_label)
+                    + ": %{y:.2f}%"
+                    + "<extra></extra>"
+                ),
+            )
+        )
+
+    # --------------------------------------------------
+    # Layout
+    # --------------------------------------------------
+
+    fig.update_layout(
+        height=360,
+        autosize=True,
+        margin=dict(
+            l=65,
+            r=30,
+            t=35,
+            b=90,
+        ),
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1.0,
+        ),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+    )
+
+    fig.update_xaxes(
+        title=x_axis_title,
+        type="category",
+        categoryorder="array",
+        categoryarray=trace_labels,
+        tickangle=0,
+        showgrid=True,
+        gridcolor="#b8b8b8",
+        gridwidth=1,
+        zeroline=False,
+    )
+
+    y_axis_options = dict(
+        title=y_axis_title,
+        showgrid=True,
+        gridcolor="#b8b8b8",
+        gridwidth=1,
+        zeroline=True,
+        zerolinecolor="#8f8f8f",
+        zerolinewidth=1,
+    )
+
+    if bounded_percentage:
+        y_axis_options["range"] = [
+            0,
+            105,
+        ]
+    else:
+        y_axis_options["rangemode"] = "tozero"
+
+    fig.update_yaxes(
+        **y_axis_options
+    )
+
+   
+    plot_html = fig.to_html(
+        full_html=False,
+        include_plotlyjs=False,
+        config={
+            "responsive": True,
+            "displaylogo": False,
+        },
+    )
+
+    # --------------------------------------------------
+    # Section wrapper
+    # --------------------------------------------------
+
+    return """
+    <section class="scaling-factor-trends">
+        <div class="scaling-factor-trends-header">
+            <h3>{title}</h3>
+            <p>{description}</p>
+        </div>
+
+        <div class="scaling-trend-card">
+            <div class="scaling-factor-trend-plot">
+                {plot_html}
+            </div>
+        </div>
+    </section>
+    """.format(
+        title=html.escape(title),
+        description=html.escape(description),
+        plot_html=plot_html,
+    )
+
+
 def _build_global_metric_info(is_hybrid):
     """Build application-level metric guidance for the execution model."""
     metric_info = METRIC_PROVIDER.clone(SIMPLE_METRIC_INFO)
@@ -1365,12 +1935,17 @@ def _programming_model_key(programming_model):
     return "generic"
 
 
-def _report_trace_label(trace_info):
+def _report_trace_label(
+        trace_info,
+        include_trace_id=True):
     """Build a model-aware report column label."""
 
-    trace_id = "T{}".format(
-        trace_info.get("id", "-")
-    )
+    if include_trace_id:
+        trace_id = "T{}".format(
+            trace_info.get("id", "-")
+        )
+    else:
+        trace_id = None
 
     _, programming_model = _split_trace_mode(
         trace_info.get("mode", "unknown")
@@ -1479,6 +2054,55 @@ def _report_trace_label(trace_info):
     )
     
 
+def _build_report_trace_labels(report_traces):
+    """
+    Build report configuration labels.
+
+    Trace IDs are included only when two or more traces have the
+    same execution-configuration label.
+    """
+
+    if not report_traces:
+        return []
+
+    # First build labels without Trace IDs.
+    base_labels = [
+        _report_trace_label(
+            trace_info,
+            include_trace_id=False,
+        )
+        for trace_info in report_traces
+    ]
+
+    # Count repeated configurations.
+    label_counts = {}
+
+    for label in base_labels:
+        label_counts[label] = (
+            label_counts.get(label, 0) + 1
+        )
+
+    # Add Trace ID only to configurations that need
+    # disambiguation.
+    trace_labels = []
+
+    for trace_info, base_label in zip(
+            report_traces,
+            base_labels):
+
+        if label_counts[base_label] > 1:
+            label = _report_trace_label(
+                trace_info,
+                include_trace_id=True,
+            )
+        else:
+            label = base_label
+
+        trace_labels.append(label)
+
+    return trace_labels
+
+
 def _build_trace_column_description(report):
     """Return the model-aware meaning of efficiency-table columns."""
 
@@ -1529,7 +2153,9 @@ def _build_trace_column_description(report):
     return descriptions[model_key]
 
 
-def _build_trace_header_note(report):
+def _build_trace_header_note(
+        report,
+        trace_labels=None):
     """Explain the model-aware trace column labels."""
 
     description = _build_trace_column_description(
@@ -1539,13 +2165,27 @@ def _build_trace_header_note(report):
     if not description:
         return ""
 
+    has_trace_ids = (
+        trace_labels
+        and any(
+            "[T" in label
+            for label in trace_labels
+        )
+    )
+
+    if has_trace_ids:
+        suffix = " [Trace ID]"
+    else:
+        suffix = ""
+
     return (
         "<p class='trace-header-note'>"
         "<b>Trace columns:</b> "
-        "<code>{} [Trace ID]</code>"
+        "<code>{}{}</code>"
         "</p>"
     ).format(
-        html.escape(description)
+        html.escape(description),
+        suffix,
     )
 
 
@@ -9581,6 +10221,91 @@ def _build_interactive_report_document(workspace_html,
             }
         }
 
+        /* -------------------------------------------------- */
+        /* Scaling Speed-Up and Efficiency plots              */
+        /* -------------------------------------------------- */
+
+        .scaling-trends-panel {
+            margin-bottom: 22px;
+        }
+
+        .scaling-trends-header {
+            margin-bottom: 14px;
+        }
+
+        .scaling-trends-header h3 {
+            margin-bottom: 4px;
+        }
+
+        .scaling-trends-header p {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .scaling-trends-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+            align-items: stretch;
+        }
+
+        .scaling-trend-card {
+            min-width: 0;
+            overflow: hidden;
+
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: white;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .scaling-trend-card .plotly-graph-div {
+            width: 100% !important;
+        }
+
+
+        /* -------------------------------------------------- */
+        /* Scaling Speed-Up and Efficiency plots              */
+        /* -------------------------------------------------- */
+
+        .scaling-factor-trends {
+            margin-top: 18px;
+            margin-bottom: 18px;
+        }
+
+        .scaling-factor-trends-header {
+            margin-bottom: 12px;
+        }
+
+        .scaling-factor-trends-header h3 {
+            margin-bottom: 4px;
+        }
+
+        .scaling-factor-trends-header p {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .scaling-factor-trend-plot {
+            width: 100%;
+            min-width: 0;
+        }
+
+        .scaling-factor-trend-plot .plotly-graph-div {
+            width: 100% !important;
+        }
+
+
+
+
+        @media (max-width: 900px) {
+            .scaling-trends-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
 </style>
 
         <script>
@@ -10266,15 +10991,16 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     other_metrics = metrics_result["other_metrics"]
 
     model = _report_execution_model(trace_mode, trace_list, metrics_result)
+
     report_traces = report.get("traces", [])
 
-    trace_labels = [
-        _report_trace_label(trace_info)
-        for trace_info in report_traces
-    ]    
+    trace_labels = _build_report_trace_labels(
+        report_traces
+    )
 
     trace_header_note = _build_trace_header_note(
-        report
+        report,
+        trace_labels,
     )
 
     trace_column_description = (
@@ -10606,6 +11332,19 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             scalability_data.scaling_info
         )
 
+        configuration_description = _build_trace_column_description(
+            report
+        )
+
+        scaling_trends_html = _build_scaling_trends_html(
+            trend_values=scalability_data.trend_values,
+            trace_labels=trace_labels,
+            configuration_description=configuration_description,
+        )   
+
+        # --------------------------------------------------
+        # Step 1: build semantic report views
+        # --------------------------------------------------
         scalability_keys = [
             metric.metric_id
             for metric in scalability_analysis.metrics
@@ -10617,20 +11356,28 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         }
 
         if scalability_keys:
-            scalability_metrics_html = (
-                _build_metric_tree_heatmap_section(
+            computation_scalability_trend_html = (
+                _build_metric_trend_plot_html(
                     metric_keys=scalability_keys,
                     metric_info=SIMPLE_METRIC_INFO,
                     metric_sources=scalability_sources,
                     trace_list=trace_list,
                     trace_labels=trace_labels,
-                    title=scalability_analysis.title,
-                    section_id="computation-scalability",
-                    tree_kind="scalability",
-                    trace_header_note=trace_header_note,
-                    trace_column_description=trace_column_description,
+                    title="Computation Scalability",
+                    description=(
+                        "Compare Computation Scalability and its available "
+                        "IPC, Instruction, and Frequency components across "
+                        "the analyzed configurations."
+                    ),
+                    x_axis_title=trace_column_description,
+                    y_axis_title="Efficiency (%)",
+                    bounded_percentage=False,
                 )
             )
+
+            # --------------------------------------------------
+            # Scope Explanation Scaling
+            # --------------------------------------------------
 
             scalability_scope_html = """
             <div class="analysis-scope-note">
@@ -10643,13 +11390,216 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                 )
             )
 
-            computation_scalability_html = (
-                scaling_model_html
-                + scalability_metrics_html
-                + scalability_scope_html
+            # --------------------------------------------------
+            # Global Efficiency Linear plots
+            # --------------------------------------------------
+            scalability_factor_keys = [
+                "global_eff",
+                "parallel_eff",
+                "comp_scale",
+            ]
+
+            scalability_factor_sources = {
+                metric_key: mod_factors
+                for metric_key in scalability_factor_keys
+            }
+
+            scalability_factors_trend_html = (
+                _build_metric_trend_plot_html(
+                    metric_keys=scalability_factor_keys,
+                    metric_info=SIMPLE_METRIC_INFO,
+                    metric_sources=scalability_factor_sources,
+                    trace_list=trace_list,
+                    trace_labels=trace_labels,
+                    title="Global Efficiency",
+                    description=(
+                        "Compare the evolution of Global Efficiency, "
+                        "Parallel Efficiency, and Computation Scalability "
+                        "across the analyzed configurations."
+                    ),
+                    x_axis_title=trace_column_description,
+                )
             )
 
+            # --------------------------------------------------
+            # Parallel Efficiency Linear Plot
+            # --------------------------------------------------
+            parallel_efficiency_keys = [
+                "load_balance",
+                "comm_eff",
+            ]
 
+            parallel_efficiency_sources = {
+                metric_key: mod_factors
+                for metric_key in parallel_efficiency_keys
+            }
+
+            parallel_efficiency_trend_html = (
+                _build_metric_trend_plot_html(
+                    metric_keys=parallel_efficiency_keys,
+                    metric_info=SIMPLE_METRIC_INFO,
+                    metric_sources=parallel_efficiency_sources,
+                    trace_list=trace_list,
+                    trace_labels=trace_labels,
+                    title="Parallel Efficiency",
+                    description=(
+                        "Compare Load Balance and Communication Efficiency "
+                        "to identify which factor contributes most to the "
+                        "evolution of Parallel Efficiency across the analyzed "
+                        "configurations."
+                    ),
+                    x_axis_title=trace_column_description,
+                )
+            )
+
+            # --------------------------------------------------
+            # Communication Linear Plot
+            # --------------------------------------------------
+
+            communication_trend_html = ""
+            communication_runtime_trend_html = ""
+            mpi_communication_trend_html = ""
+            openmp_communication_trend_html = ""
+
+            if not model["is_hybrid"]:
+
+                if model["has_mpi"]:
+                    communication_keys = [
+                        "comm_eff",
+                        "serial_eff",
+                        "transfer_eff",
+                    ]
+
+                    communication_sources = {
+                        key: mod_factors
+                        for key in communication_keys
+                    }
+
+                    communication_trend_html = (
+                        _build_metric_trend_plot_html(
+                            metric_keys=communication_keys,
+                            metric_info=SIMPLE_METRIC_INFO,
+                            metric_sources=communication_sources,
+                            trace_list=trace_list,
+                            trace_labels=trace_labels,
+                            title="Communication Efficiency",
+                            description=(
+                                "Analyze the evolution of Communication Efficiency "
+                                "across the analyzed configurations."
+                                if not model["has_mpi"]
+                                else
+                                "Compare Communication Efficiency with its "
+                                "Serialization and Transfer components across "
+                                "the analyzed configurations."
+                            ),
+                            x_axis_title=trace_column_description,
+                        )
+                    )
+            else:
+                communication_runtime_keys = [
+                    "mpi_comm_eff",
+                    "omp_comm_eff",
+                ]
+
+                communication_runtime_sources = {
+                    key: hybrid_factors
+                    for key in communication_runtime_keys
+                }
+
+                communication_runtime_trend_html = (
+                    _build_metric_trend_plot_html(
+                        metric_keys=communication_runtime_keys,
+                        metric_info=hybrid_metric_info,
+                        metric_sources=communication_runtime_sources,
+                        trace_list=trace_list,
+                        trace_labels=trace_labels,
+                        title="Communication Contributions",
+                        description=(
+                            "Compare the communication-efficiency contributions "
+                            "of MPI and {} across the analyzed configurations."
+                        ).format(inner_model),
+                        x_axis_title=trace_column_description,
+                    )
+                )
+
+                mpi_communication_keys = [
+                    "mpi_comm_eff",
+                    "serial_eff",
+                    "transfer_eff",
+                ]
+
+                mpi_communication_sources = {
+                    key: hybrid_factors
+                    for key in mpi_communication_keys
+                }
+
+                mpi_communication_trend_html = (
+                    _build_metric_trend_plot_html(
+                        metric_keys=mpi_communication_keys,
+                        metric_info=hybrid_metric_info,
+                        metric_sources=mpi_communication_sources,
+                        trace_list=trace_list,
+                        trace_labels=trace_labels,
+                        title="MPI Communication Efficiency",
+                        description=(
+                            "Compare MPI Communication Efficiency with its "
+                            "Serialization and Transfer components across "
+                            "the analyzed configurations."
+                        ),
+                        x_axis_title=trace_column_description,
+                    )
+                )
+
+                if (
+                    inner_model == "OpenMP"
+                    and cmdl_args.hyb_mpiomp
+                ):
+                    openmp_communication_keys = [
+                        "omp_comm_eff",
+                        "omp_serial_eff",
+                        "omp_transfer_eff",
+                    ]
+
+                    openmp_communication_sources = {
+                        "omp_comm_eff": hybrid_factors,
+                        "omp_serial_eff": hyb_comm_omp_factors,
+                        "omp_transfer_eff": hyb_comm_omp_factors,
+                    }
+
+                    openmp_communication_trend_html = (
+                        _build_metric_trend_plot_html(
+                            metric_keys=openmp_communication_keys,
+                            metric_info=hybrid_metric_info,
+                            metric_sources=openmp_communication_sources,
+                            trace_list=trace_list,
+                            trace_labels=trace_labels,
+                            title="OpenMP Communication Efficiency",
+                            description=(
+                                "Compare OpenMP Communication Efficiency with "
+                                "its Serialization and Transfer components across "
+                                "the analyzed configurations."
+                            ),
+                            x_axis_title=trace_column_description,
+                        )
+                    )
+
+
+            # --------------------------------------------------
+            # Compose all scaling plots
+            # --------------------------------------------------
+
+            computation_scalability_html = (
+                scaling_model_html
+                + scaling_trends_html
+                + scalability_factors_trend_html
+                + computation_scalability_trend_html
+                + parallel_efficiency_trend_html
+                + communication_trend_html
+                + communication_runtime_trend_html
+                + mpi_communication_trend_html
+                + openmp_communication_trend_html
+                + scalability_scope_html
+            )
 
     # --------------------------------------------------
     # Step 1: build semantic report views
@@ -11035,12 +11985,16 @@ def _build_basicanalysis_printable_report_html(
     )
 
     report_traces = report.get("traces", [])
-    trace_labels = [
-        _report_trace_label(trace_info)
-        for trace_info in report_traces
-    ]
 
-    trace_header_note = _build_trace_header_note(report)
+    trace_labels = _build_report_trace_labels(
+        report_traces
+    )
+
+    trace_header_note = _build_trace_header_note(
+        report,
+        trace_labels,
+    )
+
     trace_config_html = _build_trace_config_table_html(report)
 
     other_metrics = metrics_result["other_metrics"]

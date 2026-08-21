@@ -93,12 +93,26 @@ _ACCELERATOR_SCALABILITY_METRICS = (
 
 
 @dataclass(frozen=True)
+class ScalingTrendValue:
+    """
+    Scaling information associated with one analyzed trace/configuration.
+    """
+
+    trace_id: int
+    parallel_units: Any
+    speedup: Any
+    efficiency: Any
+
+
+@dataclass(frozen=True)
 class ScalabilityAnalysisData:
     """Semantic information presented in Computation Scalability."""
+
     analysis: MetricAnalysisData
     trace_count: int
     accelerator_limited_model: bool
     scaling_info: Any = None
+    trend_values: Tuple[ScalingTrendValue, ...] = ()
 
 
 class ScalabilityAnalysisBuilder:
@@ -142,6 +156,11 @@ class ScalabilityAnalysisBuilder:
             group_name="mod_factors",
         )
 
+        other_metrics = self._get_metric_group(
+            context=context,
+            group_name="other_metrics",
+        )
+
         metrics = self._build_available_metrics(
             context=context,
             source=mod_factors,
@@ -175,6 +194,11 @@ class ScalabilityAnalysisBuilder:
             ),
         )
 
+        trend_values = self._build_scaling_trend_values(
+            context=context,
+            other_metrics=other_metrics,
+        )
+
         payload = ScalabilityAnalysisData(
             analysis=analysis,
             trace_count=len(
@@ -182,6 +206,7 @@ class ScalabilityAnalysisBuilder:
             ),
             accelerator_limited_model=has_accelerator,
             scaling_info=context.scaling_info,
+            trend_values=trend_values,
         )
 
         section = ReportSection(
@@ -211,6 +236,60 @@ class ScalabilityAnalysisBuilder:
 
         return section
 
+
+    def _build_scaling_trend_values(
+        self,
+        context: AnalysisContext,
+        other_metrics: Mapping[str, Any],
+    ) -> Tuple[ScalingTrendValue, ...]:
+        """
+        Build Speedup/Efficiency trend information in trace order.
+        """
+
+        speedup_values = other_metrics.get(
+            "speedup",
+            {},
+        )
+
+        efficiency_values = other_metrics.get(
+            "efficiency",
+            {},
+        )
+
+        trend_values = []
+
+        for trace in context.traces:
+
+            speedup = self._get_trace_metric_value(
+                metric_values=speedup_values,
+                trace=trace,
+            )
+
+            efficiency = self._get_trace_metric_value(
+                metric_values=efficiency_values,
+                trace=trace,
+            )
+
+            trend_values.append(
+                ScalingTrendValue(
+                    trace_id=trace.trace_id,
+                    parallel_units=trace.processes,
+                    speedup=(
+                        float(speedup)
+                        if self._is_number(speedup)
+                        else None
+                    ),
+                    efficiency=(
+                        float(efficiency)
+                        if self._is_number(efficiency)
+                        else None
+                    ),
+                )
+            )
+
+        return tuple(
+            trend_values
+        )
 
     # ------------------------------------------------------------------
     # Metric construction
