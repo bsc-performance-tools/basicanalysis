@@ -658,6 +658,35 @@ def _format_overview_value(key, value):
     return "{:.2f}".format(value)
 
 
+def _build_scaling_analysis_group(
+        title,
+        description,
+        content):
+    """
+    Build a visual group for related Scaling analysis plots.
+    """
+
+    if not content:
+        return ""
+
+    return """
+    <section class="scaling-analysis-group">
+        <div class="scaling-analysis-group-header">
+            <h2>{title}</h2>
+            <p>{description}</p>
+        </div>
+
+        <div class="scaling-analysis-group-content">
+            {content}
+        </div>
+    </section>
+    """.format(
+        title=title,
+        description=description,
+        content=content,
+    )
+
+
 def _build_overview_table_html(other_metrics, trace_list, trace_labels): 
 
     headers = trace_labels
@@ -1407,20 +1436,29 @@ def _build_metric_trend_plot_html(
     # Layout
     # --------------------------------------------------
 
+    # Reserve additional space above the plot when the legend
+    # contains several metric series.
+    if len(available_metrics) >= 4:
+        legend_y = 1.12
+        top_margin = 75
+    else:
+        legend_y = 1.08
+        top_margin = 55
+
     fig.update_layout(
-        height=360,
+        height=380,
         autosize=True,
         margin=dict(
             l=65,
             r=30,
-            t=35,
+            t=top_margin,
             b=90,
         ),
         hovermode="x unified",
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.02,
+            y=legend_y,
             xanchor="right",
             x=1.0,
         ),
@@ -3715,6 +3753,54 @@ def _build_printable_execution_domains_section(
         host_scaling_html=host_scaling_html,
         device_performance_html=device_performance_html,
         device_scaling_html=device_scaling_html,
+    )
+
+
+def _build_printable_scaling_section(
+        scalability_data,
+        trace_labels,
+        trace_column_description):
+    """
+    Build the first printable Scaling section.
+
+    This initial version includes only the scaling model and the
+    Speedup/Efficiency trends so that PDF rendering can be validated
+    before adding the complete factor hierarchy.
+    """
+
+    if scalability_data is None:
+        return ""
+
+    scaling_model_html = _build_scaling_model_html(
+        scalability_data.scaling_info
+    )
+
+    scaling_trends_html = _build_scaling_trends_html(
+        trend_values=scalability_data.trend_values,
+        trace_labels=trace_labels,
+        configuration_description=trace_column_description,
+    )
+
+    return """
+    <section
+        class="print-scaling-section print-page-section"
+    >
+        <header class="print-section-header">
+            <h2>6 Scaling Analysis</h2>
+
+            <p class="print-section-description">
+                Analyze how application performance and efficiency
+                evolve across the analyzed execution configurations.
+            </p>
+        </header>
+
+        {scaling_model_html}
+
+        {scaling_trends_html}
+    </section>
+    """.format(
+        scaling_model_html=scaling_model_html,
+        scaling_trends_html=scaling_trends_html,
     )
 
 def _build_printable_metric_section(
@@ -10297,6 +10383,32 @@ def _build_interactive_report_document(workspace_html,
             width: 100% !important;
         }
 
+        /* -------------------------------------------------- */
+        /* Scaling Analysis sections              */
+        /* -------------------------------------------------- */
+        .scaling-analysis-group {
+            margin: 0 0 2rem 0;
+        }
+
+        .scaling-analysis-group-header {
+            margin: 0 0 1rem 0;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #d6dee8;
+        }
+
+        .scaling-analysis-group-header h2 {
+            margin: 0 0 0.35rem 0;
+            color: #173a5e;
+        }
+
+        .scaling-analysis-group-header p {
+            margin: 0;
+            color: #52667a;
+        }
+
+        .scaling-analysis-group-content {
+            margin-top: 1rem;
+        }
 
 
 
@@ -11370,7 +11482,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                         "the analyzed configurations."
                     ),
                     x_axis_title=trace_column_description,
-                    y_axis_title="Efficiency (%)",
+                    y_axis_title="Scalability (%)",
                     bounded_percentage=False,
                 )
             )
@@ -11418,6 +11530,8 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                         "across the analyzed configurations."
                     ),
                     x_axis_title=trace_column_description,
+                    y_axis_title="Efficiency / Scalability (%)",
+                    bounded_percentage=False,
                 )
             )
 
@@ -11453,14 +11567,148 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             )
 
             # --------------------------------------------------
-            # Communication Linear Plot
+            # For Scaling Linear Plots
             # --------------------------------------------------
 
+            parallel_runtime_trend_html = ""
+            mpi_parallel_trend_html = ""
+            inner_parallel_trend_html = ""
+
+            openmp_runtime_trend_html = ""
+
             communication_trend_html = ""
-            communication_runtime_trend_html = ""
             mpi_communication_trend_html = ""
             openmp_communication_trend_html = ""
 
+            host_global_trend_html = ""
+            host_parallel_trend_html = ""
+            device_global_trend_html = ""
+            device_parallel_trend_html = ""
+
+            # Parallel Runtime
+
+            if (
+                model["has_omp"]
+                and "omp_talp_factors" in metrics_result
+            ):
+                omp_talp_factors = metrics_result["omp_talp_factors"]
+
+                openmp_runtime_sources = {
+                    key: omp_talp_factors
+                    for key in OPENMP_ORDER
+                }
+
+                openmp_runtime_trend_html = (
+                    _build_metric_trend_plot_html(
+                        metric_keys=OPENMP_ORDER,
+                        metric_info=OPENMP_METRIC_INFO,
+                        metric_sources=openmp_runtime_sources,
+                        trace_list=trace_list,
+                        trace_labels=trace_labels,
+                        title="OpenMP Runtime-Specific Efficiency",
+                        description=(
+                            "Compare OpenMP Parallel Efficiency with its "
+                            "Serial, Load Balance, and Scheduling components "
+                            "across the analyzed configurations."
+                        ),
+                        x_axis_title=trace_column_description,
+                    )
+                )
+
+
+            if model["is_hybrid"]:
+
+                parallel_runtime_keys = [
+                    "hybrid_eff",
+                    "mpi_parallel_eff",
+                    "omp_parallel_eff",
+                ]
+
+                parallel_runtime_sources = {
+                    key: hybrid_factors
+                    for key in parallel_runtime_keys
+                }
+
+                parallel_runtime_trend_html = (
+                    _build_metric_trend_plot_html(
+                        metric_keys=parallel_runtime_keys,
+                        metric_info=hybrid_metric_info,
+                        metric_sources=parallel_runtime_sources,
+                        trace_list=trace_list,
+                        trace_labels=trace_labels,
+                        title="Parallel Runtime Contribution",
+                        description=(
+                            "Compare the contribution of MPI and {} to the "
+                            "overall Hybrid Parallel Efficiency across the "
+                            "analyzed configurations."
+                        ).format(inner_model),
+                        x_axis_title=trace_column_description,
+                    )
+                )
+
+                mpi_parallel_keys = [
+                    "mpi_parallel_eff",
+                    "mpi_load_balance",
+                    "mpi_comm_eff",
+                ]
+
+                mpi_parallel_sources = {
+                    key: hybrid_factors
+                    for key in mpi_parallel_keys
+                }
+
+                mpi_parallel_trend_html = (
+                    _build_metric_trend_plot_html(
+                        metric_keys=mpi_parallel_keys,
+                        metric_info=hybrid_metric_info,
+                        metric_sources=mpi_parallel_sources,
+                        trace_list=trace_list,
+                        trace_labels=trace_labels,
+                        title="MPI Parallel Efficiency",
+                        description=(
+                            "Compare MPI Parallel Efficiency with MPI Load Balance "
+                            "and MPI Communication Efficiency to identify the main "
+                            "source of MPI parallel-efficiency loss across the "
+                            "analyzed configurations."
+                        ),
+                        x_axis_title=trace_column_description,
+                    )
+                )
+
+                inner_parallel_keys = [
+                    "omp_parallel_eff",
+                    "omp_load_balance",
+                    "omp_comm_eff",
+                ]
+
+                inner_parallel_sources = {
+                    key: hybrid_factors
+                    for key in inner_parallel_keys
+                }
+
+                inner_parallel_trend_html = (
+                    _build_metric_trend_plot_html(
+                        metric_keys=inner_parallel_keys,
+                        metric_info=hybrid_metric_info,
+                        metric_sources=inner_parallel_sources,
+                        trace_list=trace_list,
+                        trace_labels=trace_labels,
+                        title="{} Parallel Efficiency".format(
+                            inner_model
+                        ),
+                        description=(
+                            "Compare {0} Parallel Efficiency with {0} Load Balance "
+                            "and {0} Communication Efficiency to identify the main "
+                            "source of {0} parallel-efficiency loss across the "
+                            "analyzed configurations."
+                        ).format(
+                            inner_model
+                        ),
+                        x_axis_title=trace_column_description,
+                    )
+                )
+
+            # Communication Linear Plot
             if not model["is_hybrid"]:
 
                 if model["has_mpi"]:
@@ -11496,32 +11744,6 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                         )
                     )
             else:
-                communication_runtime_keys = [
-                    "mpi_comm_eff",
-                    "omp_comm_eff",
-                ]
-
-                communication_runtime_sources = {
-                    key: hybrid_factors
-                    for key in communication_runtime_keys
-                }
-
-                communication_runtime_trend_html = (
-                    _build_metric_trend_plot_html(
-                        metric_keys=communication_runtime_keys,
-                        metric_info=hybrid_metric_info,
-                        metric_sources=communication_runtime_sources,
-                        trace_list=trace_list,
-                        trace_labels=trace_labels,
-                        title="Communication Contributions",
-                        description=(
-                            "Compare the communication-efficiency contributions "
-                            "of MPI and {} across the analyzed configurations."
-                        ).format(inner_model),
-                        x_axis_title=trace_column_description,
-                    )
-                )
-
                 mpi_communication_keys = [
                     "mpi_comm_eff",
                     "serial_eff",
@@ -11585,19 +11807,230 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
 
             # --------------------------------------------------
+            # Host and Device plots
+            # --------------------------------------------------
+            if (
+                model["is_hybrid"]
+                and model["has_gpu"]
+                and "host_factors" in metrics_result
+                and "device_factors" in metrics_result
+            ):
+                host_factors = metrics_result["host_factors"]
+                device_factors = metrics_result["device_factors"]            
+
+                host_global_keys = [
+                    "host_global_eff",
+                    "host_parallel_eff",
+                    "host_comp_scale",
+                ]
+
+                host_global_sources = {
+                    key: host_factors
+                    for key in host_global_keys
+                }
+
+                host_global_trend_html = (
+                    _build_metric_trend_plot_html(
+                        metric_keys=host_global_keys,
+                        metric_info=TALP_METRIC_INFO,
+                        metric_sources=host_global_sources,
+                        trace_list=trace_list,
+                        trace_labels=trace_labels,
+                        title="Host Global Efficiency",
+                        description=(
+                            "Compare Host Global Efficiency with Host Parallel "
+                            "Efficiency and Host Computation Scalability across "
+                            "the analyzed configurations."
+                        ),
+                        x_axis_title=trace_column_description,
+                        y_axis_title="Efficiency/Scalability (%)",
+                        bounded_percentage=False,
+                    )
+                )
+
+                host_parallel_keys = [
+                    "host_parallel_eff",
+                    "mpi_parallel_eff",
+                    "dev_offload_eff",
+                ]
+
+                host_parallel_sources = {
+                    key: host_factors
+                    for key in host_parallel_keys
+                }
+
+                host_parallel_trend_html = (
+                    _build_metric_trend_plot_html(
+                        metric_keys=host_parallel_keys,
+                        metric_info=TALP_METRIC_INFO,
+                        metric_sources=host_parallel_sources,
+                        trace_list=trace_list,
+                        trace_labels=trace_labels,
+                        title="Host Parallel Efficiency",
+                        description=(
+                            "Compare Host Parallel Efficiency with MPI Parallel "
+                            "Efficiency and Device Offload Efficiency across "
+                            "the analyzed configurations."
+                        ),
+                        x_axis_title=trace_column_description,
+                    )
+                )
+
+                device_global_keys = [
+                    "dev_global_eff",
+                    "dev_parallel_eff",
+                    "dev_comp_scale",
+                ]
+
+                device_global_sources = {
+                    key: device_factors
+                    for key in device_global_keys
+                }
+
+                device_global_trend_html = (
+                    _build_metric_trend_plot_html(
+                        metric_keys=device_global_keys,
+                        metric_info=TALP_METRIC_INFO,
+                        metric_sources=device_global_sources,
+                        trace_list=trace_list,
+                        trace_labels=trace_labels,
+                        title="Device Global Efficiency",
+                        description=(
+                            "Compare Device Global Efficiency with Device Parallel "
+                            "Efficiency and Device Computation Scalability across "
+                            "the analyzed configurations."
+                        ),
+                        x_axis_title=trace_column_description,
+                        y_axis_title="Efficiency / Scalability (%)",
+                        bounded_percentage=False,
+                    )
+                )
+
+
+                device_parallel_keys = [
+                    "dev_parallel_eff",
+                    "dev_load_balance",
+                    "dev_comm_eff",
+                    "dev_orches_eff",
+                ]
+
+                device_parallel_sources = {
+                    key: device_factors
+                    for key in device_parallel_keys
+                }
+
+                device_parallel_trend_html = (
+                    _build_metric_trend_plot_html(
+                        metric_keys=device_parallel_keys,
+                        metric_info=TALP_METRIC_INFO,
+                        metric_sources=device_parallel_sources,
+                        trace_list=trace_list,
+                        trace_labels=trace_labels,
+                        title="Device Parallel Efficiency",
+                        description=(
+                            "Compare Device Parallel Efficiency with Device Load "
+                            "Balance, Device Communication Efficiency, and Device "
+                            "Orchestration Efficiency across the analyzed configurations."
+                        ),
+                        x_axis_title=trace_column_description,
+                    )
+                )
+
+            # --------------------------------------------------
+            # Build Scaling Overview
+            # --------------------------------------------------
+
+            scaling_overview_html = (
+                _build_scaling_analysis_group(
+                    title="Scaling Overview",
+                    description=(
+                        "Review the scaling model and compare measured performance "
+                        "with the expected scaling behavior across the analyzed "
+                        "configurations."
+                    ),
+                    content=(
+                        scaling_model_html
+                        + scaling_trends_html
+                    ),
+                )
+            )
+
+            # --------------------------------------------------
+            # Build Global Efficiency Analysis
+            # --------------------------------------------------
+
+            global_efficiency_analysis_html = (
+                _build_scaling_analysis_group(
+                    title="Global Efficiency Analysis",
+                    description=(
+                        "Analyze how Global Efficiency evolves with scale and "
+                        "examine the contribution of Computation Scalability."
+                    ),
+                    content=(
+                        scalability_factors_trend_html
+                        + computation_scalability_trend_html
+                    ),
+                )
+            )
+
+            # --------------------------------------------------
+            # Build Parallel Efficiency Analysis
+            # --------------------------------------------------
+
+            parallel_efficiency_analysis_content = (
+                parallel_efficiency_trend_html
+                + parallel_runtime_trend_html
+                + mpi_parallel_trend_html
+                + inner_parallel_trend_html
+                + communication_trend_html
+                + mpi_communication_trend_html
+                + openmp_communication_trend_html
+                + openmp_runtime_trend_html
+            )
+
+            parallel_efficiency_analysis_html = (
+                _build_scaling_analysis_group(
+                    title="Parallel Efficiency Analysis",
+                    description=(
+                        "Analyze the factors affecting Parallel Efficiency and, "
+                        "for hybrid applications, identify the contribution of "
+                        "each parallel runtime."
+                    ),
+                    content=parallel_efficiency_analysis_content,
+                )
+            )
+
+            # --------------------------------------------------
+            # Build Parallel Efficiency Analysis
+            # --------------------------------------------------
+
+            execution_domain_analysis_content = (
+                host_global_trend_html
+                + host_parallel_trend_html
+                + device_global_trend_html
+                + device_parallel_trend_html
+            )
+
+            execution_domain_analysis_html = (
+                _build_scaling_analysis_group(
+                    title="Execution Domain Analysis",
+                    description=(
+                        "Examine accelerator-related scalability from complementary "
+                        "Host and Device execution-domain perspectives."
+                    ),
+                    content=execution_domain_analysis_content,
+                )
+            )
+
+            # --------------------------------------------------
             # Compose all scaling plots
             # --------------------------------------------------
 
             computation_scalability_html = (
-                scaling_model_html
-                + scaling_trends_html
-                + scalability_factors_trend_html
-                + computation_scalability_trend_html
-                + parallel_efficiency_trend_html
-                + communication_trend_html
-                + communication_runtime_trend_html
-                + mpi_communication_trend_html
-                + openmp_communication_trend_html
+                scaling_overview_html
+                + global_efficiency_analysis_html
+                + parallel_efficiency_analysis_html
+                + execution_domain_analysis_html
                 + scalability_scope_html
             )
 
@@ -11828,9 +12261,12 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             trace_threads=trace_threads,
             trace_mode=trace_mode,
             cmdl_args=cmdl_args,
+            scalability_section=scalability_section,
             standalone=False,
         )
     )
+
+
 
     html_content = _build_interactive_report_document(
         workspace_html=workspace_html, printable_report_html=printable_report_body,
@@ -11953,6 +12389,7 @@ def _build_basicanalysis_printable_report_html(
         trace_threads,
         trace_mode,
         cmdl_args,
+        scalability_section=None,
         standalone=True):
     """Generate the printable BasicAnalysis HTML report.
 
@@ -11962,10 +12399,9 @@ def _build_basicanalysis_printable_report_html(
       1. Execution Overview
       2. Application Efficiency Analysis
       3. Runtime Analysis
-         - single-runtime model for pure applications
-         - composed runtime model for hybrid applications
       4. Runtime-Specific Analysis, when available
       5. Execution-Domain Analysis, when available
+      6. Scaling Analysis
       Appendix A. Metric Definitions
 
     Runtime contributions, isolated runtime diagnoses, and Host/Device
@@ -12019,6 +12455,11 @@ def _build_basicanalysis_printable_report_html(
     )
 
     metric_reference = {}
+
+    scalability_data = None
+
+    if scalability_section is not None:
+        scalability_data = scalability_section.payload
 
     # --------------------------------------------------
     # 2. Application efficiency analysis
@@ -12415,11 +12856,30 @@ def _build_basicanalysis_printable_report_html(
                 )
             )
 
+    # --------------------------------------------------
+    # 6. Scaling analysis
+    # --------------------------------------------------
+
+    scaling_html = ""
+
+    if scalability_data is not None:
+        scaling_html = _build_printable_scaling_section(
+            scalability_data=scalability_data,
+            trace_labels=trace_labels,
+            trace_column_description=trace_column_description,
+        )
+
+
+    # --------------------------------------------------
+    # A. Apendix Metrics
+    # --------------------------------------------------
     appendix_html = _build_metric_reference_appendix_html(
         metric_reference
     )
 
-
+    # --------------------------------------------------
+    # Body html
+    # --------------------------------------------------
     body_html = """
         <header class="print-header">
             <h1>BasicAnalysis Performance Report</h1>
@@ -12457,6 +12917,7 @@ def _build_basicanalysis_printable_report_html(
         {runtime_model_html}
         {runtime_specific_html}
         {execution_domains_html}
+        {scaling_html}
         {appendix_html}
     """.format(
         trace_config_html=trace_config_html,
@@ -12467,6 +12928,7 @@ def _build_basicanalysis_printable_report_html(
         runtime_model_html=runtime_model_html,
         runtime_specific_html=runtime_specific_html,
         execution_domains_html=execution_domains_html,
+        scaling_html=scaling_html,
         appendix_html=appendix_html,
     )
 

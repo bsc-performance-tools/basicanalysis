@@ -302,7 +302,7 @@ def build_analysis_catalogue(
         views.append(
             AnalysisCatalogueView(
                 view_id="computation-scalability",
-                label="Computation Scalability",
+                label="Scaling",
                 title=scalability_data.analysis.title,
                 group="primary",
                 description=scalability_data.analysis.description,
