@@ -1311,10 +1311,10 @@ def _build_scaling_trends_html(
     >
         <div class="scaling-trends-header">
             <h3>Performance scaling</h3>
-            <p>
-                Compare measured Speedup and Efficiency with their
-                ideal scaling behavior across the analyzed configurations.
-            </p>
+                <p>
+                    Compare measured Speedup and Efficiency with the ideal
+                    scaling behavior defined by the selected scaling model.
+                </p>
         </div>
 
         <div class="scaling-trends-grid">
@@ -2600,6 +2600,12 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         metric_keys=all_metric_keys,
     )
 
+    guidance_html = _build_execution_domains_guidance_html()
+
+    metric_interaction_hint_html = (
+        _build_metric_interaction_hint_html()
+    )
+
     # --------------------------------------------------
     # Host table
     # --------------------------------------------------
@@ -2640,79 +2646,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         metric_knowledge,
     )
 
-    # --------------------------------------------------
-    # Host observations
-    # --------------------------------------------------
-
-    host_performance = (
-        observations.build_performance_interpretation(
-            tree=HOST_TREE,
-            metric_info=TALP_METRIC_INFO,
-            metric_sources=host_sources,
-            trace_list=trace_list,
-            metric_knowledge=metric_knowledge,
-        )
-    )
-
-    host_performance_html = (
-        observations.build_performance_interpretation_html(
-            host_performance
-        )
-    )
-
-    host_scaling = (
-        observations.build_scaling_interpretation(
-            tree=HOST_TREE,
-            metric_info=TALP_METRIC_INFO,
-            metric_sources=host_sources,
-            trace_list=trace_list,
-            metric_knowledge=metric_knowledge,
-        )
-    )
-
-    host_scaling_html = (
-        observations.build_scaling_interpretation_html(
-            host_scaling
-        )
-    )
-
-    # --------------------------------------------------
-    # Device observations
-    # --------------------------------------------------
-
-    device_performance = (
-        observations.build_performance_interpretation(
-            tree=DEVICE_TREE,
-            metric_info=TALP_METRIC_INFO,
-            metric_sources=device_sources,
-            trace_list=trace_list,
-            metric_knowledge=metric_knowledge,
-        )
-    )
-
-    device_performance_html = (
-        observations.build_performance_interpretation_html(
-            device_performance
-        )
-    )
-
-    device_scaling = (
-        observations.build_scaling_interpretation(
-            tree=DEVICE_TREE,
-            metric_info=TALP_METRIC_INFO,
-            metric_sources=device_sources,
-            trace_list=trace_list,
-            metric_knowledge=metric_knowledge,
-        )
-    )
-
-    device_scaling_html = (
-        observations.build_scaling_interpretation_html(
-            device_scaling
-        )
-    )
-
-    # --------------------------------------------------
+     # --------------------------------------------------
     # Shared context
     # --------------------------------------------------
 
@@ -2745,7 +2679,11 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         window["metricInfo_execution-domains"] = {info_json};
         </script>
 
+        {guidance_html}
+
         {trace_header_note}
+
+        {metric_interaction_hint_html}
 
         <section
             class="execution-domain-block execution-domain-host"
@@ -2789,24 +2727,6 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
 
         </section>
 
-        <div class="observation-box execution-domains-analysis-summary">
-            <h3>Analysis</h3>
-
-            <section class="execution-domain-analysis-group">
-                <h4>HOST</h4>
-
-                {host_performance_html}
-                {host_scaling_html}
-            </section>
-
-            <section class="execution-domain-analysis-group">
-                <h4>DEVICE</h4>
-
-                {device_performance_html}
-                {device_scaling_html}
-            </section>
-        </div>
-
         {efficiency_scale_html}
 
         {analysis_focus_html}
@@ -2815,26 +2735,36 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         info_json=info_json,
         efficiency_scale_html=efficiency_scale_html,
         trace_header_note=trace_header_note,
+        guidance_html=guidance_html,
+        metric_interaction_hint_html=metric_interaction_hint_html,
         trace_column_description=html.escape(trace_column_description, quote=True,),        
         host_table_html=host_table_html,
         device_table_html=device_table_html,
-        host_performance_html=host_performance_html,
-        host_scaling_html=host_scaling_html,
-        device_performance_html=device_performance_html,
-        device_scaling_html=device_scaling_html,
         analysis_focus_html=analysis_focus_html,
     )
 
 
-def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
-        trace_list, trace_labels, title, section_id,
+def _build_metric_tree_heatmap_section(
+        metric_keys,
+        metric_info,
+        metric_sources,
+        trace_list,
+        trace_labels,
+        title,
+        section_id,
         tree_kind=None,
         trace_header_note="",
         trace_column_description="",
         runtime=None,
-        runtime_family=None):
+        runtime_family=None,
+        show_efficiency_scale=True):
     # Global Metrics deliberately stop at Communication Efficiency. Keep this
     # invariant here even if a caller supplies runtime-level metrics.
+    
+    metric_interaction_hint_html = (
+        _build_metric_interaction_hint_html()
+    )    
+    
     if tree_kind in ("global", "global_gpu") or section_id == "global":
         excluded_runtime_metrics = {"serial_eff", "transfer_eff"}
         metric_keys = [
@@ -2890,7 +2820,10 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
         metric_knowledge=metric_knowledge,
     )
 
-    efficiency_scale_html = _build_efficiency_scale_html()
+    if show_efficiency_scale:
+        efficiency_scale_html = _build_efficiency_scale_html()
+    else:
+        efficiency_scale_html = ""
 
     info_json = _metric_info_json(
         metric_keys,
@@ -2898,65 +2831,14 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
         metric_knowledge,
     )
 
-    if tree:
-        performance_interpretation = (
-            observations.build_performance_interpretation(
-                tree=tree,
-                metric_info=metric_info,
-                metric_sources=metric_sources,
-                trace_list=trace_list,
-                metric_knowledge=metric_knowledge,
-            )
-        )
-
-        performance_interpretation_html = (
-            observations.build_performance_interpretation_html(
-                performance_interpretation
-            )
-        )
-
-        scaling_interpretation = observations.build_scaling_interpretation(
-            tree=tree,
-            metric_info=metric_info,
-            metric_sources=metric_sources,
-            trace_list=trace_list,
-            metric_knowledge=metric_knowledge,
-        )
-
-
-        scaling_interpretation_html = (
-            observations.build_scaling_interpretation_html(
-                scaling_interpretation
-            )
-        )
-
-        observations_html = observations.build_analysis_summary_html(
-            performance_html=performance_interpretation_html,
-            scaling_html=scaling_interpretation_html,
-            title="Analysis summary",
-        )
-    else:
-        observation_groups = observations.build_threshold_observations(
-            metric_keys=metric_keys,
-            metric_info=metric_info,
-            metric_sources=metric_sources,
-            trace_list=trace_list,
-            max_attention=5,
-            max_trends=4,
-            metric_knowledge=metric_knowledge,
-        )
-
-        observations_html = observations.build_threshold_observation_html(
-            observation_groups,
-            title="Analysis summary",
-        )
-
     return """
     <script>
     window["metricInfo_{section_id}"] = {info_json};
     </script>
 
     {trace_header_note}
+
+    {metric_interaction_hint_html}
 
     <div
         class="metric-table-card"
@@ -2967,18 +2849,16 @@ def _build_metric_tree_heatmap_section(metric_keys, metric_info, metric_sources,
         {efficiency_table_html}
     </div>
 
-    {observations_html}
-
     {efficiency_scale_html}
     """.format(
         section_id=section_id,
         info_json=info_json,
         efficiency_scale_html=efficiency_scale_html,
         trace_header_note=trace_header_note,
+        metric_interaction_hint_html=metric_interaction_hint_html,
         trace_column_description=html.escape(
             trace_column_description,
             quote=True,),        
-        observations_html=observations_html,
         efficiency_table_html=efficiency_table_html,
     )
 
@@ -3640,22 +3520,6 @@ def _build_printable_execution_domains_section(
         )
     )
 
-    host_scaling = (
-        observations.build_scaling_interpretation(
-            tree=HOST_TREE,
-            metric_info=TALP_METRIC_INFO,
-            metric_sources=host_sources,
-            trace_list=trace_list,
-            metric_knowledge=metric_knowledge,
-        )
-    )
-
-    host_scaling_html = (
-        observations.build_scaling_interpretation_html(
-            host_scaling
-        )
-    )
-
     # --------------------------------------------------
     # Device diagnosis
     # --------------------------------------------------
@@ -3673,22 +3537,6 @@ def _build_printable_execution_domains_section(
     device_performance_html = (
         observations.build_performance_interpretation_html(
             device_performance
-        )
-    )
-
-    device_scaling = (
-        observations.build_scaling_interpretation(
-            tree=DEVICE_TREE,
-            metric_info=TALP_METRIC_INFO,
-            metric_sources=device_sources,
-            trace_list=trace_list,
-            metric_knowledge=metric_knowledge,
-        )
-    )
-
-    device_scaling_html = (
-        observations.build_scaling_interpretation_html(
-            device_scaling
         )
     )
 
@@ -3733,13 +3581,13 @@ def _build_printable_execution_domains_section(
             <div class="execution-domain-analysis-group">
                 <h3>HOST</h3>
                 {host_performance_html}
-                {host_scaling_html}
+                
             </div>
 
             <div class="execution-domain-analysis-group">
                 <h3>DEVICE</h3>
                 {device_performance_html}
-                {device_scaling_html}
+                
             </div>
         </div>
     </section>
@@ -3750,9 +3598,7 @@ def _build_printable_execution_domains_section(
             trace_column_description
         ),
         host_performance_html=host_performance_html,
-        host_scaling_html=host_scaling_html,
         device_performance_html=device_performance_html,
-        device_scaling_html=device_scaling_html,
     )
 
 
@@ -4305,7 +4151,6 @@ def _build_printable_metric_section(
             metric_info=metric_info,
             metric_sources=metric_sources,
             trace_list=trace_list,
-            #metric_knowledge=metric_knowledge,
         )
     )
 
@@ -4313,21 +4158,9 @@ def _build_printable_metric_section(
         performance_interpretation
     )
 
-    scaling_interpretation = observations.build_scaling_interpretation(
-        tree=tree,
-        metric_info=metric_info,
-        metric_sources=metric_sources,
-        trace_list=trace_list,
-        #metric_knowledge=metric_knowledge,
-    )
-
-    scaling_html = observations.build_scaling_interpretation_html(
-        scaling_interpretation
-    )
-
     analysis_html = observations.build_analysis_summary_html(
         performance_html=performance_html,
-        scaling_html=scaling_html,
+        scaling_html="",
         title="Automatic diagnosis",
     )
 
@@ -4533,7 +4366,7 @@ def _build_openmp_runtime_scope_note(is_hybrid):
             <strong>OpenMP Region Load Balance</strong> considers only useful
             computation performed inside OpenMP parallel regions. It is therefore
             not directly comparable with the application-level
-            <strong>Load Balance</strong> shown in Global Metrics or with the
+            <strong>Load Balance</strong> shown in Application Efficiency or with the
             derived OpenMP Load Balance contribution shown in the
             Parallel Runtime Model.
         </p>
@@ -4544,7 +4377,7 @@ def _build_openmp_runtime_scope_note(is_hybrid):
             <strong>OpenMP Region Load Balance</strong> considers only useful
             computation performed inside OpenMP parallel regions. It is therefore
             not directly comparable with the application-level
-            <strong>Load Balance</strong> shown in Global Metrics, which describes
+            <strong>Load Balance</strong> shown in Application Efficiency, which describes
             the distribution of useful computation across the complete execution.
         </p>
         """
@@ -4643,27 +4476,282 @@ def _build_execution_domains_view(
 
 
 
-def _build_overview_view(trace_config_html, trace_header_note,
-                         overview_html, resources_html, global_html):
-    """Build the Overview view without changing its current presentation.
+def _build_overview_view(
+        trace_config_html,
+        trace_header_note,
+        overview_html,
+        resources_html,
+        has_execution_domains=False,
+        has_scaling=False):
+    """Build the Execution Overview view."""
 
-    This semantic wrapper is the first layout-refactoring step. It groups all
-    application-level information in a single view while preserving the
-    existing HTML structure and visual appearance.
-    """
     return _build_application_summary_panel(
         trace_config_html=trace_config_html,
         trace_header_note=trace_header_note,
         overview_html=overview_html,
         resources_html=resources_html,
-        global_html=global_html,
+        has_execution_domains=has_execution_domains,
+        has_scaling=has_scaling,
     )
 
 
-def _build_parallel_runtime_model_views(model, mod_factors, trace_list, 
-                                        trace_labels, trace_header_note,
-                                        trace_column_description,
-                                        hybrid_html, inner_model):
+def _build_execution_overview_guidance_html(
+        has_execution_domains=False,
+        has_scaling=False):
+    """Explain the report workflow and the role of Execution Overview."""
+
+    workflow_parts = [
+        (
+            "<strong>Execution Overview</strong> to verify the analyzed "
+            "configurations and their general performance characteristics"
+        ),
+        (
+            "the <strong>Parallel Runtime Model</strong> to identify the "
+            "performance factors and parallel runtimes contributing to "
+            "efficiency loss"
+        ),
+    ]
+
+    if has_execution_domains:
+        workflow_parts.append(
+            "<strong>Execution Domains</strong> to obtain a complementary "
+            "Host/Device perspective and identify where accelerator-related "
+            "inefficiencies manifest"
+        )
+
+    if has_scaling:
+        workflow_parts.append(
+            "the <strong>Scaling</strong> view to examine how performance and "
+            "efficiency factors evolve across the analyzed configurations"
+        )
+
+    if len(workflow_parts) == 2:
+        workflow_text = (
+            "{}. Then use {}."
+        ).format(
+            workflow_parts[0],
+            workflow_parts[1],
+        )
+    else:
+        workflow_text = (
+            "{}. Then use {}."
+        ).format(
+            workflow_parts[0],
+            ", ".join(workflow_parts[1:-1])
+            + ", and "
+            + workflow_parts[-1],
+        )
+
+    return """
+    <section
+        class="analysis-guide-note"
+        aria-label="How to use the BasicAnalysis report"
+    >
+        <h3>How to use this report</h3>
+
+        <p>
+            BasicAnalysis organizes the performance analysis into
+            complementary views. Start with {workflow_text}
+        </p>
+
+        <p>
+            Within the analytical views, follow the metric hierarchy toward
+            the factors showing the greatest efficiency loss. Click any
+            metric value to view its definition, interpretation, and
+            recommended next diagnostic step.
+        </p>
+
+        <p>
+            <strong>Execution Overview</strong> summarizes the execution
+            setup, parallel resources, and general performance quantities
+            for the analyzed traces. Use this information to verify the
+            configurations before proceeding with the analytical views.
+        </p>
+    </section>
+    """.format(
+        workflow_text=workflow_text,
+    )
+
+
+def _build_scaling_guidance_html():
+    """Explain how to interpret the Scaling analysis."""
+
+    return """
+    <section
+        class="analysis-guide-note"
+        aria-label="How to read the Scaling view"
+    >
+        <h3>How to read this view</h3>
+
+        <p>
+            Use this view to understand <strong>how performance and
+            efficiency evolve as resources or execution configurations
+            change</strong>. Start with the Scaling Overview to verify the
+            scaling model used by BasicAnalysis and compare measured
+            Speedup and Efficiency with their ideal behavior.
+        </p>
+
+        <p>
+            The scalability metrics are computed relative to a
+            <strong>reference execution</strong>. A value of
+            <strong>100%</strong> indicates no change relative to the
+            reference for that scalability factor, values below 100%
+            indicate degradation, and values above 100% indicate an
+            improvement relative to the reference.
+        </p>
+
+        <p>
+            Continue with the efficiency-factor trends to identify which
+            metrics <strong>degrade, remain stable, or improve</strong> as
+            the application scales. A degrading factor identifies where
+            scalability loss becomes visible, but does not by itself establish
+            the underlying root cause.
+        </p>
+
+        <p>
+            For hybrid and accelerator applications, use the runtime and
+            execution-domain plots as complementary views: runtime trends
+            show how the active parallel runtimes contribute to scaling,
+            while Host and Device trends show where accelerator-related
+            scalability effects manifest.
+        </p>
+    </section>
+    """
+
+
+def _build_execution_domains_guidance_html():
+    """Explain how to interpret the Host and Device execution domains."""
+
+    return """
+    <section
+        class="analysis-guide-note"
+        aria-label="How to read the Execution Domains view"
+    >
+        <h3>How to read this view</h3>
+
+        <p>
+            Use this view to identify <strong>where accelerator-related
+            inefficiencies manifest</strong>. Analyze the
+            <strong>Host</strong> and <strong>Device</strong> domains
+            separately and compare their behavior across the analyzed
+            configurations.
+        </p>
+
+        <p>
+            Host and Device are <strong>complementary execution domains</strong>,
+            not components of a common multiplicative efficiency model.
+            Therefore, <strong>Host Global Efficiency</strong> and
+            <strong>Device Global Efficiency</strong> are independent
+            top-level metrics for their respective domains and must not be
+            multiplied to obtain the application Global Efficiency.
+        </p>
+
+        <p>
+            In the <strong>Host</strong> domain, follow Host Global Efficiency
+            toward Host Parallel Efficiency and Host Computation Scalability.
+            Host Parallel Efficiency distinguishes losses associated with 
+            host-side parallel execution from losses in supplying work to the accelerator
+            through Device Offload Efficiency.
+        </p>
+
+        <p>
+            In the <strong>Device</strong> domain, follow Device Global
+            Efficiency toward Device Parallel Efficiency and Device
+            Computation Scalability. Device Parallel Efficiency separates
+            workload imbalance, device communication, and orchestration
+            effects.
+        </p>
+    </section>
+    """
+
+
+def _build_parallel_runtime_model_guidance_html(
+        model,
+        inner_model):
+    """Explain how to interpret the Parallel Runtime Model."""
+
+    if model["is_hybrid"]:
+        model_note = """
+        <p>
+            For hybrid executions, the model is multiplicative.
+            Hybrid and MPI-level metrics are computed from measured 
+            execution data, while the <strong>{inner_model}</strong>
+            contribution is derived from the multiplicative decomposition
+            after accounting for MPI.
+        </p>
+
+        <p>
+            Because the {inner_model} contribution is derived rather than
+            measured as an independent efficiency, some values may exceed
+            <strong>100%</strong>. These values should not be interpreted as
+            conventional standalone efficiencies; they quantify the derived 
+            {inner_model} contribution within the hybrid decomposition.
+        </p>
+
+        <p>
+            The model can be read in two complementary ways:
+            <strong>by runtime</strong>, comparing MPI with {inner_model},
+            or <strong>by performance factor</strong>, comparing how
+            Load Balance and Communication Efficiency are distributed
+            across the active runtimes.
+        </p>
+        """.format(
+            inner_model=html.escape(inner_model)
+        )
+    else:
+        model_note = """
+        <p>
+            For a single parallel runtime, continue from Application
+            Efficiency to the runtime-level Parallel Efficiency hierarchy.
+            Use Load Balance and Communication Efficiency to distinguish
+            workload-distribution losses from communication,
+            synchronization, or parallel-runtime overhead.
+        </p>
+        """
+
+    return """
+    <section
+        class="analysis-guide-note"
+        aria-label="How to read the Parallel Runtime Model"
+    >
+        <h3>How to read this view</h3>
+
+        <p>
+            Start with <strong>Application Efficiency</strong>.
+            Global Efficiency combines losses from
+            <strong>Parallel Efficiency</strong> and
+            <strong>Computation Scalability</strong>.
+            Follow the hierarchy toward the factors showing the greatest
+            efficiency loss.
+        </p>
+
+        {model_note}
+    </section>
+    """.format(
+        model_note=model_note,
+    )
+
+def _build_metric_interaction_hint_html():
+    """Explain how to access metric-specific guidance."""
+
+    return """
+    <div class="metric-interaction-hint">
+        <strong>Metric details:</strong>
+        Click any efficiency value to view its definition,
+        interpretation, and recommended next diagnostic step.
+    </div>
+    """
+
+def _build_parallel_runtime_model_views(
+        model,
+        mod_factors,
+        trace_list,
+        trace_labels,
+        trace_header_note,
+        trace_column_description,
+        global_html,
+        hybrid_html,
+        inner_model):
     """Build the semantic Parallel Runtime Model view definitions.
 
     The function only reorganizes the existing report-generation logic. It
@@ -4671,6 +4759,26 @@ def _build_parallel_runtime_model_views(model, mod_factors, trace_list,
     content so that Step 1 introduces no visual or behavioral changes.
     """
     runtime_model_views = []
+
+    runtime_guidance_html = (
+        _build_parallel_runtime_model_guidance_html(
+            model=model,
+            inner_model=inner_model,
+        )
+    )
+
+    application_efficiency_html = """
+    <section
+        class="parallel-runtime-application-efficiency"
+        aria-label="Application Efficiency"
+    >
+        <h3>Application Efficiency</h3>
+
+        {global_html}
+    </section>
+    """.format(
+        global_html=global_html,
+    )
 
     # Simple traces expose the general POP Parallel Efficiency subtree.
     # Hybrid traces expose the complete derived MPI+X multiplicative model.
@@ -4719,14 +4827,22 @@ def _build_parallel_runtime_model_views(model, mod_factors, trace_list,
             "id": "runtime-model-simple",
             "label": runtime_label,
             "title": "{} Parallel Runtime Model".format(runtime_label),
-            "html": simple_runtime_html,
+            "html": (
+                runtime_guidance_html
+                + application_efficiency_html
+                + simple_runtime_html
+            ),
         })
     else:
         runtime_model_views.append({
             "id": "runtime-model-hybrid",
             "label": "MPI + {}".format(inner_model),
             "title": "Parallel Runtime Model: MPI + {}".format(inner_model),
-            "html": hybrid_html,
+            "html": (
+                runtime_guidance_html
+                + application_efficiency_html
+                + hybrid_html
+            ),
         })
 
     if runtime_model_views:
@@ -5012,7 +5128,7 @@ def _build_step4_workspace(overview_view_html, runtime_model_views,
                         aria-selected="true"
                         aria-controls="overview-sidebar-view"
                         onclick="showSidebarView('overview-sidebar-view', this)">
-                        <span class="sidebar-tab-label">Overview</span>
+                        <span class="sidebar-tab-label">Execution Overview</span>
                     </button>
                     <button
                         type="button"
@@ -5033,7 +5149,7 @@ def _build_step4_workspace(overview_view_html, runtime_model_views,
                     class="sidebar-view active"
                     role="tabpanel"
                     aria-labelledby="overview-sidebar-tab"
-                    aria-label="Overview">
+                    aria-label="Execution Overview">
                     {overview_view_html}
                 </section>
 
@@ -5082,14 +5198,28 @@ def _assemble_interactive_report(overview_view_html, runtime_model_views,
     )
 
 
-def _build_application_summary_panel(trace_config_html, trace_header_note,
-                                     overview_html, resources_html,
-                                     global_html):
+def _build_application_summary_panel(
+        trace_config_html,
+        trace_header_note,
+        overview_html,
+        resources_html,
+        has_execution_domains=False,
+        has_scaling=False):
     """Build the persistent application-analysis pane."""
+
+    guidance_html = (
+        _build_execution_overview_guidance_html(
+            has_execution_domains=has_execution_domains,
+            has_scaling=has_scaling,
+        )
+    )
+   
     return """
     <section class="application-panel" aria-label="Application analysis">
         <div class="workspace-panel">
-            <h2>Overview</h2>
+            <h2>Execution Overview</h2>
+
+                {guidance_html}
 
             <section class="report-section">
                 <h3>Trace configuration</h3>
@@ -5104,26 +5234,21 @@ def _build_application_summary_panel(trace_config_html, trace_header_note,
 
         </div>
 
-        <div class="workspace-panel">
-            <h2>Global Metrics</h2>
-            {global_html}
-        </div>
-
         <div class="workspace-panel validation-panel">
             <h2>Validate the analysis in Paraver</h2>
             <p class="section-description">
-                Use the recommended view to inspect the execution and validate
-                the findings identified by BasicAnalysis.
+                Use the recommended Paraver views to inspect the execution in greater detail and 
+                investigate the behavior highlighted by the BasicAnalysis metrics.
             </p>
             {resources_html}
         </div>
     </section>
     """.format(
+        guidance_html=guidance_html,
         trace_config_html=trace_config_html,
         trace_header_note=trace_header_note,
         overview_html=overview_html,
         resources_html=resources_html,
-        global_html=global_html,
     )
 
 
@@ -5590,7 +5715,8 @@ def _build_interactive_report_document(workspace_html,
         }
 
         .report-header {
-            position: relative;
+            position: sticky;
+            top: 0;
             z-index: 1000;
             flex: 0 0 auto;
             background: linear-gradient(135deg, #122a49 0%, #1e4b78 100%);
@@ -6877,6 +7003,55 @@ def _build_interactive_report_document(workspace_html,
         }
 
         /* -------------------------------------------------- */
+        /* Analysis guidance                                   */
+        /* -------------------------------------------------- */
+
+        .analysis-guide-note {
+            margin-bottom: 20px;
+            padding: 16px 18px;
+
+            border: 1px solid #b7cbe3;
+            border-left: 5px solid #4c83bd;
+            border-radius: var(--radius-md);
+
+            background: #f4f8ff;
+            color: #31465d;
+
+            box-shadow: var(--shadow-sm);
+        }
+
+        .analysis-guide-note h3 {
+            margin: 0 0 8px;
+
+            color: var(--primary);
+            font-size: 17px;
+        }
+
+        .analysis-guide-note p {
+            margin: 7px 0;
+
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        .analysis-guide-note p:last-child {
+            margin-bottom: 0;
+        }
+
+        .metric-interaction-hint {
+            margin: 6px 0 12px;
+
+            color: #40546b;
+
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .metric-interaction-hint strong {
+            color: var(--primary);
+        }
+
+        /* -------------------------------------------------- */
         /* Two-pane analysis workspace                         */
         /* -------------------------------------------------- */
 
@@ -7042,11 +7217,6 @@ def _build_interactive_report_document(workspace_html,
             body {
                 display: block;
                 overflow: auto;
-            }
-
-            .report-header {
-                position: sticky;
-                top: 0;
             }
 
             .report-container {
@@ -8451,7 +8621,9 @@ def _build_interactive_report_document(workspace_html,
         }
 
         .guided-primary-tabs {
-            position: relative;
+            position: sticky;
+            top: 0;
+            z-index: 900;
 
             display: flex;
             flex: 0 0 auto;
@@ -11630,7 +11802,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     )
 
 
-    if model["has_cuda"]:
+    if model["has_gpu"]:
         global_keys = [
             "global_eff",
             "parallel_eff",
@@ -11679,6 +11851,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         tree_kind=global_tree_kind,
         trace_header_note=trace_header_note,
         trace_column_description=trace_column_description,
+        show_efficiency_scale=False,
     )
 
 
@@ -11931,6 +12104,10 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     if scalability_section is not None:
         scalability_data = scalability_section.payload
         scalability_analysis = scalability_data.analysis
+
+        scaling_guidance_html = (
+            _build_scaling_guidance_html()
+        )
 
         scaling_model_html = _build_scaling_model_html(
             scalability_data.scaling_info
@@ -12436,9 +12613,8 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
                 _build_scaling_analysis_group(
                     title="Scaling Overview",
                     description=(
-                        "Review the scaling model and compare measured performance "
-                        "with the expected scaling behavior across the analyzed "
-                        "configurations."
+                        "Verify the scaling model used for the analysis and compare "
+                        "measured Speedup and Efficiency with their ideal behavior."
                     ),
                     content=(
                         scaling_model_html
@@ -12517,9 +12693,9 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             # --------------------------------------------------
             # Compose all scaling plots
             # --------------------------------------------------
-
             computation_scalability_html = (
-                scaling_overview_html
+                scaling_guidance_html
+                + scaling_overview_html
                 + global_efficiency_analysis_html
                 + parallel_efficiency_analysis_html
                 + execution_domain_analysis_html
@@ -12535,7 +12711,12 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         trace_header_note=trace_header_note,
         overview_html=overview_html,
         resources_html=resources_html,
-        global_html=global_html,
+        has_execution_domains=(
+            resource_section is not None
+        ),
+        has_scaling=(
+            scalability_section is not None
+        ),
     )
 
     runtime_model_views = _build_parallel_runtime_model_views(
@@ -12545,6 +12726,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         trace_labels=trace_labels,
         trace_header_note=trace_header_note,
         trace_column_description=trace_column_description,
+        global_html=global_html,
         hybrid_html=hybrid_html,
         inner_model=inner_model,
     )

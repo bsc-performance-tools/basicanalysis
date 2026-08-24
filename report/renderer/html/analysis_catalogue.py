@@ -152,13 +152,13 @@ def build_analysis_catalogue(
     Primary analytical views are organized according to the
     performance-analysis workflow:
 
-        Overview
-            Application and execution context together with the
-            application-level performance assessment.
+        Execution Overview
+            Describes the analyzed executions, their configurations,
+            resources, and general performance measurements.
 
         Parallel Runtime Model
-            Attributes parallel-efficiency losses to the active
-            parallel runtimes.
+            Starts from application-level efficiency and attributes
+            parallel-efficiency losses to the active parallel runtimes.
 
         Execution Domains
             For accelerator executions, identifies where inefficiencies
@@ -168,31 +168,6 @@ def build_analysis_catalogue(
         Computation Scalability
             Evaluates how useful computation changes across multiple
             execution configurations.
-
-    Runtime-specific and execution-domain-specific views are also kept
-    in the catalogue as secondary views so they can later be used for
-    detailed analysis, correlation, and export operations.
-
-    Parameters
-    ----------
-    overview_section
-        Semantic Overview section.
-
-    runtime_section
-        Semantic Runtime Analysis section.
-
-    resource_section
-        Optional Resource Analysis section for accelerator executions.
-        When present, the catalogue exposes an Execution Domains primary
-        view composed of the Host and Device analyses.
-
-    scalability_section
-        Optional Scalability Analysis section. It is absent for
-        single-trace reports and when no valid scalability metric is
-        available.
-
-    rendered_html
-        HTML bodies indexed by semantic view identifier.
     """
 
     _validate_section(
@@ -220,7 +195,7 @@ def build_analysis_catalogue(
     views = [
         AnalysisCatalogueView(
             view_id="overview",
-            label="Overview",
+            label="Execution Overview",
             title=overview_section.title,
             group="primary",
             description=overview_section.description,
