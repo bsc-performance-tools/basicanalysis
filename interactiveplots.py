@@ -1343,7 +1343,8 @@ def _build_metric_trend_plot_html(
         description,
         x_axis_title,
         y_axis_title="Efficiency (%)",
-        bounded_percentage=True):
+        bounded_percentage=True,
+        printable=False):
     """
     Build an interactive trend plot for a group of efficiency metrics.
 
@@ -1433,26 +1434,43 @@ def _build_metric_trend_plot_html(
         )
 
     # --------------------------------------------------
-    # Layout
+    # Layout adapted to interactive or printable output
     # --------------------------------------------------
 
-    # Reserve additional space above the plot when the legend
-    # contains several metric series.
-    if len(available_metrics) >= 4:
-        legend_y = 1.12
-        top_margin = 75
+    if printable:
+        plot_height = 300
+        bottom_margin = 58
+        left_margin = 55
+        right_margin = 18
+
+        if len(available_metrics) >= 4:
+            legend_y = 1.08
+            top_margin = 52
+        else:
+            legend_y = 1.05
+            top_margin = 38
+
     else:
-        legend_y = 1.08
-        top_margin = 55
+        plot_height = 380
+        bottom_margin = 90
+        left_margin = 65
+        right_margin = 30
+
+        if len(available_metrics) >= 4:
+            legend_y = 1.12
+            top_margin = 75
+        else:
+            legend_y = 1.08
+            top_margin = 55
 
     fig.update_layout(
-        height=380,
+        height=plot_height,
         autosize=True,
         margin=dict(
-            l=65,
-            r=30,
+            l=left_margin,
+            r=right_margin,
             t=top_margin,
-            b=90,
+            b=bottom_margin,
         ),
         hovermode="x unified",
         legend=dict(
@@ -3348,9 +3366,10 @@ def _build_metric_reference_appendix_html(metric_reference):
         '<header class="print-section-header">',
         '<h2>Appendix A — Metric Reference</h2>',
         '<p class="print-section-description">',
-        'Metrics are listed once, in the order in which they first appear '
-        'in the report. Each entry summarizes the metric definition, '
-        'formulation, and typical sources of performance inefficiency.',
+            'This appendix provides the static reference for the metrics used in '
+            'the report. Each entry summarizes the metric definition, formulation, '
+            'and typical performance issues. Use it together with the metric hierarchy '
+            'in the analysis sections to interpret values requiring closer investigation.'
         '</p>',
         '</header>',
         '<div class="metric-reference-list">',
@@ -3449,6 +3468,50 @@ def _build_metric_reference_appendix_html(metric_reference):
 
     return "\n".join(lines)
 
+
+def _build_printable_execution_domains_guidance_html():
+    """Explain how to interpret Host and Device execution domains."""
+
+    return """
+    <div class="print-guidance-note">
+        <h3>How to read this analysis</h3>
+
+        <p>
+            Use this section to identify <strong>where accelerator-related
+            inefficiencies manifest</strong>. Analyze the
+            <strong>Host</strong> and <strong>Device</strong> domains
+            separately and compare their behavior across the analyzed
+            configurations.
+        </p>
+
+        <p>
+            Host and Device are <strong>complementary execution domains</strong>,
+            not components of a common multiplicative efficiency model.
+            Therefore, <strong>Host Global Efficiency</strong> and
+            <strong>Device Global Efficiency</strong> are independent
+            top-level metrics for their respective domains and must not be
+            multiplied to obtain the application Global Efficiency.
+        </p>
+
+        <p>
+            In the <strong>Host</strong> domain, follow Host Global Efficiency
+            toward Host Parallel Efficiency and Host Computation Scalability.
+            Host Parallel Efficiency distinguishes losses associated with
+            host-side parallel execution from losses in supplying work to the
+            accelerator through Device Offload Efficiency.
+        </p>
+
+        <p>
+            In the <strong>Device</strong> domain, follow Device Global
+            Efficiency toward Device Parallel Efficiency and Device
+            Computation Scalability. Device Parallel Efficiency separates
+            workload imbalance, device communication, and orchestration
+            effects.
+        </p>
+    </div>
+    """
+
+
 def _build_printable_execution_domains_section(
         host_metric_keys,
         device_metric_keys,
@@ -3456,7 +3519,8 @@ def _build_printable_execution_domains_section(
         device_sources,
         trace_list,
         trace_labels,
-        trace_column_description):
+        trace_column_description,
+        section_number):
     """Build one combined Host + Device printable analysis."""
 
     all_metric_keys = (
@@ -3500,45 +3564,11 @@ def _build_printable_execution_domains_section(
         metric_knowledge=metric_knowledge,
     )
 
-    # --------------------------------------------------
-    # Host diagnosis
-    # --------------------------------------------------
-
-    host_performance = (
-        observations.build_performance_interpretation(
-            tree=HOST_TREE,
-            metric_info=TALP_METRIC_INFO,
-            metric_sources=host_sources,
-            trace_list=trace_list,
-            metric_knowledge=metric_knowledge,
-        )
+    
+    guidance_html = (
+        _build_printable_execution_domains_guidance_html()
     )
 
-    host_performance_html = (
-        observations.build_performance_interpretation_html(
-            host_performance
-        )
-    )
-
-    # --------------------------------------------------
-    # Device diagnosis
-    # --------------------------------------------------
-
-    device_performance = (
-        observations.build_performance_interpretation(
-            tree=DEVICE_TREE,
-            metric_info=TALP_METRIC_INFO,
-            metric_sources=device_sources,
-            trace_list=trace_list,
-            metric_knowledge=metric_knowledge,
-        )
-    )
-
-    device_performance_html = (
-        observations.build_performance_interpretation_html(
-            device_performance
-        )
-    )
 
     return """
     <section
@@ -3548,14 +3578,11 @@ def _build_printable_execution_domains_section(
     >
         <header class="print-section-header">
 
-            <h2>5 Execution Domains</h2>
-
-            <p class="print-section-description">
-                Complementary Host and Device evidence used to identify
-                where accelerator-related inefficiencies manifest.
-            </p>
+            <h2>{section_number} Execution Domains</h2>
         </header>
-
+        
+        {guidance_html}
+        
         <div class="print-execution-domain-label">
             HOST
         </div>
@@ -3577,29 +3604,59 @@ def _build_printable_execution_domains_section(
             {device_table_html}
         </div>
 
-        <div class="print-analysis-summary">
-            <div class="execution-domain-analysis-group">
-                <h3>HOST</h3>
-                {host_performance_html}
-                
-            </div>
-
-            <div class="execution-domain-analysis-group">
-                <h3>DEVICE</h3>
-                {device_performance_html}
-                
-            </div>
-        </div>
     </section>
     """.format(
+        guidance_html=guidance_html,
         host_table_html=host_table_html,
         device_table_html=device_table_html,
         trace_column_description=html.escape(
             trace_column_description
         ),
-        host_performance_html=host_performance_html,
-        device_performance_html=device_performance_html,
+        section_number=section_number,
     )
+
+
+def _build_printable_scaling_guidance_html():
+    """Explain how to interpret the printable Scaling analysis."""
+
+    return """
+    <div class="print-guidance-note">
+        <h3>How to read this analysis</h3>
+
+        <p>
+            Use this section to understand <strong>how performance and
+            efficiency evolve as resources or execution configurations
+            change</strong>. Start with the scaling model and compare measured
+            Speedup and Efficiency with the ideal behavior defined by the
+            selected scaling model.
+        </p>
+
+        <p>
+            Scalability metrics are computed relative to a
+            <strong>reference execution</strong>. A value of
+            <strong>100%</strong> indicates no change relative to the
+            reference for that scalability factor, values below 100%
+            indicate degradation, and values above 100% indicate improvement
+            relative to the reference.
+        </p>
+
+        <p>
+            Continue with the efficiency-factor trends to identify which
+            metrics <strong>degrade, remain stable, or improve</strong> as
+            the application scales. A degrading factor indicates where
+            scalability loss becomes visible, but does not by itself
+            establish the underlying root cause.
+        </p>
+
+        <p>
+            For hybrid and accelerator applications, runtime and
+            execution-domain trends provide complementary perspectives:
+            runtime trends show how the active parallel runtimes contribute
+            to scaling, while Host and Device trends show where
+            accelerator-related scalability effects manifest.
+        </p>
+    </div>
+    """
 
 
 def _build_printable_scaling_section(
@@ -3614,7 +3671,8 @@ def _build_printable_scaling_section(
         trace_list,
         trace_labels,
         trace_column_description,
-        cmdl_args):
+        cmdl_args,
+        section_number):
     """
     Build the first printable Scaling section.
 
@@ -3667,6 +3725,7 @@ def _build_printable_scaling_section(
             x_axis_title=trace_column_description,
             y_axis_title="Efficiency / Scalability (%)",
             bounded_percentage=False,
+            printable=True,
         )
     )
 
@@ -3703,6 +3762,7 @@ def _build_printable_scaling_section(
             x_axis_title=trace_column_description,
             y_axis_title="Scalability (%)",
             bounded_percentage=False,
+            printable=True,
         )
     )
 
@@ -3737,6 +3797,7 @@ def _build_printable_scaling_section(
                 "configurations."
             ),
             x_axis_title=trace_column_description,
+            printable=True,
         )
     )
 
@@ -3751,8 +3812,12 @@ def _build_printable_scaling_section(
     openmp_communication_trend_html = ""
     openmp_runtime_trend_html = ""
 
-    host_execution_domain_trend_html = ""
-    device_execution_domain_trend_html = ""
+    host_global_trend_html = ""
+    host_parallel_trend_html = ""
+
+    device_global_trend_html = ""
+    device_parallel_trend_html = ""
+
 
     if model["is_hybrid"]:
 
@@ -3783,6 +3848,7 @@ def _build_printable_scaling_section(
                 ),
                 x_axis_title=trace_column_description,
                 bounded_percentage=False,
+                printable=True,
             )
         )
 
@@ -3813,6 +3879,7 @@ def _build_printable_scaling_section(
                     "components."
                 ),
                 x_axis_title=trace_column_description,
+                printable=True,
             )
         )
 
@@ -3847,6 +3914,7 @@ def _build_printable_scaling_section(
                 ),
                 x_axis_title=trace_column_description,
                 bounded_percentage=False,
+                printable=True,
             )
         )
 
@@ -3877,6 +3945,7 @@ def _build_printable_scaling_section(
                     "components."
                 ),
                 x_axis_title=trace_column_description,
+                printable=True,
             )
         )
 
@@ -3914,6 +3983,7 @@ def _build_printable_scaling_section(
                     ),
                     x_axis_title=trace_column_description,
                     bounded_percentage=False,
+                    printable=True,
                 )
             )
 
@@ -3949,6 +4019,7 @@ def _build_printable_scaling_section(
                     "analyzed configurations."
                 ),
                 x_axis_title=trace_column_description,
+                printable=True,
             )
         ) 
 
@@ -3957,44 +4028,94 @@ def _build_printable_scaling_section(
     # --------------------------------------------------
 
     if (
-        model["has_gpu"] and "host_factors" in metrics_result
+        model["has_gpu"]
+        and "host_factors" in metrics_result
     ):
 
         host_factors = metrics_result[
             "host_factors"
         ]
 
-        host_execution_domain_keys = [
+        # Host Global Efficiency
+
+        host_global_keys = [
             "host_global_eff",
             "host_parallel_eff",
-            "dev_offload_eff",
             "host_comp_scale",
         ]
 
-        host_execution_domain_sources = {
+        host_global_sources = {
             key: host_factors
-            for key in host_execution_domain_keys
+            for key in host_global_keys
         }
 
-        host_execution_domain_trend_html = (
+        host_global_trend_html = (
             _build_metric_trend_plot_html(
-                metric_keys=host_execution_domain_keys,
+                metric_keys=host_global_keys,
                 metric_info=TALP_METRIC_INFO,
-                metric_sources=host_execution_domain_sources,
+                metric_sources=host_global_sources,
                 trace_list=trace_list,
                 trace_labels=trace_labels,
-                title="Host Execution Domain",
+                title="Host Global Efficiency",
                 description=(
-                    "Analyze the evolution of Host Global Efficiency "
-                    "through Host Parallel Efficiency, Device Offload "
-                    "Efficiency, and Host Computation Scalability across "
+                    "Compare Host Global Efficiency with Host Parallel "
+                    "Efficiency and Host Computation Scalability across "
                     "the analyzed configurations."
                 ),
                 x_axis_title=trace_column_description,
                 y_axis_title="Efficiency / Scalability (%)",
                 bounded_percentage=False,
+                printable=True,
             )
-        )  
+        )
+
+        # Host Parallel Efficiency
+
+        host_parallel_keys = [
+            "host_parallel_eff",
+            "mpi_parallel_eff",
+            "dev_offload_eff",
+        ]
+
+        host_parallel_sources = {
+            key: host_factors
+            for key in host_parallel_keys
+        }
+
+        host_parallel_trend_html = (
+            _build_metric_trend_plot_html(
+                metric_keys=host_parallel_keys,
+                metric_info=TALP_METRIC_INFO,
+                metric_sources=host_parallel_sources,
+                trace_list=trace_list,
+                trace_labels=trace_labels,
+                title="Host Parallel Efficiency",
+                description=(
+                    "Compare Host Parallel Efficiency with MPI Parallel "
+                    "Efficiency and Device Offload Efficiency across "
+                    "the analyzed configurations."
+                ),
+                x_axis_title=trace_column_description,
+                printable=True,
+            )
+        )
+
+    host_execution_domain_html = ""
+
+    if host_global_trend_html or host_parallel_trend_html:
+        host_execution_domain_html = (
+            _build_scaling_analysis_group(
+                title="Host Execution Domain",
+                description=(
+                    "Analyze how host-side efficiency factors evolve "
+                    "across the analyzed configurations."
+                ),
+                content=(
+                    host_global_trend_html
+                    + host_parallel_trend_html
+                ),
+            )
+        )
 
     # --------------------------------------------------
     # Device Execution Domain
@@ -4009,54 +4130,102 @@ def _build_printable_scaling_section(
             "device_factors"
         ]
 
-        device_execution_domain_keys = [
+        # Device Global Efficiency
+
+        device_global_keys = [
             "dev_global_eff",
             "dev_parallel_eff",
-            "dev_load_balance",
-            "dev_comm_eff",
-            "dev_orches_eff",
             "dev_comp_scale",
         ]
 
-        device_execution_domain_sources = {
+        device_global_sources = {
             key: device_factors
-            for key in device_execution_domain_keys
+            for key in device_global_keys
         }
 
-        device_execution_domain_trend_html = (
+        device_global_trend_html = (
             _build_metric_trend_plot_html(
-                metric_keys=device_execution_domain_keys,
+                metric_keys=device_global_keys,
                 metric_info=TALP_METRIC_INFO,
-                metric_sources=device_execution_domain_sources,
+                metric_sources=device_global_sources,
                 trace_list=trace_list,
                 trace_labels=trace_labels,
-                title="Device Execution Domain",
+                title="Device Global Efficiency",
                 description=(
-                    "Analyze the evolution of Device Global Efficiency "
-                    "through Device Parallel Efficiency, Load Balance, "
-                    "Communication Efficiency, Orchestration Efficiency, "
-                    "and Device Computation Scalability across the "
-                    "analyzed configurations."
+                    "Compare Device Global Efficiency with Device Parallel "
+                    "Efficiency and Device Computation Scalability across "
+                    "the analyzed configurations."
                 ),
                 x_axis_title=trace_column_description,
                 y_axis_title="Efficiency / Scalability (%)",
                 bounded_percentage=False,
+                printable=True,
             )
         )
 
+        # Device Parallel Efficiency
+
+        device_parallel_keys = [
+            "dev_parallel_eff",
+            "dev_load_balance",
+            "dev_comm_eff",
+            "dev_orches_eff",
+        ]
+
+        device_parallel_sources = {
+            key: device_factors
+            for key in device_parallel_keys
+        }
+
+        device_parallel_trend_html = (
+            _build_metric_trend_plot_html(
+                metric_keys=device_parallel_keys,
+                metric_info=TALP_METRIC_INFO,
+                metric_sources=device_parallel_sources,
+                trace_list=trace_list,
+                trace_labels=trace_labels,
+                title="Device Parallel Efficiency",
+                description=(
+                    "Compare Device Parallel Efficiency with Device Load "
+                    "Balance, Device Communication Efficiency, and Device "
+                    "Orchestration Efficiency across the analyzed "
+                    "configurations."
+                ),
+                x_axis_title=trace_column_description,
+                printable=True,
+            )
+        )
+
+    device_execution_domain_html = ""
+
+    if device_global_trend_html or device_parallel_trend_html:
+        device_execution_domain_html = (
+            _build_scaling_analysis_group(
+                title="Device Execution Domain",
+                description=(
+                    "Analyze how device-side efficiency factors evolve "
+                    "across the analyzed configurations."
+                ),
+                content=(
+                    device_global_trend_html
+                    + device_parallel_trend_html
+                ),
+            )
+        )
+
+
+
+    guidance_html = _build_printable_scaling_guidance_html()
 
     return """
     <section
         class="print-scaling-section print-page-section"
     >
         <header class="print-section-header">
-            <h2>6 Scaling Analysis</h2>
-
-            <p class="print-section-description">
-                Analyze how application performance and efficiency
-                evolve across the analyzed execution configurations.
-            </p>
+            <h2>{section_number} Scaling</h2>
         </header>
+
+        {guidance_html}
 
         {scaling_model_html}
 
@@ -4080,12 +4249,13 @@ def _build_printable_scaling_section(
 
         {openmp_runtime_trend_html}
 
-        {host_execution_domain_trend_html}
+        {host_execution_domain_html}
 
-        {device_execution_domain_trend_html}
+        {device_execution_domain_html}
 
     </section>
     """.format(
+        guidance_html=guidance_html,
         scaling_model_html=scaling_model_html,
         scaling_trends_html=scaling_trends_html,
         global_efficiency_trend_html=global_efficiency_trend_html,
@@ -4099,8 +4269,9 @@ def _build_printable_scaling_section(
         mpi_communication_trend_html=mpi_communication_trend_html,
         openmp_communication_trend_html=openmp_communication_trend_html,
         openmp_runtime_trend_html=openmp_runtime_trend_html,
-        host_execution_domain_trend_html=(host_execution_domain_trend_html),
-        device_execution_domain_trend_html=(device_execution_domain_trend_html),
+        host_execution_domain_html=host_execution_domain_html,
+        device_execution_domain_html=device_execution_domain_html,
+        section_number=section_number,
     )
 
 def _build_printable_metric_section(
@@ -4145,25 +4316,6 @@ def _build_printable_metric_section(
         printable=True,
     )
 
-    performance_interpretation = (
-        observations.build_performance_interpretation(
-            tree=tree,
-            metric_info=metric_info,
-            metric_sources=metric_sources,
-            trace_list=trace_list,
-        )
-    )
-
-    performance_html = observations.build_performance_interpretation_html(
-        performance_interpretation
-    )
-
-    analysis_html = observations.build_analysis_summary_html(
-        performance_html=performance_html,
-        scaling_html="",
-        title="Automatic diagnosis",
-    )
-
     description_html = ""
     if section_description:
         description_html = (
@@ -4190,9 +4342,6 @@ def _build_printable_metric_section(
             {efficiency_table_html}
         </div>
         
-        <div class="print-analysis-summary">
-            {analysis_html}
-        </div>
     </section>
     """.format(
         section_kicker=html.escape(section_kicker),
@@ -4204,7 +4353,6 @@ def _build_printable_metric_section(
         ),
         scope_note_html=scope_note_html,
         efficiency_table_html=efficiency_table_html,
-        analysis_html=analysis_html,
     )
 
 
@@ -10221,6 +10369,11 @@ def _build_interactive_report_document(workspace_html,
                 print-color-adjust: exact !important;
             }
 
+            body.basicanalysis-print-mode
+            .print-section-intro {
+                break-inside: avoid-page;
+                page-break-inside: avoid;
+            }
 
             /* -------------------------------------------------- */
             /* Printable diagnosis as report prose                */
@@ -10659,6 +10812,20 @@ def _build_interactive_report_document(workspace_html,
             /* Add space before every new analytical section      */
             /* -------------------------------------------------- */
             
+            /*
+            * Separate the main analytical stages:
+            *   2 Parallel Runtime Model
+            *   3 Runtime-Specific Analysis
+            *
+            * Padding is used instead of margin so the spacing is
+            * preserved reliably across printed-page boundaries.
+            */
+            body.basicanalysis-print-mode
+            .print-analysis-stage {
+                margin-top: 0 !important;
+                padding-top: 26px !important;
+            }
+
             body.basicanalysis-print-mode
             .print-metric-section {
                 margin-top: 30px;
@@ -10771,6 +10938,61 @@ def _build_interactive_report_document(workspace_html,
             .plotly-graph-div {
                 break-inside: avoid !important;
                 page-break-inside: avoid !important;
+            }
+
+            /* Scaling section may continue on the current page */
+            .print-scaling-section {
+                break-before: auto;
+                page-break-before: auto;
+            }
+
+            /* A scaling group may span pages */
+            .scaling-analysis-group {
+                break-inside: auto;
+                page-break-inside: auto;
+            }
+
+            /* Do not orphan a Host/Device group heading */
+            .scaling-analysis-group-header {
+                break-after: avoid-page;
+                page-break-after: avoid;
+            }
+
+            /* Keep each metric title + description + plot together */
+            .scaling-factor-trends {
+                break-inside: avoid-page;
+                page-break-inside: avoid;
+            }
+
+            /* Additional protection against orphaned metric headings */
+            .scaling-factor-trends-header {
+                break-after: avoid-page;
+                page-break-after: avoid;
+            }
+
+            /* Keep Performance scaling heading with its content */
+            .scaling-trends-header {
+                break-after: avoid-page;
+                page-break-after: avoid;
+            }   
+         
+
+         
+            body.basicanalysis-print-mode
+            .scaling-trend-card {
+                box-shadow: none !important;
+                border-radius: 5px !important;
+            }
+
+            body.basicanalysis-print-mode
+            .scaling-factor-trends {
+                margin-top: 10px !important;
+                margin-bottom: 12px !important;
+            }
+
+            body.basicanalysis-print-mode
+            .scaling-factor-trends-header {
+                margin-bottom: 5px !important;
             }
 
         }        
@@ -11080,6 +11302,41 @@ def _build_interactive_report_document(workspace_html,
             .scaling-trends-grid {
                 grid-template-columns: 1fr;
             }
+        }
+
+
+        /* -------------------------------------------------- */
+        /* Printable CSS for the guidance boxes               */
+        /* -------------------------------------------------- */
+        .print-guidance-note {
+            margin: 8px 0 12px;
+            padding: 10px 12px;
+
+            border: 1px solid #b7cbe3;
+            border-left: 5px solid #4c83bd;
+            border-radius: 6px;
+
+            background: #f4f8ff;
+            color: #31465d;
+
+            break-inside: avoid-page;
+            page-break-inside: avoid;
+        }
+
+        .print-guidance-note h3 {
+            margin: 0 0 5px;
+            color: #17365d;
+            font-size: 10.5pt;
+        }
+
+        .print-guidance-note p {
+            margin: 4px 0;
+            font-size: 8.5pt;
+            line-height: 1.4;
+        }
+
+        .print-guidance-note p:last-child {
+            margin-bottom: 0;
         }
 
 </style>
@@ -12208,6 +12465,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             # Parallel Efficiency Linear Plot
             # --------------------------------------------------
             parallel_efficiency_keys = [
+                "parallel_eff",
                 "load_balance",
                 "comm_eff",
             ]
@@ -13053,6 +13311,136 @@ def _filter_available_metric_keys(metric_keys, metric_sources,
     return filtered
 
 
+def _build_printable_report_guidance_html(
+        has_execution_domains=False,
+        has_scaling=False):
+    """Explain how to use the printable BasicAnalysis report."""
+
+    workflow_parts = [
+        (
+            "<strong>Execution Overview</strong> to verify the analyzed "
+            "configurations and their general performance characteristics"
+        ),
+        (
+            "the <strong>Parallel Runtime Model</strong> to identify the "
+            "performance factors and parallel runtimes contributing to "
+            "efficiency loss"
+        ),
+    ]
+
+    if has_execution_domains:
+        workflow_parts.append(
+            "<strong>Execution Domains</strong> to obtain a complementary "
+            "Host/Device perspective and identify where accelerator-related "
+            "inefficiencies manifest"
+        )
+
+    if has_scaling:
+        workflow_parts.append(
+            "the <strong>Scaling</strong> section to examine how performance "
+            "and efficiency factors evolve across the analyzed configurations"
+        )
+
+    if len(workflow_parts) == 2:
+        workflow_text = "{}. Then use {}.".format(
+            workflow_parts[0],
+            workflow_parts[1],
+        )
+    else:
+        workflow_text = "{}. Then use {}.".format(
+            workflow_parts[0],
+            ", ".join(workflow_parts[1:-1])
+            + ", and "
+            + workflow_parts[-1],
+        )
+
+    return """
+    <div class="print-guidance-note">
+        <h3>How to use this report</h3>
+
+        <p>
+            BasicAnalysis organizes the performance analysis into
+            complementary views. Start with {workflow_text}
+        </p>
+
+        <p>
+            Within the analytical sections, follow the metric hierarchy
+            toward the factors showing the greatest efficiency loss.
+            Definitions, interpretation guidance, and typical performance
+            issues for the metrics used in the report are provided in
+            <strong>Appendix A — Metric Reference</strong>.
+        </p>
+
+    </div>
+    """.format(
+        workflow_text=workflow_text,
+    )
+
+
+def _build_printable_parallel_runtime_model_guidance_html(
+        model,
+        inner_model):
+    """Explain how to interpret the printable Parallel Runtime Model."""
+
+    if model["is_hybrid"]:
+        model_note = """
+        <p>
+            For hybrid executions, the model is multiplicative.
+            Hybrid and MPI-level metrics are computed from measured
+            execution data, while the <strong>{inner_model}</strong>
+            contribution is derived from the multiplicative decomposition
+            after accounting for MPI.
+        </p>
+
+        <p>
+            Because the {inner_model} contribution is derived rather than
+            measured as an independent efficiency, some values may exceed
+            <strong>100%</strong>. These values should not be interpreted as
+            conventional standalone efficiencies; they quantify the derived
+            {inner_model} contribution within the hybrid decomposition.
+        </p>
+
+        <p>
+            The model can be read in two complementary ways:
+            <strong>by runtime</strong>, comparing MPI with {inner_model},
+            or <strong>by performance factor</strong>, comparing how
+            Load Balance and Communication Efficiency are distributed
+            across the active runtimes.
+        </p>
+        """.format(
+            inner_model=html.escape(inner_model)
+        )
+    else:
+        model_note = """
+        <p>
+            For a single parallel runtime, continue from Application
+            Efficiency to the runtime-level Parallel Efficiency hierarchy.
+            Use Load Balance and Communication Efficiency to distinguish
+            workload-distribution losses from communication,
+            synchronization, or parallel-runtime overhead.
+        </p>
+        """
+
+    return """
+    <div class="print-guidance-note">
+        <h3>How to read this analysis</h3>
+
+        <p>
+            Start with <strong>Application Efficiency</strong>.
+            Global Efficiency combines losses from
+            <strong>Parallel Efficiency</strong> and
+            <strong>Computation Scalability</strong>.
+            Follow the hierarchy toward the factors showing the greatest
+            efficiency loss.
+        </p>
+
+        {model_note}
+    </div>
+    """.format(
+        model_note=model_note,
+    )
+
+
 def _build_basicanalysis_printable_report_html(
         metrics_result,
         analysis_result,
@@ -13067,19 +13455,20 @@ def _build_basicanalysis_printable_report_html(
         standalone=True):
     """Generate the printable BasicAnalysis HTML report.
 
-    The printable report follows the same analytical architecture as the
+    The printable report follows the same analytical workflow as the
     interactive report:
 
-      1. Execution Overview
-      2. Application Efficiency Analysis
-      3. Runtime Analysis
-      4. Runtime-Specific Analysis, when available
-      5. Execution-Domain Analysis, when available
-      6. Scaling Analysis
-      Appendix A. Metric Definitions
+    1. Execution Overview
+    2. Parallel Runtime Model
+        - Application Efficiency
+        - runtime decomposition
+    3. Runtime-Specific Analysis, when available
+    4. Execution Domains, when available
+    5. Scaling, when available
+    Appendix A. Metric Reference
 
-    Runtime contributions, isolated runtime diagnoses, and Host/Device
-    execution domains are intentionally represented as different layers.
+    The printable report preserves the analytical order of the
+    interactive report while presenting selectable analyses linearly.
     """
 
     trace_column_description = (
@@ -13138,7 +13527,7 @@ def _build_basicanalysis_printable_report_html(
     # --------------------------------------------------
     # 2. Application efficiency analysis
     # --------------------------------------------------
-    if model["has_cuda"]:
+    if model["has_gpu"]:
         global_keys = [
             "global_eff",
             "parallel_eff",
@@ -13182,14 +13571,15 @@ def _build_basicanalysis_printable_report_html(
         metric_sources=global_sources,
         trace_list=trace_list,
         trace_labels=trace_labels,
-        title="2 Application Efficiency Analysis",
+        title="2.1 Application Efficiency",
         tree=global_tree,
         trace_header_note=trace_header_note,
         trace_column_description=trace_column_description,
         section_kicker="Application-level model",
         section_description=(
-            "Overall efficiency decomposition and scaling behavior of the "
-            "complete application."
+            "Application-level efficiency decomposition used to identify whether "
+            "the main loss is associated with parallel execution or computation "
+            "scalability."
         ),
     )
 
@@ -13228,7 +13618,7 @@ def _build_basicanalysis_printable_report_html(
                 metric_sources=hybrid_sources,
                 trace_list=trace_list,
                 trace_labels=trace_labels,
-                title="3 Composed Runtime Analysis — MPI + {}".format(
+                title="2.2 Composed Runtime Model — MPI + {}".format(
                     inner_model
                 ),
                 tree=HYBRID_TREE,
@@ -13282,7 +13672,7 @@ def _build_basicanalysis_printable_report_html(
                 metric_sources=single_runtime_sources,
                 trace_list=trace_list,
                 trace_labels=trace_labels,
-                title="3 {} Runtime Analysis".format(runtime_name),
+                title="2.2 {} Parallel Efficiency".format(runtime_name),
                 tree=GLOBAL_PARALLEL_TREE,
                 trace_header_note=trace_header_note,
                 trace_column_description=trace_column_description,
@@ -13294,8 +13684,49 @@ def _build_basicanalysis_printable_report_html(
             )
 
     # --------------------------------------------------
+    # Parallel Runtime Guidance
+    # -------------------------------------------------- 
+    parallel_runtime_guidance_html = (
+        _build_printable_parallel_runtime_model_guidance_html(
+            model=model,
+            inner_model=inner_model,
+        )
+    )
+
+    # --------------------------------------------------
+    # Wrap Global_html and runtime_model_html in Section 2 in PDF
+    # --------------------------------------------------    
+    parallel_runtime_model_html = """
+    <section class="print-analysis-stage">
+
+        <div class="print-section-intro">
+            <header class="print-section-header">
+                <h2>2 Parallel Runtime Model</h2>
+            </header>
+
+            {parallel_runtime_guidance_html}
+        </div>
+
+        {global_html}
+
+        {runtime_model_html}
+
+        {efficiency_scale_html}
+    </section>
+    """.format(
+        parallel_runtime_guidance_html=parallel_runtime_guidance_html,
+        global_html=global_html,
+        runtime_model_html=runtime_model_html,
+        efficiency_scale_html=efficiency_scale_html,
+    )
+
+
+    # --------------------------------------------------
     # 4. Runtime-specific analysis
     # --------------------------------------------------
+
+    runtime_specific_section_number = 3
+
     runtime_specific_sections = []
     runtime_specific_index = 1
 
@@ -13331,8 +13762,9 @@ def _build_basicanalysis_printable_report_html(
                     metric_sources=mpi_sources,
                     trace_list=trace_list,
                     trace_labels=trace_labels,
-                    title="4.{} MPI Runtime-Specific Analysis".format(
-                        runtime_specific_index
+                    title="{}.{} MPI Runtime-Specific Analysis".format(
+                        runtime_specific_section_number,
+                        runtime_specific_index,
                     ),
                     tree=MPI_RUNTIME_TREE,
                     trace_header_note=trace_header_note,
@@ -13374,8 +13806,9 @@ def _build_basicanalysis_printable_report_html(
                     metric_sources=openmp_sources,
                     trace_list=trace_list,
                     trace_labels=trace_labels,
-                    title="4.{} OpenMP Runtime-Specific Analysis".format(
-                        runtime_specific_index
+                    title="{}.{} OpenMP Runtime-Specific Analysis".format(
+                        runtime_specific_section_number,
+                        runtime_specific_index,
                     ),
                     tree=OPENMP_TREE,
                     trace_header_note=trace_header_note,
@@ -13427,7 +13860,8 @@ def _build_basicanalysis_printable_report_html(
                     metric_sources=accelerator_sources,
                     trace_list=trace_list,
                     trace_labels=trace_labels,
-                    title="4.{} {} Runtime Contribution".format(
+                    title="{}.{} {} Runtime Contribution".format(
+                        runtime_specific_section_number,
                         runtime_specific_index,
                         inner_model,
                     ),
@@ -13437,15 +13871,58 @@ def _build_basicanalysis_printable_report_html(
                     section_kicker="Runtime contribution",
                     section_description=(
                         "Isolated view of the {} contribution derived from "
-                        "the composed MPI+{} runtime model. A dedicated "
-                        "runtime-specific model can be added here when its "
-                        "metrics are defined."
+                        "the composed MPI+{} runtime model."
                     ).format(inner_model, inner_model),
                 )
             )
             runtime_specific_index += 1
 
-    runtime_specific_html = "\n".join(runtime_specific_sections)
+
+    runtime_specific_content_html = "\n".join(
+        runtime_specific_sections
+    )
+
+    if runtime_specific_content_html:
+        runtime_specific_html = """
+        <section class="print-analysis-stage">
+            <header class="print-section-header">
+                <h2>{section_number} Runtime-Specific Analysis</h2>
+
+                <p class="print-section-description">
+                    Continue the analysis within the relevant runtime using
+                    runtime-specific efficiency metrics.
+                </p>
+            </header>
+
+            {runtime_specific_content_html}
+        </section>
+        """.format(
+            section_number=runtime_specific_section_number,
+            runtime_specific_content_html=(
+                runtime_specific_content_html
+            ),
+        )
+    else:
+        runtime_specific_html = ""
+
+
+    # --------------------------------------------------
+    # Dynamic numbering for optional sections
+    # --------------------------------------------------
+
+    has_runtime_specific = bool(
+        runtime_specific_content_html
+    )
+
+    next_section_number = (
+        runtime_specific_section_number + 1
+        if has_runtime_specific
+        else 3
+    )
+
+    execution_domains_section_number = None
+    scaling_section_number = None
+
 
     # --------------------------------------------------
     # 5. Execution-domain analysis
@@ -13517,7 +13994,14 @@ def _build_basicanalysis_printable_report_html(
                 TALP_METRIC_INFO,
             )
 
+
         if host_filtered_keys or device_filtered_keys:
+
+            execution_domains_section_number = (
+                next_section_number
+            )
+            next_section_number += 1
+
             execution_domains_html = (
                 _build_printable_execution_domains_section(
                     host_metric_keys=host_filtered_keys,
@@ -13527,6 +14011,9 @@ def _build_basicanalysis_printable_report_html(
                     trace_list=trace_list,
                     trace_labels=trace_labels,
                     trace_column_description=trace_column_description,
+                    section_number=(
+                        execution_domains_section_number
+                    ),
                 )
             )
 
@@ -13537,6 +14024,10 @@ def _build_basicanalysis_printable_report_html(
     scaling_html = ""
 
     if scalability_data is not None:
+
+        scaling_section_number = next_section_number
+        next_section_number += 1
+
         scaling_html = _build_printable_scaling_section(
             scalability_data=scalability_data,
             mod_factors=mod_factors,
@@ -13550,6 +14041,7 @@ def _build_basicanalysis_printable_report_html(
             trace_labels=trace_labels,
             trace_column_description=trace_column_description,
             cmdl_args=cmdl_args,
+            section_number=scaling_section_number,
         )
 
 
@@ -13561,20 +14053,34 @@ def _build_basicanalysis_printable_report_html(
     )
 
     # --------------------------------------------------
+    # Report Guidance
+    # --------------------------------------------------
+    report_guidance_html = (
+        _build_printable_report_guidance_html(
+            has_execution_domains=bool(execution_domains_html),
+            has_scaling=bool(scaling_html),
+        )
+    )
+
+
+    # --------------------------------------------------
     # Body html
     # --------------------------------------------------
     body_html = """
         <header class="print-header">
             <h1>BasicAnalysis Performance Report</h1>
-            <p>Hierarchical efficiency analysis and guided performance diagnosis</p>
         </header>
+
+         {report_guidance_html}
 
         <section class="print-overview">
             <header class="print-section-header">
-                <h2>1 Execution Overview</h2>
+                <h2>1 Execution Overview</h2>      
                 <p class="print-section-description">
-                    Execution configuration, general performance indicators, and
-                    the efficiency scale used throughout the report.
+                    <strong>Execution Overview</strong> summarizes the execution
+                    setup, parallel resources, and general performance quantities
+                    for the analyzed traces. Use this information to verify the
+                    configurations before proceeding with the analytical sections.
                 </p>
             </header>
 
@@ -13590,14 +14096,10 @@ def _build_basicanalysis_printable_report_html(
                     {overview_html}
                 </div>
 
-                <div class="print-overview-block">
-                    {efficiency_scale_html}
-                </div>
             </div>
         </section>
 
-        {global_html}
-        {runtime_model_html}
+        {parallel_runtime_model_html}
         {runtime_specific_html}
         {execution_domains_html}
         {scaling_html}
@@ -13606,9 +14108,9 @@ def _build_basicanalysis_printable_report_html(
         trace_config_html=trace_config_html,
         trace_header_note=trace_header_note,
         overview_html=overview_html,
+        report_guidance_html=report_guidance_html,
+        parallel_runtime_model_html=parallel_runtime_model_html,
         efficiency_scale_html=efficiency_scale_html,
-        global_html=global_html,
-        runtime_model_html=runtime_model_html,
         runtime_specific_html=runtime_specific_html,
         execution_domains_html=execution_domains_html,
         scaling_html=scaling_html,
@@ -13627,7 +14129,7 @@ def _build_basicanalysis_printable_report_html(
 
         <style>
             @page {{
-                size: A4 landscape;
+                size: A4;
                 margin: 10mm;
             }}
 
@@ -13668,8 +14170,8 @@ def _build_basicanalysis_printable_report_html(
             }}
 
             .print-page-section {{
-                break-before: page;
-                page-break-before: always;
+                break-before: auto;
+                page-break-before: auto;
             }}
 
             .print-overview {{
@@ -13681,6 +14183,14 @@ def _build_basicanalysis_printable_report_html(
                 break-after: avoid-page;
                 page-break-after: avoid;
                 margin-bottom: 10px;
+            }}
+
+            .print-analysis-stage {{
+                margin-top: 18px;
+            }}
+
+            .print-execution-domains {{
+                margin-top: 18px;
             }}
 
             .print-section-kicker {{
@@ -13937,6 +14447,87 @@ def _build_basicanalysis_printable_report_html(
             .print-appendix .metric-definition-table td {{
                 padding-top: 3px;
                 padding-bottom: 3px;
+            }}
+
+            .print-page-section {{
+                break-before: auto;
+                page-break-before: auto;
+            }}
+
+            .print-scaling-section {{
+                break-before: auto;
+                page-break-before: auto;
+            }}
+
+            .print-appendix {{
+                break-before: page;
+                page-break-before: always;
+            }}
+
+            .print-analysis-stage {{
+                margin-top: 18px;
+            }}
+
+            .print-analysis-stage > .print-section-header
+            + .print-guidance-note,
+            .print-execution-domains > .print-section-header
+            + .print-guidance-note,
+            .print-scaling-section > .print-section-header
+            + .print-guidance-note {{
+                break-before: avoid-page;
+                page-break-before: avoid;
+            }}
+
+            .print-metric-section > .print-section-header {{
+                break-after: avoid-page;
+                page-break-after: avoid;
+            }}
+
+            .print-metric-section .trace-header-note {{
+                break-after: avoid-page;
+                page-break-after: avoid;
+            }}
+
+            .print-execution-domain-label {{
+                break-after: avoid-page;
+                page-break-after: avoid;
+            }}
+
+            .print-execution-domain-label + .trace-header-note {{
+                break-after: avoid-page;
+                page-break-after: avoid;
+            }}
+
+
+
+            .print-scaling-section {{
+                break-before: auto;
+                page-break-before: auto;
+            }}
+
+            .scaling-analysis-group {{
+                break-inside: auto;
+                page-break-inside: auto;
+            }}
+
+            .scaling-analysis-group-header {{
+                break-after: avoid-page;
+                page-break-after: avoid;
+            }}
+
+            .scaling-factor-trends {{
+                break-inside: avoid-page;
+                page-break-inside: avoid;
+            }}
+
+            .scaling-factor-trends-header {{
+                break-after: avoid-page;
+                page-break-after: avoid;
+            }}
+
+            .scaling-trends-header {{
+                break-after: avoid-page;
+                page-break-after: avoid;
             }}
 
         </style>
