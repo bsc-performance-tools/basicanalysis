@@ -3791,10 +3791,9 @@ def _build_printable_scaling_section(
             trace_labels=trace_labels,
             title="Parallel Efficiency",
             description=(
-                "Compare Load Balance and Communication Efficiency "
-                "to identify which factor contributes most to the "
-                "evolution of Parallel Efficiency across the analyzed "
-                "configurations."
+                "Compare Parallel Efficiency with Load Balance and Communication "
+                "Efficiency to identify which factor dominates its evolution "
+                "across the analyzed configurations."
             ),
             x_axis_title=trace_column_description,
             printable=True,
@@ -4221,11 +4220,13 @@ def _build_printable_scaling_section(
     <section
         class="print-scaling-section print-page-section"
     >
+    <div class="print-section-intro">
         <header class="print-section-header">
             <h2>{section_number} Scaling</h2>
         </header>
 
         {guidance_html}
+    </div>
 
         {scaling_model_html}
 
@@ -10907,8 +10908,9 @@ def _build_interactive_report_document(workspace_html,
 
             body.basicanalysis-print-mode
             .print-scaling-section {
-                break-before: page !important;
-                page-break-before: always !important;
+                break-before: auto !important;
+                page-break-before: auto !important;
+                margin-top: 24px !important;
             }
 
             body.basicanalysis-print-mode
@@ -10938,12 +10940,6 @@ def _build_interactive_report_document(workspace_html,
             .plotly-graph-div {
                 break-inside: avoid !important;
                 page-break-inside: avoid !important;
-            }
-
-            /* Scaling section may continue on the current page */
-            .print-scaling-section {
-                break-before: auto;
-                page-break-before: auto;
             }
 
             /* A scaling group may span pages */
@@ -10977,7 +10973,7 @@ def _build_interactive_report_document(workspace_html,
             }   
          
 
-         
+
             body.basicanalysis-print-mode
             .scaling-trend-card {
                 box-shadow: none !important;
