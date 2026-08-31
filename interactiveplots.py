@@ -4346,6 +4346,7 @@ def _build_parallel_runtime_model_views(
     <section
         class="parallel-runtime-application-efficiency"
         aria-label="Application Efficiency"
+        data-prm-export-role="application-efficiency"
     >
         <h3>Application Efficiency</h3>
 
@@ -4398,6 +4399,20 @@ def _build_parallel_runtime_model_views(
             trace_column_description=trace_column_description,
         )
 
+        runtime_efficiency_html = """
+        <section
+            class="parallel-runtime-efficiency"
+            aria-label="{runtime_label} Parallel Runtime Model"
+            data-prm-export-role="runtime-model"
+        >
+            {runtime_html}
+        </section>
+        """.format(
+            runtime_label=html.escape(runtime_label),
+            runtime_html=simple_runtime_html,
+        )
+
+
         runtime_model_views.append({
             "id": "runtime-model-simple",
             "label": runtime_label,
@@ -4405,10 +4420,23 @@ def _build_parallel_runtime_model_views(
             "html": (
                 runtime_guidance_html
                 + application_efficiency_html
-                + simple_runtime_html
+                + runtime_efficiency_html
             ),
         })
     else:
+        
+        runtime_efficiency_html = """
+        <section
+            class="parallel-runtime-efficiency"
+            aria-label="Parallel Runtime Model"
+            data-prm-export-role="runtime-model"
+        >
+            {runtime_html}
+        </section>
+        """.format(
+            runtime_html=hybrid_html,
+        )        
+        
         runtime_model_views.append({
             "id": "runtime-model-hybrid",
             "label": "MPI + {}".format(inner_model),
@@ -4416,7 +4444,7 @@ def _build_parallel_runtime_model_views(
             "html": (
                 runtime_guidance_html
                 + application_efficiency_html
-                + hybrid_html
+                + runtime_efficiency_html
             ),
         })
 
