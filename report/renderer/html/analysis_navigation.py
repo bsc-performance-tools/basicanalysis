@@ -530,13 +530,10 @@ def _render_navigation_script() -> str:
                 "[data-guided-comparison-title]"
             );
 
-            const comparisonDescription = root.querySelector(
-                "[data-guided-comparison-description]"
-            );
-
             const closeComparisonButton = root.querySelector(
                 "[data-guided-close-comparison]"
             );
+
 
             const runtimeLayout = root.querySelector(
                 "[data-guided-runtime-layout]"
@@ -552,10 +549,6 @@ def _render_navigation_script() -> str:
 
             const drilldownTitle = root.querySelector(
                 "[data-guided-drilldown-title]"
-            );
-
-            const drilldownDescription = root.querySelector(
-                "[data-guided-drilldown-description]"
             );
 
             const closeDrilldownButton = root.querySelector(
@@ -2749,11 +2742,6 @@ def _render_navigation_script() -> str:
                         selectedView.dataset.guidedViewTitle || "";
                 }
 
-                if (comparisonDescription) {
-                    comparisonDescription.textContent =
-                        selectedView.dataset.guidedViewDescription || "";
-                }
-
                 if (comparisonRegion) {
                     comparisonRegion.hidden = false;
                 }
@@ -2802,11 +2790,6 @@ def _render_navigation_script() -> str:
                 if (drilldownTitle) {
                     drilldownTitle.textContent =
                         selectedView.dataset.guidedViewTitle || "";
-                }
-
-                if (drilldownDescription) {
-                    drilldownDescription.textContent =
-                        selectedView.dataset.guidedViewDescription || "";
                 }
 
                 if (runtimeLayout) {
@@ -3077,7 +3060,6 @@ def render_analysis_navigation(
                                 Selected analysis
                             </h2>
 
-                            <p data-guided-drilldown-description></p>
                         </div>
 
                         <button
@@ -3125,8 +3107,6 @@ def render_analysis_navigation(
                         <h2 data-guided-comparison-title>
                             Second analysis
                         </h2>
-
-                        <p data-guided-comparison-description></p>
                     </div>
 
                     <button

@@ -278,7 +278,7 @@ def build_analysis_catalogue(
             AnalysisCatalogueView(
                 view_id="computation-scalability",
                 label="Scaling",
-                title=scalability_data.analysis.title,
+                title="Scaling",
                 group="primary",
                 description=scalability_data.analysis.description,
                 body_html=rendered_html.get(
