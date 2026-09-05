@@ -187,6 +187,73 @@ def parse_total_average_max(path):
     return total, avg, maximum
 
 
+def parse_host_useful_stats(path):
+    """
+    Parse useful_host.stats.csv using only real host execution rows.
+
+    Host rows are identified by labels of the form:
+        THREAD app.task.thread
+
+    GPU rows (GPU_*, GPU-*, CUDA-*, ...) are ignored even if Paraver
+    reports a non-zero value for them. This is important for cut traces,
+    where boundary effects may produce small spurious Running values on
+    GPU rows.
+
+    Returns:
+        (total, maximum)
+
+    where:
+        total   = sum of useful duration across host threads
+        maximum = maximum useful duration among host threads
+    """
+
+    host_values = []
+
+    with open(path) as f:
+        for raw_line in f:
+            line = raw_line.rstrip('\n')
+
+            if not line:
+                continue
+
+            # useful_host.stats.csv is tab-separated.
+            parts = line.split('\t')
+
+            if not parts:
+                continue
+
+            row_label = parts[0].strip()
+
+            # Keep only host execution contexts.
+            if not row_label.startswith('THREAD '):
+                continue
+
+            value = None
+
+            # Find the first numeric field after the row label.
+            for field in parts[1:]:
+                field = field.strip()
+
+                if not field:
+                    continue
+
+                try:
+                    value = float(field)
+                    break
+                except ValueError:
+                    continue
+
+            if value is not None:
+                host_values.append(value)
+
+    if not host_values:
+        return None, None
+
+    return (
+        sum(host_values),
+        max(host_values),
+    )
+
 def parse_total_as_int(path):
     total = 0.0
     for line in iter_stats_lines(path):
@@ -2208,7 +2275,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         ## host_useful_values = []
 
         if os.path.exists(trace_name + '.useful_host.stats.csv'):
-            useful_host_total, _, useful_host_max = parse_total_average_max(
+            useful_host_total, useful_host_max = parse_host_useful_stats(
                 trace_name + '.useful_host.stats.csv'
             )
 
@@ -2218,6 +2285,24 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
             else:
                 trace_raw_data['useful_host'] = 0.0
                 trace_raw_data['useful_host_max'] = 0.0
+            
+            if cmdl_args.debug:
+                paraver_total, _, paraver_max = parse_total_average_max(
+                    trace_name + '.useful_host.stats.csv'
+                )
+
+                print(
+                    '==DEBUG== Host useful: '
+                    'filtered_total={:.2f}, '
+                    'Paraver_total={:.2f}, '
+                    'filtered_max={:.2f}, '
+                    'Paraver_max={:.2f}'.format(
+                        useful_host_total,
+                        paraver_total,
+                        useful_host_max,
+                        paraver_max,
+                    )
+                )
         else:
             trace_raw_data['useful_host'] = 0.0
             trace_raw_data['useful_host_max'] = 0.0

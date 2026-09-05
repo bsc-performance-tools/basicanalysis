@@ -857,12 +857,118 @@ metrics:
     next_steps:
     - Inspect IPC, Instruction, and Frequency Scalability.
     children:
-    - ipc_scale
-    - inst_scale
-    - freq_scale
+    - host_ipc_scale
+    - host_inst_scale
+    - host_freq_scale
     sources:
     - pop_standard_metrics
     - basicanalysis_host_device
+  host_ipc_scale:
+    name: Host IPC Scalability
+    short_name: Host IPC
+    family: host
+    analysis_level: execution_domain
+    metric_type: scalability
+    definition: Compares instructions per cycle (IPC) during useful host
+      computation in the target execution with the reference execution. It
+      indicates whether the rate at which useful host instructions are executed
+      decreases, is preserved, or improves at scale.
+    formula:
+      text: HostIPCScale = HostIPC_target / HostIPC_reference
+      latex: HostIPCScale = \frac{HostIPC_{target}}{HostIPC_{ref}}
+      variables:
+        HostIPC: Useful host instructions divided by useful host cycles
+    interpretation:
+      low: Low values indicate a lower host useful-instruction execution rate
+        than in the reference execution.
+      high: Values near 100% indicate preserved host IPC relative to the
+        reference execution; higher values indicate improved IPC.
+      above_100: Values above 100% indicate higher host IPC than in the
+        reference execution.
+    typical_causes:
+    - Cache misses
+    - Memory-bandwidth saturation
+    - Pipeline stalls
+    - NUMA effects
+    next_steps:
+    - Inspect host cache and memory counters.
+    - Inspect NUMA placement and memory bandwidth.
+    children: []
+    sources:
+    - pop_standard_metrics
+    - basicanalysis_host_device
+  host_inst_scale:
+    name: Host Instruction Scalability
+    short_name: Host Inst
+    family: host
+    analysis_level: execution_domain
+    metric_type: scalability
+    definition: Compares the total number of useful host instructions in the
+      reference execution with the total number in the target execution. A
+      decrease in Host Instruction Scalability indicates that more host
+      instructions are required at scale.
+    formula:
+      text: HostInstScale = host instructions_reference / host instructions_target
+      latex: HostInstScale = \frac{HostInstructions_{ref}}{HostInstructions_{target}}
+    interpretation:
+      low: Low values indicate that more useful host instructions are required
+        than in the reference execution.
+      high: Values near 100% indicate that the useful host instruction count is
+        preserved relative to the reference execution.
+      above_100: Values above 100% indicate fewer useful host instructions than
+        in the reference execution.
+    typical_causes:
+    - Additional host-side parallel bookkeeping
+    - Additional runtime or offload management
+    - Redundant host computation
+    - Algorithmic work growth on the host
+    next_steps:
+    - Compare useful host instruction counts across configurations.
+    - Identify phases where the host instruction count changes.
+    children: []
+    sources:
+    - pop_standard_metrics
+    - basicanalysis_host_device
+  host_freq_scale:
+    name: Host Frequency Scalability
+    short_name: Host Freq
+    family: host
+    analysis_level: execution_domain
+    metric_type: scalability
+    definition: Compares the effective processor frequency associated with
+      useful host computation in the target execution with the reference
+      execution. The effective host frequency is derived from the total useful
+      CPU cycles and the corresponding useful host computation time so that the
+      metric is consistent with the Host Computation Scalability decomposition.
+    formula:
+      text: HostFreqScale = (UsefulCycles_target / HostUsefulTime_target) /
+        (UsefulCycles_reference / HostUsefulTime_reference)
+      latex: HostFreqScale =
+        \frac{UsefulCycles_{target}/HostUsefulTime_{target}}
+        {UsefulCycles_{ref}/HostUsefulTime_{ref}}
+      variables:
+        UsefulCycles: Total CPU cycles measured during useful host computation
+        HostUsefulTime: Total useful host computation time
+    interpretation:
+      low: Low values indicate a lower effective host processor frequency than
+        in the reference execution.
+      high: Values near 100% indicate that effective host processor frequency is
+        preserved relative to the reference execution.
+      above_100: Values above 100% indicate a higher effective host processor
+        frequency than in the reference execution.
+    typical_causes:
+    - Power limits
+    - Thermal throttling
+    - Turbo-frequency changes
+    - Changes in CPU core occupancy
+    next_steps:
+    - Inspect CPU frequency and power behavior.
+    - Compare the frequency behavior across the analyzed configurations.
+    children: []
+    sources:
+    - pop_standard_metrics
+    - basicanalysis_host_device
+
   dev_global_eff:
     name: Device Global Efficiency
     short_name: Device Global

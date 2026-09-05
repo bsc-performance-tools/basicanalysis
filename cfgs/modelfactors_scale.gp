@@ -20,8 +20,5 @@ set style line 4 lt 7 dt 2 lw 1.5 lc rgb '#8A2BE2' # blueviolet
 set key left bottom Left reverse
 
 
-plot '-' with linespoints title "Computation Scalability" ls 1,\
-     '-' with linespoints title "IPC Scalability" ls 2,\
-     '-' with linespoints title "Instruction Scalability" ls 3,\
-     '-' with linespoints title "Frequency Scalability" ls 4
+#REPLACE_BY_SCALE_PLOT
 

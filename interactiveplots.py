@@ -293,15 +293,15 @@ def _build_talp_metric_info():
             "label": "-- Host Computation scalability",
             "short_label": "-- Host scale",
         },
-        "ipc_scale": {
+        "host_ipc_scale": {
             "label": "   -- IPC scalability",
             "short_label": "IPC",
         },
-        "inst_scale": {
+        "host_inst_scale": {
             "label": "   -- Instruction scalability",
             "short_label": "Inst",
         },
-        "freq_scale": {
+        "host_freq_scale": {
             "label": "   -- Frequency scalability",
             "short_label": "Freq",
         },
@@ -335,7 +335,7 @@ def _build_talp_metric_info():
 
     # These canonical scalability metrics are interpreted specifically as
     # host-side sub-metrics in the Host execution-domain view.
-    for metric_key in ("ipc_scale", "inst_scale", "freq_scale"):
+    for metric_key in ("host_ipc_scale", "host_inst_scale", "host_freq_scale"):
         metric_info[metric_key]["type"] = "Host scalability sub-metric"
 
     return metric_info
@@ -482,9 +482,9 @@ TALP_TREE = [
             _tree_node("dev_offload_eff"),
         ]),
         _tree_node("host_comp_scale", [
-            _tree_node("ipc_scale"),
-            _tree_node("inst_scale"),
-            _tree_node("freq_scale"),
+            _tree_node("host_ipc_scale"),
+            _tree_node("host_inst_scale"),
+            _tree_node("host_freq_scale"),
         ]),
     ]),
     _tree_node("dev_global_eff", [
@@ -510,9 +510,9 @@ HOST_TREE = [
             _tree_node("dev_offload_eff"),
         ]),
         _tree_node("host_comp_scale", [
-            _tree_node("ipc_scale"),
-            _tree_node("inst_scale"),
-            _tree_node("freq_scale"),
+            _tree_node("host_ipc_scale"),
+            _tree_node("host_inst_scale"),
+            _tree_node("host_freq_scale"),
         ]),
     ])
 ]
@@ -9671,9 +9671,9 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             "transfer_eff",
             "dev_offload_eff",
             "host_comp_scale",
-            "ipc_scale",
-            "inst_scale",
-            "freq_scale",
+            "host_ipc_scale",
+            "host_inst_scale",
+            "host_freq_scale",
         ]
         device_keys = [
             "dev_global_eff",
@@ -9685,11 +9685,10 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         ]
 
         host_sources = {}
-        for key in host_keys:
-            if key in ("ipc_scale", "inst_scale", "freq_scale"):
-                host_sources[key] = mod_factors
-            else:
-                host_sources[key] = host_factors
+        host_sources = {
+            key: host_factors
+            for key in host_keys
+        }
 
         device_sources = {key: device_factors for key in device_keys}
 

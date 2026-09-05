@@ -253,6 +253,38 @@ def is_mpi_gpu_mode(mode):
     )  
 
 
+def get_application_factor_keys(trace_list, trace_mode):
+    """
+    Return the application-level metric keys that are valid for output.
+
+    For MPI+GPU, Computation Scalability represents the complete
+    application (Host + Device useful computation). CPU IPC,
+    Instruction, and Frequency Scalability therefore do not form
+    a decomposition of this metric and must not be presented as
+    its children.
+    """
+
+    is_mpi_gpu_analysis = all(
+        is_mpi_gpu_mode(trace_mode[trace])
+        for trace in trace_list
+    )
+
+    if is_mpi_gpu_analysis:
+        excluded = {
+            'ipc_scale',
+            'inst_scale',
+            'freq_scale',
+        }
+
+        return [
+            key
+            for key in mod_factors_doc
+            if key not in excluded
+        ]
+
+    return list(mod_factors_doc.keys())
+
+
 def _build_hybrid_xaxis_label(
         trace_list,
         trace_mode,
@@ -895,14 +927,70 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     else:
                         mod_factors['comp_scale'][trace] = 100.0
                 elif outmpi_measures and is_mpi_gpu:
-                    if scaling == 'strong':
-                        host_factors['host_comp_scale'][trace] = float(raw_data['useful_host'][trace_list[0]]) \
-                                                    / float(raw_data['useful_host'][trace]) * 100.0
-                    else:
-                        host_factors['host_comp_scale'][trace] = float(raw_data['useful_host'][trace_list[0]]) \
-                                                    / float(raw_data['useful_host'][trace]) * proc_ratio * 100.0
+                    # --------------------------------------------------
+                    # Host Computation Scalability
+                    # Execution Domains / TALP Host metric
+                    # --------------------------------------------------
 
-                    mod_factors['comp_scale'][trace] = host_factors['host_comp_scale'][trace]
+                    if scaling == 'strong':
+                        host_factors['host_comp_scale'][trace] = (
+                            float(raw_data['useful_host'][trace_list[0]])
+                            / float(raw_data['useful_host'][trace])
+                            * 100.0
+                        )
+                    else:
+                        host_factors['host_comp_scale'][trace] = (
+                            float(raw_data['useful_host'][trace_list[0]])
+                            / float(raw_data['useful_host'][trace])
+                            * proc_ratio
+                            * 100.0
+                        )
+
+                    # --------------------------------------------------
+                    # Application Computation Scalability
+                    # Classic MPI+GPU model:
+                    # application useful = host useful + device useful
+                    # --------------------------------------------------
+
+                    useful_app_ref = (
+                        float(raw_data['useful_host'][trace_list[0]])
+                        + float(raw_data['useful_device'][trace_list[0]])
+                    )
+
+                    useful_app = (
+                        float(raw_data['useful_host'][trace])
+                        + float(raw_data['useful_device'][trace])
+                    )
+
+                    if scaling == 'strong':
+                        mod_factors['comp_scale'][trace] = (
+                            useful_app_ref
+                            / useful_app
+                            * 100.0
+                        )
+                    else:
+                        mod_factors['comp_scale'][trace] = (
+                            useful_app_ref
+                            / useful_app
+                            * proc_ratio
+                            * 100.0
+                        )
+
+                    if cmdl_args.debug:
+                        print(
+                            '==DEBUG== Computation scalability MPI+GPU: '
+                            'host_useful={:.2f}, '
+                            'device_useful={:.2f}, '
+                            'app_useful={:.2f}, '
+                            'host_comp_scale={:.2f}, '
+                            'app_comp_scale={:.2f}'.format(
+                                float(raw_data['useful_host'][trace]),
+                                float(raw_data['useful_device'][trace]),
+                                useful_app,
+                                float(host_factors['host_comp_scale'][trace]),
+                                float(mod_factors['comp_scale'][trace]),
+                            )
+                        )
                 else:
                     if scaling == 'strong':
                         mod_factors['comp_scale'][trace] = float(raw_data['useful_tot'][trace_list[0]]) \
@@ -1476,11 +1564,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         / float(other_metrics['freq'][trace_list[0]])
                         * 100.0
                     )
-
-                    if outmpi_measures and is_mpi_gpu:
-                        host_factors['host_freq_scale'][trace] = \
-                            mod_factors['freq_scale'][trace]
-                    else:
+                    
+                    if not (outmpi_measures and is_mpi_gpu):
                         host_factors['host_freq_scale'][trace] = 'Non-Avail'
 
                 else:
@@ -1493,6 +1578,46 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         except (TypeError, ValueError, ZeroDivisionError):
             mod_factors['freq_scale'][trace] = 'NaN'
+            host_factors['host_freq_scale'][trace] = 'NaN'
+
+
+        # Host Frequency Scalability for MPI+GPU
+        try:
+            if len(trace_list) > 1 and outmpi_measures and is_mpi_gpu:
+
+                reference = trace_list[0]
+
+                if (
+                    raw_data['useful_cyc'][trace] == 'Non-Avail'
+                    or raw_data['useful_cyc'][reference] == 'Non-Avail'
+                    or float(raw_data['useful_cyc'][trace]) <= 0.0
+                    or float(raw_data['useful_cyc'][reference]) <= 0.0
+                    or float(raw_data['useful_host'][trace]) <= 0.0
+                    or float(raw_data['useful_host'][reference]) <= 0.0
+                ):
+                    host_factors['host_freq_scale'][trace] = 'Non-Avail'
+
+                else:
+                    host_frequency_ref = (
+                        float(raw_data['useful_cyc'][reference])
+                        / float(raw_data['useful_host'][reference])
+                    )
+
+                    host_frequency = (
+                        float(raw_data['useful_cyc'][trace])
+                        / float(raw_data['useful_host'][trace])
+                    )
+
+                    host_factors['host_freq_scale'][trace] = (
+                        host_frequency
+                        / host_frequency_ref
+                        * 100.0
+                    )
+
+            else:
+                host_factors['host_freq_scale'][trace] = 'Non-Avail'
+
+        except (TypeError, ValueError, ZeroDivisionError):
             host_factors['host_freq_scale'][trace] = 'NaN'
 
 
@@ -1771,7 +1896,12 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
 
     print(''.ljust(len(line), '='))
 
-    for mod_key in mod_factors_doc:
+    application_factor_keys = get_application_factor_keys(
+        trace_list,
+        trace_mode,
+    )
+
+    for mod_key in application_factor_keys:
         line = mod_factors_doc[mod_key].ljust(longest_name)
         for trace in trace_list:
             line += ' | '
@@ -2166,8 +2296,12 @@ def print_efficiency_table(mod_factors, hybrid_factors, hyb_comm_omp_factors,
             line += label        
 
         output.write(line + '\n')
+        application_factor_keys = get_application_factor_keys(
+            trace_list,
+            trace_mode,
+        )
 
-        for mod_key in mod_factors_doc:
+        for mod_key in application_factor_keys:
             if mod_key not in ['speedup', 
                                 'ipc', 'freq', 'elapsed_time', 
                                 'efficiency', 'flushing', 
@@ -2284,7 +2418,7 @@ def print_efficiency_table(mod_factors, hybrid_factors, hyb_comm_omp_factors,
             print('Hybrid Efficiency Table written to ' + file_path[:len(file_path) - 3] + '.gp')
 
 
-def print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes):
+def print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes, trace_mode):
     """Prints the model factors table in a csv file."""
     global mod_factors_doc, mod_hybrid_factors_doc
 
@@ -2301,7 +2435,11 @@ def print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_process
             line += str(trace_processes[trace])
         output.write(line + '\n')
 
-        for mod_key in mod_factors_doc:
+        application_factor_keys = get_application_factor_keys(
+            trace_list,
+            trace_mode,
+        )
+        for mod_key in application_factor_keys:
             line = "\"" + mod_factors_doc[mod_key].replace('  ', '', 2) + "\""
             for trace in trace_list:
                 line += delimiter
@@ -2458,15 +2596,28 @@ def plots_modelfactors_matplot(trace_list, trace_processes,trace_tasks, trace_th
         if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
             count_mode += 1
 
+    is_mpi_gpu_analysis = all(
+        is_mpi_gpu_mode(trace_mode[trace])
+        for trace in trace_list
+    )
+
     file_path = os.path.join(os.getcwd(), 'modelfactors.csv')
     df = pd.read_csv(file_path, sep=';')
 
     traces_procs = list(df.keys())[1:]
 
-    if count_mode != len(trace_list):
+    if is_mpi_gpu_analysis:
+        # MPI+GPU application output has no IPC/Instruction/Frequency
+        # scalability rows under Computation Scalability.
+        df_hybrid = df[5:14].dropna(axis='columns', how='all')
+
+    elif count_mode != len(trace_list):
         df_hybrid = df[10:19].dropna(axis='columns', how='all')
+
     else:
         df_hybrid = df[8:17].dropna(axis='columns', how='all')
+
+
 
     traces_procs_hybrid = list(df_hybrid.keys())[1:]
 
@@ -2568,14 +2719,38 @@ def plots_modelfactors_matplot(trace_list, trace_processes,trace_tasks, trace_th
     ## Scale Metrics
     plt.figure()
 
-    if count_mode == len(trace_list):
-        max_scale = max([max(list_data[4]), max(list_data[5]), max(list_data[6]), max(list_data[7])])
+    if is_mpi_gpu_analysis:
+        # Application-level Computation Scalability for MPI+GPU
+        # has no CPU-only IPC/Instruction/Frequency decomposition.
+        max_scale = max(list_data[4])
+
+        plt.plot(
+            traces_procs,
+            list_data[4],
+            'v-',
+            color='blue',
+            markerfacecolor='blue',
+            label='Computation scalability'
+        )
+
+    elif count_mode == len(trace_list):
+        max_scale = max([
+            max(list_data[4]),
+            max(list_data[5]),
+            max(list_data[6]),
+            max(list_data[7])
+        ])
         plt.plot(traces_procs, list_data[4], 'v-', color='blue', markerfacecolor='blue', label='Computation scalability')
         plt.plot(traces_procs, list_data[5], 'v--', color='skyblue', label='IPC scalability')
         plt.plot(traces_procs, list_data[6], 'v:', color='gray', label='Instruction scalability')
         plt.plot(traces_procs, list_data[7], 'v-.', color='darkviolet', label='Frequency scalability')
     else:
-        max_scale = max([max(list_data[6]), max(list_data[7]), max(list_data[8]), max(list_data[9])])
+        max_scale = max([
+            max(list_data[6]),
+            max(list_data[7]),
+            max(list_data[8]),
+            max(list_data[9])
+        ])
         plt.plot(traces_procs, list_data[6], 'v-', color='blue', markerfacecolor='blue', label='Computation scalability')
         plt.plot(traces_procs, list_data[7], 'v--', color='skyblue', label='IPC scalability')
         plt.plot(traces_procs, list_data[8], 'v:', color='gray', label='Instruction scalability')
@@ -2595,7 +2770,71 @@ def plots_modelfactors_matplot(trace_list, trace_processes,trace_tasks, trace_th
 
     plt.figure()
 
-    if count_mode == len(trace_list):
+
+    if is_mpi_gpu_analysis:
+        max_hybrid = max([
+            max(list_data_hybrid[0]),
+            max(list_data_hybrid[1]),
+            max(list_data_hybrid[2]),
+            max(list_data_hybrid[3]),
+            max(list_data_hybrid[6]),
+            max(list_data_hybrid[7]),
+            max(list_data_hybrid[8])
+        ])
+
+        runtime_name = trace_mode[trace_list[0]][len("Detailed+MPI+"):]
+
+        plt.plot(
+            traces_procs_hybrid,
+            list_data_hybrid[0],
+            's-',
+            color='purple',
+            label='Hybrid Parallel efficiency'
+        )
+        plt.plot(
+            traces_procs_hybrid,
+            list_data_hybrid[1],
+            'o--',
+            color='green',
+            label='MPI Parallel efficiency'
+        )
+        plt.plot(
+            traces_procs_hybrid,
+            list_data_hybrid[2],
+            'x-.',
+            color='lime',
+            label='MPI Load balance'
+        )
+        plt.plot(
+            traces_procs_hybrid,
+            list_data_hybrid[3],
+            '*:',
+            color='lightseagreen',
+            label='MPI Communication efficiency'
+        )
+        plt.plot(
+            traces_procs_hybrid,
+            list_data_hybrid[6],
+            'h--',
+            color='red',
+            label=runtime_name + ' Parallel efficiency'
+        )
+        plt.plot(
+            traces_procs_hybrid,
+            list_data_hybrid[7],
+            'v-.',
+            color='orange',
+            label=runtime_name + ' Load Balance'
+        )
+        plt.plot(
+            traces_procs_hybrid,
+            list_data_hybrid[8],
+            'X:',
+            color='salmon',
+            label=runtime_name + ' Communication efficiency'
+        )
+
+    elif count_mode == len(trace_list):
         max_hybrid = max([max(list_data[8]), max(list_data[9]), max(list_data[10]), max(list_data[11]),
                      max(list_data[14]), max(list_data[15]), max(list_data[16])])
         plt.plot(traces_procs, list_data[8], 's-', color='purple', label='Hybrid Parallel efficiency')
@@ -2629,8 +2868,8 @@ def plots_modelfactors_matplot(trace_list, trace_processes,trace_tasks, trace_th
 
     ## MPI Metrics
     plt.figure()
-
-    if count_mode == len(trace_list):
+     
+    if count_mode == len(trace_list) and not is_mpi_gpu_analysis: 
         if max(list_data[12]) != 'NaN' and max(list_data[13]) != 'NaN':
             max_mpi = max([max(list_data[9]), max(list_data[10]), max(list_data[11]),
                        max(list_data[12]), max(list_data[13])])

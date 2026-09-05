@@ -291,6 +291,11 @@ def plot_hybrid_metrics(
 
     number_traces = len(trace_list)
 
+    is_mpi_gpu_analysis = all(
+        is_mpi_gpu_mode(trace_mode[trace])
+        for trace in trace_list
+    )
+
     configuration_labels, plot_x_values = (
         _build_hybrid_plot_axis(
             trace_list,
@@ -528,6 +533,31 @@ def plot_hybrid_metrics(
     with open(gp_template) as f:
         content = f.readlines()
 
+    if is_mpi_gpu_analysis:
+        scale_plot = (
+            'plot \'-\' with linespoints '
+            'title "Computation Scalability" ls 1'
+        )
+    else:
+        scale_plot = (
+            'plot \'-\' with linespoints '
+            'title "Computation Scalability" ls 1,\\\n'
+            '     \'-\' with linespoints '
+            'title "IPC Scalability" ls 2,\\\n'
+            '     \'-\' with linespoints '
+            'title "Instruction Scalability" ls 3,\\\n'
+            '     \'-\' with linespoints '
+            'title "Frequency Scalability" ls 4'
+        )
+
+    content = [
+        line.replace(
+            '#REPLACE_BY_SCALE_PLOT',
+            scale_plot
+        )
+        for line in content
+    ]
+
     content = [
         line.replace(
             '#REPLACE_BY_XLABEL',
@@ -557,7 +587,16 @@ def plot_hybrid_metrics(
     content = [line.replace('#REPLACE_BY_TRACE_NAMES', ''.join(["set title " + '"' + ''])) for line in
                content]
 
-    max_comp = max([max(y_comp), max(y_ipc_scale), max(y_inst_scale), max(y_freq_scale)])
+    if is_mpi_gpu_analysis:
+        max_comp = max(y_comp)
+    else:
+        max_comp = max([
+            max(y_comp),
+            max(y_ipc_scale),
+            max(y_inst_scale),
+            max(y_freq_scale)
+        ])
+
     content = [line.replace('#REPLACE_BY_YRANGE', ''
                             .join(['set yrange [0:', str(max_comp+5), ']'])) for line in content]
 
@@ -567,25 +606,52 @@ def plot_hybrid_metrics(
 
     # Add data points to gnuplot file
     with open(file_path, 'a') as f:
-        for index in range(0, number_traces):
-            line = ' '.join([str(plot_x_values[index]), str(y_comp[index]), '\n'])
+
+        # Computation Scalability
+        for index in range(number_traces):
+            line = ' '.join([
+                str(plot_x_values[index]),
+                str(y_comp[index]),
+                '\n'
+            ])
             f.write(line)
+
         f.write('e\n')
 
-        for index in range(0, number_traces):
-            line = ' '.join([str(plot_x_values[index]), str(y_ipc_scale[index]), '\n'])
-            f.write(line)
-        f.write('e\n')
+        if not is_mpi_gpu_analysis:
 
-        for index in range(0, number_traces):
-            line = ' '.join([str(plot_x_values[index]), str(y_inst_scale[index]), '\n'])
-            f.write(line)
-        f.write('e\n')
+            # IPC Scalability
+            for index in range(number_traces):
+                line = ' '.join([
+                    str(plot_x_values[index]),
+                    str(y_ipc_scale[index]),
+                    '\n'
+                ])
+                f.write(line)
 
-        for index in range(0, number_traces):
-            line = ' '.join([str(plot_x_values[index]), str(y_freq_scale[index]), '\n'])
-            f.write(line)
-        f.write('e\n')
+            f.write('e\n')
+
+            # Instruction Scalability
+            for index in range(number_traces):
+                line = ' '.join([
+                    str(plot_x_values[index]),
+                    str(y_inst_scale[index]),
+                    '\n'
+                ])
+                f.write(line)
+
+            f.write('e\n')
+
+            # Frequency Scalability
+            for index in range(number_traces):
+                line = ' '.join([
+                    str(plot_x_values[index]),
+                    str(y_freq_scale[index]),
+                    '\n'
+                ])
+                f.write(line)
+
+            f.write('e\n')
 
         f.write('\n')
         f.write('pause -1\n')
