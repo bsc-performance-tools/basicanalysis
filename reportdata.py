@@ -4,8 +4,11 @@
 
 from __future__ import print_function, division
 
+
 import os
 import shutil
+
+from tracemetadata import get_execution_mapping
 
 def build_report(metrics_result,
                  analysis_result,
@@ -71,6 +74,11 @@ def _build_traces(trace_list,
             "gpu_streams_per_rank", {}
         ).get(trace, 0)
 
+        execution_mapping = get_execution_mapping(
+            trace,
+            trace_mode.get(trace, "unknown"),
+        )
+
         traces.append({
             "id": index + 1,
             "name": os.path.basename(trace),
@@ -82,6 +90,7 @@ def _build_traces(trace_list,
             "devices": devices,
             "gpu_streams": gpu_streams,
             "gpu_streams_per_rank": gpu_streams_per_rank,
+            "mapping": execution_mapping,
         })
      
 

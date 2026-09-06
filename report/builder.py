@@ -14,6 +14,7 @@ from .sections import (
 
 from .model import (
     AnalysisContext,
+    ExecutionMappingInfo,
     GeneralInfo,
     Report,
     ReportMetadata,
@@ -44,51 +45,88 @@ def build_analysis_context(
         ),
     )
 
-    traces = [
-        TraceInfo(
-            trace_id=item.get("id"),
-            name=item.get(
-                "name",
-                "unknown",
-            ),
-            path=item.get(
-                "path",
-                "",
-            ),
-            mode=item.get(
-                "mode",
-                "unknown",
-            ),
-            processes=item.get(
-                "processes",
-                "unknown",
-            ),
-            tasks=item.get(
-                "tasks",
-                "unknown",
-            ),
-            threads=item.get(
-                "threads",
-                "unknown",
-            ),
-            devices=item.get(
-                "devices",
-                0,
-            ),
-            gpu_streams=item.get(
-                "gpu_streams",
-                0,
-            ),
-            gpu_streams_per_rank=item.get(
-                "gpu_streams_per_rank",
-                0,
-            ),
+    
+    traces = []
+
+    for item in report_data.get(
+        "traces",
+        [],
+    ):
+        mapping_data = item.get(
+            "mapping",
+            {},
         )
-        for item in report_data.get(
-            "traces",
-            [],
+
+        if isinstance(mapping_data, Mapping):
+            mapping = ExecutionMappingInfo(
+                nodes=mapping_data.get(
+                    "nodes",
+                ),
+                mpi_ranks_per_node=mapping_data.get(
+                    "mpi_ranks_per_node",
+                ),
+                threads_per_rank=mapping_data.get(
+                    "threads_per_rank",
+                ),
+                threads_per_node=mapping_data.get(
+                    "threads_per_node",
+                ),
+                gpus_per_node=mapping_data.get(
+                    "gpus_per_node",
+                ),
+                gpu_streams_per_node=mapping_data.get(
+                    "gpu_streams_per_node",
+                ),
+                streams_per_gpu=mapping_data.get(
+                    "streams_per_gpu",
+                ),
+            )
+        else:
+            mapping = None
+
+        traces.append(
+            TraceInfo(
+                trace_id=item.get("id"),
+                name=item.get(
+                    "name",
+                    "unknown",
+                ),
+                path=item.get(
+                    "path",
+                    "",
+                ),
+                mode=item.get(
+                    "mode",
+                    "unknown",
+                ),
+                processes=item.get(
+                    "processes",
+                    "unknown",
+                ),
+                tasks=item.get(
+                    "tasks",
+                    "unknown",
+                ),
+                threads=item.get(
+                    "threads",
+                    "unknown",
+                ),
+                devices=item.get(
+                    "devices",
+                    0,
+                ),
+                gpu_streams=item.get(
+                    "gpu_streams",
+                    0,
+                ),
+                gpu_streams_per_rank=item.get(
+                    "gpu_streams_per_rank",
+                    0,
+                ),
+                mapping=mapping,
+            )
         )
-    ]
+
 
     resources = [
         ResourceInfo(

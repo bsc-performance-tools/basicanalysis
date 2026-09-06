@@ -7,6 +7,7 @@ from typing import Any, Mapping, Tuple
 
 from ..model import (
     AnalysisContext,
+    ExecutionMappingInfo,
     GeneralInfo,
     ReportSection,
     ResourceInfo,
@@ -49,11 +50,20 @@ class OverviewMetric:
 
 
 @dataclass(frozen=True)
+class OverviewExecutionMapping:
+    """Execution-resource mapping associated with one trace."""
+
+    trace_id: int
+    mapping: ExecutionMappingInfo
+
+
+@dataclass(frozen=True)
 class OverviewData:
     """Semantic information presented in the Overview section."""
 
     general: GeneralInfo
     traces: Tuple[TraceInfo, ...]
+    execution_mappings: Tuple[OverviewExecutionMapping, ...]
     general_metrics: Tuple[OverviewMetric, ...]
     resources: Tuple[ResourceInfo, ...]
 
@@ -69,7 +79,12 @@ class OverviewBuilder:
         overview_data = OverviewData(
             general=context.general,
             traces=tuple(context.traces),
-            general_metrics=self._build_general_metrics(context),
+            execution_mappings=self._build_execution_mappings(
+                context
+            ),
+            general_metrics=self._build_general_metrics(
+                context
+            ),
             resources=tuple(context.resources),
         )
 
@@ -99,11 +114,22 @@ class OverviewBuilder:
 
         section.add_child(
             ReportSection(
+                section_id="execution-mapping",
+                title="Execution mapping",
+                navigation_label="Execution mapping",
+                section_type="overview-mapping",
+                order=20,
+                payload=overview_data.execution_mappings,
+            )
+        )
+
+        section.add_child(
+            ReportSection(
                 section_id="general-information",
                 title="General information",
                 navigation_label="General information",
                 section_type="overview-general",
-                order=20,
+                order=30,
                 payload=overview_data.general,
             )
         )
@@ -114,7 +140,7 @@ class OverviewBuilder:
                 title="General metrics",
                 navigation_label="General metrics",
                 section_type="overview-metrics",
-                order=30,
+                order=40,
                 payload=overview_data.general_metrics,
             )
         )
@@ -125,7 +151,7 @@ class OverviewBuilder:
                 title="Paraver validation",
                 navigation_label="Paraver validation",
                 section_type="overview-resources",
-                order=40,
+                order=50,
                 payload=overview_data.resources,
             )
         )
@@ -224,3 +250,25 @@ class OverviewBuilder:
             return metric_values[trace_id_as_string]
 
         return None
+
+    def _build_execution_mappings(
+        self,
+        context: AnalysisContext,
+    ) -> Tuple[OverviewExecutionMapping, ...]:
+        """Build the execution mapping associated with each trace."""
+
+        mappings = []
+
+        for trace in context.traces:
+
+            if trace.mapping is None:
+                continue
+
+            mappings.append(
+                OverviewExecutionMapping(
+                    trace_id=trace.trace_id,
+                    mapping=trace.mapping,
+                )
+            )
+
+        return tuple(mappings)

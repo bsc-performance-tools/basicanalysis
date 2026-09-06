@@ -124,6 +124,93 @@ def _trace_resource_columns(
     )
 
 
+def _execution_mapping_columns(
+    model_key: str,
+) -> Tuple[Tuple[str, str], ...]:
+    """Return mapping columns required by one programming model."""
+
+    columns = {
+        "mpi": (
+            ("nodes", "Nodes"),
+            ("mpi_ranks_per_node", "MPI ranks/node"),
+        ),
+
+        "openmp": (
+            ("nodes", "Nodes"),
+        ),
+
+        "pthreads": (
+            ("nodes", "Nodes"),
+        ),
+
+        "ompss": (
+            ("nodes", "Nodes"),
+        ),
+
+        "gpu": (
+            ("nodes", "Nodes"),
+            ("gpus_per_node", "GPUs/node"),
+            ("gpu_streams_per_node", "GPU streams/node"),
+            ("streams_per_gpu", "Streams/GPU"),
+        ),
+
+        "mpi_threads": (
+            ("nodes", "Nodes"),
+            ("mpi_ranks_per_node", "MPI ranks/node"),
+            ("threads_per_rank", "Threads/rank"),
+            ("threads_per_node", "Threads/node"),
+        ),
+
+        "mpi_ompss": (
+            ("nodes", "Nodes"),
+            ("mpi_ranks_per_node", "MPI ranks/node"),
+            ("threads_per_rank", "Workers/rank"),
+            ("threads_per_node", "Workers/node"),
+        ),
+
+        "mpi_gpu": (
+            ("nodes", "Nodes"),
+            ("mpi_ranks_per_node", "MPI ranks/node"),
+            ("gpus_per_node", "GPUs/node"),
+            ("gpu_streams_per_node", "GPU streams/node"),
+            ("streams_per_gpu", "Streams/GPU"),
+        ),
+
+        "generic": (
+            ("nodes", "Nodes"),
+        ),
+    }
+
+    return columns.get(
+        model_key,
+        columns["generic"],
+    )
+
+
+def _format_mapping_value(
+    mapping,
+    field_name: str,
+) -> str:
+    """Return a mapping value suitable for the HTML table."""
+
+    if mapping is None:
+        return "-"
+
+    value = getattr(
+        mapping,
+        field_name,
+        None,
+    )
+
+    if value == -1:
+        return "Non-uniform"
+
+    if value is None:
+        return "-"
+
+    return str(value)
+
+
 def _format_trace_id(trace: TraceInfo) -> str:
     """Return the user-facing trace identifier."""
 
@@ -166,6 +253,27 @@ def _validate_trace_section(section: ReportSection) -> None:
         )
 
     if section.section_type != "overview-traces":
+        raise ValueError(
+            "Section {!r} has unexpected type {!r}.".format(
+                section.section_id,
+                section.section_type,
+            )
+        )
+
+
+def _validate_mapping_section(
+    section: ReportSection,
+) -> None:
+    """Validate that a section can be rendered as execution mapping."""
+
+    if section.section_id != "execution-mapping":
+        raise ValueError(
+            "Expected section 'execution-mapping', got {!r}.".format(
+                section.section_id
+            )
+        )
+
+    if section.section_type != "overview-mapping":
         raise ValueError(
             "Section {!r} has unexpected type {!r}.".format(
                 section.section_id,
@@ -275,6 +383,119 @@ def render_trace_configuration(
     return "\n".join(lines)
 
 
+def render_execution_mapping(
+    section: ReportSection,
+    traces: Iterable[TraceInfo],
+    include_trace_name: bool = True,
+) -> str:
+    """Render the semantic Execution Mapping section as HTML."""
+
+    _validate_mapping_section(section)
+
+    mappings = tuple(
+        section.payload or ()
+    )
+
+    traces = tuple(traces)
+
+    if not mappings or not traces:
+        return (
+            "<p>No execution mapping information available.</p>"
+        )
+
+    # Use the same programming-model family already used
+    # by the Trace Configuration table.
+    first_trace = traces[0]
+
+    _, first_programming_model = _split_trace_mode(
+        first_trace.mode
+    )
+
+    model_key = _programming_model_key(
+        first_programming_model
+    )
+
+    mapping_columns = _execution_mapping_columns(
+        model_key
+    )
+
+    # Map trace IDs to names so the mapping table remains
+    # independent from the complete TraceInfo object.
+    trace_names = {
+        trace.trace_id: trace.name
+        for trace in traces
+    }
+
+    lines = []
+
+    lines.append("<table class='metric-table'>")
+    lines.append("<thead>")
+    lines.append("<tr>")
+
+    lines.append("<th>ID</th>")
+
+    if include_trace_name:
+        lines.append("<th>Trace</th>")
+
+    for _, label in mapping_columns:
+        lines.append(
+            "<th>{}</th>".format(
+                html.escape(label)
+            )
+        )
+
+    lines.append("</tr>")
+    lines.append("</thead>")
+    lines.append("<tbody>")
+
+    for item in mappings:
+
+        trace_id = item.trace_id
+        mapping = item.mapping
+
+        lines.append("<tr>")
+
+        lines.append(
+            "<td><strong>{}</strong></td>".format(
+                html.escape(
+                    "T{}".format(trace_id)
+                )
+            )
+        )
+
+        if include_trace_name:
+            trace_name = trace_names.get(
+                trace_id,
+                "-"
+            )
+
+            lines.append(
+                "<td><code>{}</code></td>".format(
+                    html.escape(str(trace_name))
+                )
+            )
+
+        for field_name, _ in mapping_columns:
+
+            value = _format_mapping_value(
+                mapping,
+                field_name,
+            )
+
+            lines.append(
+                "<td>{}</td>".format(
+                    html.escape(value)
+                )
+            )
+
+        lines.append("</tr>")
+
+    lines.append("</tbody>")
+    lines.append("</table>")
+
+    return "\n".join(lines)
+
+
 def _get_child(
     section: ReportSection,
     child_id: str,
@@ -314,8 +535,20 @@ def render_overview(
         "trace-configuration",
     )
 
+    mapping_section = _get_child(
+        section,
+        "execution-mapping",
+    )
+
     trace_configuration_html = (
         render_trace_configuration(trace_section)
+    )
+
+    execution_mapping_html = (
+        render_execution_mapping(
+            mapping_section,
+            trace_section.payload,
+        )
     )
 
     return """
@@ -327,10 +560,25 @@ def render_overview(
                 <h3>{trace_title}</h3>
                 {trace_configuration_html}
             </section>
+
+            <section class="report-section">
+                <h3>{mapping_title}</h3>
+                {execution_mapping_html}
+            </section>
         </div>
     </section>
     """.format(
         title=html.escape(section.title),
-        trace_title=html.escape(trace_section.title),
-        trace_configuration_html=trace_configuration_html,
+        trace_title=html.escape(
+            trace_section.title
+        ),
+        trace_configuration_html=(
+            trace_configuration_html
+        ),
+        mapping_title=html.escape(
+            mapping_section.title
+        ),
+        execution_mapping_html=(
+            execution_mapping_html
+        ),
     )

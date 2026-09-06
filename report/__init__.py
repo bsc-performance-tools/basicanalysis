@@ -3,6 +3,7 @@
 from .builder import build_analysis_context, build_report_model
 from .model import (
     AnalysisContext,
+    ExecutionMappingInfo,
     GeneralInfo,
     NavigationItem,
     Report,
@@ -14,6 +15,7 @@ from .model import (
 
 __all__ = [
     "AnalysisContext",
+    "ExecutionMappingInfo",
     "GeneralInfo",
     "NavigationItem",
     "Report",

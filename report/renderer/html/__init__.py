@@ -1,6 +1,7 @@
 """HTML renderers for the BasicAnalysis semantic report model."""
 
 from .overview import (
+    render_execution_mapping,
     render_overview,
     render_trace_configuration,
 )

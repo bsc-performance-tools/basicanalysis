@@ -502,6 +502,21 @@ def generate_plots(
     if cmdl_args.debug:
         print("==DEBUG== Report data model created")
         print("==DEBUG== Report traces:", len(report["traces"]))
+
+        for trace_info in analysis_context.traces:
+            print(
+                "==DEBUG== Semantic mapping:",
+                trace_info.trace_id,
+                trace_info.mapping,
+            )
+
+        for trace_info in report["traces"]:
+            print(
+                "==DEBUG== Report mapping:",
+                trace_info["id"],
+                trace_info.get("mapping"),
+            )
+
         print("==DEBUG== Report resources:", len(report["resources"]))
         print(
             "==DEBUG== Semantic report sections:",
@@ -510,6 +525,20 @@ def generate_plots(
 
         # Temporary Phase 3.1 integration validation
         overview = report_model.get_section("overview")
+
+        mapping_section = report_model.get_section(
+            "execution-mapping"
+        )
+
+        if mapping_section is not None:
+            print("==DEBUG== Execution Mapping section:")
+
+            for item in mapping_section.payload:
+                print(
+                    "==DEBUG== ",
+                    item.trace_id,
+                    item.mapping,
+                )
 
         print("\n==DEBUG== Overview section")
         print("==DEBUG== Section ID:", overview.section_id)

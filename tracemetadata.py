@@ -412,6 +412,285 @@ def _node_from_thread_label(thread_label: str, cpu_to_node: Dict[int, str]) -> O
     return cpu_to_node.get(task_idx)
 
 
+def _representative_mapping_value(values):
+    """
+    Return a representative value for a per-node/per-resource mapping.
+
+    Returns:
+        None -> no mapping information available
+        int  -> uniform mapping
+        -1   -> non-uniform mapping
+    """
+
+    values = list(values)
+
+    if not values:
+        return None
+
+    if len(set(values)) == 1:
+        return values[0]
+
+    return -1
+
+
+def _get_host_mapping_from_row(prv_file):
+    """
+    Extract Host execution placement from the .row hierarchy.
+
+    Host execution contexts are rows of the form:
+
+        THREAD application.task.thread
+
+    The LEVEL THREAD and LEVEL CPU sections are interpreted
+    positionally to associate each Host thread with a node.
+
+    Returns:
+        {
+            "ranks_by_node": {
+                node: {task_ids},
+            },
+            "threads_by_rank": {
+                task_id: count,
+            },
+            "threads_by_node": {
+                node: count,
+            },
+            "nodes": {node_names},
+        }
+    """
+
+    cpu_to_node = _parse_row_cpu_nodes(prv_file)
+
+    ranks_by_node = defaultdict(set)
+    threads_by_rank = defaultdict(int)
+    threads_by_node = defaultdict(int)
+    nodes = set()
+
+    position = 0
+
+    thread_re = re.compile(
+        r"^THREAD\s+(\d+)\.(\d+)\.(\d+)\s*$"
+    )
+
+    for line in _iter_thread_section_lines(prv_file):
+        position += 1
+
+        node = cpu_to_node.get(position)
+
+        if node is not None:
+            nodes.add(node)
+
+        match = thread_re.match(line)
+
+        # Ignore GPU execution objects here.
+        if match is None:
+            continue
+
+        task_id = int(match.group(2))
+
+        threads_by_rank[task_id] += 1
+
+        if node is not None:
+            ranks_by_node[node].add(task_id)
+            threads_by_node[node] += 1
+
+    return {
+        "ranks_by_node": dict(ranks_by_node),
+        "threads_by_rank": dict(threads_by_rank),
+        "threads_by_node": dict(threads_by_node),
+        "nodes": nodes,
+    }
+
+
+def get_execution_mapping(prv_file, trace_mode):
+    """
+    Extract a representative execution mapping from a Paraver trace.
+
+    The function summarizes how execution resources are distributed
+    across nodes. Only fields meaningful for the detected programming
+    model are populated.
+
+    Values:
+        None -> not applicable or unavailable
+        -1   -> non-uniform mapping
+        int  -> uniform mapping value
+
+    Returns:
+        {
+            "nodes": ...,
+            "mpi_ranks_per_node": ...,
+            "threads_per_rank": ...,
+            "threads_per_node": ...,
+            "gpus_per_node": ...,
+            "gpu_streams_per_node": ...,
+            "streams_per_gpu": ...,
+        }
+    """
+
+    mapping = {
+        "nodes": None,
+        "mpi_ranks_per_node": None,
+        "threads_per_rank": None,
+        "threads_per_node": None,
+        "gpus_per_node": None,
+        "gpu_streams_per_node": None,
+        "streams_per_gpu": None,
+    }
+
+    # --------------------------------------------------
+    # Check .row availability
+    # --------------------------------------------------
+
+    if prv_file.endswith(".prv"):
+        row_file = prv_file[:-4] + ".row"
+
+    elif prv_file.endswith(".prv.gz"):
+        row_file = prv_file[:-7] + ".row"
+
+    else:
+        return mapping
+
+    if not os.path.exists(row_file):
+        return mapping
+
+    # --------------------------------------------------
+    # Programming-model classification
+    # --------------------------------------------------
+
+    mode_parts = str(trace_mode).split("+")
+
+    has_mpi = "MPI" in mode_parts
+
+    has_gpu = (
+        "CUDA" in mode_parts
+        or "HIP" in mode_parts
+    )
+
+    has_cpu_second_level = (
+        has_mpi
+        and not has_gpu
+        and any(
+            runtime in mode_parts
+            for runtime in (
+                "OpenMP",
+                "Pthreads",
+                "OmpSs",
+            )
+        )
+    )
+
+    # --------------------------------------------------
+    # Host mapping
+    # --------------------------------------------------
+
+    host_mapping = _get_host_mapping_from_row(
+        prv_file
+    )
+
+    nodes = host_mapping["nodes"]
+
+    if nodes:
+        mapping["nodes"] = len(nodes)
+
+    # --------------------------------------------------
+    # MPI ranks per node
+    # --------------------------------------------------
+
+    if has_mpi:
+        ranks_per_node = [
+            len(rank_ids)
+            for rank_ids
+            in host_mapping["ranks_by_node"].values()
+        ]
+
+        mapping["mpi_ranks_per_node"] = (
+            _representative_mapping_value(
+                ranks_per_node
+            )
+        )
+
+    # --------------------------------------------------
+    # CPU second-level runtime
+    #
+    # MPI+OpenMP / MPI+Pthreads / MPI+OmpSs
+    # --------------------------------------------------
+
+    if has_cpu_second_level:
+
+        threads_per_rank = list(
+            host_mapping["threads_by_rank"].values()
+        )
+
+        mapping["threads_per_rank"] = (
+            _representative_mapping_value(
+                threads_per_rank
+            )
+        )
+
+        threads_per_node = list(
+            host_mapping["threads_by_node"].values()
+        )
+
+        mapping["threads_per_node"] = (
+            _representative_mapping_value(
+                threads_per_node
+            )
+        )
+
+    # --------------------------------------------------
+    # GPU mapping
+    # --------------------------------------------------
+
+    if has_gpu:
+
+        device_mapping = get_device_stream_id_mapping(
+            prv_file
+        )
+
+        devices_by_node = defaultdict(int)
+        streams_by_node = defaultdict(int)
+        streams_per_device = []
+
+        for device_key, device_info in (
+            device_mapping.items()
+        ):
+            try:
+                node, _device = device_key.split(
+                    ":",
+                    1
+                )
+            except ValueError:
+                continue
+
+            stream_count = int(device_info[0])
+
+            devices_by_node[node] += 1
+            streams_by_node[node] += stream_count
+            streams_per_device.append(
+                stream_count
+            )
+
+        mapping["gpus_per_node"] = (
+            _representative_mapping_value(
+                devices_by_node.values()
+            )
+        )
+
+        mapping["gpu_streams_per_node"] = (
+            _representative_mapping_value(
+                streams_by_node.values()
+            )
+        )
+
+        mapping["streams_per_gpu"] = (
+            _representative_mapping_value(
+                streams_per_device
+            )
+        )
+
+    return mapping
+
+
 def get_device_stream_id_mapping(
     prv_file,
     start_id: int = 1,
@@ -472,10 +751,10 @@ def get_device_stream_id_mapping(
         if m_gpu:
             gpu_uuid = m_gpu.group(1)
 
-            node = (
-                _node_from_thread_label(current_thread, cpu_to_node)
-                if current_thread else None
-            )
+            # LEVEL THREAD and LEVEL CPU are positional.
+            # The current GPU object corresponds to entry next_id
+            # in LEVEL CPU.
+            node = cpu_to_node.get(next_id)
 
             if node is not None:
                 key = f"{node}:{gpu_uuid}"

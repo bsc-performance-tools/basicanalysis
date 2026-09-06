@@ -13,6 +13,19 @@ class GeneralInfo:
 
 
 @dataclass(frozen=True)
+class ExecutionMappingInfo:
+    """Representative execution-resource mapping for one trace."""
+
+    nodes: Any = None
+    mpi_ranks_per_node: Any = None
+    threads_per_rank: Any = None
+    threads_per_node: Any = None
+    gpus_per_node: Any = None
+    gpu_streams_per_node: Any = None
+    streams_per_gpu: Any = None
+
+
+@dataclass(frozen=True)
 class TraceInfo:
     trace_id: int
     name: str
@@ -24,6 +37,7 @@ class TraceInfo:
     devices: Any = 0
     gpu_streams: Any = 0
     gpu_streams_per_rank: Any = 0
+    mapping: Optional[ExecutionMappingInfo] = None
 
 
 @dataclass(frozen=True)

@@ -11,7 +11,7 @@ import shutil
 import json
 from utils import which
 from collections import OrderedDict, defaultdict
-from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping
+from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping
 from utils import run_command, move_files,remove_files, create_temp_folder
 
 
@@ -1437,11 +1437,9 @@ def device_key_from_row_label(
         gpu_uuid = body.split(".", 1)[0]
 
         node = None
-        if thread_obj is not None and cpu_to_node is not None:
-            node = node_from_thread_object(
-                thread_obj,
-                cpu_to_node
-            )
+
+        if thread_obj is not None and thread_to_node is not None:
+            node = thread_to_node.get(thread_obj)
 
         if node is None:
             return None
@@ -2065,6 +2063,18 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     time_base = time.time()
     run_command(cmd_base, cmdl_args)
     time_base = time.time() - time_base
+
+
+    if cmdl_args.debug:
+        print(
+            "==DEBUG== Execution mapping:",
+            trace,
+            get_execution_mapping(
+                trace,
+                trace_mode_value,
+                )
+            )
+
 
     # ------------------------------------------------------------
     # 2) Optional Dimemas simulation

@@ -16,6 +16,7 @@ from configuration import format_configuration_label
 from report.renderer.html import (
     build_analysis_catalogue,
     render_analysis_navigation,
+    render_execution_mapping,
     render_performance_assessment,
     render_trace_configuration,
 )
@@ -4053,6 +4054,7 @@ def _build_openmp_runtime_scope_note(is_hybrid):
 
 def _build_overview_view(
         trace_config_html,
+        execution_mapping_html,
         trace_header_note,
         overview_html,
         resources_html,
@@ -4062,6 +4064,7 @@ def _build_overview_view(
 
     return _build_application_summary_panel(
         trace_config_html=trace_config_html,
+        execution_mapping_html=execution_mapping_html,
         trace_header_note=trace_header_note,
         overview_html=overview_html,
         resources_html=resources_html,
@@ -4547,6 +4550,7 @@ def _build_component_views(model, inner_model, mpi_html,
 
 def _build_application_summary_panel(
         trace_config_html,
+        execution_mapping_html,
         trace_header_note,
         overview_html,
         resources_html,
@@ -4574,6 +4578,11 @@ def _build_application_summary_panel(
             </section>
 
             <section class="report-section">
+                <h3>Execution mapping</h3>
+                {execution_mapping_html}
+            </section>
+
+            <section class="report-section">
                 <h3>General metrics</h3>
                 {trace_header_note}
                 {overview_html}
@@ -4593,6 +4602,7 @@ def _build_application_summary_panel(
     """.format(
         guidance_html=guidance_html,
         trace_config_html=trace_config_html,
+        execution_mapping_html=execution_mapping_html,
         trace_header_note=trace_header_note,
         overview_html=overview_html,
         resources_html=resources_html,
@@ -9816,6 +9826,22 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
     )
 
 
+    execution_mapping_section = report_model.get_section(
+        "execution-mapping"
+    )
+
+    if execution_mapping_section is None:
+        raise ValueError(
+            "The semantic report does not contain the "
+            "'execution-mapping' section."
+        )
+
+    execution_mapping_html = render_execution_mapping(
+        execution_mapping_section,
+        trace_configuration_section.payload,
+    )
+
+
     overview_section = report_model.get_section(
         "overview"
     )
@@ -10472,6 +10498,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
     overview_view_html = _build_overview_view(
         trace_config_html=trace_config_html,
+        execution_mapping_html=execution_mapping_html,
         trace_header_note=trace_header_note,
         overview_html=overview_html,
         resources_html=resources_html,
@@ -10693,6 +10720,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
             metrics_result=metrics_result,
             analysis_result=analysis_result,
             report=report,
+            report_model=report_model,
             trace_list=trace_list,
             trace_processes=trace_processes,
             trace_tasks=trace_tasks,
@@ -10951,6 +10979,7 @@ def _build_basicanalysis_printable_report_html(
         metrics_result,
         analysis_result,
         report,
+        report_model,
         trace_list,
         trace_processes,
         trace_tasks,
@@ -11001,6 +11030,28 @@ def _build_basicanalysis_printable_report_html(
     )
 
     trace_config_html = _build_trace_config_table_html(report)
+
+
+    execution_mapping_section = report_model.get_section(
+        "execution-mapping"
+    )
+
+    trace_configuration_section = report_model.get_section(
+        "trace-configuration"
+    )
+
+    if (
+        execution_mapping_section is not None
+        and trace_configuration_section is not None
+    ):
+        execution_mapping_print_html = render_execution_mapping(
+            execution_mapping_section,
+            trace_configuration_section.payload,
+            include_trace_name=False,
+        )
+    else:
+        execution_mapping_print_html = ""
+
 
     other_metrics = metrics_result["other_metrics"]
     overview_html = _build_overview_table_html(
@@ -11597,6 +11648,11 @@ def _build_basicanalysis_printable_report_html(
                 </div>
 
                 <div class="print-overview-block">
+                    <h3>Execution mapping</h3>
+                    {execution_mapping_print_html}
+                </div>
+
+                <div class="print-overview-block">
                     <h3>General metrics</h3>
                     {trace_header_note}
                     {overview_html}
@@ -11612,6 +11668,7 @@ def _build_basicanalysis_printable_report_html(
         {appendix_html}
     """.format(
         trace_config_html=trace_config_html,
+        execution_mapping_print_html=execution_mapping_print_html,
         trace_header_note=trace_header_note,
         overview_html=overview_html,
         report_guidance_html=report_guidance_html,
@@ -12049,10 +12106,12 @@ def _build_basicanalysis_printable_report_html(
 
     return html_content
 
+
 def generate_basicanalysis_printable_report(
         metrics_result,
         analysis_result,
         report,
+        report_model,
         trace_list,
         trace_processes,
         trace_tasks,
@@ -12065,6 +12124,7 @@ def generate_basicanalysis_printable_report(
         metrics_result=metrics_result,
         analysis_result=analysis_result,
         report=report,
+        report_model=report_model,
         trace_list=trace_list,
         trace_processes=trace_processes,
         trace_tasks=trace_tasks,
