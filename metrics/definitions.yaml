@@ -15,6 +15,9 @@ sources:
   basicanalysis_hybrid_openmp_decomposition:
     title: 'Hybrid POP Metrics - BSC Models: MPI+OpenMP Serialization and Transfer Decomposition'
     kind: internal
+  basicanalysis_general_metrics:
+    title: BasicAnalysis General Performance Metrics
+    kind: internal
 metrics:
   global_eff:
     name: Global Efficiency
@@ -312,28 +315,56 @@ metrics:
     family: global
     analysis_level: scalability
     metric_type: scalability
-    definition: Compares the average processor frequency during useful computation in the target execution with
-      the reference execution. It captures changes in the hardware dynamic-frequency behavior that can contribute
-      to computation-scaling differences.
+
+    definition: >
+      Compares the effective processor frequency associated with useful
+      computation in the target execution with the reference execution.
+      The effective frequency is derived from the total CPU cycles measured
+      during useful computation and the corresponding useful computation time.
+      This formulation is used so that Frequency Scalability remains consistent
+      with the multiplicative decomposition of Computation Scalability.
+
     formula:
-      text: FreqScale = frequency_target / frequency_reference
-      latex: FreqScale = \\frac{Frequency_{target}}{Frequency_{ref}}
+      text: >
+        FreqScale =
+        (UsefulCycles_target / UsefulTime_target) /
+        (UsefulCycles_reference / UsefulTime_reference)
+
+      latex: >
+        FreqScale =
+        \frac{UsefulCycles_{target}/UsefulTime_{target}}
+        {UsefulCycles_{ref}/UsefulTime_{ref}}
+
+      variables:
+        UsefulCycles: Total CPU cycles measured during useful computation
+        UsefulTime: Total useful computation time used by the performance model
+
     interpretation:
-      low: Low values indicate a lower average processor frequency during useful computation than in the reference
-        execution.
-      high: Values near 100% indicate that average processor frequency is preserved relative to the reference execution.
-      above_100: Values above 100% indicate a higher average processor frequency than in the reference execution.
+      low: >
+        Low values indicate a lower effective processor frequency during useful
+        computation than in the reference execution.
+      high: >
+        Values near 100% indicate that the effective processor frequency during
+        useful computation is preserved relative to the reference execution.
+      above_100: >
+        Values above 100% indicate a higher effective processor frequency during
+        useful computation than in the reference execution.
+
     typical_causes:
-    - Power limits
-    - Thermal throttling
-    - Turbo-frequency changes
-    - Increased core occupancy
+      - Power limits
+      - Thermal throttling
+      - Turbo-frequency changes
+      - Changes in CPU core occupancy
+
     next_steps:
-    - Inspect CPU frequency and power behavior.
+      - Inspect CPU frequency and power behavior.
+      - Compare frequency behavior across the analyzed configurations.
+
     children: []
+
     sources:
-    - pop_standard_metrics
-    - ispdc2020_hybrid
+      - pop_standard_metrics
+      - ispdc2020_hybrid
   hybrid_eff:
     name: Hybrid Parallel Efficiency
     short_name: Hybrid PE
@@ -1158,3 +1189,54 @@ metrics:
     children: []
     sources:
     - basicanalysis_host_device
+
+  avg_frequency:
+    name: Average Frequency
+    short_name: Avg Frequency
+    family: general
+    analysis_level: application
+    metric_type: performance_indicator
+
+    definition: >
+      Time-weighted average CPU operating frequency observed during the
+      application execution. It is computed from the frequency histogram
+      produced by BasicAnalysis, using the accumulated execution time in each
+      frequency interval as the weight. It is a general execution-level
+      performance indicator and is distinct from the effective frequency used
+      to compute Frequency Scalability.
+
+    formula:
+      text: >
+        AvgFrequency = sum(FrequencyBinMidpoint_i × Time_i) / sum(Time_i)
+
+      latex: >
+        AvgFrequency =
+        \frac{\sum_i F_i T_i}{\sum_i T_i}
+
+      variables:
+        FrequencyBinMidpoint_i: Midpoint of frequency histogram interval i
+        Time_i: Accumulated execution time in frequency histogram interval i
+
+    interpretation:
+      low: >
+        A lower value indicates that the CPUs operated, on average, at a lower
+        frequency during the execution.
+      high: >
+        A higher value indicates that the CPUs operated, on average, at a higher
+        frequency during the execution.
+
+    typical_causes:
+      - CPU frequency policy
+      - Turbo-frequency behavior
+      - Power limits
+      - Thermal throttling
+      - Changes in CPU utilization
+
+    next_steps:
+      - Compare Average Frequency across execution configurations.
+      - Inspect CPU frequency behavior in the trace when unexpected changes occur.
+
+    children: []
+
+    sources:
+      - basicanalysis_general_metrics

@@ -11500,10 +11500,11 @@ def _build_basicanalysis_printable_report_html(
             "transfer_eff",
             "dev_offload_eff",
             "host_comp_scale",
-            "ipc_scale",
-            "inst_scale",
-            "freq_scale",
+            "host_ipc_scale",
+            "host_inst_scale",
+            "host_freq_scale",
         ]
+
         device_keys = [
             "dev_global_eff",
             "dev_parallel_eff",
@@ -11514,11 +11515,10 @@ def _build_basicanalysis_printable_report_html(
         ]
 
         host_sources = {}
-        for key in host_keys:
-            if key in ("ipc_scale", "inst_scale", "freq_scale"):
-                host_sources[key] = mod_factors
-            else:
-                host_sources[key] = host_factors
+        host_sources = {
+            key: host_factors
+            for key in host_keys
+        }
 
         device_sources = {
             key: device_factors
