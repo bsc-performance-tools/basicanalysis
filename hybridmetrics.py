@@ -1530,17 +1530,13 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             mod_factors_scale_plus_io['ipc_scale'][trace] = 'NaN'
 
-        # Frequency
+        # Average Frequency
         try:
-            if (
-                raw_data['useful_cyc'][trace] == 'Non-Avail'
-                or raw_data['frequency'][trace] == 'Non-Avail'
-                or raw_data['useful_cyc'][trace] == 0
-            ):
+            if raw_data['frequency'][trace] == 'Non-Avail':
                 other_metrics['freq'][trace] = 'Non-Avail'
             else:
                 other_metrics['freq'][trace] = (
-                    float(raw_data['frequency'][trace]) / 1000
+                    float(raw_data['frequency'][trace]) / 1000.0
                 )
 
         except (TypeError, ValueError):
@@ -1550,35 +1546,48 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:
             if len(trace_list) > 1:
 
+                reference = trace_list[0]
+
                 if (
-                    other_metrics['freq'][trace] == 'Non-Avail'
-                    or other_metrics['freq'][trace_list[0]] == 'Non-Avail'
+                    raw_data['useful_cyc'][trace] == 'Non-Avail'
+                    or raw_data['useful_cyc'][reference] == 'Non-Avail'
+                    or raw_data['useful_not_0_tot'][trace] == 'NaN'
+                    or raw_data['useful_not_0_tot'][reference] == 'NaN'
+                    or float(raw_data['useful_cyc'][trace]) <= 0.0
+                    or float(raw_data['useful_cyc'][reference]) <= 0.0
+                    or float(raw_data['useful_not_0_tot'][trace]) <= 0.0
+                    or float(raw_data['useful_not_0_tot'][reference]) <= 0.0
                 ):
                     mod_factors['freq_scale'][trace] = 'Non-Avail'
-                    host_factors['host_freq_scale'][trace] = 'Non-Avail'
 
-                elif trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':
+                elif (
+                    trace_mode[trace][:5] != 'Burst'
+                    and trace_mode[trace] != 'Sampling'
+                ):
+                    frequency_ref = (
+                        float(raw_data['useful_cyc'][reference])
+                        / float(raw_data['useful_not_0_tot'][reference])
+                    )
+
+                    frequency = (
+                        float(raw_data['useful_cyc'][trace])
+                        / float(raw_data['useful_not_0_tot'][trace])
+                    )
 
                     mod_factors['freq_scale'][trace] = (
-                        float(other_metrics['freq'][trace])
-                        / float(other_metrics['freq'][trace_list[0]])
+                        frequency
+                        / frequency_ref
                         * 100.0
                     )
-                    
-                    if not (outmpi_measures and is_mpi_gpu):
-                        host_factors['host_freq_scale'][trace] = 'Non-Avail'
 
                 else:
                     mod_factors['freq_scale'][trace] = 'Non-Avail'
-                    host_factors['host_freq_scale'][trace] = 'Non-Avail'
 
             else:
                 mod_factors['freq_scale'][trace] = 'Non-Avail'
-                host_factors['host_freq_scale'][trace] = 'Non-Avail'
 
         except (TypeError, ValueError, ZeroDivisionError):
             mod_factors['freq_scale'][trace] = 'NaN'
-            host_factors['host_freq_scale'][trace] = 'NaN'
 
 
         # Host Frequency Scalability for MPI+GPU

@@ -749,25 +749,63 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             mod_factors_scale_plus_io['ipc_scale'][trace] = mod_factors['ipc_scale'][trace]
 
-        # Frequency Scalability
-        try:  # except NaN
-            if (raw_data['useful_cyc'][trace] == 0):
+        # Average Frequency
+        try:
+            if raw_data['frequency'][trace] == 'Non-Avail':
                 other_metrics['freq'][trace] = 'Non-Avail'
             else:
-                other_metrics['freq'][trace] = float(raw_data['frequency'][trace]) / 1000
-        except:
+                other_metrics['freq'][trace] = (
+                    float(raw_data['frequency'][trace]) / 1000.0
+                )
+
+        except (TypeError, ValueError):
             other_metrics['freq'][trace] = 'NaN'
 
-        try:  # except NaN
+        # Frequency Scalability
+        try:
             if len(trace_list) > 1:
-                if trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':
-                    mod_factors['freq_scale'][trace] = other_metrics['freq'][trace] \
-                                               / other_metrics['freq'][trace_list[0]] * 100.0
+
+                reference = trace_list[0]
+
+                if (
+                    raw_data['useful_cyc'][trace] == 'Non-Avail'
+                    or raw_data['useful_cyc'][reference] == 'Non-Avail'
+                    or raw_data['useful_not_0_tot'][trace] == 'NaN'
+                    or raw_data['useful_not_0_tot'][reference] == 'NaN'
+                    or float(raw_data['useful_cyc'][trace]) <= 0.0
+                    or float(raw_data['useful_cyc'][reference]) <= 0.0
+                    or float(raw_data['useful_not_0_tot'][trace]) <= 0.0
+                    or float(raw_data['useful_not_0_tot'][reference]) <= 0.0
+                ):
+                    mod_factors['freq_scale'][trace] = 'Non-Avail'
+
+                elif (
+                    trace_mode[trace][:5] != 'Burst'
+                    and trace_mode[trace] != 'Sampling'
+                ):
+                    frequency_ref = (
+                        float(raw_data['useful_cyc'][reference])
+                        / float(raw_data['useful_not_0_tot'][reference])
+                    )
+
+                    frequency = (
+                        float(raw_data['useful_cyc'][trace])
+                        / float(raw_data['useful_not_0_tot'][trace])
+                    )
+
+                    mod_factors['freq_scale'][trace] = (
+                        frequency
+                        / frequency_ref
+                        * 100.0
+                    )
+
                 else:
                     mod_factors['freq_scale'][trace] = 'Non-Avail'
+
             else:
                 mod_factors['freq_scale'][trace] = 'Non-Avail'
-        except:
+
+        except (TypeError, ValueError, ZeroDivisionError):
             mod_factors['freq_scale'][trace] = 'NaN'
             
         # freq scale + Serial I/O

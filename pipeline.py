@@ -259,7 +259,7 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
                 cmdl_args,
             )
 
-        hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes)
+        hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes,trace_mode)
 
         if any(
             trace_mode[trace] == "Detailed+MPI+OpenMP"
