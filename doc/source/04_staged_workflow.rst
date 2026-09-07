@@ -189,7 +189,7 @@ For example:
 
 can analyze independent traces concurrently.
 
-The main analysis options are described in :doc:`running_basicanalysis`.
+The main analysis options are described in :doc:`03_running_basicanalysis`.
 The complete set of options supported by the installed version can be obtained
 with:
 

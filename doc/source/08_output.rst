@@ -30,7 +30,7 @@ Efficiency tables can be exported from the report as PNG images. The report
 also provides export options for multiple tables and can be printed or saved as
 a PDF using the browser.
 
-See :doc:`performance_report` for a detailed description of the report,
+See :doc:`07_performance_report` for a detailed description of the report,
 its analytical views, and its export capabilities.
 
 

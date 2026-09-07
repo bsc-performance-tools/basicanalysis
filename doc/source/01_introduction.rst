@@ -71,5 +71,5 @@ BasicAnalysis can be executed directly for a set of Paraver traces or through
 a staged workflow in which trace analysis, raw-data merging, and metric
 computation are performed independently.
 
-The standard execution workflow is introduced in :doc:`getting_started`, while
-the staged workflow is described in detail in :doc:`staged_workflow`.
+The standard execution workflow is introduced in :doc:`02_getting_started`, while
+the staged workflow is described in detail in :doc:`04_staged_workflow`.

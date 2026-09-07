@@ -7,7 +7,7 @@ This chapter describes the basic requirements for running **BasicAnalysis**
 and shows how to perform a first analysis from a set of Paraver traces.
 
 For a complete description of the command-line options and execution modes,
-see :doc:`running_basicanalysis`.
+see :doc:`03_running_basicanalysis`.
 
 
 Requirements
@@ -158,7 +158,7 @@ are available.
 A printable PDF version of the performance report can be generated on demand
 from the **Export** function of the interactive report.
 
-A detailed description of the generated files is provided in :doc:`output`.
+A detailed description of the generated files is provided in :doc:`08_output`.
 
 
 Next steps
@@ -166,12 +166,12 @@ Next steps
 
 After completing a first analysis:
 
-* See :doc:`running_basicanalysis` for the available execution options and
+* See :doc:`03_running_basicanalysis` for the available execution options and
   analysis configuration.
-* See :doc:`staged_workflow` when traces should be analyzed independently and
+* See :doc:`04_staged_workflow` when traces should be analyzed independently and
   merged before computing the final metrics.
-* See :doc:`methodology` to understand the BasicAnalysis performance-analysis
+* See :doc:`05_methodology` to understand the BasicAnalysis performance-analysis
   methodology.
-* See :doc:`performance_report` for guidance on reading the generated
+* See :doc:`07_performance_report` for guidance on reading the generated
   performance report.
-* See :doc:`metrics` for the definitions of the efficiency metrics.
+* See :doc:`06_metrics` for the definitions of the efficiency metrics.

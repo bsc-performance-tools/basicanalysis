@@ -7,7 +7,7 @@ This chapter describes how to run the standard BasicAnalysis workflow and
 configure the analysis.
 
 For workflows in which trace analysis and metric computation need to be
-performed independently, see :doc:`staged_workflow`.
+performed independently, see :doc:`04_staged_workflow`.
 
 
 
@@ -105,7 +105,7 @@ The scaling model affects the computation and interpretation of scalability
 metrics. The detected and selected scaling models are reported in the
 **Scaling** section of the performance report.
 
-See :doc:`methodology` and :doc:`metrics` for the definition and
+See :doc:`05_methodology` and :doc:`06_metrics` for the definition and
 interpretation of the scalability metrics.
 
 
@@ -132,7 +132,7 @@ The default is ``talp``.
 
 The selected model determines how the MPI+GPU execution is represented and
 which accelerator-related metrics are available. The corresponding models
-are described in :doc:`methodology` and :doc:`metrics`.
+are described in :doc:`05_methodology` and :doc:`06_metrics`.
 
 
 Dimemas simulation
@@ -166,7 +166,7 @@ CUDA activity:
    Enable simulation of CUDA events.
 
 The role of Dimemas, the idealized execution, and the metrics that depend on
-simulation are described in :doc:`methodology`.
+simulation are described in :doc:`05_methodology`.
 
 
 Trace-mode detection

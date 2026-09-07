@@ -66,7 +66,7 @@ then help distinguish between losses associated with process dependencies and
 those associated with the communication transfer itself.
 
 The complete definitions and formulations of these metrics are provided in
-:doc:`metrics`.
+:doc:`06_metrics`.
 
 
 Parallel Runtime Model
@@ -654,7 +654,7 @@ efficiency decomposition.
 
 The exact assumptions represented by the BasicAnalysis ideal configuration
 and their relationship with Serialization Efficiency and Transfer Efficiency
-are discussed in :doc:`metrics`.
+are discussed in :doc:`06_metrics`.
 
 When simulation is disabled with ``--skip-simulation``, metrics requiring
 idealized execution information cannot be computed and are reported as

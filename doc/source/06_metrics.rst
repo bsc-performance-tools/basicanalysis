@@ -9,7 +9,7 @@ the performance information extracted from the analyzed Paraver traces.
 This chapter describes the metrics as they are implemented by BasicAnalysis.
 For each metric, the formulation corresponds to the quantities actually used
 by the tool. The conceptual relationships between the metrics and their role
-in the performance-analysis methodology are described in :doc:`methodology`.
+in the performance-analysis methodology are described in :doc:`05_methodology`.
 
 Metric values are reported as percentages in the efficiency tables and
 performance report unless otherwise indicated.

@@ -18,12 +18,12 @@ steps for further performance analysis.
    :maxdepth: 2
    :caption: Contents:
 
-   introduction
-   getting_started
-   running_basicanalysis
-   staged_workflow
-   methodology
-   metrics
-   performance_report
-   output
-   limitations
+   01_introduction
+   02_getting_started
+   03_running_basicanalysis
+   04_staged_workflow
+   05_methodology
+   06_metrics
+   07_performance_report
+   08_output
+   09_limitations
