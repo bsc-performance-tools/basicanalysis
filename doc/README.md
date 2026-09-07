@@ -1,6 +1,6 @@
 # BasicAnalysis Documentation
 
-This repository contains the user documentation for **BasicAnalysis**, a 
+This directory contains the user documentation for **BasicAnalysis**, a 
 tool that automates the extraction of POP performance metrics from Paraver traces.
 
 The documentation is built with Sphinx and covers the use of BasicAnalysis,
