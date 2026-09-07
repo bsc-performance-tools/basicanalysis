@@ -1,0 +1,36 @@
+/* --------------------------------------------------
+   Main documentation width
+   -------------------------------------------------- */
+
+.wy-nav-content {
+    max-width: 1400px;
+    width: 100%;
+}
+
+
+/* --------------------------------------------------
+   Responsive definition tables
+   -------------------------------------------------- */
+
+.wy-table-responsive table.tight-table {
+    width: 100%;
+    table-layout: fixed;
+}
+
+.wy-table-responsive table.tight-table th,
+.wy-table-responsive table.tight-table td {
+    white-space: normal !important;
+    overflow-wrap: break-word;
+    word-break: normal;
+    vertical-align: top;
+}
+
+
+.rst-content figure {
+    margin-top: 1.5em;
+    margin-bottom: 1.8em;
+}
+
+.rst-content figure img {
+    margin-bottom: 0.5em;
+}
