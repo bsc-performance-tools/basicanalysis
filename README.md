@@ -1,17 +1,57 @@
 # BasicAnalysis
 
-The tool extracts raw performance data from Paraver traces, computes
-hierarchical performance efficiency metrics, and generates CSV files,
-plots, interactive HTML reports, and printable PDF performance reports.
+BasicAnalysis is a tool that automates the application of the hierarchical
+POP performance model to Paraver traces. The model characterizes
+parallel executions through efficiency metrics based on key performance
+factors, helping performance analysts identify which factors contribute to
+performance and scalability losses.
 
-It supports several parallel programming models such as:
+The tool automatically extracts the performance data required to compute
+the model's efficiency metrics and organizes the results into an interactive
+Performance Report. The report provides complementary views of the efficiency
+metrics and related performance information, helping analysts interpret the
+metrics, relate the different factors represented by the model, and identify
+possible next steps for further performance analysis.
+
+
+## Key Features
+
+* Automatic extraction of performance data and computation of efficiency
+  metrics from Paraver traces.
+* Hierarchical organization of efficiency metrics around key performance
+  factors based on the POP performance model.
+* Parallel Runtime Model for showing the contribution of different parallel runtimes to Parallel Efficiency.
+* Runtime-specific efficiency metrics for MPI, OpenMP, and accelerator
+  runtimes.
+* Host and Device execution-domain efficiency metrics for accelerator
+  applications.
+* Strong and weak scaling evaluation across multiple execution configurations.
+* Metric Details with metric definitions, possible causes of performance
+  losses, and guidance for further analysis.
+* Interactive Performance Report with complementary analysis views and
+  export capabilities.
+* Support for both direct analysis of Paraver traces and a staged workflow
+  for analyzing, merging, and reusing previously extracted performance data.
+
+## Parallel Execution Environments
+
+The efficiency metrics implemented by BasicAnalysis are based on general
+performance factors of parallel executions and can be applied to different
+parallel execution environments represented in Paraver traces.
+
+Examples of programming models and combinations handled by BasicAnalysis
+include:
 
 * MPI
-* OpenMP and other shared-memory programming models
-* GPU programming models
-* Hybrid models such as MPI+OpenMP and MPI+CUDA
+* OpenMP
+* MPI+OpenMP
+* MPI+CUDA
+* MPI+HIP
 
-The tool extracts raw performance data from Paraver traces, computes performance metrics, and generates tables, CSV files, plots and a performance report (HTML and PDF).
+Additional runtime-specific metrics and decompositions are available depending
+on the parallel execution environment and the information contained in the
+trace.
+
 
 ## Prerequisites
 
@@ -19,14 +59,18 @@ BasicAnalysis requires:
 
 * Python 3
 * Paraver / paramedir
-* Dimemas
+* Dimemas, when simulation-derived communication metrics are required
 
-The following tools must be installed and available through the `PATH` environment variable:
+`paramedir` is available as part of the Paraver distribution:
 
-* `paramedir` available from the Paraver distribution: [https://tools.bsc.es/paraver](https://tools.bsc.es/paraver)
-* `Dimemas`: [https://tools.bsc.es/dimemas](https://tools.bsc.es/dimemas)
+https://tools.bsc.es/paraver
 
-Set the environment variables as follows:
+Dimemas is available from:
+
+https://tools.bsc.es/dimemas
+
+The corresponding executables must be available through the `PATH`
+environment variable. A typical configuration is:
 
 ```bash
 export PATH=<paraver-install-dir>/bin:$PATH
@@ -36,437 +80,167 @@ export PATH=<dimemas-install-dir>/bin:$PATH
 export DIMEMAS_HOME=<dimemas-install-dir>
 ```
 
-## Python dependencies
-
-Some functionality depends on additional Python modules.
-
-Core analysis requires only Python 3 and the standard library.
-
-Optional plotting and advanced analysis require:
-
-* NumPy
-* pandas
-* SciPy
-* matplotlib >= 3.x
-* seaborn
-
-These modules can be installed with:
-
-```bash
-pip install numpy pandas scipy matplotlib seaborn
-```
-
-If these modules are not available, BasicAnalysis can still compute the metrics, but plotting functionality will be skipped.
-
-For gnuplot-based output, gnuplot version 5.0 or higher is required.
-
-
-## Optional Dependencies
-
-When a supported Chromium-compatible browser is available, BasicAnalysis
-automatically generates a PDF performance report.
-
-If no supported browser is found, PDF generation is skipped and a warning
-is reported. The HTML reports and the rest of the BasicAnalysis analysis
-are still generated normally.
-
-The following browser executables are supported:
-
-- `chromium`
-- `chromium-browser`
-- `google-chrome`
-- `google-chrome-stable`
-
-For example, on Ubuntu:
-
-```bash
-sudo apt install chromium
-```
+Dimemas is used to compute simulation-derived communication metrics such as
+Serialization Efficiency and Transfer Efficiency when supported by the
+analyzed programming model. BasicAnalysis can also be executed without
+Dimemas or with simulation explicitly disabled, in which case these metrics
+are reported as unavailable.
 
 ## Installation
 
-There is no installation step required.
+BasicAnalysis does not require a separate installation step. Clone or copy
+the repository to the desired location and install the recommended Python
+packages.
 
-Clone or copy the repository to any location and add the directory containing `modelfactors.py` to the `PATH` environment variable if desired.
+The recommended Python environment can be installed using the
+`requirements.txt` file provided with BasicAnalysis:
 
-Example:
+```bash
+pip install -r requirements.txt
+```
+
+The requirements file installs the Python packages used for data processing,
+analysis, and visualization.
+
+BasicAnalysis can still compute the performance metrics when optional
+plotting dependencies are not available, but the corresponding plotting
+functionality will be skipped.
+
+The BasicAnalysis scripts can be executed directly from the repository.
+Alternatively, the repository directory can be added to the `PATH`
+environment variable:
 
 ```bash
 export PATH=<basicanalysis-dir>:$PATH
 ```
 
-## Usage
+Verify that BasicAnalysis is available with:
 
-BasicAnalysis is executed through:
+```bash
+modelfactors.py --version
+```
+
+## Quick Start
+
+BasicAnalysis is executed through `modelfactors.py`:
 
 ```bash
 modelfactors.py [options] <list-of-traces>
 ```
 
-The `<list-of-traces>` argument accepts:
-
-* explicit trace filenames
-* wildcard expressions
-* multiple traces
-
-Only valid Paraver traces are kept automatically.
-
-Example:
+The input can contain one or more Paraver traces (`.prv` or `.prv.gz`).
+For example, to analyze all Paraver traces in the current directory:
 
 ```bash
 modelfactors.py *.prv
 ```
 
-or:
+Multiple traces can also be provided explicitly:
 
 ```bash
 modelfactors.py trace_1.prv trace_2.prv trace_3.prv
 ```
 
-## Main options
+When several traces are analyzed, BasicAnalysis evaluates how the performance
+metrics evolve across the execution configurations and includes scaling
+information in the generated report.
+
+By default, BasicAnalysis automatically detects the programming model and
+scaling type and computes the corresponding efficiency metrics.
+
+After the analysis completes, open the generated interactive Performance
+Report:
 
 ```text
--m, --metrics {simple,hybrid}
-    Select the kind of efficiency metrics to compute.
-    - simple: always use the simple metric workflow
-    - hybrid: use the hybrid metric workflow only if at least one trace
-      contains hybrid parallelism (For example: MPI+OpenMP, MPI+CUDA).
-      If all traces are simple traces, BasicAnalysis automatically falls back
-      to the simple metric workflow.
-    Default: hybrid
-
--s, --scaling {weak,strong,auto}
-    Define the scaling type.
-    Default: auto
-
--ms, --max_trace_size
-    Set the maximum trace size in MiB allowed.
-    Default: 1024 MiB
-
---jobs
-    Number of traces analyzed in parallel, or "auto".
-    Default: 1
-
---mem-per-worker-gb
-    Estimated memory required per worker in GiB.
-    Overrides the automatic memory heuristic.
-
--skip-simul, --skip-simulation
-    Skip running the Dimemas simulation.
-
--somp, --simulation_openmp
-    Enable simulation of OpenMP events.
-
--scuda, --simulation_cuda
-    Enable simulation of CUDA events.
-
--tmd, --trace_mode_detection {pcf,prv}
-    Select whether the trace mode is detected from the .pcf or .prv file.
-    For customized traces such as filtered or cut traces, use prv.
-    Default: pcf
-
--ord, --order_traces {yes,not}
-    Order the trace list by number of processes.
-    Default: yes
-
--pop-model, --pop_model_to_apply {classic,talp}
-    Select the POP metric model for MPI+GPU codes.
-    - classic: multiplicative hybrid metrics proposed in POP2
-    - talp: TALP metrics proposed in POP3
-    Default: talp
-
--d, --debug
-    Enable debug output.
-
--v, --version
-    Print the BasicAnalysis version.
-```
-
-## Output
-
-Depending on the trace type and execution mode, BasicAnalysis can generate:
-
-* raw-data CSV files
-* efficiency and model-factor tables
-* additional metrics tables
-* speedup and scalability plots
-* gnuplot scripts
-* matplotlib figures
-* an interactive HTML performance report
-* a printable HTML performance report
-* a PDF performance report
-
-The main report files are:
-
-```
 basicanalysis_interactive_report.html
-basicanalysis_printable_report.html
-basicanalysis_performance_report.pdf
 ```
 
-## Notes
+The report provides complementary views for identifying and interpreting
+the factors contributing to performance and scalability losses.
 
-* Dimemas is required to obtain the Transfer and Serialization metrics for MPI and hybrid analyses.
-* The generated plots depend on the availability of the required Python modules.
+To see all available command-line options, use:
 
-
-## Performance analysis model
-
-BasicAnalysis uses a hierarchical efficiency model to help identify the
-main sources of performance degradation.
-
-Parent metrics summarize overall performance efficiency, while child
-metrics provide a more detailed characterization of the factors affecting
-their parent metric.
-
-When several traces are analyzed, BasicAnalysis also evaluates scaling
-trends relative to the reference trace.
-
-The generated reports preserve this metric hierarchy and provide automatic
-performance interpretations to guide further detailed analysis.
-
-
-
-## Step-by-step workflow
-
-BasicAnalysis from version 0.5.0 can be executed in three independent stages:
-
-- Trace analysis: analyze each trace and generate rawdata JSON files.
-- Merge: merge several rawdata JSON files into a single merged file.
-- Metrics computation: compute metrics, reports, and plots from the merged rawdata JSON.
-
-This workflow is useful when processing many traces, especially if some analyses fail. In that case, users can rerun only the failed traces, then merge the results and compute the final metrics.
-
-### 1. Trace analysis step
-Command:
-
-``` analyze_traces.py [options] [trace_list ...] ```
-
-Analyze traces and generate per-trace rawdata JSON files.
-
-This step parses each input trace, detects its programming model,
-extracts raw performance data, and optionally runs Dimemas simulations
-when required by the selected metric model.
-
-The generated rawdata JSON files can later be merged and reused for
-metrics computation without repeating the analysis step.
-
-#### Help Contents
-
-##### Positional arguments:
-
-```
-  trace_list
-      List of traces to process. Wildcards are accepted and only valid
-      traces are analyzed.
+```bash
+modelfactors.py --help
 ```
 
-##### Main options:
+For detailed information about the analysis options, performance analysis
+methodology, metrics, report views, and output files, see the BasicAnalysis User Guide.
 
-``` 
-  -h, --help
-      Show this help message and exit.
 
-  -v, --version
-      Show program version and exit.
+## Performance Report
 
-  -d, --debug
-      Increase output verbosity to debug level.
+BasicAnalysis generates an interactive Performance Report that organizes the
+computed efficiency metrics and related performance information into
+complementary views. Rather than presenting the results only as metric tables,
+the report provides different perspectives that help users navigate the
+efficiency hierarchy, interpret the observed losses, and identify aspects that
+may require further investigation.
 
-  -m {simple,hybrid}, --metrics {simple,hybrid}
-      Select the kind of efficiency metrics to prepare rawdata for
-      (single parallelism or hybrid, default: hybrid).
+The report includes:
 
-  -s {weak,strong,auto}, --scaling {weak,strong,auto}
-      Define whether the measurements correspond to weak scaling,
-      strong scaling, or let the tool detect it automatically
-      (default: auto).
+* **Execution Overview** – summarizes the analyzed trace configurations,
+  including their programming models and parallel resources, together with
+  general performance information such as execution time, speedup, efficiency,
+  average IPC, and average frequency.
+* **Parallel Runtime Model** – presents the main application-level efficiency
+  factors and their hierarchical relationships and, for hybrid applications,
+  shows the contribution of the active parallel runtimes to the observed
+  Parallel Efficiency.
+* **Runtime-Specific Analysis** – presents efficiency metrics that characterize
+  the behavior of individual parallel runtimes.
+* **Execution Domains** – presents Host and Device efficiency metrics for
+  accelerator applications.
+* **Scaling** – shows how efficiency metrics and other performance indicators
+  evolve across execution configurations.
+* **Metric Details** – provides definitions and interpretation guidance for
+  individual metrics, including possible causes of low efficiency and possible
+  next steps for further analysis.
 
-  -tmd {pcf,prv}, --trace_mode_detection {pcf,prv}
-      Select whether the trace mode is detected from the .pcf file
-      or from the .prv file. For customized traces such as cut or
-      filtered traces, use the .prv file (default: pcf).
+The report also allows complementary views to be displayed together, helping
+users relate different perspectives of the efficiency results, and supports
+export of report content.
 
-  -ord {yes,not}, --order_traces {yes,not}
-      Order the trace list based on the number of processes.
-```
+For a detailed description of the report and how to interpret its views,
+see the BasicAnalysis User Guide.
 
-##### Simulation options (it is needed for communications sub-metrics):
 
-```
-  -skip-simul, --skip-simulation
-      Skip running Dimemas simulation.
+## Staged Analysis Workflow
 
-  -somp, --simulation_openmp
-      Enable OpenMP event simulation.
+For analyses involving multiple traces, BasicAnalysis can also be executed
+as a three-stage workflow:
 
-  -scuda, --simulation_cuda
-      Enable CUDA event simulation.
+1. Analyze the traces and generate reusable raw-data files:
 
-  --ideal-omp
-      In simulation of MPI+OpenMP codes, ignore the duration of OpenMP
-      runtime events. Any remaining duration is due to implicit
-      synchronization.
+   ```bash
+   analyze_traces.py [options] <list-of-traces>
+   ```
 
-  --hyb-mpiomp
-      Compute Serialization and Transfer submetrics at the OpenMP level
-      for MPI+OpenMP codes.
-```
+2. Merge the generated raw data:
 
-##### Resource options:
+   ```bash
+   merge_rawdata.py --output merged_rawdata.json <rawdata-files>
+   ```
 
-```
-  --jobs JOBS
-      Number of parallel trace analyses, or "auto" (default: 1).
+3. Compute the metrics and generate the reports and plots:
 
-  --mem-per-worker-gb MEM_PER_WORKER_GB
-      Estimated memory required per worker in GiB; overrides the
-      automatic heuristic.
+   ```bash
+   compute_metrics_from_merged.py --merged-input merged_rawdata.json
+   ```
 
-  -ms MAX_TRACE_SIZE, --max_trace_size MAX_TRACE_SIZE
-      Maximum allowed trace size in MiB (default: 1024 MiB).
-```
-##### Output:
+This workflow allows trace analysis to be separated from metric computation
+and is particularly useful when processing many traces or when individual
+trace analyses need to be repeated.
 
-- This step generates one rawdata JSON file per analyzed trace.
-- These files can be merged later with merge_rawdata.py.
+See the BasicAnalysis User Guide for the complete staged workflow and
+available options.
 
-### 2. Merge step
 
-Command:
+## Documentation
 
-```
-merge_rawdata.py --output merged_rawdata.json rawdata_list.json
-```
-#### Help contents
+The BasicAnalysis User Guide provides detailed documentation about
+installation, command-line options, analysis workflows, performance
+methodology, metric definitions, the interactive Performance Report,
+generated output, and current limitations.
 
-Merge per-trace rawdata JSON files into a single merged rawdata JSON file.
-
-This step combines the results produced by the analysis step into one
-merged file that can later be used for metrics computation, reporting,
-and plot generation.
-
-This is useful when traces are analyzed in separate runs, or when only
-failed traces need to be reanalyzed and merged again afterward.
-
-##### Positional arguments:
-
-```
-  rawdata_files
-      List of per-trace rawdata JSON files to merge.
-```
-
-##### Options:
-
-```
-  -h, --help
-      Show this help message and exit.
-
-  -v, --version
-      Show program version and exit.
-
-  -d, --debug
-      Increase output verbosity to debug level.
-
-  --output OUTPUT
-      Output merged rawdata JSON file.
-```
-
-##### Notes:
-
-The merged file preserves:
-
-  - trace list
-  - trace metadata
-  - raw performance data
-  - MPI process count information
-
-The merged output can be passed directly to compute_metrics_from_merged.py.
-
-### 3. Metrics computation step
-
-Command
-
-```
-compute_metrics_from_merged.py --merged-input merged_rawdata.json [options]
-
-```
-
-#### Help Contents
-
-Compute metrics, reports, and plots from merged rawdata JSON.
-
-This step reads a merged rawdata JSON file produced by the merge step
-and computes the final efficiency metrics without reanalyzing the
-original traces.
-
-This is useful when trace analysis has already been completed and only
-the final metrics, tables, CSV files, and plots need to be generated.
-
-
-##### Options:
-
-```
-  -h, --help
-      Show this help message and exit.
-
-  -v, --version
-      Show program version and exit.
-
-  -d, --debug
-      Increase output verbosity to debug level.
-
-  --merged-input MERGED_INPUT
-      Merged rawdata JSON file.
-
-  -m {simple,hybrid}, --metrics {simple,hybrid}
-      Select the kind of efficiency metrics to compute
-      (single parallelism or hybrid, default: hybrid).
-
-  -s {weak,strong,auto}, --scaling {weak,strong,auto}
-      Define whether the measurements correspond to weak scaling,
-      strong scaling, or let the tool detect it automatically
-      (default: auto).
-
-  --limit LIMIT
-      Limit number of cores for the plots
-      (default: maximum process count in the merged input).
-
-  -ord {yes,not}, --order_traces {yes,not}
-      Order traces based on the number of processes.
-
-  -pop-model {classic,talp}, --pop_model_to_apply {classic,talp}
-      Select the metric model for MPI+GPU codes (default: talp).
-      classic shows the multiplicative hybrid metrics proposed by
-      BSC Tools in POP2, while talp shows the metrics proposed
-      by the TALP team in POP3.
-
-```
-
-##### Notes:
-  - This step does not analyze traces directly. It only consumes the merged rawdata JSON file.
-  - Use the analysis step first if rawdata has not been generated yet.
-
-
-
-### Short Workflow example
-
-##### 1. Analyze traces
-
-```
-analyze_traces.py trace1.prv trace2.prv trace3.prv
-```
-
-##### 2. Merge rawdata
-
-```
-merge_rawdata.py --output merged_rawdata.json *.rawdata.json
-```
-
-
-##### 3. Compute metrics from merged data
-
-```
-compute_metrics_from_merged.py --merged-input merged_rawdata.json
-```
-
+See the BasicAnalysis User Guide in the `doc/` directory.
