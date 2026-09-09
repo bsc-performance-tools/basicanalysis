@@ -1,0 +1,94 @@
+digraph DeviceExecutionDomain {
+    rankdir=TB;
+
+    graph [
+        bgcolor="transparent",
+        nodesep=0.45,
+        ranksep=0.50
+    ];
+
+    node [
+        shape=box,
+        fontname="Helvetica",
+        fontsize=10,
+        style="filled",
+        penwidth=1.0
+    ];
+
+    edge [
+        color="#526477",
+        penwidth=1.0,
+        arrowsize=0.7
+    ];
+
+    /*
+     * Device Global Efficiency
+     */
+
+    device_ge [
+        label="Device Global\nEfficiency",
+        fillcolor="#ECEFF1",
+        color="#546E7A",
+        penwidth=1.3
+    ];
+
+    /*
+     * Device Parallel Efficiency branch
+     */
+
+    device_pe [
+        label="Device Parallel\nEfficiency",
+        fillcolor="#FFE0B2",
+        color="#EF6C00"
+    ];
+
+    device_lb [
+        label="Device Load\nBalance",
+        fillcolor="#FFF3E0",
+        color="#EF6C00"
+    ];
+
+    device_ce [
+        label="Device Communication\nEfficiency",
+        fillcolor="#FFF3E0",
+        color="#EF6C00"
+    ];
+
+    device_orch [
+        label="Device Orchestration\nEfficiency",
+        fillcolor="#FFF3E0",
+        color="#EF6C00"
+    ];
+
+    /*
+     * Device Computation Scalability branch
+     */
+
+    device_cs [
+        label="Device Computation\nScalability",
+        fillcolor="#BBDEFB",
+        color="#EF6C00"
+    ];
+
+    /*
+     * Device Global Efficiency decomposition
+     */
+
+    device_ge -> device_pe;
+    device_ge -> device_cs;
+
+    /*
+     * Device Parallel Efficiency decomposition
+     */
+
+    device_pe -> device_lb;
+    device_pe -> device_ce;
+    device_pe -> device_orch;
+
+    /*
+     * Layout constraints
+     */
+
+    { rank=same; device_pe; device_cs; }
+    { rank=same; device_lb; device_ce; device_orch; }
+}

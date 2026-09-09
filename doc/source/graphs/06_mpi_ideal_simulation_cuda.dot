@@ -1,0 +1,53 @@
+   digraph MPIIdealSimulationCUDA {
+       rankdir=LR;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.30,
+           ranksep=0.30
+       ];
+
+       node [
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#6B7C8F",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       measured [
+           label="Measured MPI+CUDA\nexecution",
+           shape=folder,
+           fillcolor="#EAF2F8"
+       ];
+
+       simulation [
+           label="MPI-ideal simulation\n\n• Ideal MPI network\n• CUDA disabled",
+           shape=box,
+           fillcolor="#F3E5F5"
+       ];
+
+       serialization [
+           label="MPI Serialization\nEfficiency",
+           shape=box,
+           fillcolor="#FFF3E0"
+       ];
+
+       transfer [
+           label="MPI Transfer\nEfficiency",
+           shape=box,
+           fillcolor="#FFF3E0"
+       ];
+
+       measured -> simulation;
+
+       simulation -> serialization;
+       simulation -> transfer;
+   }
+   

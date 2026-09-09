@@ -685,62 +685,8 @@ BasicAnalysis invokes Dimemas with OpenMP simulation disabled.
 
 Conceptually, the experiment is:
 
-.. graphviz::
+.. graphviz:: graphs/06_mpi_ideal_simulation.dot
    :align: center
-
-   digraph MPIIdealSimulation {
-       rankdir=LR;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.30,
-           ranksep=0.30
-       ];
-
-       node [
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       measured [
-           label="Measured MPI+OpenMP\nexecution",
-           shape=folder,
-           fillcolor="#EAF2F8"
-       ];
-
-       simulation [
-           label="MPI-ideal simulation\n\n• Ideal MPI network\n• OpenMP disabled",
-           shape=box,
-           fillcolor="#F3E5F5"
-       ];
-
-       serialization [
-           label="MPI Serialization\nEfficiency",
-           shape=box,
-           fillcolor="#FFF3E0"
-       ];
-
-       transfer [
-           label="MPI Transfer\nEfficiency",
-           shape=box,
-           fillcolor="#FFF3E0"
-       ];
-
-       measured -> simulation;
-
-       simulation -> serialization;
-       simulation -> transfer;
-   }
-
 
 This simulation is used exclusively to characterize the MPI communication
 component.
@@ -754,61 +700,8 @@ BasicAnalysis disables CUDA simulation in Dimemas.
 
 Conceptually:
 
-.. graphviz::
+.. graphviz:: graphs/06_mpi_ideal_simulation_cuda.dot
    :align: center
-
-   digraph MPIIdealSimulationCUDA {
-       rankdir=LR;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.30,
-           ranksep=0.30
-       ];
-
-       node [
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       measured [
-           label="Measured MPI+CUDA\nexecution",
-           shape=folder,
-           fillcolor="#EAF2F8"
-       ];
-
-       simulation [
-           label="MPI-ideal simulation\n\n• Ideal MPI network\n• CUDA disabled",
-           shape=box,
-           fillcolor="#F3E5F5"
-       ];
-
-       serialization [
-           label="MPI Serialization\nEfficiency",
-           shape=box,
-           fillcolor="#FFF3E0"
-       ];
-
-       transfer [
-           label="MPI Transfer\nEfficiency",
-           shape=box,
-           fillcolor="#FFF3E0"
-       ];
-
-       measured -> simulation;
-
-       simulation -> serialization;
-       simulation -> transfer;
-   }
 
 Disabling CUDA is important because the purpose of this experiment is to
 measure the MPI communication submetrics without introducing CUDA simulation
@@ -829,86 +722,8 @@ Dimemas ideal-OpenMP model.
 
 Conceptually:
 
-.. graphviz::
+.. graphviz:: graphs/06_openmp_contribution.dot
    :align: center
-
-   digraph OpenMPContribution {
-       rankdir=LR;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.35,
-           ranksep=0.45
-       ];
-
-       node [
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       measured [
-           label="Measured MPI+OpenMP\nexecution",
-           shape=folder,
-           fillcolor="#EAF2F8"
-       ];
-
-       mpi_ideal [
-           label="MPI-ideal simulation\n\n• Ideal MPI network\n• OpenMP disabled",
-           shape=box,
-           fillcolor="#F3E5F5"
-       ];
-
-       hybrid_ideal [
-           label="Hybrid-ideal simulation\n\n• Ideal MPI network\n• Ideal OpenMP runtime",
-           shape=box,
-           fillcolor="#F3E5F5"
-       ];
-
-       mpi_factors [
-           label="MPI factors\n\n• MPI Serialization Efficiency\n• MPI Transfer Efficiency",
-           shape=note,
-           fillcolor="#F4F6F7"
-       ];
-
-       hybrid_factors [
-           label="Hybrid factors\n\n• Hybrid Serialization Efficiency\n• Hybrid Transfer Efficiency",
-           shape=note,
-           fillcolor="#F4F6F7"
-       ];
-
-       serialization [
-           label="OpenMP Serialization\nEfficiency",
-           shape=box,
-           fillcolor="#FFF3E0"
-       ];
-
-       transfer [
-           label="OpenMP Transfer\nEfficiency",
-           shape=box,
-           fillcolor="#FFF3E0"
-       ];
-
-       measured -> mpi_ideal;
-       measured -> hybrid_ideal;
-
-       mpi_ideal -> mpi_factors;
-       hybrid_ideal -> hybrid_factors;
-
-       mpi_factors -> serialization;
-       hybrid_factors -> serialization;
-
-       mpi_factors -> transfer;
-       hybrid_factors -> transfer;
-   }
 
 The hybrid-ideal simulation provides the quantities used to compute:
 
@@ -1733,65 +1548,8 @@ interaction with the accelerator.
 
 Its hierarchy is:
 
-.. graphviz::
+.. graphviz:: graphs/06_host_efficiency_hierarchy.dot
    :align: center
-
-   digraph HostEfficiencyHierarchy {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.35,
-           ranksep=0.45
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       host_global [
-           label="Host Global Efficiency",
-           fillcolor="#EAF2F8"
-       ];
-
-       host_parallel [
-           label="Host Parallel Efficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       mpi_parallel [
-           label="MPI Parallel Efficiency",
-           fillcolor="#FFF3E0"
-       ];
-
-       device_offload [
-           label="Device Offload Efficiency",
-           fillcolor="#FFF3E0"
-       ];
-
-       host_comp [
-           label="Host Computation Scalability",
-           fillcolor="#E8F5E9"
-       ];
-
-       host_global -> host_parallel;
-       host_global -> host_comp;
-
-       host_parallel -> mpi_parallel;
-       host_parallel -> device_offload;
-   }
-
 
 Device Offload Efficiency
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1928,71 +1686,8 @@ streams have been mapped and flattened to their physical devices.
 
 Its hierarchy is:
 
-.. graphviz::
+.. graphviz:: graphs/06_device_efficiency_hierarchy.dot
    :align: center
-
-   digraph DeviceEfficiencyHierarchy {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.35,
-           ranksep=0.45
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       device_global [
-           label="Device Global Efficiency",
-           fillcolor="#EAF2F8"
-       ];
-
-       device_parallel [
-           label="Device Parallel Efficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       device_load_balance [
-           label="Device Load Balance",
-           fillcolor="#FFF3E0"
-       ];
-
-       device_communication [
-           label="Device Communication Efficiency",
-           fillcolor="#FFF3E0"
-       ];
-
-       device_orchestration [
-           label="Device Orchestration Efficiency",
-           fillcolor="#FFF3E0"
-       ];
-
-       device_comp [
-           label="Device Computation Scalability",
-           fillcolor="#E8F5E9"
-       ];
-
-       device_global -> device_parallel;
-       device_global -> device_comp;
-
-       device_parallel -> device_load_balance;
-       device_parallel -> device_communication;
-       device_parallel -> device_orchestration;
-   }
-
 
 Device Memory-Transfer Activity
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -1,0 +1,173 @@
+   digraph BasicAnalysisMetricWorkflow {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.65,
+           ranksep=0.26,
+           splines=ortho
+       ];
+
+       node [
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#6B7C8F",
+           penwidth=1.0,
+           margin="0.10,0.06"
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       traces [
+           label="Paraver traces",
+           shape=folder,
+           fillcolor="#EAF2F8"
+       ];
+
+       analysis_cfg [
+           label="Analysis\nconfiguration files",
+           shape=folder,
+           fillcolor="#EAF2F8"
+       ];
+
+       generate_ideal_cfg [
+           label="Generate ideal\nconfiguration",
+           shape=box,
+           fillcolor="#E8F5E9"
+       ];
+
+       ideal_cfg [
+           label="Ideal simulation\nconfiguration",
+           shape=note,
+           fillcolor="#F4F6F7"
+       ];
+
+       paramedir_measured [
+           label="paramedir",
+           shape=box,
+           fillcolor="#E8F5E9"
+       ];
+
+       measured [
+           label="Measured raw data",
+           shape=note,
+           fillcolor="#F4F6F7"
+       ];
+
+       prv2dim [
+           label="prv2dim",
+           shape=box,
+           fillcolor="#F3E5F5"
+       ];
+
+       dimemas [
+           label="Dimemas",
+           shape=box,
+           fillcolor="#F3E5F5"
+       ];
+
+       simulated [
+           label="Simulated traces",
+           shape=folder,
+           fillcolor="#F3E5F5"
+       ];
+
+       paramedir_ideal [
+           label="paramedir",
+           shape=box,
+           fillcolor="#E8F5E9"
+       ];
+
+       ideal [
+           label="Ideal raw data",
+           shape=note,
+           fillcolor="#F3E5F5"
+       ];
+
+       compute [
+           label="Compute metrics",
+           shape=box,
+           fillcolor="#E8F5E9"
+       ];
+
+       metrics [
+           label="Efficiency metrics",
+           shape=folder,
+           fillcolor="#FFF3E0"
+       ];
+
+       /*
+        * Main top-level elements
+        */
+       {
+           rank=same;
+           analysis_cfg;
+           traces;
+           generate_ideal_cfg;
+       }
+
+       /*
+        * Measured-data path
+        */
+       traces -> paramedir_measured;
+       analysis_cfg -> paramedir_measured;
+
+       paramedir_measured -> measured;
+
+       /*
+        * Simulation path
+        */
+       traces -> prv2dim [
+           label="when simulation\nis required",
+           fontsize=9
+       ];
+
+      traces -> generate_ideal_cfg [
+         label="trace information",
+         fontsize=9,
+         constraint=false
+      ];
+
+       generate_ideal_cfg -> ideal_cfg;
+
+       prv2dim -> dimemas;
+       ideal_cfg -> dimemas;
+
+       dimemas -> simulated;
+
+       simulated -> paramedir_ideal;
+
+       /*
+        * This configuration-file dependency should not
+        * determine the vertical position of paramedir.
+        */
+       analysis_cfg -> paramedir_ideal [
+           constraint=false
+       ];
+
+       paramedir_ideal -> ideal;
+
+       /*
+        * Metric computation
+        */
+       measured -> compute;
+       ideal -> compute;
+
+       compute -> metrics;
+
+       /*
+        * Keep the first processing level aligned.
+        */
+       {
+           rank=same;
+           paramedir_measured;
+           prv2dim;
+           ideal_cfg;
+       }
+   }
+   

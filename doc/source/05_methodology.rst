@@ -76,64 +76,8 @@ Therefore, Parallel Efficiency is decomposed as:
 
 This results in the following application-level hierarchy:
 
-.. graphviz::
+.. graphviz:: graphs/05_base_efficiency_hierarchy.dot
    :align: center
-
-   digraph BaseEfficiencyHierarchy {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.35,
-           ranksep=0.45
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       global [
-           label="Global Efficiency",
-           fillcolor="#EAF2F8"
-       ];
-
-        parallel [
-            label="Parallel Efficiency",
-            fillcolor="#C8E6C9"
-        ];
-
-        comp [
-            label="Computation Scalability",
-            fillcolor="#BBDEFB"
-        ];
-
-        lb [
-            label="Load Balance",
-            fillcolor="#E8F5E9"
-        ];
-
-        comm [
-            label="Communication Efficiency",
-            fillcolor="#E8F5E9"
-        ];
-
-       global -> parallel;
-       global -> comp;
-
-       parallel -> lb;
-       parallel -> comm;
-   }
 
 Load Balance characterizes how evenly the computational workload is
 distributed among the parallel units, while Communication Efficiency
@@ -160,51 +104,8 @@ required for their interaction.
 
 The Communication Efficiency branch can therefore be represented as:
 
-.. graphviz::
+.. graphviz:: graphs/05_communication_hierarchy.dot
    :align: center
-
-   digraph CommunicationHierarchy {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.35,
-           ranksep=0.45
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-        comm [
-            label="Communication Efficiency",
-            fillcolor="#E8F5E9"
-        ];
-
-        serialization [
-            label="Serialization Efficiency",
-            fillcolor="#F1F8E9"
-        ];
-
-        transfer [
-            label="Transfer Efficiency",
-            fillcolor="#F1F8E9"
-        ];
-
-       comm -> serialization;
-       comm -> transfer;
-   }
 
 The way these communication factors are obtained depends on the parallel
 execution model. BasicAnalysis directly derives the MPI factors using
@@ -244,97 +145,8 @@ the operating speed of the computational resource (Frequency).
 Together with the Parallel Efficiency decomposition introduced above, these
 metrics complete the application-level efficiency hierarchy:
 
-.. graphviz::
+.. graphviz:: graphs/05_complete_efficiency_hierarchy.dot
    :align: center
-
-   digraph CompleteEfficiencyHierarchy {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.35,
-           ranksep=0.45
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       global [
-           label="Global Efficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       parallel [
-           label="Parallel Efficiency",
-           fillcolor="#C8E6C9"
-       ];
-
-       loadbalance [
-           label="Load Balance",
-           fillcolor="#E8F5E9"
-       ];
-
-       communication [
-           label="Communication Efficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       serialization [
-           label="Serialization Efficiency",
-           fillcolor="#F1F8E9"
-       ];
-
-       transfer [
-           label="Transfer Efficiency",
-           fillcolor="#F1F8E9"
-       ];
-
-       computation [
-           label="Computation Scalability",
-           fillcolor="#BBDEFB"
-       ];
-
-       ipc [
-           label="IPC Scalability",
-           fillcolor="#E3F2FD"
-       ];
-
-       instructions [
-           label="Instruction Scalability",
-           fillcolor="#E3F2FD"
-       ];
-
-       frequency [
-           label="Frequency Scalability",
-           fillcolor="#E3F2FD"
-       ];
-
-       global -> parallel;
-       global -> computation;
-
-       parallel -> loadbalance;
-       parallel -> communication;
-
-       communication -> serialization;
-       communication -> transfer;
-
-       computation -> ipc;
-       computation -> instructions;
-       computation -> frequency;
-   }
-
 
 The hierarchy provides a systematic way to navigate an efficiency analysis.
 When a parent metric shows a significant loss, its child metrics can be
@@ -420,51 +232,9 @@ complete hybrid execution, while :math:`Hybrid\_CommE` characterizes the
 communication and coordination overhead associated with all participating
 parallel runtimes.
 
-.. graphviz::
+.. graphviz:: graphs/05_hybrid_parallel_efficiency.dot
    :align: center
 
-   digraph HybridParallelEfficiency {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.45,
-           ranksep=0.45
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       hybrid_pe [
-           label="Hybrid Parallel Efficiency",
-           fillcolor="#C8E6C9"
-       ];
-
-       hybrid_lb [
-           label="Hybrid Load Balance",
-           fillcolor="#E8F5E9"
-       ];
-
-       hybrid_ce [
-           label="Hybrid Communication Efficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       hybrid_pe -> hybrid_lb;
-       hybrid_pe -> hybrid_ce;
-   }
 
 To isolate the contribution of the outer runtime, the execution is analyzed
 from its perspective. Activity associated with the outer runtime is treated
@@ -483,51 +253,8 @@ including OpenMP activity, is considered computation. The resulting MPI
 metrics therefore characterize the performance factors associated with 
 the outer parallelization.
 
-.. graphviz::
+.. graphviz:: graphs/05_hybrid_outer_parallel_efficiency.dot
    :align: center
-
-   digraph HybridOuterParallelEfficiency {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.45,
-           ranksep=0.65
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       outer_pe [
-           label="Outer-runtime Parallel Efficiency",
-           fillcolor="#C8E6C9"
-       ];
-
-       outer_lb [
-           label="Outer-runtime Load Balance",
-           fillcolor="#E8F5E9"
-       ];
-
-       outer_ce [
-           label="Outer-runtime Communication Efficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       outer_pe -> outer_lb;
-       outer_pe -> outer_ce;
-   }
 
 Once the hybrid and outer-runtime factors are known, the contribution 
 of the inner runtime can be derived using the multiplicative structure 
@@ -565,265 +292,14 @@ The inner-runtime metrics therefore represent the contribution required to
 relate the outer-runtime factors to those observed for the complete hybrid
 execution. 
 
-
-.. graphviz::
+.. graphviz:: graphs/05_hybrid_inner_parallel_efficiency.dot
    :align: center
-
-   digraph HybridInnerParallelEfficiency {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.45,
-           ranksep=0.65
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       inner_pe [
-           label="Inner-runtime Parallel Efficiency",
-           fillcolor="#C8E6C9"
-       ];
-
-       inner_lb [
-           label="Inner-runtime Load Balance",
-           fillcolor="#E8F5E9"
-       ];
-
-       inner_ce [
-           label="Inner-runtime Communication Efficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       inner_pe -> inner_lb;
-       inner_pe -> inner_ce;
-   }
-
 
 The resulting generic metric hierarchy for a hybrid parallel application 
 can be represented as follows:
 
-
-.. graphviz::
+.. graphviz:: graphs/05_generic_parallel_runtime_model.dot
    :align: center
-
-   digraph GenericParallelRuntimeModel {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.40,
-           ranksep=0.50
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#2E7D32",
-           penwidth=1.0
-       ];
-
-       edge [
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       /*
-        * Hybrid level
-        */
-
-       hybrid_pe [
-           label="Hybrid Parallel\nEfficiency",
-           fillcolor="#C8E6C9"
-       ];
-
-       hybrid_lb [
-           label="Hybrid Load\nBalance",
-           fillcolor="#E8F5E9"
-       ];
-
-       hybrid_ce [
-           label="Hybrid Communication\nEfficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       /*
-        * Outer-runtime level
-        */
-
-       outer_pe [
-           label="Outer-runtime Parallel\nEfficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       outer_lb [
-           label="Outer-runtime Load\nBalance",
-           fillcolor="#F4F6F7"
-       ];
-
-       outer_ce [
-           label="Outer-runtime Communication\nEfficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       /*
-        * Inner-runtime level
-        */
-
-       inner_pe [
-           label="Inner-runtime Parallel\nEfficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       inner_lb [
-           label="Inner-runtime Load\nBalance",
-           fillcolor="#F4F6F7"
-       ];
-
-       inner_ce [
-           label="Inner-runtime Communication\nEfficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       /*
-        * Hybrid performance-factor decomposition
-        */
-
-       hybrid_pe -> hybrid_lb [
-           color="#4A90C2"
-       ];
-
-       hybrid_pe -> hybrid_ce [
-           color="#4A90C2"
-       ];
-
-       /*
-        * Runtime decomposition of Hybrid PE
-        */
-
-       hybrid_pe -> outer_pe [
-           color="#2E7D32"
-       ];
-
-       hybrid_pe -> inner_pe [
-           color="#2E7D32"
-       ];
-
-       /*
-        * Outer-runtime performance factors
-        */
-
-       outer_pe -> outer_lb [
-           color="#2E7D32"
-       ];
-
-       outer_pe -> outer_ce [
-           color="#2E7D32"
-       ];
-
-       /*
-        * Inner-runtime performance factors
-        */
-
-       inner_pe -> inner_lb [
-           color="#2E7D32"
-       ];
-
-       inner_pe -> inner_ce [
-           color="#2E7D32"
-       ];
-
-       /*
-        * Runtime contributions to hybrid factors
-        */
-
-       hybrid_lb -> outer_lb [
-           color="#4A90C2"
-       ];
-
-       hybrid_lb -> inner_lb [
-           color="#4A90C2"
-       ];
-
-       hybrid_ce -> outer_ce [
-           color="#4A90C2"
-       ];
-
-       hybrid_ce -> inner_ce [
-           color="#4A90C2"
-       ];
-
-       /*
-        * Layout constraints.
-        *
-        * Hybrid factors stay on the left.
-        * Outer and inner runtime branches extend to the right.
-        */
-
-       { rank=same;
-           hybrid_lb;
-           hybrid_ce;
-           outer_pe;
-           inner_pe;
-       }
-
-       { rank=same;
-           outer_lb;
-           outer_ce;
-           inner_lb;
-           inner_ce;
-       }
-
-       /*
-        * Invisible edges control left-to-right ordering.
-        */
-
-       hybrid_lb -> hybrid_ce [
-           style=invis,
-           weight=20
-       ];
-
-       hybrid_ce -> outer_pe [
-           style=invis,
-           weight=20
-       ];
-
-       outer_pe -> inner_pe [
-           style=invis,
-           weight=20
-       ];
-
-       outer_lb -> outer_ce [
-           style=invis,
-           weight=20
-       ];
-
-       outer_ce -> inner_lb [
-           style=invis,
-           weight=20
-       ];
-
-       inner_lb -> inner_ce [
-           style=invis,
-           weight=20
-       ];
-   }
-
 
 The hierarchy can be followed either by performance factor, to examine 
 Load Balance or Communication Efficiency across runtime levels, or by 
@@ -862,247 +338,8 @@ and OpenMP Communication Efficiency contributions:
 The resulting Parallel Runtime Model for an MPI+OpenMP application can
 therefore be represented as:
 
-.. graphviz::
+.. graphviz:: graphs/05_mpiomp_parallel_runtime_model.dot
    :align: center
-
-   digraph MPIOMPParallelRuntimeModel {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.40,
-           ranksep=0.50
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#2E7D32",
-           penwidth=1.0
-       ];
-
-       edge [
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       /*
-        * Hybrid level
-        */
-
-       hybrid_pe [
-           label="Hybrid Parallel\nEfficiency",
-           fillcolor="#C8E6C9"
-       ];
-
-       hybrid_lb [
-           label="Hybrid Load\nBalance",
-           fillcolor="#E8F5E9"
-       ];
-
-       hybrid_ce [
-           label="Hybrid Communication\nEfficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       /*
-        * MPI level
-        */
-
-       mpi_pe [
-           label="MPI Parallel\nEfficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       mpi_lb [
-           label="MPI Load\nBalance",
-           fillcolor="#F4F6F7"
-       ];
-
-       mpi_ce [
-           label="MPI Communication\nEfficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       mpi_serial [
-           label="MPI Serialization\nEfficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       mpi_transfer [
-           label="MPI Transfer\nEfficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       /*
-        * OpenMP level
-        */
-
-       omp_pe [
-           label="OpenMP Parallel\nEfficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       omp_lb [
-           label="OpenMP Load\nBalance",
-           fillcolor="#F4F6F7"
-       ];
-
-       omp_ce [
-           label="OpenMP Communication\nEfficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       /*
-        * Hybrid performance-factor decomposition
-        */
-
-       hybrid_pe -> hybrid_lb [
-           color="#4A90C2"
-       ];
-
-       hybrid_pe -> hybrid_ce [
-           color="#4A90C2"
-       ];
-
-       /*
-        * Runtime decomposition of Hybrid PE
-        */
-
-       hybrid_pe -> mpi_pe [
-           color="#2E7D32"
-       ];
-
-       hybrid_pe -> omp_pe [
-           color="#2E7D32"
-       ];
-
-       /*
-        * MPI performance factors
-        */
-
-       mpi_pe -> mpi_lb [
-           color="#2E7D32"
-       ];
-
-       mpi_pe -> mpi_ce [
-           color="#2E7D32"
-       ];
-
-       /*
-        * OpenMP performance factors
-        */
-
-       omp_pe -> omp_lb [
-           color="#2E7D32"
-       ];
-
-       omp_pe -> omp_ce [
-           color="#2E7D32"
-       ];
-
-       /*
-        * Runtime contributions to Hybrid Load Balance
-        */
-
-       hybrid_lb -> mpi_lb [
-           color="#4A90C2"
-       ];
-
-       hybrid_lb -> omp_lb [
-           color="#4A90C2"
-       ];
-
-       /*
-        * Runtime contributions to Hybrid Communication Efficiency
-        */
-
-       hybrid_ce -> mpi_ce [
-           color="#4A90C2"
-       ];
-
-       hybrid_ce -> omp_ce [
-           color="#4A90C2"
-       ];
-
-       /*
-        * MPI Communication Efficiency decomposition
-        */
-
-       mpi_ce -> mpi_serial [
-           color="#2E7D32"
-       ];
-
-       mpi_ce -> mpi_transfer [
-           color="#2E7D32"
-       ];
-
-       /*
-        * Layout constraints:
-        * Hybrid factors on the left,
-        * MPI and OpenMP runtime branches on the right.
-        */
-
-       { rank=same;
-           hybrid_lb;
-           hybrid_ce;
-           mpi_pe;
-           omp_pe;
-       }
-
-       { rank=same;
-           mpi_lb;
-           mpi_ce;
-           omp_lb;
-           omp_ce;
-       }
-
-       { rank=same;
-           mpi_serial;
-           mpi_transfer;
-       }
-
-       /*
-        * Invisible edges control left-to-right ordering.
-        */
-
-       hybrid_lb -> hybrid_ce [
-           style=invis,
-           weight=20
-       ];
-
-       hybrid_ce -> mpi_pe [
-           style=invis,
-           weight=20
-       ];
-
-       mpi_pe -> omp_pe [
-           style=invis,
-           weight=20
-       ];
-
-       mpi_lb -> mpi_ce [
-           style=invis,
-           weight=20
-       ];
-
-       mpi_ce -> omp_lb [
-           style=invis,
-           weight=20
-       ];
-
-       omp_lb -> omp_ce [
-           style=invis,
-           weight=20
-       ];
-
-       mpi_serial -> mpi_transfer [
-           style=invis,
-           weight=20
-       ];
-   }
 
 When MPI is the outer runtime, MPI Communication Efficiency can be further 
 decomposed into MPI Serialization Efficiency and MPI Transfer Efficiency. 
@@ -1260,425 +497,16 @@ interaction mechanisms of OpenMP.
 
 The resulting hierarchy can be represented as:
 
-
-.. graphviz::
+.. graphviz:: graphs/05_hybrid_communication_decomposition.dot
    :align: center
-
-   digraph HybridCommunicationDecomposition {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.45,
-           ranksep=0.50
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#2E7D32",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       hybrid_ce [
-           label="Hybrid Communication\nEfficiency",
-           fillcolor="#C8E6C9"
-       ];
-
-       hybrid_serial [
-           label="Hybrid Serialization\nEfficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       hybrid_transfer [
-           label="Hybrid Transfer\nEfficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       mpi_serial [
-           label="MPI Serialization\nEfficiency",
-           fillcolor="#F1F8E9"
-       ];
-
-       omp_serial [
-           label="OpenMP Serialization\nEfficiency",
-           fillcolor="#F1F8E9"
-       ];
-
-       mpi_transfer [
-           label="MPI Transfer\nEfficiency",
-           fillcolor="#F1F8E9"
-       ];
-
-       omp_transfer [
-           label="OpenMP Transfer\nEfficiency",
-           fillcolor="#F1F8E9"
-       ];
-
-       hybrid_ce -> hybrid_serial;
-       hybrid_ce -> hybrid_transfer;
-
-       hybrid_serial -> mpi_serial;
-       hybrid_serial -> omp_serial;
-
-       hybrid_transfer -> mpi_transfer;
-       hybrid_transfer -> omp_transfer;
-
-       { rank=same; hybrid_serial; hybrid_transfer; }
-       { rank=same; mpi_serial; omp_serial; mpi_transfer; omp_transfer; }
-   }
-
 
 The OpenMP factors derived through this extension describe the contribution
 of OpenMP to the communication-related factors observed in the hybrid
 execution. They remain relative contributions within the Parallel Runtime
 Model. The MPI+OpenMP metric hierarchy is therefore extended as follows:
 
-.. graphviz::
+.. graphviz:: graphs/05_mpiomp_parallel_runtime_model_extended.dot
    :align: center
-
-   digraph MPIOMPParallelRuntimeModel {
-
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.40,
-           ranksep=0.50
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#2E7D32",
-           penwidth=1.0
-       ];
-
-       edge [
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       /*
-        * Hybrid level
-        */
-
-       hybrid_pe [
-           label="Hybrid Parallel\nEfficiency",
-           fillcolor="#C8E6C9"
-       ];
-
-       hybrid_lb [
-           label="Hybrid Load\nBalance",
-           fillcolor="#E8F5E9"
-       ];
-
-       hybrid_ce [
-           label="Hybrid Communication\nEfficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       hybrid_serial [
-           label="Hybrid Serialization\nEfficiency",
-           fillcolor="#D9EAF7"
-       ];
-
-       hybrid_transfer [
-           label="Hybrid Transfer\nEfficiency",
-           fillcolor="#D9EAF7"
-       ];
-
-       /*
-        * MPI level
-        */
-
-       mpi_pe [
-           label="MPI Parallel\nEfficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       mpi_lb [
-           label="MPI Load\nBalance",
-           fillcolor="#F4F6F7"
-       ];
-
-       mpi_ce [
-           label="MPI Communication\nEfficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       mpi_serial [
-           label="MPI Serialization\nEfficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       mpi_transfer [
-           label="MPI Transfer\nEfficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       /*
-        * OpenMP level
-        */
-
-       omp_pe [
-           label="OpenMP Parallel\nEfficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       omp_lb [
-           label="OpenMP Load\nBalance",
-           fillcolor="#F4F6F7"
-       ];
-
-       omp_ce [
-           label="OpenMP Communication\nEfficiency",
-           fillcolor="#F4F6F7"
-       ];
-
-       omp_serial [
-           label="OpenMP Serialization\nEfficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       omp_transfer [
-           label="OpenMP Transfer\nEfficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       /*
-        * Hybrid performance-factor decomposition
-        */
-
-       hybrid_pe -> hybrid_lb [
-           color="#4A90C2"
-       ];
-
-       hybrid_pe -> hybrid_ce [
-           color="#4A90C2"
-       ];
-
-       /*
-        * Runtime decomposition of Hybrid PE
-        */
-
-       hybrid_pe -> mpi_pe [
-           color="#2E7D32"
-       ];
-
-       hybrid_pe -> omp_pe [
-           color="#2E7D32"
-       ];
-
-       /*
-        * MPI performance factors
-        */
-
-       mpi_pe -> mpi_lb [
-           color="#2E7D32"
-       ];
-
-       mpi_pe -> mpi_ce [
-           color="#2E7D32"
-       ];
-
-       /*
-        * OpenMP performance factors
-        */
-
-       omp_pe -> omp_lb [
-           color="#2E7D32"
-       ];
-
-       omp_pe -> omp_ce [
-           color="#2E7D32"
-       ];
-
-       /*
-        * Runtime contributions to Hybrid Load Balance
-        */
-
-       hybrid_lb -> mpi_lb [
-           color="#4A90C2"
-       ];
-
-       hybrid_lb -> omp_lb [
-           color="#4A90C2"
-       ];
-
-       /*
-        * Hybrid Communication Efficiency decomposition
-        */
-
-       hybrid_ce -> hybrid_serial [
-           color="#4A90C2"
-       ];
-
-       hybrid_ce -> hybrid_transfer [
-           color="#4A90C2"
-       ];
-
-       /*
-        * Runtime contributions to Hybrid Communication Efficiency
-        */
-
-       hybrid_ce -> mpi_ce [
-           color="#4A90C2"
-       ];
-
-       hybrid_ce -> omp_ce [
-           color="#4A90C2"
-       ];
-
-       /*
-        * MPI Communication Efficiency decomposition
-        */
-
-       mpi_ce -> mpi_serial [
-           color="#2E7D32"
-       ];
-
-       mpi_ce -> mpi_transfer [
-           color="#2E7D32"
-       ];
-
-       /*
-        * OpenMP Communication Efficiency decomposition
-        */
-
-       omp_ce -> omp_serial [
-           color="#2E7D32"
-       ];
-
-       omp_ce -> omp_transfer [
-           color="#2E7D32"
-       ];
-
-       /*
-        * Runtime decomposition of Hybrid Serialization Efficiency
-        */
-
-       hybrid_serial -> mpi_serial [
-           color="#4A90C2"
-       ];
-
-       hybrid_serial -> omp_serial [
-           color="#4A90C2"
-       ];
-
-       /*
-        * Runtime decomposition of Hybrid Transfer Efficiency
-        */
-
-       hybrid_transfer -> mpi_transfer [
-           color="#4A90C2"
-       ];
-
-       hybrid_transfer -> omp_transfer [
-           color="#4A90C2"
-       ];
-
-       /*
-        * Layout constraints:
-        * Hybrid factors on the left,
-        * MPI and OpenMP runtime branches on the right.
-        */
-
-       {
-           rank=same;
-           hybrid_lb;
-           hybrid_ce;
-           mpi_pe;
-           omp_pe;
-       }
-
-       {
-           rank=same;
-           hybrid_serial;
-           hybrid_transfer;
-           mpi_lb;
-           mpi_ce;
-           omp_lb;
-           omp_ce;
-       }
-
-       {
-           rank=same;
-           mpi_serial;
-           mpi_transfer;
-           omp_serial;
-           omp_transfer;
-       }
-
-       /*
-        * Invisible edges control left-to-right ordering.
-        */
-
-       hybrid_lb -> hybrid_ce [
-           style=invis,
-           weight=20
-       ];
-
-       hybrid_ce -> mpi_pe [
-           style=invis,
-           weight=20
-       ];
-
-       mpi_pe -> omp_pe [
-           style=invis,
-           weight=20
-       ];
-
-       hybrid_serial -> hybrid_transfer [
-           style=invis,
-           weight=20
-       ];
-
-       hybrid_transfer -> mpi_lb [
-           style=invis,
-           weight=20
-       ];
-
-       mpi_lb -> mpi_ce [
-           style=invis,
-           weight=20
-       ];
-
-       mpi_ce -> omp_lb [
-           style=invis,
-           weight=20
-       ];
-
-       omp_lb -> omp_ce [
-           style=invis,
-           weight=20
-       ];
-
-       mpi_serial -> mpi_transfer [
-           style=invis,
-           weight=20
-       ];
-
-       mpi_transfer -> omp_serial [
-           style=invis,
-           weight=20
-       ];
-
-       omp_serial -> omp_transfer [
-           style=invis,
-           weight=20
-       ];
-   }
 
 A different perspective is required to characterize the OpenMP execution
 itself. For this purpose, BasicAnalysis provides an isolated OpenMP analysis
@@ -1759,188 +587,337 @@ These three factors determine the isolated OpenMP Parallel Efficiency:
 The metric hierarchy for the isolated OpenMP analysis can therefore 
 be represented as:
 
-.. graphviz::
+.. graphviz:: graphs/05_openmp_efficiency_hierarchy.dot
    :align: center
-
-   digraph OpenMPEfficiencyHierarchy {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.45,
-           ranksep=0.50
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#EF6C00",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#B26A00",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       omp_pe [
-           label="OMP Parallel\nEfficiency",
-           fillcolor="#FFE0B2"
-       ];
-
-       omp_serial [
-           label="OMP Serial\nEfficiency",
-           fillcolor="#FFF3E0"
-       ];
-
-       omp_lb [
-           label="OMP Load\nBalance",
-           fillcolor="#FFF3E0"
-       ];
-
-       omp_sched [
-           label="OMP Scheduling\nEfficiency",
-           fillcolor="#FFF3E0"
-       ];
-
-       omp_pe -> omp_serial;
-       omp_pe -> omp_lb;
-       omp_pe -> omp_sched;
-
-       { rank=same; omp_serial; omp_lb; omp_sched; }
-   }
-
-
 
 Execution Domains
 =================
 
-For accelerator applications, BasicAnalysis also provides an
-**Execution Domains** view.
+Accelerator applications involve execution across two distinct but interacting
+domains: the **Host**, where the CPU-side execution takes place and work is
+prepared and submitted to the accelerator, and the **Device**, where the
+offloaded work is executed.
 
-This view separates the execution into two complementary domains:
+This distinction is independent of the particular parallel programming model.
+The Host may itself use a distributed- or shared-memory parallel runtime, while
+the Device execution is managed through an accelerator programming model. For
+example, the same Host/Device perspective can conceptually be applied to
+MPI+GPU, OpenMP+GPU, or OpenACC+GPU applications.
 
-* **Host**, representing the CPU-side execution and the mechanisms responsible
-  for supplying work to the accelerator;
-* **Device**, representing the execution of work on the accelerator.
+The performance behavior observed in these two domains is complementary but
+different. Inefficiency may originate from the Host execution or from the
+mechanisms used to supply work to the accelerator, while other losses may
+manifest on the Device through insufficient available work, data movement,
+workload imbalance, or computation scalability.
 
-The purpose of this view is to identify where accelerator-related
-inefficiencies manifest. For example, a performance loss may originate from
-host-side orchestration or offload behavior, or it may manifest as poor
-utilization or imbalance on the device.
+The **Execution Domains** analysis separates these two perspectives in order
+to identify where accelerator-related inefficiencies manifest:
+
+* **Host**, characterizing CPU-side execution and the interaction with the
+  accelerator;
+* **Device**, characterizing the execution of work on the accelerator.
+
+BasicAnalysis currently implements this analysis for MPI+GPU applications,
+where MPI represents the Host-side parallel runtime and CUDA or HIP manages
+the accelerator execution.
+
+The Host/Device efficiency model extends the POP methodology to heterogeneous
+accelerated systems. BasicAnalysis applies this model through post-mortem
+analysis of Paraver traces, deriving the Host- and Device-side execution
+information required to compute the corresponding metrics.
+
+For compactness, the following notation is used for the Host and 
+Device metrics:
+
+* **Host_PE**: Host Parallel Efficiency
+* **MPI_PE**: MPI Parallel Efficiency
+* **Device_Offload**: Device Offload Efficiency
+* **Host_GE**: Host Global Efficiency
+* **Host_CompScale**: Host Computation Scalability
+* **Device_GE**: Device Global Efficiency
+* **Device_PE**: Device Parallel Efficiency
+* **Device_LB**: Device Load Balance
+* **Device_CommE**: Device Communication Efficiency
+* **Device_OrchE**: Device Orchestration Efficiency
+* **Device_CompScale**: Device Computation Scalability
+
+Host Global Efficiency
+----------------------
+
+The Host Global Efficiency characterizes the efficiency of the CPU-side
+execution. Performance losses at this level can arise from the parallel
+execution and the interaction with the accelerator, but also from changes
+in the efficiency of the computation performed on the Host as the execution
+configuration changes.
+
+These two aspects are characterized by Host Parallel Efficiency and Host
+Computation Scalability, respectively. Host Global Efficiency is therefore
+defined as:
+
+.. math::
+
+   Host\_GE = Host\_PE \times Host\_CompScale
 
 
-Host execution domain
----------------------
+Host Parallel Efficiency
+^^^^^^^^^^^^^^^^^^^^^^^^
 
-The Host hierarchy characterizes the efficiency of CPU-side execution and the
-interaction between the host and accelerator.
+From the Host perspective, parallel-efficiency losses can originate from two
+different components of the execution. The Host parallel runtime can introduce
+the usual load-distribution and communication overheads, while interaction
+with the accelerator can introduce offload overhead associated with launching
+work, transferring data, or waiting for the device.
 
-.. TODO:
-   Add Graphviz Host hierarchy:
+In the current MPI+GPU implementation, the Host-side parallel runtime is MPI.
+Therefore, Host Parallel Efficiency is decomposed into an MPI contribution
+and an accelerator-offload contribution:
 
-   Host Global Efficiency
-   +-- Host Parallel Efficiency
-   |   +-- MPI Parallel Efficiency
-   |   +-- Device Offload Efficiency
-   +-- Host Computation Scalability
+.. math::
+
+   Host\_PE = MPI\_PE \times Device\_Offload
+
+**MPI Parallel Efficiency** characterizes the contribution associated with the
+MPI parallelization. When evaluating this contribution, time spent outside MPI,
+including Host activity associated with managing the accelerator, is considered
+computation from the MPI perspective.
+
+**Device Offload Efficiency** characterizes the remaining Host-side loss
+associated with using the accelerator. This includes activity such as
+launching accelerator work, transferring data, and waiting for accelerator
+operations to complete.
+
+Host Computation Scalability
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Host Computation Scalability** characterizes how the useful computation
+performed on the Host evolves when the execution configuration changes.
+It applies the computation-scalability branch of the performance model to
+Host-side useful computation.
+
+As in the application-level model, Host Computation Scalability can be
+further decomposed into:
+
+* **Host IPC Scalability**, characterizing changes in the number of instructions
+  completed per processor cycle;
+
+* **Host Instruction Scalability**, characterizing changes in the amount of
+  instructions required to perform the useful Host computation;
+
+* **Host Frequency Scalability**, characterizing changes in processor frequency.
+
+These factors are evaluated considering only the Host-side execution and 
+therefore characterize the scalability of the CPU-side computation 
+independently of the Device execution.
+
+The Host computation-scaling branch is therefore decomposed into:
+
+.. math::
+
+   Host\_CompScale =
+   Host\_IPCScale \times
+   Host\_InstructionScale \times
+   Host\_FrequencyScale
+
+Together, the Host Parallel Efficiency and Host Computation Scalability
+branches provide the complete decomposition of Host Global Efficiency. The
+resulting Host metric hierarchy for the current MPI+GPU implementation is:
+
+.. graphviz:: graphs/05_host_execution_domain.dot
+   :align: center
+
+Device Global Efficiency
+------------------------
+
+Device Global Efficiency characterizes the efficiency of the accelerator-side
+execution. Performance losses at this level can arise from how effectively the
+available Device resources execute the work supplied by the Host, but also
+from changes in the efficiency of the computation performed on the Device as
+the execution configuration changes.
+
+These two aspects are characterized by Device Parallel Efficiency and Device
+Computation Scalability, respectively. Device Global Efficiency is therefore
+defined as:
+
+.. math::
+
+   Device\_GE =
+   Device\_PE \times Device\_CompScale
+
+Device Parallel Efficiency
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+A device may fail to perform useful computation for several different
+reasons. It may not have work available to execute, it may be involved in data
+movement, or the useful work may be distributed unevenly across the available
+devices. The Device hierarchy separates these effects into three performance
+factors: Orchestration Efficiency, Communication Efficiency, and Load Balance.
+
+**Device Load Balance** 
+
+When several accelerators participate in the execution, useful work must also
+be distributed evenly among them.
+
+Device Load Balance characterizes differences in useful computation across
+devices. A low value indicates that some devices perform less useful
+computation than others and therefore contribute less effectively to the
+parallel execution.
+
+**Device Communication Efficiency** 
+Even when work is available, device execution can be delayed by data movement.
+Transfers may occur between Host and Device or between accelerators, and may
+also involve communication mechanisms such as accelerator-aware MPI or
+device-communication libraries.
+
+Device Communication Efficiency characterizes the loss associated with
+data movement that is not hidden by computation. Data transfers that overlap
+with useful computation do not contribute to this loss.
+
+**Device Orchestration Efficiency**
+
+A device can remain idle because executable work is not available when it is
+ready to execute. This may reflect inefficiencies in coordinating computation,
+communication, and Host offload, including delays in supplying work or
+dependencies between accelerator operations.
+
+Device Orchestration Efficiency characterizes the loss associated with periods
+in which the accelerator remains inactive because neither useful computation
+nor data movement is being performed. A low value therefore indicates that the
+accelerator is not being supplied with executable work continuously.
+
+Together, these factors determine Device Parallel Efficiency:
+
+.. math::
+
+   Device\_PE =
+   Device\_LB \times Device\_CommE \times Device\_OrchE
 
 
-Device execution domain
------------------------
+Device Computation Scalability
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The Device hierarchy characterizes how efficiently work is executed on the
-accelerator.
+**Device Computation Scalability** characterizes how the useful computation
+performed on the Device evolves when the execution configuration changes.
+It complements Device Parallel Efficiency by separating changes in the
+computation itself from losses associated with workload distribution, data
+movement, and the availability of work on the accelerator.
 
-.. TODO:
-   Add Graphviz Device hierarchy:
+At present, BasicAnalysis provides Device Computation Scalability as the
+parent metric of the computation-scaling branch. A decomposition into
+lower-level Device computation-scaling factors is not currently defined in
+BasicAnalysis and is therefore not included in the metric hierarchy.
 
-   Device Global Efficiency
-   +-- Device Parallel Efficiency
-   |   +-- Device Load Balance
-   |   +-- Device Communication Efficiency
-   |   +-- Device Orchestration Efficiency
-   +-- Device Computation Scalability
+With the Device Parallel Efficiency factors described above and Device
+Computation Scalability completing the second branch, the Device Global
+Efficiency hierarchy for the current MPI+GPU implementation can be
+represented as:
+
+.. graphviz:: graphs/05_device_execution_domain.dot
+   :align: center
 
 
 Independent Host and Device efficiencies
 ----------------------------------------
 
-Host and Device metrics do not form a multiplicative decomposition of a
-single application Global Efficiency.
+The Host and Device hierarchies describe different execution domains. They are
+not successive levels of a single multiplicative hierarchy.
 
-Instead, BasicAnalysis computes independent:
+BasicAnalysis therefore computes two independent domain-level efficiencies:
 
-* **Host Global Efficiency**, and
-* **Device Global Efficiency**.
+* **Host Global Efficiency**, which characterizes CPU-side execution and the
+  interaction with the accelerator;
+* **Device Global Efficiency**, which characterizes execution on the
+  accelerator itself.
 
-These metrics characterize different execution domains and must be interpreted
-as complementary evidence.
-
-In particular:
+A low Host Global Efficiency may indicate limitations in the CPU-side execution 
+or offload path, while a low Device Global Efficiency may indicate insufficient 
+work, data-movement overhead, imbalance, or poor computation scalability on the 
+accelerator.
 
 .. warning::
 
    Host Global Efficiency and Device Global Efficiency must not be multiplied
    to obtain application Global Efficiency.
 
-The Execution Domains view can therefore be used to determine **where**
-accelerator-related performance losses manifest, while the Parallel Runtime
-Model describes how those losses contribute to the application's hierarchical
-efficiency model.
+The Execution Domains analysis should therefore be interpreted as a
+localization view: it helps determine **where** accelerator-related
+inefficiency manifests. The Parallel Runtime Model provides a different,
+complementary perspective by attributing efficiency losses to the participating
+parallel runtimes and their common performance factors.
 
 
 Scaling analysis
 ================
 
 When several execution configurations are analyzed together, BasicAnalysis
-examines how performance and efficiency factors evolve as the amount of
-parallel resources changes.
+examines how application performance and the efficiency factors identified by
+the hierarchical model evolve as the amount of parallel resources changes.
 
-The **Scaling Analysis** complements the hierarchical analysis by adding the
-configuration dimension. Rather than asking only which metric is low, it asks
-how that metric changes across the analyzed executions.
+The **Scaling Analysis** adds the configuration dimension to the performance
+assessment. While the hierarchical analysis identifies the factors that
+contribute to an efficiency loss for a given execution, Scaling Analysis
+examines how those factors evolve across the analyzed configurations.
 
-BasicAnalysis supports strong- and weak-scaling analyses. The scaling model
-can be selected explicitly or automatically detected from the execution data.
-The detected model, the model used by the analysis, and whether the selection
-was automatic or manual are reported with the scaling results.
+Scaling Analysis should not be confused with the **Computation Scalability**
+metric introduced earlier in this chapter. Computation Scalability is one
+factor of the efficiency hierarchy, characterizing how the computation itself
+scales relative to a reference execution. Scaling Analysis is the broader
+comparative analysis in which Computation Scalability, Parallel Efficiency,
+and their contributing factors can all be examined across configurations.
 
+The interpretation of the scaling behavior depends on the scaling model.
+BasicAnalysis supports both **strong scaling**, where the problem size remains
+constant while the computational resources increase, and **weak scaling**,
+where the amount of work increases together with the computational resources.
+
+The scaling model can be selected explicitly or automatically detected from
+the execution data. The detected model, the model used by the analysis, and
+whether the selection was automatic or manual are reported with the scaling
+results.
 
 Reference execution
 -------------------
 
-Relative scalability metrics are evaluated with respect to a reference
-execution. The trace ordering therefore affects the interpretation of the
-scaling analysis.
+Comparing scaling behavior requires a baseline against which changes in the
+execution can be evaluated. BasicAnalysis therefore uses one of the analyzed
+configurations as the **reference execution**.
+
+Relative scalability metrics, such as Computation Scalability and its
+contributing factors, are evaluated with respect to this reference. The choice
+of reference therefore affects the numerical values and their interpretation.
 
 By default, BasicAnalysis orders the traces according to their parallel
 configuration before computing the comparative metrics. Users can preserve the
 input ordering when a different reference ordering is required.
 
 The selected reference configuration should represent a meaningful baseline
-for interpreting the evolution of performance across the analyzed executions.
-
+for interpreting how performance evolves as the execution scales.
 
 Interpreting scaling trends
 ---------------------------
 
-Scaling analysis preserves the relationships defined by the metric hierarchy.
-The evolution of a parent metric can therefore be interpreted together with
-the evolution of its child factors.
+Scaling Analysis preserves the relationships defined by the metric hierarchy,
+but examines them across execution configurations. The evolution of a parent
+metric can therefore be interpreted together with the evolution of its
+contributing factors.
 
-For example, when Global Efficiency decreases across configurations, its
-Parallel Efficiency and Computation Scalability trends can be inspected to
-determine which component contributes to the degradation. The same reasoning
-can then be applied recursively to the corresponding child metrics.
+For example, if Global Efficiency decreases as the application scales,
+Parallel Efficiency and Computation Scalability can be compared across the
+same configurations to determine which branch is responsible for the observed
+degradation. If Parallel Efficiency deteriorates, its Load Balance and
+Communication Efficiency trends can then be inspected. Similarly, a
+degradation in Computation Scalability can be investigated through the
+evolution of its Instruction, IPC, and Frequency Scalability factors.
 
-.. TODO:
-   Decide whether one compact parent/children Graphviz example adds value
-   here. Avoid repeating the complete hierarchy already introduced earlier
-   in this chapter.
+This comparative perspective is important because the scaling behavior of a
+metric is not determined only by its value at a single configuration. A metric
+may remain relatively high while progressively degrading as resources
+increase, revealing an emerging scalability limitation. Conversely, a metric
+that is low but remains stable may represent an existing performance
+limitation without being the factor responsible for the observed scaling
+degradation.
+
+Scaling Analysis does not introduce a separate metric hierarchy. Instead, it
+adds the configuration dimension to the existing hierarchy, allowing the
+evolution of each performance factor to be examined as the application scales.
 
 
 Complementary analytical views
@@ -1987,183 +964,8 @@ idealized execution generated through simulation.
 The internal analysis workflow combines Paraver/paramedir data extraction and,
 when required, Dimemas simulation:
 
-
-.. graphviz::
+.. graphviz:: graphs/05_basic_analysis_metric_workflow.dot
    :align: center
-
-   digraph BasicAnalysisMetricWorkflow {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.65,
-           ranksep=0.26,
-           splines=ortho
-       ];
-
-       node [
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0,
-           margin="0.10,0.06"
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       traces [
-           label="Paraver traces",
-           shape=folder,
-           fillcolor="#EAF2F8"
-       ];
-
-       analysis_cfg [
-           label="Analysis\nconfiguration files",
-           shape=folder,
-           fillcolor="#EAF2F8"
-       ];
-
-       generate_ideal_cfg [
-           label="Generate ideal\nconfiguration",
-           shape=box,
-           fillcolor="#E8F5E9"
-       ];
-
-       ideal_cfg [
-           label="Ideal simulation\nconfiguration",
-           shape=note,
-           fillcolor="#F4F6F7"
-       ];
-
-       paramedir_measured [
-           label="paramedir",
-           shape=box,
-           fillcolor="#E8F5E9"
-       ];
-
-       measured [
-           label="Measured raw data",
-           shape=note,
-           fillcolor="#F4F6F7"
-       ];
-
-       prv2dim [
-           label="prv2dim",
-           shape=box,
-           fillcolor="#F3E5F5"
-       ];
-
-       dimemas [
-           label="Dimemas",
-           shape=box,
-           fillcolor="#F3E5F5"
-       ];
-
-       simulated [
-           label="Simulated traces",
-           shape=folder,
-           fillcolor="#F3E5F5"
-       ];
-
-       paramedir_ideal [
-           label="paramedir",
-           shape=box,
-           fillcolor="#E8F5E9"
-       ];
-
-       ideal [
-           label="Ideal raw data",
-           shape=note,
-           fillcolor="#F3E5F5"
-       ];
-
-       compute [
-           label="Compute metrics",
-           shape=box,
-           fillcolor="#E8F5E9"
-       ];
-
-       metrics [
-           label="Efficiency metrics",
-           shape=folder,
-           fillcolor="#FFF3E0"
-       ];
-
-       /*
-        * Main top-level elements
-        */
-       {
-           rank=same;
-           analysis_cfg;
-           traces;
-           generate_ideal_cfg;
-       }
-
-       /*
-        * Measured-data path
-        */
-       traces -> paramedir_measured;
-       analysis_cfg -> paramedir_measured;
-
-       paramedir_measured -> measured;
-
-       /*
-        * Simulation path
-        */
-       traces -> prv2dim [
-           label="when simulation\nis required",
-           fontsize=9
-       ];
-
-      traces -> generate_ideal_cfg [
-         label="trace information",
-         fontsize=9,
-         constraint=false
-      ];
-
-       generate_ideal_cfg -> ideal_cfg;
-
-       prv2dim -> dimemas;
-       ideal_cfg -> dimemas;
-
-       dimemas -> simulated;
-
-       simulated -> paramedir_ideal;
-
-       /*
-        * This configuration-file dependency should not
-        * determine the vertical position of paramedir.
-        */
-       analysis_cfg -> paramedir_ideal [
-           constraint=false
-       ];
-
-       paramedir_ideal -> ideal;
-
-       /*
-        * Metric computation
-        */
-       measured -> compute;
-       ideal -> compute;
-
-       compute -> metrics;
-
-       /*
-        * Keep the first processing level aligned.
-        */
-       {
-           rank=same;
-           paramedir_measured;
-           prv2dim;
-           ideal_cfg;
-       }
-   }
-
 
 Measured execution
 ------------------

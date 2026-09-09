@@ -1,0 +1,78 @@
+   digraph OpenMPContribution {
+       rankdir=LR;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.35,
+           ranksep=0.45
+       ];
+
+       node [
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#6B7C8F",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       measured [
+           label="Measured MPI+OpenMP\nexecution",
+           shape=folder,
+           fillcolor="#EAF2F8"
+       ];
+
+       mpi_ideal [
+           label="MPI-ideal simulation\n\n• Ideal MPI network\n• OpenMP disabled",
+           shape=box,
+           fillcolor="#F3E5F5"
+       ];
+
+       hybrid_ideal [
+           label="Hybrid-ideal simulation\n\n• Ideal MPI network\n• Ideal OpenMP runtime",
+           shape=box,
+           fillcolor="#F3E5F5"
+       ];
+
+       mpi_factors [
+           label="MPI factors\n\n• MPI Serialization Efficiency\n• MPI Transfer Efficiency",
+           shape=note,
+           fillcolor="#F4F6F7"
+       ];
+
+       hybrid_factors [
+           label="Hybrid factors\n\n• Hybrid Serialization Efficiency\n• Hybrid Transfer Efficiency",
+           shape=note,
+           fillcolor="#F4F6F7"
+       ];
+
+       serialization [
+           label="OpenMP Serialization\nEfficiency",
+           shape=box,
+           fillcolor="#FFF3E0"
+       ];
+
+       transfer [
+           label="OpenMP Transfer\nEfficiency",
+           shape=box,
+           fillcolor="#FFF3E0"
+       ];
+
+       measured -> mpi_ideal;
+       measured -> hybrid_ideal;
+
+       mpi_ideal -> mpi_factors;
+       hybrid_ideal -> hybrid_factors;
+
+       mpi_factors -> serialization;
+       hybrid_factors -> serialization;
+
+       mpi_factors -> transfer;
+       hybrid_factors -> transfer;
+   }
+   

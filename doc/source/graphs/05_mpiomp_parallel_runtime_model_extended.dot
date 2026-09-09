@@ -1,0 +1,335 @@
+   digraph MPIOMPParallelRuntimeModelExtended {
+
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.40,
+           ranksep=0.50
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#2E7D32",
+           penwidth=1.0
+       ];
+
+       edge [
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       /*
+        * Hybrid level
+        */
+
+       hybrid_pe [
+           label="Hybrid Parallel\nEfficiency",
+           fillcolor="#C8E6C9"
+       ];
+
+       hybrid_lb [
+           label="Hybrid Load\nBalance",
+           fillcolor="#E8F5E9"
+       ];
+
+       hybrid_ce [
+           label="Hybrid Communication\nEfficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       hybrid_serial [
+           label="Hybrid Serialization\nEfficiency",
+           fillcolor="#D9EAF7"
+       ];
+
+       hybrid_transfer [
+           label="Hybrid Transfer\nEfficiency",
+           fillcolor="#D9EAF7"
+       ];
+
+       /*
+        * MPI level
+        */
+
+       mpi_pe [
+           label="MPI Parallel\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       mpi_lb [
+           label="MPI Load\nBalance",
+           fillcolor="#F4F6F7"
+       ];
+
+       mpi_ce [
+           label="MPI Communication\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       mpi_serial [
+           label="MPI Serialization\nEfficiency",
+           fillcolor="#F1F8E9"
+       ];
+
+       mpi_transfer [
+           label="MPI Transfer\nEfficiency",
+           fillcolor="#F1F8E9"
+       ];
+
+       /*
+        * OpenMP level
+        */
+
+       omp_pe [
+           label="OpenMP Parallel\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       omp_lb [
+           label="OpenMP Load\nBalance",
+           fillcolor="#F4F6F7"
+       ];
+
+       omp_ce [
+           label="OpenMP Communication\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       omp_serial [
+           label="OpenMP Serialization\nEfficiency",
+           fillcolor="#F1F8E9"
+       ];
+
+       omp_transfer [
+           label="OpenMP Transfer\nEfficiency",
+           fillcolor="#F1F8E9"
+       ];
+
+       /*
+        * Hybrid performance-factor decomposition
+        */
+
+       hybrid_pe -> hybrid_lb [
+           color="#4A90C2"
+       ];
+
+       hybrid_pe -> hybrid_ce [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Runtime decomposition of Hybrid PE
+        */
+
+       hybrid_pe -> mpi_pe [
+           color="#2E7D32"
+       ];
+
+       hybrid_pe -> omp_pe [
+           color="#2E7D32"
+       ];
+
+       /*
+        * MPI performance factors
+        */
+
+       mpi_pe -> mpi_lb [
+           color="#2E7D32"
+       ];
+
+       mpi_pe -> mpi_ce [
+           color="#2E7D32"
+       ];
+
+       /*
+        * OpenMP performance factors
+        */
+
+       omp_pe -> omp_lb [
+           color="#2E7D32"
+       ];
+
+       omp_pe -> omp_ce [
+           color="#2E7D32"
+       ];
+
+       /*
+        * Runtime contributions to Hybrid Load Balance
+        */
+
+       hybrid_lb -> mpi_lb [
+           color="#4A90C2"
+       ];
+
+       hybrid_lb -> omp_lb [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Hybrid Communication Efficiency decomposition
+        */
+
+       hybrid_ce -> hybrid_serial [
+           color="#4A90C2"
+       ];
+
+       hybrid_ce -> hybrid_transfer [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Runtime contributions to Hybrid Communication Efficiency
+        */
+
+       hybrid_ce -> mpi_ce [
+           color="#4A90C2"
+       ];
+
+       hybrid_ce -> omp_ce [
+           color="#4A90C2"
+       ];
+
+       /*
+        * MPI Communication Efficiency decomposition
+        */
+
+       mpi_ce -> mpi_serial [
+           color="#2E7D32"
+       ];
+
+       mpi_ce -> mpi_transfer [
+           color="#2E7D32"
+       ];
+
+       /*
+        * OpenMP Communication Efficiency decomposition
+        */
+
+       omp_ce -> omp_serial [
+           color="#2E7D32"
+       ];
+
+       omp_ce -> omp_transfer [
+           color="#2E7D32"
+       ];
+
+       /*
+        * Runtime decomposition of Hybrid Serialization Efficiency
+        */
+
+       hybrid_serial -> mpi_serial [
+           color="#4A90C2"
+       ];
+
+       hybrid_serial -> omp_serial [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Runtime decomposition of Hybrid Transfer Efficiency
+        */
+
+       hybrid_transfer -> mpi_transfer [
+           color="#4A90C2"
+       ];
+
+       hybrid_transfer -> omp_transfer [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Layout constraints:
+        * Hybrid factors on the left,
+        * MPI and OpenMP runtime branches on the right.
+        */
+
+       {
+           rank=same;
+           hybrid_lb;
+           hybrid_ce;
+           mpi_pe;
+           omp_pe;
+       }
+
+       {
+           rank=same;
+           hybrid_serial;
+           hybrid_transfer;
+           mpi_lb;
+           mpi_ce;
+           omp_lb;
+           omp_ce;
+       }
+
+       {
+           rank=same;
+           mpi_serial;
+           mpi_transfer;
+           omp_serial;
+           omp_transfer;
+       }
+
+       /*
+        * Invisible edges control left-to-right ordering.
+        */
+
+       hybrid_lb -> hybrid_ce [
+           style=invis,
+           weight=20
+       ];
+
+       hybrid_ce -> mpi_pe [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_pe -> omp_pe [
+           style=invis,
+           weight=20
+       ];
+
+       hybrid_serial -> hybrid_transfer [
+           style=invis,
+           weight=20
+       ];
+
+       hybrid_transfer -> mpi_lb [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_lb -> mpi_ce [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_ce -> omp_lb [
+           style=invis,
+           weight=20
+       ];
+
+       omp_lb -> omp_ce [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_serial -> mpi_transfer [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_transfer -> omp_serial [
+           style=invis,
+           weight=20
+       ];
+
+       omp_serial -> omp_transfer [
+           style=invis,
+           weight=20
+       ];
+   }
+

@@ -1,0 +1,43 @@
+    digraph CommunicationHierarchy {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.35,
+           ranksep=0.45
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#6B7C8F",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+        comm [
+            label="Communication Efficiency",
+            fillcolor="#E8F5E9"
+        ];
+
+        serialization [
+            label="Serialization Efficiency",
+            fillcolor="#F1F8E9"
+        ];
+
+        transfer [
+            label="Transfer Efficiency",
+            fillcolor="#F1F8E9"
+        ];
+
+       comm -> serialization;
+       comm -> transfer;
+   }
+

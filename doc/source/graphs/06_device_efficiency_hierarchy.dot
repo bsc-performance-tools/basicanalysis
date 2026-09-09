@@ -1,0 +1,62 @@
+   digraph DeviceEfficiencyHierarchy {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.35,
+           ranksep=0.45
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#6B7C8F",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       device_global [
+           label="Device Global Efficiency",
+           fillcolor="#EAF2F8"
+       ];
+
+       device_parallel [
+           label="Device Parallel Efficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       device_load_balance [
+           label="Device Load Balance",
+           fillcolor="#FFF3E0"
+       ];
+
+       device_communication [
+           label="Device Communication Efficiency",
+           fillcolor="#FFF3E0"
+       ];
+
+       device_orchestration [
+           label="Device Orchestration Efficiency",
+           fillcolor="#FFF3E0"
+       ];
+
+       device_comp [
+           label="Device Computation Scalability",
+           fillcolor="#E8F5E9"
+       ];
+
+       device_global -> device_parallel;
+       device_global -> device_comp;
+
+       device_parallel -> device_load_balance;
+       device_parallel -> device_communication;
+       device_parallel -> device_orchestration;
+   }
+   

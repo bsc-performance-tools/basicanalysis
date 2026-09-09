@@ -1,0 +1,56 @@
+   digraph HostEfficiencyHierarchy {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.35,
+           ranksep=0.45
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#6B7C8F",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       host_global [
+           label="Host Global Efficiency",
+           fillcolor="#EAF2F8"
+       ];
+
+       host_parallel [
+           label="Host Parallel Efficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       mpi_parallel [
+           label="MPI Parallel Efficiency",
+           fillcolor="#FFF3E0"
+       ];
+
+       device_offload [
+           label="Device Offload Efficiency",
+           fillcolor="#FFF3E0"
+       ];
+
+       host_comp [
+           label="Host Computation Scalability",
+           fillcolor="#E8F5E9"
+       ];
+
+       host_global -> host_parallel;
+       host_global -> host_comp;
+
+       host_parallel -> mpi_parallel;
+       host_parallel -> device_offload;
+   }
+   

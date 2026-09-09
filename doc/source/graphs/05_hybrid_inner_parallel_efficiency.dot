@@ -1,0 +1,44 @@
+   digraph HybridInnerParallelEfficiency {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.45,
+           ranksep=0.65
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#6B7C8F",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       inner_pe [
+           label="Inner-runtime Parallel Efficiency",
+           fillcolor="#C8E6C9"
+       ];
+
+       inner_lb [
+           label="Inner-runtime Load Balance",
+           fillcolor="#E8F5E9"
+       ];
+
+       inner_ce [
+           label="Inner-runtime Communication Efficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       inner_pe -> inner_lb;
+       inner_pe -> inner_ce;
+   }
+
+   

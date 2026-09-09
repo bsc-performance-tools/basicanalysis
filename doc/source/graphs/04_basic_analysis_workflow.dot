@@ -1,0 +1,93 @@
+   digraph BasicAnalysisWorkflow {
+       rankdir=TB;
+
+      graph [
+         bgcolor="transparent",
+         nodesep=0.20,
+         ranksep=0.30
+      ];
+
+      node [
+         fontname="Helvetica",
+         fontsize=9,
+         margin="0.10,0.06",
+         style="filled",
+         color="#6B7C8F",
+         penwidth=1.0
+      ];
+
+      edge [
+         color="#526477",
+         penwidth=1.0,
+         arrowsize=0.6
+      ];
+
+       traces [
+           label="Paraver traces",
+           shape=folder,
+           fillcolor="#EAF2F8"
+       ];
+
+       analyze [
+           label="analyze_traces.py",
+           shape=box,
+           fillcolor="#E8F5E9"
+       ];
+
+      raw1 [
+         label="trace_1 rawdata JSON",
+         shape=note,
+         fillcolor="#F4F6F7"
+      ];
+
+      raw2 [
+         label="trace_2 rawdata JSON",
+         shape=note,
+         fillcolor="#F4F6F7"
+      ];
+
+      rawn [
+         label="trace_N rawdata JSON",
+         shape=note,
+         fillcolor="#F4F6F7"
+      ];
+
+       merge [
+           label="merge_rawdata.py",
+           shape=box,
+           fillcolor="#E8F5E9"
+       ];
+
+       merged [
+           label="merged_rawdata.json",
+           shape=note,
+           fillcolor="#F4F6F7"
+       ];
+
+       compute [
+           label="compute_metrics_from_merged.py",
+           shape=box,
+           fillcolor="#E8F5E9"
+       ];
+
+       output [
+           label="Metrics, plots and report",
+           shape=folder,
+           fillcolor="#FFF3E0"
+       ];
+
+       traces -> analyze;
+
+         analyze -> raw1;
+         analyze -> raw2;
+         analyze -> rawn;
+
+         raw1 -> merge;
+         raw2 -> merge;
+         rawn -> merge;
+
+       merge -> merged;
+       merged -> compute;
+       compute -> output;
+   }
+   

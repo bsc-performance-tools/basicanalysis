@@ -1,0 +1,56 @@
+   digraph OpenMPEfficiencyHierarchy {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.45,
+           ranksep=0.50
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#EF6C00",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#B26A00",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+        omp_pe [
+            label="OpenMP Parallel\nEfficiency",
+            fillcolor="#E1BEE7",
+            color="#7B1FA2"
+        ];
+
+        omp_serial [
+            label="OpenMP Serial\nEfficiency",
+            fillcolor="#F3E5F5",
+            color="#7B1FA2"
+        ];
+
+        omp_lb [
+            label="OpenMP Load\nBalance",
+            fillcolor="#F3E5F5",
+            color="#7B1FA2"
+        ];
+
+        omp_sched [
+            label="OpenMP Scheduling\nEfficiency",
+            fillcolor="#F3E5F5",
+            color="#7B1FA2"
+        ];
+
+       omp_pe -> omp_serial;
+       omp_pe -> omp_lb;
+       omp_pe -> omp_sched;
+
+       { rank=same; omp_serial; omp_lb; omp_sched; }
+   }
+
+   
