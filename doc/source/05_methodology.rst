@@ -3,94 +3,83 @@
 Performance Analysis Methodology
 ################################
 
-BasicAnalysis organizes performance analysis as a hierarchy of complementary
-views. The objective is not only to report individual efficiency values, but
-also to help users understand which performance factors contribute to the
-observed efficiency losses and which aspects of the execution should be
-investigated next.
+BasicAnalysis organizes performance analysis through a hierarchy of efficiency
+metrics and a set of complementary analytical views. The objective is not only
+to report individual efficiency values, but also to help users understand
+which performance factors contribute to the observed efficiency losses and
+which aspects of the execution should be investigated further.
 
-The analysis progresses from application-level behavior toward more specific
-performance factors and execution components. Depending on the programming
-model and the available trace information, BasicAnalysis combines the
-following views:
+The analysis can progress from application-level behavior toward more specific
+performance factors, parallel runtimes, and execution components. Depending on
+the analysis objective, users can combine several analytical views to
+understand the overall performance behavior or focus on the view most relevant
+to a particular performance aspect.
 
-* **Parallel Runtime Model**, which identifies the main efficiency factors and
-  attributes parallel-efficiency losses to the active parallel runtimes.
+The methodology is organized around the following perspectives:
+
+* **Hierarchical Efficiency Analysis**, which decomposes high-level efficiency
+  metrics into progressively more specific contributing factors.
+* **Parallel Runtime Model**, which attributes parallel-efficiency behavior to
+  the active parallel runtimes.
 * **Runtime-Specific Analysis**, which provides additional metrics describing
   the behavior of individual parallel runtimes.
 * **Execution Domains**, which provides a complementary Host/Device analysis
   for accelerator applications.
-* **Scaling**, which examines how performance and efficiency factors
+* **Scaling Analysis**, which examines how performance and efficiency factors
   evolve across execution configurations.
 
-These views answer different performance-analysis questions and should be
-interpreted together rather than as interchangeable representations of the
-execution.
+The following sections describe how these perspectives are related and how
+they can be used according to the objective of the performance assessment.
 
 
 Hierarchical efficiency analysis
 ================================
 
-The main BasicAnalysis efficiency model follows a hierarchical decomposition
-in which a parent efficiency is explained through more specific child factors.
+As BasicAnalysis automates the computation of POP performance metrics, it
+follows the POP hierarchical metric model, in which high-level efficiencies
+are decomposed into more specific contributing factors. This hierarchy allows
+the analysis to progress from an overall efficiency loss toward increasingly
+specific factors that can explain it.
 
-At the application level, Global Efficiency is decomposed as:
+At the application level, the hierarchy starts with Global Efficiency, which
+is decomposed into Parallel Efficiency and Computation Scalability:
 
 .. math::
 
    Global\ Efficiency =
    Parallel\ Efficiency \times Computation\ Scalability
 
-Parallel Efficiency is further decomposed as:
+These two factors represent the two main sources of inefficiency in parallel
+applications. Parallel Efficiency captures the overheads introduced by
+parallel execution, while Computation Scalability captures how the computation
+scales as the computational resources increase.
+
+Parallel Efficiency
+-------------------
+
+Parallelization requires dividing the application workload among the available
+parallel units and defining the interactions required among those units to
+complete the computation.
+
+Parallel Efficiency characterizes the efficiency of this parallelization. Its
+losses can arise from two fundamental aspects: an uneven distribution of the
+computational workload among the parallel units and the overhead associated
+with the communication and coordination required among them.
+
+Therefore, Parallel Efficiency is decomposed as:
 
 .. math::
 
    Parallel\ Efficiency =
    Load\ Balance \times Communication\ Efficiency
 
-For MPI executions, Communication Efficiency can be decomposed into:
 
-.. math::
-
-   Communication\ Efficiency =
-   Serialization\ Efficiency \times Transfer\ Efficiency
-
-This hierarchy provides a systematic way to navigate the analysis. When a
-parent metric shows an efficiency loss, its child metrics can be inspected to
-identify which factor contributes most strongly to that loss.
-
-For example, a low Parallel Efficiency should lead to the inspection of Load
-Balance and Communication Efficiency. If Communication Efficiency is the
-dominant source of loss, Serialization Efficiency and Transfer Efficiency can
-then help distinguish between losses associated with process dependencies and
-those associated with the communication transfer itself.
-
-The complete definitions and formulations of these metrics are provided in
-:doc:`06_metrics`.
-
-
-Parallel Runtime Model
-======================
-
-Applications can combine multiple parallel programming models, such as
-MPI+OpenMP or MPI+GPU. In these cases, observing only application-level
-efficiency is insufficient to understand which parallel runtime contributes
-to the performance loss.
-
-The **Parallel Runtime Model** extends the hierarchical analysis by exposing
-the contribution of the active parallel runtimes.
-
-At the highest level, the model retains the application-level relationship
-between Global Efficiency, Parallel Efficiency, and Computation Scalability.
-Parallel Efficiency is then analyzed according to the parallel runtimes
-participating in the execution.
-
-For a hybrid execution, this provides a hierarchy conceptually represented as:
+This results in the following application-level hierarchy:
 
 .. graphviz::
    :align: center
 
-   digraph EfficiencyHierarchy {
+   digraph BaseEfficiencyHierarchy {
        rankdir=TB;
 
        graph [
@@ -119,86 +108,1711 @@ For a hybrid execution, this provides a hierarchy conceptually represented as:
            fillcolor="#EAF2F8"
        ];
 
-       parallel [
-           label="Parallel Efficiency",
-           fillcolor="#E8F5E9"
-       ];
+        parallel [
+            label="Parallel Efficiency",
+            fillcolor="#C8E6C9"
+        ];
 
-         mpi_runtime [
-            label="MPI contribution",
-            fillcolor="#FFF3E0"
-         ];
+        comp [
+            label="Computation Scalability",
+            fillcolor="#BBDEFB"
+        ];
 
-         inner_runtime [
-            label="Inner-runtime contribution",
-            fillcolor="#FFF3E0"
-         ];
+        lb [
+            label="Load Balance",
+            fillcolor="#E8F5E9"
+        ];
 
-       comp [
-           label="Computation Scalability",
-           fillcolor="#E8F5E9"
-       ];
+        comm [
+            label="Communication Efficiency",
+            fillcolor="#E8F5E9"
+        ];
 
        global -> parallel;
        global -> comp;
 
-       parallel -> mpi_runtime;
-       parallel -> inner_runtime;
+       parallel -> lb;
+       parallel -> comm;
+   }
+
+Load Balance characterizes how evenly the computational workload is
+distributed among the parallel units, while Communication Efficiency
+characterizes the efficiency loss associated with the communication and
+coordination required among them.
+
+At this level of the hierarchy, communication is a general parallel-execution
+concept and is not restricted to message passing or to a particular
+programming model. Its specific interpretation depends on the parallel
+execution model being analyzed.
+
+Communication Efficiency can be further decomposed to distinguish losses
+associated with serialization from those associated with data transfer:
+
+.. math::
+
+   Communication\ Efficiency =
+   Serialization\ Efficiency \times Transfer\ Efficiency
+
+Serialization Efficiency characterizes losses associated with dependencies
+and synchronization among parallel units, while Transfer Efficiency
+characterizes the additional cost associated with transferring the information
+required for their interaction.
+
+The Communication Efficiency branch can therefore be represented as:
+
+.. graphviz::
+   :align: center
+
+   digraph CommunicationHierarchy {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.35,
+           ranksep=0.45
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#6B7C8F",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+        comm [
+            label="Communication Efficiency",
+            fillcolor="#E8F5E9"
+        ];
+
+        serialization [
+            label="Serialization Efficiency",
+            fillcolor="#F1F8E9"
+        ];
+
+        transfer [
+            label="Transfer Efficiency",
+            fillcolor="#F1F8E9"
+        ];
+
+       comm -> serialization;
+       comm -> transfer;
+   }
+
+The way these communication factors are obtained depends on the parallel
+execution model. BasicAnalysis directly derives the MPI factors using
+idealized communication information generated through Dimemas. For hybrid
+executions, additional runtime contributions can be derived from the
+relationships between the hybrid- and runtime-level metrics, as described in
+the Runtime-Specific Analysis section.
+
+Computation Scalability
+-----------------------
+
+The other main factor contributing to Global Efficiency is Computation
+Scalability. While Parallel Efficiency captures the overheads introduced by
+parallel execution, Computation Scalability characterizes how the computation
+scales as the computational resources increase.
+
+Unlike Parallel Efficiency, Computation Scalability is evaluated relative to
+a reference execution. It captures changes in the computational behavior as
+the application scales, independently of the overheads attributed to parallel
+execution.
+
+Computation Scalability is decomposed as:
+
+.. math::
+
+   Computation\ Scalability =
+   IPC\ Scalability \times
+   Instruction\ Scalability \times
+   Frequency\ Scalability
+
+The scaling of the computation can therefore be decomposed into three
+components: Instructions, IPC, and Frequency. These represent the three main
+factors that determine the duration of the computation: the amount of work
+performed (Instructions), the rate at which that work is executed (IPC), and
+the operating speed of the computational resource (Frequency).
+
+Together with the Parallel Efficiency decomposition introduced above, these
+metrics complete the application-level efficiency hierarchy:
+
+.. graphviz::
+   :align: center
+
+   digraph CompleteEfficiencyHierarchy {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.35,
+           ranksep=0.45
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#6B7C8F",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       global [
+           label="Global Efficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       parallel [
+           label="Parallel Efficiency",
+           fillcolor="#C8E6C9"
+       ];
+
+       loadbalance [
+           label="Load Balance",
+           fillcolor="#E8F5E9"
+       ];
+
+       communication [
+           label="Communication Efficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       serialization [
+           label="Serialization Efficiency",
+           fillcolor="#F1F8E9"
+       ];
+
+       transfer [
+           label="Transfer Efficiency",
+           fillcolor="#F1F8E9"
+       ];
+
+       computation [
+           label="Computation Scalability",
+           fillcolor="#BBDEFB"
+       ];
+
+       ipc [
+           label="IPC Scalability",
+           fillcolor="#E3F2FD"
+       ];
+
+       instructions [
+           label="Instruction Scalability",
+           fillcolor="#E3F2FD"
+       ];
+
+       frequency [
+           label="Frequency Scalability",
+           fillcolor="#E3F2FD"
+       ];
+
+       global -> parallel;
+       global -> computation;
+
+       parallel -> loadbalance;
+       parallel -> communication;
+
+       communication -> serialization;
+       communication -> transfer;
+
+       computation -> ipc;
+       computation -> instructions;
+       computation -> frequency;
    }
 
 
-The exact runtime decomposition depends on the programming model. For example,
-an MPI+OpenMP execution exposes MPI and OpenMP contributions, while an
-MPI+CUDA or MPI+HIP execution exposes MPI and accelerator-runtime
-contributions.
+The hierarchy provides a systematic way to navigate an efficiency analysis.
+When a parent metric shows a significant loss, its child metrics can be
+inspected to determine which performance factor contributes to that loss.
+
+For example, a low Parallel Efficiency can lead to the inspection of Load
+Balance and Communication Efficiency. If Communication Efficiency shows the
+larger loss, Serialization Efficiency and Transfer Efficiency can then be
+examined to distinguish whether the degradation is primarily associated with
+dependencies and synchronization or with data-transfer costs.
+
+Similarly, Computation Scalability can be investigated through its IPC, 
+Instruction, and Frequency Scalability components to determine which 
+factor contributes to the observed degradation.
+
+The analysis can continue through the hierarchy until the available metrics
+provide the level of detail required for the performance assessment.
+
+This application-level hierarchy provides the basis for the additional
+analysis performed by BasicAnalysis. When multiple parallel runtimes
+participate in the execution, the Parallel Efficiency branch can be extended
+to distinguish the contribution of each runtime while preserving the same
+underlying performance factors. This extension is introduced by the Parallel
+Runtime Model in the following section.
+
+The complete definitions and formulations of these metrics are provided in
+:doc:`06_metrics`.
 
 
-Measured and derived runtime metrics
+Parallel Runtime Model
+======================
+
+The application-level hierarchy introduced in the previous section can also
+be applied to applications that combine multiple parallel runtimes. In this
+case, however, Parallel Efficiency and its contributing factors characterize
+the combined behavior of the parallel runtimes participating in the execution.
+
+For a hybrid application, this application-level Parallel Efficiency 
+is referred to as **Hybrid Parallel Efficiency**. Similarly, Hybrid Load Balance
+and Hybrid Communication Efficiency characterize workload distribution and
+communication and coordination for the hybrid execution as a whole.
+
+This decomposition identifies which performance factor limits the hybrid
+execution, but it does not reveal how the different parallel runtimes
+contribute to that factor. To provide this additional level of analysis,
+BasicAnalysis uses the **Parallel Runtime Model**.
+
+The Parallel Runtime Model introduces a runtime dimension into the Parallel
+Efficiency hierarchy. For a hierarchical hybrid execution, it distinguishes
+an **outer parallel runtime** and an **inner parallel runtime**. For example,
+MPI is the outer runtime and OpenMP the inner runtime in MPI+OpenMP, while MPI
+is the outer runtime and the accelerator runtime the inner runtime in
+MPI+CUDA and MPI+HIP.
+
+Parallel-runtime performance factors
 ------------------------------------
 
-An important property of the hybrid Parallel Runtime Model is that not every
-level of the hierarchy represents an independently measured efficiency.
+The Parallel Runtime Model preserves the three performance factors introduced
+for parallel execution---Parallel Efficiency, Load Balance, and Communication
+Efficiency---and evaluates them at different runtime levels.
 
-Application-level and MPI-level quantities can be obtained from measured
-execution data, while some inner runtime contributions are derived so that
-the multiplicative relationship of the model is preserved.
+For compactness, the following notation is used in the equations in this 
+section:
 
-Consequently, a derived inner metric may exceed 100%. Such a value should not
-be interpreted as an independent physical efficiency greater than its ideal
-value. Instead, it represents the relative contribution required by the
-multiplicative decomposition of the hybrid model.
+* **PE**: Parallel Efficiency
+* **LB**: Load Balance
+* **CommE**: Communication Efficiency
 
-For this reason, metrics within the Parallel Runtime Model should be
-interpreted according to their position and role in the hierarchy rather than
-as a collection of independent efficiency measurements.
+The model distinguishes three levels: the **hybrid level**, the
+**outer-runtime level**, and the **inner-runtime level**.
+
+
+At the hybrid level, the metrics characterize the complete hybrid
+parallelization, considering all participating parallel runtimes. The
+performance-factor decomposition remains:
+
+.. math::
+
+   Hybrid\_PE = Hybrid\_LB \times Hybrid\_CommE
+
+Here, :math:`Hybrid\_LB` characterizes workload distribution across the
+complete hybrid execution, while :math:`Hybrid\_CommE` characterizes the
+communication and coordination overhead associated with all participating
+parallel runtimes.
+
+.. graphviz::
+   :align: center
+
+   digraph HybridParallelEfficiency {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.45,
+           ranksep=0.45
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#6B7C8F",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       hybrid_pe [
+           label="Hybrid Parallel Efficiency",
+           fillcolor="#C8E6C9"
+       ];
+
+       hybrid_lb [
+           label="Hybrid Load Balance",
+           fillcolor="#E8F5E9"
+       ];
+
+       hybrid_ce [
+           label="Hybrid Communication Efficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       hybrid_pe -> hybrid_lb;
+       hybrid_pe -> hybrid_ce;
+   }
+
+To isolate the contribution of the outer runtime, the execution is analyzed
+from its perspective. Activity associated with the outer runtime is treated
+as parallel-runtime overhead, while execution outside that runtime is
+considered computation at this level.
+
+The same performance-factor decomposition is preserved:
+
+.. math::
+
+   Outer\_PE = Outer\_LB \times Outer\_CommE
+
+For MPI+OpenMP, MPI is the outer runtime. From the MPI perspective, time
+inside MPI represents MPI-runtime activity, while execution outside MPI,
+including OpenMP activity, is considered computation. The resulting MPI 
+metrics therefore characterize the performance factors associated with 
+the outer parallelization.
+
+.. graphviz::
+   :align: center
+
+   digraph HybridOuterParallelEfficiency {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.45,
+           ranksep=0.65
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#6B7C8F",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       outer_pe [
+           label="Outer-runtime Parallel Efficiency",
+           fillcolor="#C8E6C9"
+       ];
+
+       outer_lb [
+           label="Outer-runtime Load Balance",
+           fillcolor="#E8F5E9"
+       ];
+
+       outer_ce [
+           label="Outer-runtime Communication Efficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       outer_pe -> outer_lb;
+       outer_pe -> outer_ce;
+   }
+
+Once the hybrid and outer-runtime factors are known, the contribution 
+of the inner runtime can be derived using the multiplicative structure 
+of the model. For Parallel Efficiency:
+
+.. math::
+
+   Hybrid\_PE = Outer\_PE \times Inner\_PE
+
+The same relationship applies to Load Balance and Communication Efficiency:
+
+.. math::
+
+   Hybrid\_LB = Outer\_LB \times Inner\_LB
+
+.. math::
+
+   Hybrid\_CommE = Outer\_CommE \times Inner\_CommE
+
+Therefore, the inner-runtime performance factors are obtained as:
+
+.. math::
+
+   Inner\_PE = \frac{Hybrid\_PE}{Outer\_PE}
+
+.. math::
+
+   Inner\_LB = \frac{Hybrid\_LB}{Outer\_LB}
+
+.. math::
+
+   Inner\_CommE = \frac{Hybrid\_CommE}{Outer\_CommE}
+
+The inner-runtime metrics therefore represent the contribution required to
+relate the outer-runtime factors to those observed for the complete hybrid
+execution. 
+
+
+.. graphviz::
+   :align: center
+
+   digraph HybridInnerParallelEfficiency {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.45,
+           ranksep=0.65
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#6B7C8F",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       inner_pe [
+           label="Inner-runtime Parallel Efficiency",
+           fillcolor="#C8E6C9"
+       ];
+
+       inner_lb [
+           label="Inner-runtime Load Balance",
+           fillcolor="#E8F5E9"
+       ];
+
+       inner_ce [
+           label="Inner-runtime Communication Efficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       inner_pe -> inner_lb;
+       inner_pe -> inner_ce;
+   }
+
+
+The resulting generic metric hierarchy for a hybrid parallel application 
+can be represented as follows:
+
+
+.. graphviz::
+   :align: center
+
+   digraph GenericParallelRuntimeModel {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.40,
+           ranksep=0.50
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#2E7D32",
+           penwidth=1.0
+       ];
+
+       edge [
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       /*
+        * Hybrid level
+        */
+
+       hybrid_pe [
+           label="Hybrid Parallel\nEfficiency",
+           fillcolor="#C8E6C9"
+       ];
+
+       hybrid_lb [
+           label="Hybrid Load\nBalance",
+           fillcolor="#E8F5E9"
+       ];
+
+       hybrid_ce [
+           label="Hybrid Communication\nEfficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       /*
+        * Outer-runtime level
+        */
+
+       outer_pe [
+           label="Outer-runtime Parallel\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       outer_lb [
+           label="Outer-runtime Load\nBalance",
+           fillcolor="#F4F6F7"
+       ];
+
+       outer_ce [
+           label="Outer-runtime Communication\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       /*
+        * Inner-runtime level
+        */
+
+       inner_pe [
+           label="Inner-runtime Parallel\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       inner_lb [
+           label="Inner-runtime Load\nBalance",
+           fillcolor="#F4F6F7"
+       ];
+
+       inner_ce [
+           label="Inner-runtime Communication\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       /*
+        * Hybrid performance-factor decomposition
+        */
+
+       hybrid_pe -> hybrid_lb [
+           color="#4A90C2"
+       ];
+
+       hybrid_pe -> hybrid_ce [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Runtime decomposition of Hybrid PE
+        */
+
+       hybrid_pe -> outer_pe [
+           color="#2E7D32"
+       ];
+
+       hybrid_pe -> inner_pe [
+           color="#2E7D32"
+       ];
+
+       /*
+        * Outer-runtime performance factors
+        */
+
+       outer_pe -> outer_lb [
+           color="#2E7D32"
+       ];
+
+       outer_pe -> outer_ce [
+           color="#2E7D32"
+       ];
+
+       /*
+        * Inner-runtime performance factors
+        */
+
+       inner_pe -> inner_lb [
+           color="#2E7D32"
+       ];
+
+       inner_pe -> inner_ce [
+           color="#2E7D32"
+       ];
+
+       /*
+        * Runtime contributions to hybrid factors
+        */
+
+       hybrid_lb -> outer_lb [
+           color="#4A90C2"
+       ];
+
+       hybrid_lb -> inner_lb [
+           color="#4A90C2"
+       ];
+
+       hybrid_ce -> outer_ce [
+           color="#4A90C2"
+       ];
+
+       hybrid_ce -> inner_ce [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Layout constraints.
+        *
+        * Hybrid factors stay on the left.
+        * Outer and inner runtime branches extend to the right.
+        */
+
+       { rank=same;
+           hybrid_lb;
+           hybrid_ce;
+           outer_pe;
+           inner_pe;
+       }
+
+       { rank=same;
+           outer_lb;
+           outer_ce;
+           inner_lb;
+           inner_ce;
+       }
+
+       /*
+        * Invisible edges control left-to-right ordering.
+        */
+
+       hybrid_lb -> hybrid_ce [
+           style=invis,
+           weight=20
+       ];
+
+       hybrid_ce -> outer_pe [
+           style=invis,
+           weight=20
+       ];
+
+       outer_pe -> inner_pe [
+           style=invis,
+           weight=20
+       ];
+
+       outer_lb -> outer_ce [
+           style=invis,
+           weight=20
+       ];
+
+       outer_ce -> inner_lb [
+           style=invis,
+           weight=20
+       ];
+
+       inner_lb -> inner_ce [
+           style=invis,
+           weight=20
+       ];
+   }
+
+
+The hierarchy can be followed either by performance factor, to examine 
+Load Balance or Communication Efficiency across runtime levels, or by 
+runtime, to examine the factors contributing to the parallel efficiency 
+of the outer or inner runtime.
+
+For an MPI+OpenMP execution, the outer and inner runtimes correspond to MPI
+and OpenMP, respectively. The generic runtime decomposition described above
+can therefore be expressed directly in terms of these two runtimes.
+
+For Parallel Efficiency, the relationship becomes:
+
+.. math::
+
+   Hybrid\_PE = MPI\_PE \times OpenMP\_PE
+
+and the OpenMP contribution is therefore obtained as:
+
+.. math::
+
+   OpenMP\_PE = \frac{Hybrid\_PE}{MPI\_PE}
+
+The same decomposition applies to the other two performance factors. Hybrid
+Load Balance is determined by the MPI and OpenMP Load Balance contributions,
+while Hybrid Communication Efficiency is determined by the corresponding MPI
+and OpenMP Communication Efficiency contributions:
+
+.. math::
+
+   Hybrid\_LB = MPI\_LB \times OpenMP\_LB
+
+.. math::
+
+   Hybrid\_CommE = MPI\_CommE \times OpenMP\_CommE
+
+The resulting Parallel Runtime Model for an MPI+OpenMP application can
+therefore be represented as:
+
+.. graphviz::
+   :align: center
+
+   digraph MPIOMPParallelRuntimeModel {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.40,
+           ranksep=0.50
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#2E7D32",
+           penwidth=1.0
+       ];
+
+       edge [
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       /*
+        * Hybrid level
+        */
+
+       hybrid_pe [
+           label="Hybrid Parallel\nEfficiency",
+           fillcolor="#C8E6C9"
+       ];
+
+       hybrid_lb [
+           label="Hybrid Load\nBalance",
+           fillcolor="#E8F5E9"
+       ];
+
+       hybrid_ce [
+           label="Hybrid Communication\nEfficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       /*
+        * MPI level
+        */
+
+       mpi_pe [
+           label="MPI Parallel\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       mpi_lb [
+           label="MPI Load\nBalance",
+           fillcolor="#F4F6F7"
+       ];
+
+       mpi_ce [
+           label="MPI Communication\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       mpi_serial [
+           label="MPI Serialization\nEfficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       mpi_transfer [
+           label="MPI Transfer\nEfficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       /*
+        * OpenMP level
+        */
+
+       omp_pe [
+           label="OpenMP Parallel\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       omp_lb [
+           label="OpenMP Load\nBalance",
+           fillcolor="#F4F6F7"
+       ];
+
+       omp_ce [
+           label="OpenMP Communication\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       /*
+        * Hybrid performance-factor decomposition
+        */
+
+       hybrid_pe -> hybrid_lb [
+           color="#4A90C2"
+       ];
+
+       hybrid_pe -> hybrid_ce [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Runtime decomposition of Hybrid PE
+        */
+
+       hybrid_pe -> mpi_pe [
+           color="#2E7D32"
+       ];
+
+       hybrid_pe -> omp_pe [
+           color="#2E7D32"
+       ];
+
+       /*
+        * MPI performance factors
+        */
+
+       mpi_pe -> mpi_lb [
+           color="#2E7D32"
+       ];
+
+       mpi_pe -> mpi_ce [
+           color="#2E7D32"
+       ];
+
+       /*
+        * OpenMP performance factors
+        */
+
+       omp_pe -> omp_lb [
+           color="#2E7D32"
+       ];
+
+       omp_pe -> omp_ce [
+           color="#2E7D32"
+       ];
+
+       /*
+        * Runtime contributions to Hybrid Load Balance
+        */
+
+       hybrid_lb -> mpi_lb [
+           color="#4A90C2"
+       ];
+
+       hybrid_lb -> omp_lb [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Runtime contributions to Hybrid Communication Efficiency
+        */
+
+       hybrid_ce -> mpi_ce [
+           color="#4A90C2"
+       ];
+
+       hybrid_ce -> omp_ce [
+           color="#4A90C2"
+       ];
+
+       /*
+        * MPI Communication Efficiency decomposition
+        */
+
+       mpi_ce -> mpi_serial [
+           color="#2E7D32"
+       ];
+
+       mpi_ce -> mpi_transfer [
+           color="#2E7D32"
+       ];
+
+       /*
+        * Layout constraints:
+        * Hybrid factors on the left,
+        * MPI and OpenMP runtime branches on the right.
+        */
+
+       { rank=same;
+           hybrid_lb;
+           hybrid_ce;
+           mpi_pe;
+           omp_pe;
+       }
+
+       { rank=same;
+           mpi_lb;
+           mpi_ce;
+           omp_lb;
+           omp_ce;
+       }
+
+       { rank=same;
+           mpi_serial;
+           mpi_transfer;
+       }
+
+       /*
+        * Invisible edges control left-to-right ordering.
+        */
+
+       hybrid_lb -> hybrid_ce [
+           style=invis,
+           weight=20
+       ];
+
+       hybrid_ce -> mpi_pe [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_pe -> omp_pe [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_lb -> mpi_ce [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_ce -> omp_lb [
+           style=invis,
+           weight=20
+       ];
+
+       omp_lb -> omp_ce [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_serial -> mpi_transfer [
+           style=invis,
+           weight=20
+       ];
+   }
+
+When MPI is the outer runtime, MPI Communication Efficiency can be further 
+decomposed into MPI Serialization Efficiency and MPI Transfer Efficiency. 
+These factors provide a deeper characterization of the communication losses 
+associated with the MPI runtime.
+
+Interpreting derived runtime contributions
+------------------------------------------
+
+Unlike the hybrid and outer-runtime factors, inner-runtime contributions are
+not independent efficiency measurements. They are derived from the
+multiplicative relationship between the hybrid and outer-runtime levels.
+
+Because an inner-runtime contribution is obtained as the ratio between the
+corresponding hybrid and outer-runtime factors, its value may exceed 100% when
+the hybrid factor is greater than the outer-runtime factor. Such a value
+should not be interpreted as an independently measured physical efficiency
+above its ideal value, but as the relative contribution of the inner runtime
+within the multiplicative model.
+
+Inner-runtime factors should therefore be interpreted together with the
+hybrid and outer-runtime factors from which they are derived.
+
 
 
 Runtime-Specific Analysis
 =========================
 
-The Parallel Runtime Model identifies which runtime contributes to a
-parallel-efficiency loss, but additional information may be required to
-understand the behavior of that runtime.
+The Parallel Runtime Model identifies how the active parallel runtimes
+contribute to the main parallel-performance factors. Once a runtime is
+identified as contributing to an efficiency loss, however, additional
+information may be required to understand the behavior behind that
+contribution.
 
-The **Runtime-Specific Analysis** provides this complementary information when
-runtime-specific metrics are available.
+BasicAnalysis therefore complements the Parallel Runtime Model with
+**Runtime-Specific Analysis**. Depending on the programming model, this
+analysis can either extend the decomposition of the common performance
+factors or introduce additional metrics that characterize behavior specific
+to a particular runtime.
 
-For example, an OpenMP runtime can be examined using metrics describing
-parallel-region efficiency and its contributing factors. MPI communication can
-be examined through its communication-efficiency decomposition when the
-required information is available.
+These two perspectives are complementary. The Parallel Runtime Model preserves
+common performance factors across runtime levels, allowing their contributions
+to the hybrid execution to be distinguished. Runtime-specific metrics provide
+a more specialized view of the execution and can expose sources of
+inefficiency that are meaningful for a particular programming model.
 
-Runtime-specific metrics therefore answer a different question from the
-Parallel Runtime Model:
+The runtime-specific information currently available depends on the parallel
+programming model and on the information that can be obtained from the
+analyzed traces.
 
-* the Parallel Runtime Model helps identify **which runtime contributes to the
-  loss**;
-* Runtime-Specific Analysis helps explain **which behavior within that runtime
-  is associated with the loss**.
+Extending the Parallel Runtime Model
+------------------------------------
 
-Not every programming model currently provides the same level of
-runtime-specific decomposition. BasicAnalysis reports the runtime-specific
-information supported by the analyzed execution and available trace data.
+The Parallel Runtime Model introduced in the previous section attributes
+Parallel Efficiency, Load Balance, and Communication Efficiency to the
+parallel runtimes participating in a hybrid execution. When additional
+information is available, the same multiplicative principle can be extended
+to the factors explaining Communication Efficiency.
+
+Communication Efficiency can be decomposed into Serialization Efficiency and
+Transfer Efficiency:
+
+.. math::
+
+   CommE = Serialization \times Transfer
+
+Serialization Efficiency characterizes losses associated with dependencies
+and synchronization among parallel units, while Transfer Efficiency
+characterizes the additional overhead associated with the mechanisms required
+to perform their interaction.
+
+For an MPI+OpenMP execution, BasicAnalysis extends this decomposition to the
+hybrid and runtime levels. This makes it possible not only to identify whether
+Communication Efficiency is limiting the hybrid execution, but also to
+distinguish how MPI and OpenMP contribute to its Serialization and Transfer
+components.
+
+Hybrid and MPI communication factors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The MPI and hybrid communication factors are characterized from different
+execution perspectives.
+
+At the MPI level, BasicAnalysis uses an idealized MPI execution to separate
+the effects associated with serialization from those associated with data
+transfer. OpenMP activity is not modeled as an independent source of
+parallel-runtime overhead at this level.
+
+At the hybrid level, both MPI and OpenMP participate in the execution model.
+Idealized execution information is used to separate structural limitations
+from the additional overheads introduced by the mechanisms used to coordinate
+and communicate among the parallel units.
+
+This provides Serialization and Transfer factors at both the hybrid and MPI
+levels. The remaining contribution can then be attributed to the OpenMP
+runtime using the same multiplicative principle introduced by the Parallel
+Runtime Model.
+
+Deriving the OpenMP contribution
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Following the same multiplicative approach used for the other
+parallel-runtime factors, Hybrid Serialization Efficiency is expressed in
+terms of the MPI and OpenMP contributions:
+
+.. math::
+
+   Hybrid\_Serialization =
+   MPI\_Serialization \times OpenMP\_Serialization
+
+Similarly, Hybrid Transfer Efficiency is expressed as:
+
+.. math::
+
+   Hybrid\_Transfer =
+   MPI\_Transfer \times OpenMP\_Transfer
+
+The OpenMP contributions can therefore be derived from the corresponding
+hybrid and MPI factors:
+
+.. math::
+
+   OpenMP\_Serialization =
+   \frac{Hybrid\_Serialization}
+        {MPI\_Serialization}
+
+.. math::
+
+   OpenMP\_Transfer =
+   \frac{Hybrid\_Transfer}
+        {MPI\_Transfer}
+
+These relationships extend the runtime attribution introduced for Load
+Balance and Communication Efficiency to the two factors that explain
+Communication Efficiency.
+
+Interpreting the OpenMP communication factors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+At the OpenMP level, Serialization and Transfer Efficiency should be
+interpreted according to the mechanisms through which threads interact rather
+than in terms of message passing.
+
+**OpenMP Serialization Efficiency** characterizes structural limitations that
+restrict concurrent execution, such as dependencies or limited available
+parallelism.
+
+**OpenMP Transfer Efficiency** characterizes additional OpenMP runtime
+overheads associated with coordinating the parallel execution, including
+synchronization, scheduling, and thread-management activity.
+
+The terminology therefore preserves the common Communication Efficiency
+decomposition while its runtime-specific interpretation reflects the
+interaction mechanisms of OpenMP.
+
+The resulting hierarchy can be represented as:
+
+
+.. graphviz::
+   :align: center
+
+   digraph HybridCommunicationDecomposition {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.45,
+           ranksep=0.50
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#2E7D32",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#526477",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       hybrid_ce [
+           label="Hybrid Communication\nEfficiency",
+           fillcolor="#C8E6C9"
+       ];
+
+       hybrid_serial [
+           label="Hybrid Serialization\nEfficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       hybrid_transfer [
+           label="Hybrid Transfer\nEfficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       mpi_serial [
+           label="MPI Serialization\nEfficiency",
+           fillcolor="#F1F8E9"
+       ];
+
+       omp_serial [
+           label="OpenMP Serialization\nEfficiency",
+           fillcolor="#F1F8E9"
+       ];
+
+       mpi_transfer [
+           label="MPI Transfer\nEfficiency",
+           fillcolor="#F1F8E9"
+       ];
+
+       omp_transfer [
+           label="OpenMP Transfer\nEfficiency",
+           fillcolor="#F1F8E9"
+       ];
+
+       hybrid_ce -> hybrid_serial;
+       hybrid_ce -> hybrid_transfer;
+
+       hybrid_serial -> mpi_serial;
+       hybrid_serial -> omp_serial;
+
+       hybrid_transfer -> mpi_transfer;
+       hybrid_transfer -> omp_transfer;
+
+       { rank=same; hybrid_serial; hybrid_transfer; }
+       { rank=same; mpi_serial; omp_serial; mpi_transfer; omp_transfer; }
+   }
+
+
+The OpenMP factors derived through this extension describe the contribution
+of OpenMP to the communication-related factors observed in the hybrid
+execution. They remain relative contributions within the Parallel Runtime
+Model. The MPI+OpenMP metric hierarchy is therefore extended as follows:
+
+.. graphviz::
+   :align: center
+
+   digraph MPIOMPParallelRuntimeModel {
+
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.40,
+           ranksep=0.50
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#2E7D32",
+           penwidth=1.0
+       ];
+
+       edge [
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       /*
+        * Hybrid level
+        */
+
+       hybrid_pe [
+           label="Hybrid Parallel\nEfficiency",
+           fillcolor="#C8E6C9"
+       ];
+
+       hybrid_lb [
+           label="Hybrid Load\nBalance",
+           fillcolor="#E8F5E9"
+       ];
+
+       hybrid_ce [
+           label="Hybrid Communication\nEfficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       hybrid_serial [
+           label="Hybrid Serialization\nEfficiency",
+           fillcolor="#D9EAF7"
+       ];
+
+       hybrid_transfer [
+           label="Hybrid Transfer\nEfficiency",
+           fillcolor="#D9EAF7"
+       ];
+
+       /*
+        * MPI level
+        */
+
+       mpi_pe [
+           label="MPI Parallel\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       mpi_lb [
+           label="MPI Load\nBalance",
+           fillcolor="#F4F6F7"
+       ];
+
+       mpi_ce [
+           label="MPI Communication\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       mpi_serial [
+           label="MPI Serialization\nEfficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       mpi_transfer [
+           label="MPI Transfer\nEfficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       /*
+        * OpenMP level
+        */
+
+       omp_pe [
+           label="OpenMP Parallel\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       omp_lb [
+           label="OpenMP Load\nBalance",
+           fillcolor="#F4F6F7"
+       ];
+
+       omp_ce [
+           label="OpenMP Communication\nEfficiency",
+           fillcolor="#F4F6F7"
+       ];
+
+       omp_serial [
+           label="OpenMP Serialization\nEfficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       omp_transfer [
+           label="OpenMP Transfer\nEfficiency",
+           fillcolor="#E8F5E9"
+       ];
+
+       /*
+        * Hybrid performance-factor decomposition
+        */
+
+       hybrid_pe -> hybrid_lb [
+           color="#4A90C2"
+       ];
+
+       hybrid_pe -> hybrid_ce [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Runtime decomposition of Hybrid PE
+        */
+
+       hybrid_pe -> mpi_pe [
+           color="#2E7D32"
+       ];
+
+       hybrid_pe -> omp_pe [
+           color="#2E7D32"
+       ];
+
+       /*
+        * MPI performance factors
+        */
+
+       mpi_pe -> mpi_lb [
+           color="#2E7D32"
+       ];
+
+       mpi_pe -> mpi_ce [
+           color="#2E7D32"
+       ];
+
+       /*
+        * OpenMP performance factors
+        */
+
+       omp_pe -> omp_lb [
+           color="#2E7D32"
+       ];
+
+       omp_pe -> omp_ce [
+           color="#2E7D32"
+       ];
+
+       /*
+        * Runtime contributions to Hybrid Load Balance
+        */
+
+       hybrid_lb -> mpi_lb [
+           color="#4A90C2"
+       ];
+
+       hybrid_lb -> omp_lb [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Hybrid Communication Efficiency decomposition
+        */
+
+       hybrid_ce -> hybrid_serial [
+           color="#4A90C2"
+       ];
+
+       hybrid_ce -> hybrid_transfer [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Runtime contributions to Hybrid Communication Efficiency
+        */
+
+       hybrid_ce -> mpi_ce [
+           color="#4A90C2"
+       ];
+
+       hybrid_ce -> omp_ce [
+           color="#4A90C2"
+       ];
+
+       /*
+        * MPI Communication Efficiency decomposition
+        */
+
+       mpi_ce -> mpi_serial [
+           color="#2E7D32"
+       ];
+
+       mpi_ce -> mpi_transfer [
+           color="#2E7D32"
+       ];
+
+       /*
+        * OpenMP Communication Efficiency decomposition
+        */
+
+       omp_ce -> omp_serial [
+           color="#2E7D32"
+       ];
+
+       omp_ce -> omp_transfer [
+           color="#2E7D32"
+       ];
+
+       /*
+        * Runtime decomposition of Hybrid Serialization Efficiency
+        */
+
+       hybrid_serial -> mpi_serial [
+           color="#4A90C2"
+       ];
+
+       hybrid_serial -> omp_serial [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Runtime decomposition of Hybrid Transfer Efficiency
+        */
+
+       hybrid_transfer -> mpi_transfer [
+           color="#4A90C2"
+       ];
+
+       hybrid_transfer -> omp_transfer [
+           color="#4A90C2"
+       ];
+
+       /*
+        * Layout constraints:
+        * Hybrid factors on the left,
+        * MPI and OpenMP runtime branches on the right.
+        */
+
+       {
+           rank=same;
+           hybrid_lb;
+           hybrid_ce;
+           mpi_pe;
+           omp_pe;
+       }
+
+       {
+           rank=same;
+           hybrid_serial;
+           hybrid_transfer;
+           mpi_lb;
+           mpi_ce;
+           omp_lb;
+           omp_ce;
+       }
+
+       {
+           rank=same;
+           mpi_serial;
+           mpi_transfer;
+           omp_serial;
+           omp_transfer;
+       }
+
+       /*
+        * Invisible edges control left-to-right ordering.
+        */
+
+       hybrid_lb -> hybrid_ce [
+           style=invis,
+           weight=20
+       ];
+
+       hybrid_ce -> mpi_pe [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_pe -> omp_pe [
+           style=invis,
+           weight=20
+       ];
+
+       hybrid_serial -> hybrid_transfer [
+           style=invis,
+           weight=20
+       ];
+
+       hybrid_transfer -> mpi_lb [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_lb -> mpi_ce [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_ce -> omp_lb [
+           style=invis,
+           weight=20
+       ];
+
+       omp_lb -> omp_ce [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_serial -> mpi_transfer [
+           style=invis,
+           weight=20
+       ];
+
+       mpi_transfer -> omp_serial [
+           style=invis,
+           weight=20
+       ];
+
+       omp_serial -> omp_transfer [
+           style=invis,
+           weight=20
+       ];
+   }
+
+A different perspective is required to characterize the OpenMP execution
+itself. For this purpose, BasicAnalysis provides an isolated OpenMP analysis
+that evaluates serial execution, load imbalance within parallel regions, and
+OpenMP scheduling and fork/join overhead.
+
+
+Isolated OpenMP analysis
+------------------------
+
+The OpenMP contributions derived through the Parallel Runtime Model describe
+how the inner runtime contributes to the performance factors observed for the
+complete hybrid execution. BasicAnalysis also provides an isolated OpenMP
+analysis that examines the efficiency of the OpenMP execution itself.
+
+Efficient OpenMP execution requires more than distributing work among
+threads. The application must expose sufficient parallel work, distribute
+that work evenly among the threads participating in each parallel region,
+and manage the parallel execution without excessive runtime overhead.
+
+The isolated OpenMP model therefore considers three main sources of
+inefficiency: serial execution outside OpenMP parallel regions, load
+imbalance among threads inside parallel regions, and OpenMP runtime overhead
+associated with scheduling and fork/join activity.
+
+Serial execution
+^^^^^^^^^^^^^^^^
+
+Execution outside OpenMP parallel regions limits the amount of work that can
+be performed concurrently by the available threads. During these regions,
+only the master thread is active while the remaining OpenMP threads do not
+participate in the computation.
+
+**OpenMP Serial Efficiency** characterizes the efficiency loss associated
+with this serial part of the OpenMP execution. A low value therefore indicates
+that a significant fraction of the available thread execution capacity is
+lost because execution remains outside OpenMP parallel regions.
+
+Load imbalance in parallel regions
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Entering an OpenMP parallel region does not by itself guarantee efficient use
+of the participating threads. The useful computational work must also be
+distributed evenly among them.
+
+**OpenMP Load Balance** characterizes differences in useful computation among
+threads within each OpenMP parallel region. When some threads perform less
+useful work than others, they finish their assigned work earlier and remain
+without useful computation while other threads are still active.
+
+A low OpenMP Load Balance therefore indicates an uneven distribution of useful
+work inside OpenMP parallel regions.
+
+Scheduling and fork/join overhead
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Even when sufficient parallel work is available and that work is well
+balanced, the OpenMP runtime introduces overhead to create, coordinate, and
+schedule the parallel execution.
+
+**OpenMP Scheduling Efficiency** characterizes runtime overhead associated
+with OpenMP scheduling and fork/join activity that is not attributed to
+serial execution or useful-work imbalance.
+
+A low OpenMP Scheduling Efficiency therefore indicates that OpenMP runtime
+management represents a significant source of efficiency loss.
+
+
+These three factors determine the isolated OpenMP Parallel Efficiency:
+
+.. math::
+
+   OMP\_PE =
+   OMP\_Serial \times
+   OMP\_LB \times
+   OMP\_Sched
+
+The metric hierarchy for the isolated OpenMP analysis can therefore 
+be represented as:
+
+.. graphviz::
+   :align: center
+
+   digraph OpenMPEfficiencyHierarchy {
+       rankdir=TB;
+
+       graph [
+           bgcolor="transparent",
+           nodesep=0.45,
+           ranksep=0.50
+       ];
+
+       node [
+           shape=box,
+           fontname="Helvetica",
+           fontsize=10,
+           style="filled",
+           color="#EF6C00",
+           penwidth=1.0
+       ];
+
+       edge [
+           color="#B26A00",
+           penwidth=1.0,
+           arrowsize=0.7
+       ];
+
+       omp_pe [
+           label="OMP Parallel\nEfficiency",
+           fillcolor="#FFE0B2"
+       ];
+
+       omp_serial [
+           label="OMP Serial\nEfficiency",
+           fillcolor="#FFF3E0"
+       ];
+
+       omp_lb [
+           label="OMP Load\nBalance",
+           fillcolor="#FFF3E0"
+       ];
+
+       omp_sched [
+           label="OMP Scheduling\nEfficiency",
+           fillcolor="#FFF3E0"
+       ];
+
+       omp_pe -> omp_serial;
+       omp_pe -> omp_lb;
+       omp_pe -> omp_sched;
+
+       { rank=same; omp_serial; omp_lb; omp_sched; }
+   }
+
 
 
 Execution Domains
@@ -217,6 +1831,39 @@ The purpose of this view is to identify where accelerator-related
 inefficiencies manifest. For example, a performance loss may originate from
 host-side orchestration or offload behavior, or it may manifest as poor
 utilization or imbalance on the device.
+
+
+Host execution domain
+---------------------
+
+The Host hierarchy characterizes the efficiency of CPU-side execution and the
+interaction between the host and accelerator.
+
+.. TODO:
+   Add Graphviz Host hierarchy:
+
+   Host Global Efficiency
+   +-- Host Parallel Efficiency
+   |   +-- MPI Parallel Efficiency
+   |   +-- Device Offload Efficiency
+   +-- Host Computation Scalability
+
+
+Device execution domain
+-----------------------
+
+The Device hierarchy characterizes how efficiently work is executed on the
+accelerator.
+
+.. TODO:
+   Add Graphviz Device hierarchy:
+
+   Device Global Efficiency
+   +-- Device Parallel Efficiency
+   |   +-- Device Load Balance
+   |   +-- Device Communication Efficiency
+   |   +-- Device Orchestration Efficiency
+   +-- Device Computation Scalability
 
 
 Independent Host and Device efficiencies
@@ -240,7 +1887,7 @@ In particular:
    Host Global Efficiency and Device Global Efficiency must not be multiplied
    to obtain application Global Efficiency.
 
-The Execution Domains view should therefore be used to determine **where**
+The Execution Domains view can therefore be used to determine **where**
 accelerator-related performance losses manifest, while the Parallel Runtime
 Model describes how those losses contribute to the application's hierarchical
 efficiency model.
@@ -281,126 +1928,27 @@ for interpreting the evolution of performance across the analyzed executions.
 Interpreting scaling trends
 ---------------------------
 
-Scaling plots preserve the hierarchy between performance metrics. When a
-parent metric is shown, its direct child metrics are presented together when
-applicable.
+Scaling analysis preserves the relationships defined by the metric hierarchy.
+The evolution of a parent metric can therefore be interpreted together with
+the evolution of its child factors.
 
-For example:
+For example, when Global Efficiency decreases across configurations, its
+Parallel Efficiency and Computation Scalability trends can be inspected to
+determine which component contributes to the degradation. The same reasoning
+can then be applied recursively to the corresponding child metrics.
 
-.. graphviz::
-   :align: center
-
-   digraph EfficiencyHierarchy {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.35,
-           ranksep=0.45
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       global [
-           label="Global Efficiency",
-           fillcolor="#EAF2F8"
-       ];
-
-       parallel [
-           label="Parallel Efficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       comp [
-           label="Computation Scalability",
-           fillcolor="#E8F5E9"
-       ];
-
-       global -> parallel;
-       global -> comp;
-   }
-
-
-
-
-and:
-
-.. graphviz::
-   :align: center
-
-   digraph EfficiencyHierarchy {
-       rankdir=TB;
-
-       graph [
-           bgcolor="transparent",
-           nodesep=0.35,
-           ranksep=0.45
-       ];
-
-       node [
-           shape=box,
-           fontname="Helvetica",
-           fontsize=10,
-           style="filled",
-           color="#6B7C8F",
-           penwidth=1.0
-       ];
-
-       edge [
-           color="#526477",
-           penwidth=1.0,
-           arrowsize=0.7
-       ];
-
-       parallel [
-           label="Parallel Efficiency",
-           fillcolor="#E8F5E9"
-       ];
-
-       loadbalance [
-           label="Load Balance Effiency",
-           fillcolor="#FFF3E0"
-       ];
-
-       communication [
-           label="Communication Efficiency",
-           fillcolor="#FFF3E0"
-       ];
-
-       parallel -> loadbalance;
-       parallel -> communication;
-   }
-
-
-
-This parent-and-children representation helps determine which factor explains
-the evolution observed in the parent metric.
-
-A decreasing Global Efficiency, for example, should not be interpreted in
-isolation. Its Parallel Efficiency and Computation Scalability trends should
-be inspected to determine which component is responsible for the degradation.
-The same reasoning can then be applied recursively to the corresponding child
-metrics.
+.. TODO:
+   Decide whether one compact parent/children Graphviz example adds value
+   here. Avoid repeating the complete hierarchy already introduced earlier
+   in this chapter.
 
 
 Complementary analytical views
 ==============================
 
-The BasicAnalysis views are intentionally complementary and may use different
-scopes and metric relationships.
+The BasicAnalysis analytical views address different performance questions and
+provide complementary perspectives on the execution. The views required for a
+particular assessment depend on the analysis objective.
 
 A useful way to interpret them is:
 
@@ -418,11 +1966,14 @@ A useful way to interpret them is:
 **Scaling Analysis**
    How does the behavior evolve as the execution configuration changes?
 
-The analysis should progressively follow the available evidence toward the
-factors showing the most significant efficiency losses. BasicAnalysis provides
-metric definitions and interpretation guidance to support this process, while
-detailed trace analysis or specialized performance tools may be required to
-establish the underlying cause.
+A comprehensive performance assessment may combine several of these
+perspectives, while a targeted investigation may focus on the view relevant to
+the performance aspect under study.
+
+BasicAnalysis provides metric definitions and interpretation guidance to
+support this process. Detailed trace analysis or specialized performance tools
+may still be required to establish the underlying cause of an observed
+efficiency loss.
 
 
 From traces to efficiency metrics
@@ -433,8 +1984,9 @@ Paraver traces. Depending on the metric and programming model, the required
 information can come directly from the measured execution or from an
 idealized execution generated through simulation.
 
-The internal analysis workflow that combines Paraver/paramedir data extraction and,
-when required, Dimemas simulation can be depicted as:
+The internal analysis workflow combines Paraver/paramedir data extraction and,
+when required, Dimemas simulation:
+
 
 .. graphviz::
    :align: center
@@ -611,8 +2163,6 @@ when required, Dimemas simulation can be depicted as:
            ideal_cfg;
        }
    }
-
-
 
 
 Measured execution

@@ -155,8 +155,8 @@ as Execution Overview, Parallel Runtime Model, Runtime-Specific Analysis,
 Execution Domains when applicable, and Scaling when several configurations 
 are available.
 
-A printable PDF version of the performance report can be generated on demand
-from the **Export** function of the interactive report.
+The interactive report can also be exported as a printable PDF when the
+required browser support is available.
 
 A detailed description of the generated files is provided in :doc:`08_output`.
 

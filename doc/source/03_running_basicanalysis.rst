@@ -52,10 +52,20 @@ provided, BasicAnalysis uses them to evaluate performance and scalability
 trends.
 
 
-Selecting the metric workflow
-=============================
+Metric workflow
+===============
 
-The metric workflow is selected with:
+BasicAnalysis automatically selects the metric workflow according to the
+programming models detected in the analyzed traces.
+
+If all traces correspond to simple execution models, BasicAnalysis uses the
+simple metric workflow. If at least one trace contains hybrid parallelism,
+BasicAnalysis uses the hybrid metric workflow.
+
+Therefore, users normally do not need to select the metric workflow
+explicitly.
+
+The metric workflow can be controlled manually with:
 
 .. code-block:: text
 
@@ -64,18 +74,15 @@ The metric workflow is selected with:
 The available modes are:
 
 ``simple``
-   Always use the simple metric workflow.
+   Force the use of the simple metric workflow.
 
 ``hybrid``
-   Use the hybrid metric workflow when at least one of the analyzed traces
-   contains hybrid parallelism. If all traces correspond to simple execution
-   models, BasicAnalysis automatically falls back to the simple metric
+   Allow BasicAnalysis to use the hybrid metric workflow when required by the
+   detected trace modes. If all analyzed traces correspond to simple
+   execution models, BasicAnalysis automatically uses the simple metric
    workflow.
 
 The default is ``hybrid``.
-
-The hybrid workflow supports programming models such as MPI+OpenMP and
-MPI+GPU applications.
 
 
 Scaling model
@@ -112,8 +119,10 @@ interpretation of the scalability metrics.
 Selecting the MPI+GPU metric model
 ==================================
 
-For MPI+GPU applications, BasicAnalysis provides different performance models.
-The model can be selected with:
+For MPI+GPU applications, BasicAnalysis computes both the classic
+multiplicative model and the TALP-based model.
+
+The model displayed in the standard output can be selected with:
 
 .. code-block:: text
 
@@ -122,17 +131,20 @@ The model can be selected with:
 The available models are:
 
 ``classic``
-   Use the multiplicative hybrid model.
+   Display the classic multiplicative model in the standard output.
 
 ``talp``
-   Use the TALP-based model, including the complementary Host and Device
-   execution-domain analysis.
+   Display the TALP-based model in the standard output.
 
 The default is ``talp``.
 
-The selected model determines how the MPI+GPU execution is represented and
-which accelerator-related metrics are available. The corresponding models
-are described in :doc:`05_methodology` and :doc:`06_metrics`.
+This option affects the model presented in the standard output. The
+interactive Performance Report provides access to both models, allowing
+users to inspect the complementary information provided by each one.
+
+The classic and TALP-based models, including the Host and Device
+execution-domain analysis associated with the TALP-based model, are
+described in :doc:`05_methodology` and :doc:`06_metrics`.
 
 
 Dimemas simulation
