@@ -1156,17 +1156,32 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     # Execution Domains / TALP Host metric
                     # --------------------------------------------------
 
+                    reference = trace_list[0]
+
                     if scaling == 'strong':
                         host_factors['host_comp_scale'][trace] = (
-                            float(raw_data['useful_host'][trace_list[0]])
+                            float(raw_data['useful_host'][reference])
                             / float(raw_data['useful_host'][trace])
                             * 100.0
                         )
                     else:
+                        host_units_ref = int(
+                            raw_data['count_host_threads'][reference]
+                        )
+
+                        host_units = int(
+                            raw_data['count_host_threads'][trace]
+                        )
+
+                        host_ratio = (
+                            float(host_units)
+                            / float(host_units_ref)
+                        )
+
                         host_factors['host_comp_scale'][trace] = (
-                            float(raw_data['useful_host'][trace_list[0]])
+                            float(raw_data['useful_host'][reference])
                             / float(raw_data['useful_host'][trace])
-                            * proc_ratio
+                            * host_ratio
                             * 100.0
                         )
 
@@ -1645,28 +1660,68 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 device_factors['dev_orches_eff'][trace] = 'NaN'           
         
         # Device Computation Scalability
-        try:  # except NaN
+        try:
             if outmpi_measures and is_mpi_gpu and (len(trace_list) > 1):
+
+                reference = trace_list[0]
+
                 if scaling == 'strong':
-                        device_factors['dev_comp_scale'][trace] = float(raw_data['useful_device'][trace_list[0]]) \
-                                                   / float(raw_data['useful_device'][trace]) * 100.0
+                    device_factors['dev_comp_scale'][trace] = (
+                        float(raw_data['useful_device'][reference])
+                        / float(raw_data['useful_device'][trace])
+                        * 100.0
+                    )
+
                 else:
-                    device_factors['dev_comp_scale'][trace] = float(raw_data['useful_device'][trace_list[0]]) \
-                                                   / float(raw_data['useful_device'][trace]) * proc_ratio * 100.0
+                    devices_ref = int(
+                        raw_data['count_devices'][reference]
+                    )
+
+                    devices = int(
+                        raw_data['count_devices'][trace]
+                    )
+
+                    device_ratio = (
+                        float(devices)
+                        / float(devices_ref)
+                    )
+
+                    device_factors['dev_comp_scale'][trace] = (
+                        float(raw_data['useful_device'][reference])
+                        / float(raw_data['useful_device'][trace])
+                        * device_ratio
+                        * 100.0
+                    )
+
             else:
                 device_factors['dev_comp_scale'][trace] = 'Non-Avail'
-        except:
-               device_factors['dev_comp_scale'][trace] = 'NaN'
-        
+
+        except (TypeError, ValueError, ZeroDivisionError):
+            device_factors['dev_comp_scale'][trace] = 'NaN'
+
+
         # Device Global Efficiency
-        try:  # except NaN
+        try:
             if outmpi_measures and is_mpi_gpu:
-                if (len(trace_list) > 1):
-                    device_factors['dev_global_eff'][trace] = (device_factors['dev_parallel_eff'][trace]/100) \
-                    * (device_factors['dev_comp_scale'][trace]/100) * 100
+
+                if len(trace_list) > 1:
+                    device_factors['dev_global_eff'][trace] = (
+                        device_factors['dev_parallel_eff'][trace]
+                        / 100.0
+                    ) * (
+                        device_factors['dev_comp_scale'][trace]
+                        / 100.0
+                    ) * 100.0
+
                 else:
-                    device_factors['dev_global_eff'][trace] = device_factors['dev_parallel_eff'][trace]
-        except:
+                    device_factors['dev_global_eff'][trace] = (
+                        device_factors['dev_parallel_eff'][trace]
+                    )
+
+            else:
+                device_factors['dev_global_eff'][trace] = 'Non-Avail'
+
+        except (TypeError, ValueError, ZeroDivisionError):
             device_factors['dev_global_eff'][trace] = 'NaN'
 
     # ------->  Global Hybrid Metric
