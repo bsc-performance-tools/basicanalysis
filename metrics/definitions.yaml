@@ -18,6 +18,9 @@ sources:
   basicanalysis_general_metrics:
     title: BasicAnalysis General Performance Metrics
     kind: internal
+  basicanalysis_io_metrics:
+    title: BasicAnalysis File I/O Metrics
+    kind: internal  
 metrics:
   global_eff:
     name: Global Efficiency
@@ -1240,3 +1243,301 @@ metrics:
 
     sources:
       - basicanalysis_general_metrics
+  
+  io_eff:
+    name: I/O Efficiency
+    short_name: I/O Eff
+    family: io
+    analysis_level: io
+    metric_type: efficiency
+
+    definition: >
+      Complementary efficiency metric that characterizes the weight of File
+      I/O activity relative to useful computation. It compares useful
+      computation with the combined time associated with useful computation
+      and File I/O. When I/O activity is negligible relative to useful
+      computation, I/O Efficiency approaches 100%. As the contribution of I/O
+      increases, I/O Efficiency decreases. The metric considers POSIX and
+      ANSI C File I/O and MPI-I/O activity observed in the trace and is
+      reported independently from the hierarchical performance-efficiency
+      model.
+
+    formula:
+      text: >
+        IO_Eff = Useful / (Useful + POSIX_IO + MPI_IO)
+
+      latex: >
+        IO\_Eff =
+        \frac{Useful}
+        {Useful + POSIXIO + MPIIO}
+
+      variables:
+        Useful: Total useful computation time
+        POSIX_IO: Total POSIX and ANSI C File I/O activity measured in the trace
+        MPI_IO: Total MPI-I/O activity measured in the trace
+
+    interpretation:
+      low: >
+        Low values indicate that File I/O activity has a significant weight
+        relative to useful computation.
+      high: >
+        High values indicate that File I/O activity is negligible or small
+        relative to useful computation.
+      above_100: >
+        Values above 100% are not expected for I/O Efficiency and should be
+        checked.
+
+    typical_causes:
+      - Significant POSIX or ANSI C File I/O activity
+      - Significant MPI-I/O activity
+      - Frequent read or write operations
+      - Large File I/O data volumes
+
+    next_steps:
+      - Compare MPI I/O Efficiency and POSIX I/O Efficiency.
+      - Inspect File I/O activity in the trace.
+      - Examine the I/O access pattern when File I/O represents a significant
+        fraction of the considered execution activity.
+
+    children: []
+
+    availability: >
+      Reported as Non-Avail when neither POSIX/ANSI C nor MPI-I/O activity is
+      detected in the analyzed execution.
+
+    sources:
+      - basicanalysis_io_metrics  
+
+  mpi_io_eff:
+    name: MPI I/O Efficiency
+    short_name: MPI I/O
+    family: io
+    analysis_level: io
+    metric_type: efficiency
+
+    definition: >
+      Complementary efficiency metric that characterizes the fraction of
+      aggregate execution capacity not spent in MPI-I/O activity. Higher
+      values therefore correspond to a smaller MPI-I/O contribution to the
+      measured execution. The metric is reported independently from the
+      hierarchical performance-efficiency model.
+
+    formula:
+      text: >
+        MPI_IO_Eff = 1 - MPI_IO / (P × T)
+
+      latex: >
+        MPI\_IO\_Eff =
+        1 - \frac{MPIIO}{P \cdot T}
+
+      variables:
+        MPIIO: Total MPI-I/O duration accumulated across the execution units represented in the measurement
+        P: Number of parallel execution units considered by the metric
+        T: Application execution time
+
+    interpretation:
+      low: >
+        Low values indicate that MPI-I/O activity consumes a significant
+        fraction of the aggregate execution capacity.
+      high: >
+        High values indicate that little aggregate execution capacity is
+        spent in MPI-I/O activity.
+      above_100: >
+        Values above 100% are not expected for MPI I/O Efficiency and should
+        be checked.
+
+    typical_causes:
+      - Frequent MPI-I/O operations
+      - Large MPI-I/O data volumes
+      - Collective or independent MPI-I/O activity
+      - I/O phases with significant duration
+
+    next_steps:
+      - Inspect MPI-I/O activity in the trace.
+      - Examine the frequency and duration of MPI-I/O operations.
+      - Compare MPI-I/O behavior across execution configurations.
+
+    children: []
+
+    availability: >
+      Reported as Non-Avail when no MPI-I/O activity is detected in the
+      analyzed execution.
+
+    sources:
+      - basicanalysis_io_metrics
+
+
+  mpi_io_load_balance:
+    name: MPI I/O Load Balance
+    short_name: MPI I/O LB
+    family: io
+    analysis_level: io
+    metric_type: efficiency
+
+    definition: >
+      Complementary I/O metric that characterizes how evenly MPI-I/O activity
+      is distributed across the execution units represented in the MPI-I/O
+      measurement. It compares the average MPI-I/O duration with the maximum
+      MPI-I/O duration.
+
+    formula:
+      text: >
+        MPI_IO_LB = average MPI-I/O time / maximum MPI-I/O time
+
+      latex: >
+        MPI\_IO\_LB =
+        \frac{\overline{MPIIO}}
+        {\max(MPIIO)}
+
+      variables:
+        MPIIO: MPI-I/O duration measured for the execution units represented in the analysis
+
+    interpretation:
+      low: >
+        Low values indicate that MPI-I/O activity is unevenly distributed,
+        with some execution units spending substantially more time in MPI-I/O
+        than others.
+      high: >
+        High values indicate that MPI-I/O activity is similarly distributed
+        across the execution units represented in the measurement.
+      above_100: >
+        Values above 100% are not expected for MPI I/O Load Balance and should
+        be checked.
+
+    typical_causes:
+      - Uneven MPI-I/O operation distribution
+      - Different I/O volumes across MPI ranks
+      - Rank-specific I/O phases
+      - Serialized or aggregator-dominated MPI-I/O activity
+
+    next_steps:
+      - Inspect MPI-I/O duration per MPI rank.
+      - Identify ranks responsible for the largest MPI-I/O time.
+      - Examine collective and independent MPI-I/O behavior in the trace.
+
+    children: []
+
+    availability: >
+      Reported as Non-Avail when no MPI-I/O activity is detected in the
+      analyzed execution.
+
+    sources:
+      - basicanalysis_io_metrics
+
+
+  posix_io_eff:
+    name: POSIX I/O Efficiency
+    short_name: POSIX I/O
+    family: io
+    analysis_level: io
+    metric_type: efficiency
+
+    definition: >
+      Complementary efficiency metric that characterizes the fraction of
+      aggregate execution capacity not spent in POSIX and ANSI C File I/O
+      activity captured by the trace. Higher values therefore correspond to a
+      smaller File I/O contribution to the measured execution. The metric is
+      reported independently from the hierarchical performance-efficiency
+      model.
+
+    formula:
+      text: >
+        POSIX_IO_Eff = 1 - POSIX_IO / (P × T)
+
+      latex: >
+        POSIX\_IO\_Eff =
+        1 - \frac{POSIXIO}{P \cdot T}
+
+      variables:
+        POSIXIO: Total POSIX and ANSI C File I/O duration accumulated across the execution units represented in the measurement
+        P: Number of parallel execution units considered by the metric
+        T: Application execution time
+
+    interpretation:
+      low: >
+        Low values indicate that POSIX and ANSI C File I/O activity consumes
+        a significant fraction of the aggregate execution capacity.
+      high: >
+        High values indicate that little aggregate execution capacity is spent
+        in POSIX and ANSI C File I/O activity.
+      above_100: >
+        Values above 100% are not expected for POSIX I/O Efficiency and should
+        be checked.
+
+    typical_causes:
+      - Frequent POSIX or ANSI C read/write operations
+      - Large File I/O data volumes
+      - Serialized File I/O
+      - I/O phases with significant duration
+
+    next_steps:
+      - Inspect POSIX and ANSI C File I/O activity in the trace.
+      - Examine the frequency and duration of File I/O operations.
+      - Compare File I/O behavior across execution configurations.
+
+    children: []
+
+    availability: >
+      Reported as Non-Avail when no POSIX or ANSI C File I/O activity is
+      detected in the analyzed execution.
+
+    sources:
+      - basicanalysis_io_metrics
+
+
+  posix_io_load_balance:
+    name: POSIX I/O Load Balance
+    short_name: POSIX I/O LB
+    family: io
+    analysis_level: io
+    metric_type: efficiency
+
+    definition: >
+      Complementary I/O metric that characterizes how evenly POSIX and ANSI C
+      File I/O activity is distributed across the execution units represented
+      in the I/O measurement. It compares the average POSIX/ANSI C I/O duration
+      with the maximum POSIX/ANSI C I/O duration.
+
+    formula:
+      text: >
+        POSIX_IO_LB = average POSIX/ANSI C I/O time / maximum POSIX/ANSI C I/O time
+
+      latex: >
+        POSIX\_IO\_LB =
+        \frac{\overline{POSIXIO}}
+        {\max(POSIXIO)}
+
+      variables:
+        POSIXIO: POSIX and ANSI C File I/O duration measured for the execution units represented in the analysis
+
+    interpretation:
+      low: >
+        Low values indicate that POSIX and ANSI C File I/O activity is unevenly
+        distributed, with some execution units spending substantially more
+        time in File I/O than others.
+      high: >
+        High values indicate that POSIX and ANSI C File I/O activity is
+        similarly distributed across the execution units represented in the
+        measurement.
+      above_100: >
+        Values above 100% are not expected for POSIX I/O Load Balance and
+        should be checked.
+
+    typical_causes:
+      - Uneven distribution of File I/O operations
+      - Different I/O volumes across execution units
+      - Serialized or rank-specific File I/O activity
+
+    next_steps:
+      - Inspect POSIX and ANSI C File I/O duration per execution unit.
+      - Identify execution units responsible for the largest File I/O time.
+      - Inspect the distribution of File I/O operations in the trace.
+
+    children: []
+
+    availability: >
+      Reported as Non-Avail when no POSIX or ANSI C File I/O activity is
+      detected in the analyzed execution.
+
+    sources:
+      - basicanalysis_io_metrics

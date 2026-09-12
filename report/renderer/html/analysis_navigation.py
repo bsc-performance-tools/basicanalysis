@@ -16,6 +16,7 @@ _PRIMARY_VIEW_IDS = (
     "overview",
     "parallel-runtime-model",
     "execution-domains",
+    "io-metrics",
     "computation-scalability",
 )
 

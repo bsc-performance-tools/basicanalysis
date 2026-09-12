@@ -361,6 +361,40 @@ def _build_openmp_metric_info():
 OPENMP_METRIC_INFO = _build_openmp_metric_info()
 
 
+def _build_io_metric_info():
+    """Build complementary File I/O metric metadata."""
+
+    presentation = {
+        "io_eff": {
+            "label": "I/O Efficiency",
+            "short_label": "I/O Eff",
+        },
+        "mpi_io_eff": {
+            "label": "MPI I/O Efficiency",
+            "short_label": "MPI I/O",
+        },
+        "mpi_io_load_balance": {
+            "label": "MPI I/O Load Balance",
+            "short_label": "MPI I/O LB",
+        },
+        "posix_io_eff": {
+            "label": "POSIX I/O Efficiency",
+            "short_label": "POSIX I/O",
+        },
+        "posix_io_load_balance": {
+            "label": "POSIX I/O Load Balance",
+            "short_label": "POSIX I/O LB",
+        },
+    }
+
+    return METRIC_PROVIDER.build(
+        presentation
+    )
+
+
+IO_METRIC_INFO = _build_io_metric_info()
+
+
 HYBRID_ORDER = [
     "hybrid_eff",
     "mpi_parallel_eff",
@@ -395,6 +429,14 @@ OPENMP_ORDER = [
     "omp_talp_scheduling_eff",
 ]
 
+
+IO_ORDER = [
+    "io_eff",
+    "mpi_io_eff",
+    "mpi_io_load_balance",
+    "posix_io_eff",
+    "posix_io_load_balance",
+]
 
 def _tree_node(metric_key, children=None):
     return {"metric": metric_key, "children": children or []}
@@ -701,6 +743,157 @@ def _build_overview_table_html(other_metrics, trace_list, trace_labels):
 
     html.append("</table>")
     return "\n".join(html)
+
+
+def _has_io_metrics(other_metrics, trace_list):
+    """Return whether File I/O activity was detected in any execution."""
+
+    for trace in trace_list:
+        if (
+            _clean_value(
+                _read_metric(
+                    other_metrics,
+                    "mpi_io_eff",
+                    trace,
+                )
+            ) is not None
+            or
+            _clean_value(
+                _read_metric(
+                    other_metrics,
+                    "posix_io_eff",
+                    trace,
+                )
+            ) is not None
+        ):
+            return True
+
+    return False
+
+
+def _build_io_metrics_section(
+        other_metrics,
+        trace_list,
+        trace_labels,
+        trace_header_note,
+        trace_column_description=""):
+    """Build the complementary File I/O Metrics analysis."""
+
+    metric_keys = list(IO_ORDER)
+
+    metric_sources = {
+        metric_key: other_metrics
+        for metric_key in metric_keys
+    }
+
+    metric_knowledge = _build_metric_knowledge(
+        metric_keys=metric_keys,
+    )
+
+    table_html = _build_efficiency_table_html(
+        metric_keys=metric_keys,
+        metric_info=IO_METRIC_INFO,
+        metric_sources=metric_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        section_id="io-metrics",
+        tree=[],
+        metric_knowledge=metric_knowledge,
+    )
+
+    info_json = _metric_info_json(
+        metric_keys,
+        IO_METRIC_INFO,
+        metric_knowledge,
+    )
+
+    metric_interaction_hint_html = (
+        _build_metric_interaction_hint_html()
+    )
+
+    efficiency_scale_html = (
+        _build_efficiency_scale_html()
+    )
+
+    scope_note_html = """
+    <div class="analysis-scope-note io-analysis-focus">
+        <h3>Analysis focus</h3>
+
+        <p>
+            I/O Metrics provide complementary information about the
+            contribution and distribution of File I/O activity in the
+            measured execution.
+        </p>
+
+        <p>
+            These metrics are reported independently from the
+            hierarchical performance-efficiency model and should not
+            be interpreted as a multiplicative decomposition of the
+            application efficiency.
+        </p>
+    </div>
+    """
+
+    trend_html = ""
+
+    if len(trace_list) > 1:
+        trend_html = _build_metric_trend_plot_html(
+            metric_keys=metric_keys,
+            metric_info=IO_METRIC_INFO,
+            metric_sources=metric_sources,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            title="I/O Efficiency Trends",
+            description=(
+                "Compare how File I/O efficiency and I/O load balance "
+                "evolve across the analyzed execution configurations."
+            ),
+            x_axis_title=trace_column_description,
+            y_axis_title="Efficiency (%)",
+            bounded_percentage=True,
+        )
+
+    return """
+    <section
+        class="io-metrics-analysis"
+        aria-label="I/O Metrics"
+    >
+        <script>
+        window["metricInfo_io-metrics"] = {info_json};
+        </script>
+
+        {trace_header_note}
+
+        {metric_interaction_hint_html}
+
+        <div
+            class="metric-table-card"
+            data-efficiency-export
+            data-export-name="io-metrics"
+            data-export-columns="{trace_column_description}"
+        >
+            {table_html}
+        </div>
+
+        {trend_html}
+        
+        {efficiency_scale_html}
+
+        {scope_note_html}
+    </section>
+    """.format(
+        info_json=info_json,
+        trace_header_note=trace_header_note,
+        metric_interaction_hint_html=metric_interaction_hint_html,
+        trace_column_description=html.escape(
+            trace_column_description,
+            quote=True,
+        ),
+        table_html=table_html,
+        trend_html=trend_html,
+        efficiency_scale_html=efficiency_scale_html,
+        scope_note_html=scope_note_html,
+    )
 
 
 def _is_number(value):
@@ -9559,6 +9752,20 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         )
     )
 
+    io_metrics_html = ""
+
+    if _has_io_metrics(
+        other_metrics,
+        trace_list,
+    ):
+        io_metrics_html = _build_io_metrics_section(
+            other_metrics=other_metrics,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            trace_header_note=trace_header_note,
+            trace_column_description=trace_column_description,
+        )
+
     overview_html = _build_overview_table_html(
         other_metrics,
         trace_list,
@@ -10681,6 +10888,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
         "host-analysis": host_html,
         "device-analysis": device_html,
+        "io-metrics": io_metrics_html,
     }
 
     analysis_catalogue = build_analysis_catalogue(

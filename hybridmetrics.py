@@ -43,20 +43,37 @@ except ImportError:
     error_import_matplotlib = True
     
 
+# ----------------------------------------------------------------------
+# Experimental metric extensions
+# ----------------------------------------------------------------------
+
+# I/O-aware scalability metrics are currently experimental and are not part
+# of the documented BasicAnalysis 1.0 metric model.
+#
+# Raw I/O information is still collected and may be reported for diagnostic
+# purposes, but it does not modify the standard efficiency metrics.
+ENABLE_IO_AWARE_METRICS = False
+
 
 # Contains all model factor entries with a printable name.
 # This is used to generate and print all model factors, so, if an entry is added,
 # it should be added here, too.
 
-other_metrics_doc = OrderedDict([('elapsed_time', 'Elapsed time (sec)'),
-                               ('efficiency', 'Efficiency'),
-                               ('speedup', 'Speedup'),
-                               ('ipc', 'Average IPC'),
-                               ('freq', 'Average frequency (GHz)'),
-                               ('flushing', 'Flushing (%)'),
-                               ('io_mpiio', 'MPI I/O (%)'),
-                               ('io_posix', 'POSIX I/O (%)'),
-                               ('io_eff', 'I/O Efficiency (%)')])
+other_metrics_doc = OrderedDict([
+                    ('elapsed_time', 'Elapsed time (sec)'),
+                    ('efficiency', 'Efficiency'),
+                    ('speedup', 'Speedup'),
+                    ('ipc', 'Average IPC'),
+                    ('freq', 'Average frequency (GHz)'),
+                    ('flushing', 'Flushing (%)'),
+
+                    # Complementary I/O efficiency metrics.
+                    ('io_eff', 'I/O Efficiency (%)'),
+                    ('mpi_io_eff', 'MPI I/O Efficiency (%)'),
+                    ('mpi_io_load_balance', 'MPI I/O Load Balance (%)'),
+                    ('posix_io_eff', 'POSIX I/O Efficiency (%)'),
+                    ('posix_io_load_balance', 'POSIX I/O Load Balance (%)'),
+                ])
 
 mod_factors_doc = OrderedDict([('global_eff', 'Global efficiency'),
                                ('parallel_eff', '-- Parallel efficiency'),
@@ -221,16 +238,30 @@ def create_mod_host_factors(trace_list):
 
 
 def create_other_metrics(trace_list):
-    """Creates 2D dictionary of the other metrics and initializes with an empty
-    string. The other_metrics dictionary has the format: [factor key][trace].
-    """
+    """Create general and complementary metric dictionaries."""
+
     global other_metrics_doc
+
     other_metrics = {}
+
     for key in other_metrics_doc:
         trace_dict = {}
+
         for trace_name in trace_list:
             trace_dict[trace_name] = 0.0
+
         other_metrics[key] = trace_dict
+
+    # Internal I/O activity percentages.
+    #
+    # These values are used for diagnostics and for deriving the
+    # efficiency-oriented I/O metrics, but are not exposed as
+    # public BasicAnalysis metrics.
+    for key in ('io_mpiio', 'io_posix'):
+        other_metrics[key] = {
+            trace_name: 0.0
+            for trace_name in trace_list
+        }
 
     return other_metrics
 
@@ -852,32 +883,225 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             other_metrics['flushing'][trace] = 0.0
 
-        # I/O measurements
-        try:  # except NaN
-            if trace_mode[trace][0:len("Burst")] != 'Burst':
-                other_metrics['io_mpiio'][trace] = float(raw_data['mpiio_tot'][trace]) \
-                                               / (raw_data['runtime'][trace] * total_procs) * 100.0
-            else:
-                other_metrics['io_mpiio'][trace] = 0.0
-        except:
+        # --------------------------------------------------
+        # File I/O metrics
+        # --------------------------------------------------
+
+        try:
+            runtime = float(raw_data['runtime'][trace])
+
+            # File I/O is performed on the Host. For hybrid executions,
+            # accelerator execution contexts must therefore not contribute
+            # to the aggregate execution capacity used by the I/O metrics.
+            host_parallel_units = int(
+                raw_data['count_host_threads'][trace]
+            )
+
+            if host_parallel_units <= 0:
+                host_parallel_units = int(total_procs)
+
+            posix_io_tot = float(
+                raw_data['io_tot'][trace]
+            )
+
+            mpi_io_tot = float(
+                raw_data['mpiio_tot'][trace]
+            )
+
+            has_posix_io = posix_io_tot > 0.0
+            has_mpi_io = mpi_io_tot > 0.0
+
+        except (TypeError, ValueError):
+            runtime = 0.0
+            host_parallel_units = 0
+            posix_io_tot = 0.0
+            mpi_io_tot = 0.0
+
+            has_posix_io = False
+            has_mpi_io = False
+
+        # --------------------------------------------------
+        # Raw I/O activity percentages
+        #
+        # Internal quantities used for diagnostics and warning
+        # thresholds. They are not public I/O metrics.
+        # --------------------------------------------------
+
+        if (
+            runtime > 0.0
+            and host_parallel_units > 0
+            and trace_mode[trace][:5] != 'Burst'
+        ):
+
+            other_metrics['io_mpiio'][trace] = (
+                mpi_io_tot
+                / (runtime * host_parallel_units)
+                * 100.0
+            )
+
+            other_metrics['io_posix'][trace] = (
+                posix_io_tot
+                / (runtime * host_parallel_units)
+                * 100.0
+            )
+
+        else:
             other_metrics['io_mpiio'][trace] = 0.0
-
-        try:  # except NaN
-            if trace_mode[trace][0:len("Burst")] != 'Burst':
-                other_metrics['io_posix'][trace] = float(raw_data['io_tot'][trace]) \
-                                               / (raw_data['runtime'][trace] * total_procs) * 100.0
-            else:
-                other_metrics['io_posix'][trace] = 0.0
-        except:
             other_metrics['io_posix'][trace] = 0.0
-        try:  # except NaN
 
-            io_total = float(raw_data['mpiio_tot'][trace] + raw_data['flushing_tot'][trace]
-                             + raw_data['io_tot'][trace])
-            other_metrics['io_eff'][trace] = float(raw_data['useful_tot'][trace]) \
-                                             / (raw_data['useful_tot'][trace] + io_total) * 100.0
-        except:
-            other_metrics['io_eff'][trace] = 0.0
+        # --------------------------------------------------
+        # MPI I/O Efficiency and Load Balance
+        # --------------------------------------------------
+
+        if (
+            has_mpi_io
+            and runtime > 0.0
+            and host_parallel_units > 0
+        ):
+
+            other_metrics['mpi_io_eff'][trace] = (
+                100.0
+                - other_metrics['io_mpiio'][trace]
+            )
+
+            try:
+                mpi_io_avg = float(
+                    raw_data['mpiio_avg'][trace]
+                )
+
+                mpi_io_max = float(
+                    raw_data['mpiio_max'][trace]
+                )
+
+                if mpi_io_max > 0.0:
+                    other_metrics[
+                        'mpi_io_load_balance'
+                    ][trace] = (
+                        mpi_io_avg
+                        / mpi_io_max
+                        * 100.0
+                    )
+
+                else:
+                    other_metrics[
+                        'mpi_io_load_balance'
+                    ][trace] = 'Non-Avail'
+
+            except (
+                TypeError,
+                ValueError,
+                ZeroDivisionError,
+            ):
+                other_metrics[
+                    'mpi_io_load_balance'
+                ][trace] = 'NaN'
+
+        else:
+            other_metrics['mpi_io_eff'][trace] = 'Non-Avail'
+
+            other_metrics[
+                'mpi_io_load_balance'
+            ][trace] = 'Non-Avail'
+
+        # --------------------------------------------------
+        # POSIX / ANSI C I/O Efficiency and Load Balance
+        # --------------------------------------------------
+
+        if (
+            has_posix_io
+            and runtime > 0.0
+            and host_parallel_units > 0
+        ):
+
+            other_metrics['posix_io_eff'][trace] = (
+                100.0
+                - other_metrics['io_posix'][trace]
+            )
+
+            try:
+                posix_io_avg = float(
+                    raw_data['io_avg'][trace]
+                )
+
+                posix_io_max = float(
+                    raw_data['io_max'][trace]
+                )
+
+                if posix_io_max > 0.0:
+                    other_metrics[
+                        'posix_io_load_balance'
+                    ][trace] = (
+                        posix_io_avg
+                        / posix_io_max
+                        * 100.0
+                    )
+
+                else:
+                    other_metrics[
+                        'posix_io_load_balance'
+                    ][trace] = 'Non-Avail'
+
+            except (
+                TypeError,
+                ValueError,
+                ZeroDivisionError,
+            ):
+                other_metrics[
+                    'posix_io_load_balance'
+                ][trace] = 'NaN'
+
+        else:
+            other_metrics['posix_io_eff'][trace] = 'Non-Avail'
+
+            other_metrics[
+                'posix_io_load_balance'
+            ][trace] = 'Non-Avail'
+
+        # --------------------------------------------------
+        # Overall I/O Efficiency
+        #
+        # Tracer flushing is intentionally excluded because it is
+        # instrumentation overhead rather than application File I/O.
+        # --------------------------------------------------
+
+        if has_posix_io or has_mpi_io:
+
+            try:
+                useful_tot = float(
+                    raw_data['useful_tot'][trace]
+                )
+
+                io_total = (
+                    posix_io_tot
+                    + mpi_io_tot
+                )
+
+                denominator = (
+                    useful_tot
+                    + io_total
+                )
+
+                if denominator > 0.0:
+                    other_metrics['io_eff'][trace] = (
+                        useful_tot
+                        / denominator
+                        * 100.0
+                    )
+
+                else:
+                    other_metrics[
+                        'io_eff'
+                    ][trace] = 'Non-Avail'
+
+            except (
+                TypeError,
+                ValueError,
+                ZeroDivisionError,
+            ):
+                other_metrics['io_eff'][trace] = 'NaN'
+
+        else:
+            other_metrics['io_eff'][trace] = 'Non-Avail'
 
         # Basic efficiency factors
         try:  # except NaN
@@ -1006,9 +1230,12 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             mod_factors['comp_scale'][trace] = 'NaN'
             host_factors['host_comp_scale'][trace] = 'NaN'
 
-        # Computation Scale + Serial I/O
-        try:  # except NaN
-            if len(trace_list) > 1:
+        # Experimental Computation Scalability including serial I/O
+        try:
+            if not ENABLE_IO_AWARE_METRICS:
+                mod_factors_scale_plus_io['comp_scale'][trace] = 'Non-Avail'
+
+            elif len(trace_list) > 1:
                 if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 0.0:
                     io_serial_0 = float(raw_data['io_tot'][trace_list[0]] + raw_data['flushing_tot'][trace_list[0]])
                     io_serial_n = float(raw_data['io_tot'][trace] + raw_data['flushing_tot'][trace])
@@ -1509,9 +1736,12 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             host_factors['host_ipc_scale'][trace] = 'Non-Avail'
 
 
-        # IPC scale + Serial I/O
-        try:  # except NaN
-            if len(trace_list) > 1:
+        # Experimental IPC Scalability including serial I/O
+        try:
+            if not ENABLE_IO_AWARE_METRICS:
+                mod_factors_scale_plus_io['ipc_scale'][trace] = 'Non-Avail'
+
+            elif len(trace_list) > 1:
                 if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 0.0:
                     ipc_serial_io_0 = (raw_data['useful_ins'][trace_list[0]] + raw_data['io_ins'][trace_list[0]]
                                        + raw_data['flushing_ins'][trace_list[0]]) \
@@ -1630,9 +1860,12 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             host_factors['host_freq_scale'][trace] = 'NaN'
 
 
-        # freq scale + Serial I/O
-        try:  # except NaN
-            if len(trace_list) > 1:
+        # Experimental Frequency Scalability including serial I/O
+        try:
+            if not ENABLE_IO_AWARE_METRICS:
+                mod_factors_scale_plus_io['freq_scale'][trace] = 'Non-Avail'
+
+            elif len(trace_list) > 1:
                 if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 0.0:
                     freq_serial_io_0 = (float(raw_data['useful_cyc'][trace_list[0]])
                                         + float(raw_data['io_cyc'][trace_list[0]])
@@ -1709,9 +1942,12 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             host_factors['host_inst_scale'][trace] = 'NaN'
 
 
-        # ins scale + Serial I/O
-        try:  # except NaN
-            if len(trace_list) > 1:
+        # Experimental Instruction Scalability including serial I/O
+        try:
+            if not ENABLE_IO_AWARE_METRICS:
+                mod_factors_scale_plus_io['inst_scale'][trace] = 'Non-Avail'
+
+            elif len(trace_list) > 1:
                 if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 0.0:
                     useful_ins_plus_io_0 = float(raw_data['useful_ins'][trace_list[0]]) \
                                        + float(raw_data['io_ins'][trace_list[0]]) \
@@ -1927,7 +2163,11 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
             if mod_factors_scale_plus_io[mod_key][trace] != 0:
                 io_metrics.append(1)
 
-    if (len(warning_flush) >= 1 or len(warning_io) >= 1) and len(trace_list) > 1:
+    if (
+        ENABLE_IO_AWARE_METRICS
+        and (len(warning_flush) >= 1 or len(warning_io) >= 1)
+        and len(trace_list) > 1
+    ):
         print(''.ljust(len(line_procs_factors), '-'))
         for mod_key in mod_factors_scale_plus_io_doc:
             line = mod_factors_scale_plus_io_doc[mod_key].ljust(longest_name)
@@ -2093,7 +2333,11 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
             if mod_factors_scale_plus_io[mod_key][trace] != 0:
                 io_metrics.append(1)
 
-    if (len(warning_flush) >= 1 or len(warning_io) >= 1) and len(trace_list) > 1:
+    if (
+        ENABLE_IO_AWARE_METRICS
+        and (len(warning_flush) >= 1 or len(warning_io) >= 1)
+        and len(trace_list) > 1
+    ):
         print(''.ljust(len(line_procs_factors), '-'))
         for mod_key in mod_factors_scale_plus_io_doc:
             line = mod_factors_scale_plus_io_doc[mod_key].ljust(longest_name)
@@ -2154,15 +2398,26 @@ def print_other_metrics_table(
         trace_tasks,
         trace_threads,
         trace_mode,
-        raw_data):    
-    """Prints the other metrics table in human readable form on stdout."""
+        raw_data):
+
+    """Print general performance indicators and complementary metrics."""
+
     global other_metrics_doc
 
     print('Overview of the Efficiency, Speedup, IPC and Frequency:')
 
-    longest_name = len(sorted(other_metrics_doc.values(), key=len)[-1])
+    longest_name = len(
+        sorted(
+            other_metrics_doc.values(),
+            key=len
+        )[-1]
+    )
 
     line = 'Configuration'.rjust(longest_name)
+
+    # --------------------------------------------------
+    # Build hybrid configuration labels
+    # --------------------------------------------------
 
     configuration_labels = _build_hybrid_configuration_labels(
         trace_list,
@@ -2189,88 +2444,203 @@ def print_other_metrics_table(
 
     print(''.ljust(len(line), '-'))
     print(line)
+
     line_head = line
+
     print(''.ljust(len(line), '-'))
 
-    for mod_key in other_metrics_doc:
-        line = other_metrics_doc[mod_key].ljust(longest_name)
-        if len(trace_list) > 1:
-            if mod_key in ['speedup', 'ipc', 'freq', 'elapsed_time', 'efficiency']:
-                for trace in trace_list:
-                    line += ' | '
-                    try:  # except NaN
-                        line += ('{0:.2f}'.format(other_metrics[mod_key][trace])).rjust(value_to_adjust)
-                    except ValueError:
-                        line += ('{}'.format(other_metrics[mod_key][trace])).rjust(value_to_adjust)
-                print(line)
-        else:
-            if mod_key in ['ipc', 'freq', 'elapsed_time']:
-                for trace in trace_list:
-                    line += ' | '
-                    try:  # except NaN
-                        line += ('{0:.2f}'.format(other_metrics[mod_key][trace])).rjust(value_to_adjust)
-                    except ValueError:
-                        line += ('{}'.format(other_metrics[mod_key][trace])).rjust(value_to_adjust)
-                print(line)
-    print(''.ljust(len(line_head), '-'))
-    # print('')
+    # --------------------------------------------------
+    # General performance indicators
+    # --------------------------------------------------
 
-    warning_io = []
+    for mod_key in other_metrics_doc:
+
+        line = other_metrics_doc[mod_key].ljust(
+            longest_name
+        )
+
+        if len(trace_list) > 1:
+
+            if mod_key in [
+                'speedup',
+                'ipc',
+                'freq',
+                'elapsed_time',
+                'efficiency',
+            ]:
+
+                for trace in trace_list:
+
+                    line += ' | '
+
+                    try:
+                        line += (
+                            '{0:.2f}'.format(
+                                other_metrics[mod_key][trace]
+                            )
+                        ).rjust(value_to_adjust)
+
+                    except (ValueError, TypeError):
+                        line += (
+                            '{}'.format(
+                                other_metrics[mod_key][trace]
+                            )
+                        ).rjust(value_to_adjust)
+
+                print(line)
+
+        else:
+
+            if mod_key in [
+                'ipc',
+                'freq',
+                'elapsed_time',
+            ]:
+
+                for trace in trace_list:
+
+                    line += ' | '
+
+                    try:
+                        line += (
+                            '{0:.2f}'.format(
+                                other_metrics[mod_key][trace]
+                            )
+                        ).rjust(value_to_adjust)
+
+                    except (ValueError, TypeError):
+                        line += (
+                            '{}'.format(
+                                other_metrics[mod_key][trace]
+                            )
+                        ).rjust(value_to_adjust)
+
+                print(line)
+
+    print(''.ljust(len(line_head), '-'))
+
+    # --------------------------------------------------
+    # Detect tracer flushing and File I/O activity
+    # --------------------------------------------------
+
     warning_flush = []
+    io_detected = False
+    significant_io = False
+
     for trace in trace_list:
+
         if other_metrics['flushing'][trace] >= 10.0:
             warning_flush.append(1)
-        if other_metrics['io_mpiio'][trace] >= 5.0 or other_metrics['io_posix'][trace] >= 5.0:
-            warning_io.append(1)
 
-    for mod_key in other_metrics_doc:
-        line = other_metrics_doc[mod_key].ljust(longest_name)
-        # Print empty line to separate values
-        if mod_key in ['freq'] and len(warning_flush) > 0:
-            print('')
-            print("Overview of tracer\'s flushing weight:")
-            print(''.ljust(len(line_head), '-'))
+        # I/O exists when at least one API-specific
+        # efficiency metric is available.
+        if (
+            other_metrics['mpi_io_eff'][trace] != 'Non-Avail'
+            or other_metrics['posix_io_eff'][trace] != 'Non-Avail'
+        ):
+            io_detected = True
 
-        if mod_key not in ['speedup', 'ipc', 'freq', 'elapsed_time', 'efficiency']:
-            if mod_key in ['flushing']:
-                for trace in trace_list:
-                    line += ' | '
-                    try:  # except NaN
-                        line += ('{0:.2f}%'.format(other_metrics[mod_key][trace])).rjust(value_to_adjust)
-                    except ValueError:
-                        line += ('{}'.format(other_metrics[mod_key][trace])).rjust(value_to_adjust)
-                if len(warning_flush) > 0:
-                    print(line)
-                    print(''.ljust(len(line_head), '-'))
-            elif mod_key in ['io_mpiio','io_posix','io_eff']:
-                for trace in trace_list:
-                    line += ' | '
-                    try:  # except NaN
-                        line += ('{0:.2f}%'.format(other_metrics[mod_key][trace])).rjust(value_to_adjust)
-                    except ValueError:
-                        line += ('{}'.format(other_metrics[mod_key][trace])).rjust(value_to_adjust)
-                if len(warning_io) > 0:
-                    print(line)
+        # Keep the previous 5% threshold only as an
+        # informational indication of significant I/O.
+        if (
+            other_metrics['io_mpiio'][trace] >= 5.0
+            or other_metrics['io_posix'][trace] >= 5.0
+        ):
+            significant_io = True
 
-        # Print headers I/O
-        if mod_key in ['flushing'] and len(warning_io) > 0:
-            print(''.ljust(len(line), ' '))
-            print('Overview of File I/O weight:')
-            print(''.ljust(len(line), '-'))
-        if mod_key in ['io_eff'] and len(warning_io) > 0:
-            print(''.ljust(len(line), '-'))
-            # print('')
+    # --------------------------------------------------
+    # Tracer flushing information
+    # --------------------------------------------------
 
     if len(warning_flush) > 0:
-        message_warning_flush = "WARNING! %Flushing is high and affects computation of efficiency metrics."
-    else:
-        message_warning_flush = ""
-    if len(warning_io) > 0:
-        message_warning_io = "WARNING! % File I/O is high and affects computation of efficiency metrics."
-    else:
-        message_warning_io = ""
-    print(message_warning_flush+message_warning_io)
-    # print('')
+
+        print("Overview of tracer's flushing weight:")
+        print(''.ljust(len(line_head), '-'))
+
+        line = other_metrics_doc['flushing'].ljust(
+            longest_name
+        )
+
+        for trace in trace_list:
+
+            line += ' | '
+
+            value = other_metrics['flushing'][trace]
+
+            try:
+                line += (
+                    '{0:.2f}%'.format(value)
+                ).rjust(value_to_adjust)
+
+            except (ValueError, TypeError):
+                line += (
+                    '{}'.format(value)
+                ).rjust(value_to_adjust)
+
+        print(line)
+
+        print(''.ljust(len(line_head), '-'))
+
+    # --------------------------------------------------
+    # File I/O efficiency metrics
+    # --------------------------------------------------
+
+    if io_detected:
+
+        print('Overview of File I/O Efficiency:')
+        print(''.ljust(len(line_head), '-'))
+
+        io_metric_keys = [
+            'io_eff',
+            'mpi_io_eff',
+            'mpi_io_load_balance',
+            'posix_io_eff',
+            'posix_io_load_balance',
+        ]
+
+        for metric_key in io_metric_keys:
+
+            line = other_metrics_doc[metric_key].ljust(
+                longest_name
+            )
+
+            for trace in trace_list:
+
+                line += ' | '
+
+                value = other_metrics[metric_key][trace]
+
+                try:
+                    line += (
+                        '{0:.2f}%'.format(value)
+                    ).rjust(value_to_adjust)
+
+                except (ValueError, TypeError):
+                    line += (
+                        '{}'.format(value)
+                    ).rjust(value_to_adjust)
+
+            print(line)
+
+        print(''.ljust(len(line_head), '-'))
+
+    # --------------------------------------------------
+    # Informational messages
+    # --------------------------------------------------
+
+    if len(warning_flush) > 0:
+        print(
+            'WARNING! Tracer flushing is high and may affect '
+            'the measured execution.'
+        )
+
+    if significant_io:
+        print(
+            'INFO: Significant File I/O activity was detected '
+            'in the analyzed execution.'
+        )
+
+    print('')
 
 
 def print_efficiency_table(mod_factors, hybrid_factors, hyb_comm_omp_factors,
@@ -2505,7 +2875,10 @@ def print_other_metrics_csv(other_metrics, trace_list, trace_processes):
 
     print('')
     print('======== Output File: Other Metrics ========')
-    print('Speedup, IPC, Frequency, I/O and Flushing written to ' + file_path)
+    print(
+        'General performance indicators, I/O metrics, and '
+        'flushing information written to ' + file_path
+    )
 
 
 def plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args):

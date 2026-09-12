@@ -256,6 +256,28 @@ def build_analysis_catalogue(
             )
         )
 
+
+    io_metrics_html = rendered_html.get(
+        "io-metrics",
+        "",
+    )
+
+    if io_metrics_html:
+        views.append(
+            AnalysisCatalogueView(
+                view_id="io-metrics",
+                label="I/O Metrics",
+                title="I/O Metrics",
+                group="primary",
+                description=(
+                    "Examine the contribution and distribution of File I/O "
+                    "activity in the measured execution."
+                ),
+                body_html=io_metrics_html,
+            )
+        )
+
+
     if scalability_section is not None:
         _validate_section(
             section=scalability_section,
