@@ -20,11 +20,20 @@ The main output of BasicAnalysis is the interactive performance report:
 
    basicanalysis_interactive_report.html
 
-The report provides a guided view of the performance analysis, including the
-execution configuration, general performance metrics, hierarchical efficiency
-analysis, runtime-specific analysis, and execution-domain analysis for
-accelerator applications. When multiple execution configurations are analyzed,
-the report also includes scaling information and performance trends.
+The report provides a guided view of the performance analysis through the
+Execution Overview, Parallel Runtime Model, Runtime-Specific Analysis,
+Execution Domains, I/O Analysis, and Scaling views, as applicable to the
+analyzed execution.
+
+The available views depend on the programming model and performance data. For
+example, Execution Domains are available for accelerator applications, while
+I/O Analysis reports the File I/O metrics derived from MPI-I/O and POSIX/ANSI C
+File I/O activity detected in the traces. When multiple execution
+configurations are analyzed, the report also provides scaling information and
+performance trends.
+
+Metric values in the report are interactive. Selecting a metric opens its
+definition, interpretation, and recommended next diagnostic steps.
 
 Efficiency tables can be exported from the report as PNG images. The report
 also provides export options for multiple tables and can be printed or saved as
@@ -43,29 +52,33 @@ output directory.
 The main files include:
 
 ``rawdata.csv``
-   Contains the aggregated performance measurements extracted from the input
-   traces and used to compute the performance metrics.
+   Contains the aggregated performance measurements extracted or constructed
+   from the input traces and used to compute the performance metrics. These
+   include timing and hardware-counter measurements and, when applicable,
+   runtime-specific, I/O, and accelerator-related quantities.
 
 ``other_metrics.csv``
-   Contains general performance quantities such as elapsed time, Speedup,
-   Efficiency, IPC, frequency, and I/O-related metrics when available.
+   Contains complementary performance quantities such as elapsed time,
+   Speedup, Efficiency, IPC, processor frequency, tracer flushing information,
+   and I/O-related metrics when available.
 
 ``modelfactors.csv``
-   Contains the hierarchical efficiency and scalability factors computed by
-   BasicAnalysis.
+   Contains the application-level hierarchical efficiency and scalability
+   factors computed by BasicAnalysis.
 
 ``efficiency_table*.csv``
-   Contains the efficiency metrics arranged in the format used to generate the
-   static efficiency tables. The exact filename depends on the performance
-   model being analyzed.
+   Contains efficiency metrics arranged in the format used to generate the
+   corresponding static efficiency tables. The exact filename depends on the
+   performance model being analyzed.
 
 Additional model-specific CSV files may also be generated. For example,
-OpenMP analyses can generate ``omp_talp_metrics.csv``, while accelerator
-analyses using the Host/Device performance model can generate
+OpenMP analyses can generate ``omp_talp_metrics.csv``, while MPI+GPU analyses
+using the Host/Device execution-domain model can generate
 ``talp_metrics.csv``.
 
-The availability of individual metrics depends on the programming model,
-the information contained in the traces, and the selected analysis options.
+The availability of individual files and metrics depends on the programming
+model, the information contained in the traces, the number of analyzed
+execution configurations, and the selected analysis options.
 
 
 Static Visualizations
@@ -82,17 +95,25 @@ performance model, the output includes files such as:
    efficiency_table-matplot.png
    efficiency_table-matplot.pdf
 
-or the corresponding global, hybrid, or Host/Device variants.
+or the corresponding global, hybrid, runtime-specific, or Host/Device
+variants.
 
 When multiple execution configurations are analyzed, BasicAnalysis also
-generates plots showing the evolution of the performance metrics across the
+generates plots showing the evolution of performance metrics across the
 configurations. These include Speedup and Efficiency plots and, depending on
-the performance model, plots for global efficiency, parallel efficiency,
-communication efficiency, runtime-specific factors, and computation
-scalability.
+the programming model and available data, plots for:
+
+* Global Efficiency and Parallel Efficiency;
+* Load Balance and Communication Efficiency;
+* Computation Scalability and its available factors;
+* runtime-specific efficiency factors; and
+* Host and Device execution-domain metrics.
 
 Some multi-configuration analyses also generate Gnuplot ``.gp`` files
 containing plotting instructions and the corresponding metric data.
+
+I/O metric plots are provided within the interactive report and are not
+generated as separate static visualization files.
 
 
 Intermediate Analysis Files
@@ -106,19 +127,23 @@ under:
    scratch_out_basicanalysis/
 
 A separate subdirectory is created for each analyzed trace. These directories
-contain the Paraver/paramedir statistics used to derive timing, hardware-counter,
-I/O, runtime-specific, and accelerator measurements.
+contain the Paraver/paramedir statistics used to derive timing,
+hardware-counter, I/O, runtime-specific, and accelerator measurements.
 
-For accelerator traces, the intermediate data can also include Host, GPU-stream,
-and memory-transfer statistics. OpenMP analyses include additional timing data
-used to characterize serial execution, parallel-region load balance, and
-scheduling and fork/join overhead.
+For accelerator traces, the intermediate data can also include Host,
+GPU-stream, and memory-transfer statistics. GPU stream activity is subsequently
+mapped and flattened to physical devices when constructing the Device
+measurements used by the performance metrics.
+
+OpenMP analyses include additional timing data used to characterize serial
+execution, parallel-region load balance, and scheduling and fork/join
+overhead.
 
 When Dimemas simulation is applicable, Dimemas is available, and simulation
 has not been disabled, the corresponding trace directory also contains the
 simulation input, configuration, simulated trace, and paramedir statistics
 obtained from the simulated execution.
 
-These files are intermediate analysis data; the summarized measurements and
-computed metrics are provided separately by the CSV files in the main output
-directory.
+These files represent intermediate analysis data. The summarized measurements
+and computed metrics intended for direct inspection are provided separately by
+the CSV files in the main output directory.

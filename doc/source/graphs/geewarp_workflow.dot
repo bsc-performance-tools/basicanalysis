@@ -1,0 +1,46 @@
+digraph GeeWarpWorkflow {
+    graph [
+        rankdir=TB,
+        bgcolor="white",
+        pad=0.25,
+        nodesep=0.30,
+        ranksep=0.35,
+        splines=ortho
+    ];
+
+    node [
+        shape=box,
+        style="rounded,filled",
+        fillcolor="#E8F0F7",
+        color="#6A35B3",
+        penwidth=1.6,
+        fontname="Helvetica",
+        fontsize=14,
+        width=2.35,
+        height=0.70,
+        margin="0.15,0.10"
+    ];
+
+    edge [
+        color="#8A4ED1",
+        penwidth=1.6,
+        arrowsize=0.85
+    ];
+
+    input  [label="Paraver Trace", shape=box, style="rounded,filled", fillcolor="#F4F4F4", color="#2E8B57"];
+    ie     [label="Interval Extraction"];
+    fe     [label="Feature Space\nConstruction"];
+    gsom   [label="Topology Learning\n(GSOM)"];
+    fscm   [label="Feature-Space Transformation\n(FSCM: X → X′)"];
+    clust  [label="Behavior Discovery\n(Clustering)"];
+    rein   [label="Paraver Reintegration"];
+    output [label="Clustered Paraver Trace", shape=box, style="rounded,filled", fillcolor="#F4F4F4", color="#2E8B57"];
+
+    input -> ie    [color="#2E8B57", penwidth=2.0];
+    ie    -> fe;
+    fe    -> gsom;
+    gsom  -> fscm;
+    fscm  -> clust;
+    clust -> rein;
+    rein  -> output [color="#2E8B57", penwidth=2.0];
+}

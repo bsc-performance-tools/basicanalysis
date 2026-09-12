@@ -25,6 +25,8 @@ The methodology is organized around the following perspectives:
   the behavior of individual parallel runtimes.
 * **Execution Domains**, which provides a complementary Host/Device analysis
   for accelerator applications.
+* **I/O Analysis**, which provides complementary metrics characterizing the
+  contribution and distribution of File I/O activity.
 * **Scaling Analysis**, which examines how performance and efficiency factors
   evolve across execution configurations.
 
@@ -844,6 +846,39 @@ complementary perspective by attributing efficiency losses to the participating
 parallel runtimes and their common performance factors.
 
 
+I/O analysis
+============
+
+File I/O can represent an important component of application execution, but
+its contribution is not currently part of the hierarchical efficiency model
+used by BasicAnalysis. BasicAnalysis therefore provides **I/O Analysis** as a
+complementary analytical view.
+
+The analysis characterizes two aspects of the observed File I/O activity:
+
+* the relative contribution of File I/O to the measured execution activity;
+* the distribution of File I/O activity across the execution units involved.
+
+BasicAnalysis distinguishes File I/O performed through **MPI-I/O** from
+**POSIX and ANSI C File I/O** when the corresponding activity is available in
+the trace. The resulting metrics allow the user to determine whether File I/O
+represents a significant component of the execution and whether the observed
+I/O activity is evenly distributed across the participating execution units.
+
+The I/O metrics are interpreted as efficiency-oriented metrics, so higher
+values represent more favorable behavior. However, they should not be
+multiplied with Global Efficiency, Parallel Efficiency, or other factors of
+the hierarchical performance model.
+
+When several execution configurations are analyzed, the evolution of the I/O
+metrics can also be compared across configurations to identify changes in the
+relative contribution or distribution of File I/O activity as the application
+scales.
+
+The definitions, formulations, and availability conditions of the I/O metrics
+are provided in :doc:`06_metrics`.
+
+
 Scaling analysis
 ================
 
@@ -868,28 +903,57 @@ BasicAnalysis supports both **strong scaling**, where the problem size remains
 constant while the computational resources increase, and **weak scaling**,
 where the amount of work increases together with the computational resources.
 
-The scaling model can be selected explicitly or automatically detected from
-the execution data. The detected model, the model used by the analysis, and
-whether the selection was automatic or manual are reported with the scaling
-results.
+Determining the scaling model
+-----------------------------
+
+When automatic scaling detection is enabled, BasicAnalysis determines whether
+the analyzed executions exhibit behavior consistent with strong or weak
+scaling from the execution measurements.
+
+The first execution in the ordered trace list is used as the reference.
+BasicAnalysis evaluates three indicators across the remaining configurations:
+
+* the growth in useful instructions relative to the growth in the number of
+  processes;
+
+* the evolution of execution time relative to the reference;
+
+* the evolution of average useful computation relative to the reference.
+
+For each indicator, BasicAnalysis computes its average relative behavior
+across the non-reference executions. An indicator is considered consistent
+with weak scaling when its average ratio is greater than 0.9.
+
+Weak scaling is selected when at least two of the three indicators exhibit
+weak-scaling behavior. Otherwise, the executions are classified as strong
+scaling.
+
+This detection provides an execution-based estimate of the scaling model
+rather than determining the application problem size directly. The scaling
+model can therefore be selected explicitly when the intended scaling
+experiment is known. If the manually selected model differs from the
+automatically detected one, BasicAnalysis reports the discrepancy.
+
+The detected scaling model, the model finally used for the analysis, and
+whether the selection was automatic or manual are included in the scaling
+information reported by BasicAnalysis.
 
 Reference execution
 -------------------
 
-Comparing scaling behavior requires a baseline against which changes in the
-execution can be evaluated. BasicAnalysis therefore uses one of the analyzed
-configurations as the **reference execution**.
-
-Relative scalability metrics, such as Computation Scalability and its
-contributing factors, are evaluated with respect to this reference. The choice
-of reference therefore affects the numerical values and their interpretation.
+The reference execution used during scaling detection also provides the
+baseline for evaluating relative scalability metrics, such as Computation
+Scalability and its contributing factors.
 
 By default, BasicAnalysis orders the traces according to their parallel
-configuration before computing the comparative metrics. Users can preserve the
-input ordering when a different reference ordering is required.
+configuration and uses the first execution in this ordering as the reference.
+Users can preserve the input ordering when a different reference execution is
+required.
 
-The selected reference configuration should represent a meaningful baseline
-for interpreting how performance evolves as the execution scales.
+The choice of reference affects the numerical values of the relative
+scalability metrics and their interpretation. The selected configuration
+should therefore provide a meaningful baseline for evaluating how performance
+evolves as the application scales.
 
 Interpreting scaling trends
 ---------------------------
@@ -905,7 +969,7 @@ same configurations to determine which branch is responsible for the observed
 degradation. If Parallel Efficiency deteriorates, its Load Balance and
 Communication Efficiency trends can then be inspected. Similarly, a
 degradation in Computation Scalability can be investigated through the
-evolution of its Instruction, IPC, and Frequency Scalability factors.
+evolution of its IPC, Instruction, and Frequency Scalability factors.
 
 This comparative perspective is important because the scaling behavior of a
 metric is not determined only by its value at a single configuration. A metric
@@ -915,99 +979,59 @@ that is low but remains stable may represent an existing performance
 limitation without being the factor responsible for the observed scaling
 degradation.
 
-Scaling Analysis does not introduce a separate metric hierarchy. Instead, it
-adds the configuration dimension to the existing hierarchy, allowing the
-evolution of each performance factor to be examined as the application scales.
-
 
 Complementary analytical views
 ==============================
 
 The BasicAnalysis analytical views address different performance questions and
-provide complementary perspectives on the execution. The views required for a
-particular assessment depend on the analysis objective.
+provide complementary perspectives on the execution. They are not intended to
+be interpreted as independent analyses, but as different levels of evidence
+that can be combined according to the objective of the performance assessment.
 
 A useful way to interpret them is:
 
+**Hierarchical Efficiency Analysis**
+
+   Which performance factor contributes to the observed efficiency loss?
+
 **Parallel Runtime Model**
-   Which performance factor or parallel runtime contributes to the efficiency
-   loss?
+
+   When multiple parallel runtimes participate in the execution, which runtime
+   contributes to that performance factor?
 
 **Runtime-Specific Analysis**
-   Which behavior within that runtime helps explain the observed inefficiency?
+
+   Which behavior within the identified runtime helps explain the observed
+   inefficiency?
 
 **Execution Domains**
-   Where does the accelerator-related inefficiency manifest: Host, offload
-   path, or Device?
+
+   For accelerator applications, where does the inefficiency manifest: Host,
+   offload path, or Device?
+
+**I/O Analysis**
+
+   How significant is File I/O activity, and how is that activity distributed
+   across the execution units involved?
 
 **Scaling Analysis**
-   How does the behavior evolve as the execution configuration changes?
 
-A comprehensive performance assessment may combine several of these
-perspectives, while a targeted investigation may focus on the view relevant to
-the performance aspect under study.
+   How do the performance factors and their contributions evolve as the
+   execution configuration changes?
 
-BasicAnalysis provides metric definitions and interpretation guidance to
-support this process. Detailed trace analysis or specialized performance tools
-may still be required to establish the underlying cause of an observed
-efficiency loss.
-
-
-From traces to efficiency metrics
-=================================
-
-BasicAnalysis derives its performance metrics from information extracted from
-Paraver traces. Depending on the metric and programming model, the required
-information can come directly from the measured execution or from an
-idealized execution generated through simulation.
-
-The internal analysis workflow combines Paraver/paramedir data extraction and,
-when required, Dimemas simulation:
-
-.. graphviz:: graphs/05_basic_analysis_metric_workflow.dot
-   :align: center
-
-Measured execution
-------------------
-
-The original Paraver trace represents the measured application execution.
-BasicAnalysis uses ``paramedir`` together with a set of Paraver configuration
-files to extract the raw information required by the different metric models.
-
-The extracted information depends on the programming model and may include
-execution times, useful computation, communication behavior, runtime activity,
-and accelerator activity.
-
-
-Idealized execution
--------------------
-
-Some communication-efficiency decompositions require a comparison with an
-idealized execution.
-
-When these metrics are required, BasicAnalysis converts the relevant trace
-information for Dimemas and simulates an idealized execution. ``paramedir`` is
-then used again to extract the corresponding simulated information.
-
-Measured and simulated data are subsequently combined to compute the
-efficiency factors that depend on this comparison.
-
-
-The Dimemas ideal configuration
--------------------------------
-
-The Dimemas simulation used by BasicAnalysis is controlled by an ideal
-configuration that represents the assumptions of the idealized communication
+These perspectives can be followed progressively during a comprehensive
+performance assessment or selected individually when investigating a specific
+performance question. Their combination allows the analysis to move from identifying an efficiency
+loss, to attributing it to a performance factor or parallel runtime, and, when
+supported by the available metrics, to further characterizing where and how
+the inefficiency manifests. Complementary views can additionally expose
+execution aspects, such as File I/O activity, that are relevant to the
+performance assessment without forming part of the hierarchical efficiency
 model.
 
-The purpose of this configuration is not to reproduce the measured machine
-exactly, but to provide the reference execution required by the corresponding
-efficiency decomposition.
-
-The exact assumptions represented by the BasicAnalysis ideal configuration
-and their relationship with Serialization Efficiency and Transfer Efficiency
-are discussed in :doc:`06_metrics`.
-
-When simulation is disabled with ``--skip-simulation``, metrics requiring
-idealized execution information cannot be computed and are reported as
-unavailable.
+BasicAnalysis provides the efficiency metrics and interpretation guidance
+needed to support this assessment. The metrics identify and characterize
+performance losses, but they do not necessarily establish their underlying
+cause. Detailed trace inspection or specialized performance-analysis tools may
+therefore be required to validate the observations and determine why the
+identified behavior occurs.
