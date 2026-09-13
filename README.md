@@ -20,11 +20,14 @@ possible next steps for further performance analysis.
   metrics from Paraver traces.
 * Hierarchical organization of efficiency metrics around key performance
   factors based on the POP performance model.
-* Parallel Runtime Model for showing the contribution of different parallel runtimes to Parallel Efficiency.
+* Parallel Runtime Model for showing the contribution of different parallel
+  runtimes to Parallel Efficiency.
 * Runtime-specific efficiency metrics for MPI, OpenMP, and accelerator
   runtimes.
 * Host and Device execution-domain efficiency metrics for accelerator
   applications.
+* File I/O analysis with complementary efficiency and load-balance metrics for
+  MPI-I/O and POSIX/ANSI C File I/O activity.
 * Strong and weak scaling evaluation across multiple execution configurations.
 * Metric Details with metric definitions, possible causes of performance
   losses, and guidance for further analysis.
@@ -51,6 +54,10 @@ include:
 Additional runtime-specific metrics and decompositions are available depending
 on the parallel execution environment and the information contained in the
 trace.
+
+For MPI+HIP applications, simulation-derived MPI Serialization and Transfer
+Efficiency are currently unavailable. See the BasicAnalysis User Guide for
+the corresponding methodological limitations.
 
 
 ## Prerequisites
@@ -191,7 +198,10 @@ The report includes:
   the behavior of individual parallel runtimes.
 * **Execution Domains** – presents Host and Device efficiency metrics for
   accelerator applications.
-* **Scaling** – shows how efficiency metrics and other performance indicators
+* **I/O Analysis** – characterizes the weight and distribution of File I/O
+  activity through complementary MPI-I/O and POSIX/ANSI C File I/O metrics.
+* **Scaling** – shows the detected scaling model and how performance indicators,
+  efficiency metrics, runtime contributions, and execution-domain metrics
   evolve across execution configurations.
 * **Metric Details** – provides definitions and interpretation guidance for
   individual metrics, including possible causes of low efficiency and possible
@@ -199,10 +209,9 @@ The report includes:
 
 The report also allows complementary views to be displayed together, helping
 users relate different perspectives of the efficiency results, and supports
-export of report content.
-
-For a detailed description of the report and how to interpret its views,
-see the BasicAnalysis User Guide.
+export of report content. Some views, such as Execution Domains and I/O
+Analysis, provide complementary diagnostic perspectives and are not additional
+multiplicative components of the application-level performance model.
 
 
 ## Staged Analysis Workflow
@@ -244,3 +253,7 @@ methodology, metric definitions, the interactive Performance Report,
 generated output, and current limitations.
 
 See the BasicAnalysis User Guide in the `doc/` directory.
+
+## Versioning
+
+BasicAnalysis uses Calendar Versioning (CalVer) with the `YYYY.MM.DD` format.
