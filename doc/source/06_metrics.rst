@@ -12,7 +12,7 @@ by the tool. The conceptual relationships between the metrics and their role
 in the performance-analysis methodology are described in :doc:`05_methodology`.
 
 Metric values are reported as percentages in the efficiency tables and
-performance report unless otherwise indicated.
+Performance Report unless otherwise indicated.
 
 
 From traces to efficiency metrics
@@ -28,6 +28,7 @@ when required, Dimemas simulation:
 
 .. graphviz:: graphs/06_basic_analysis_metric_workflow.dot
    :align: center
+
 
 Measured execution
 ------------------
@@ -55,12 +56,18 @@ Measured and simulated data are subsequently combined to compute the
 efficiency factors that depend on this comparison.
 
 
-The Dimemas ideal configuration
--------------------------------
+Dimemas ideal configuration
+---------------------------
 
 The Dimemas simulation used by BasicAnalysis is controlled by an ideal
 configuration that represents the assumptions of the idealized communication
 model.
+
+At the MPI communication level, the ideal configuration assumes zero network
+latency and infinite network bandwidth. This removes the communication cost
+associated with message transfer through the interconnection network and
+provides the idealized reference execution required by the communication-
+efficiency decomposition.
 
 The purpose of this configuration is not to reproduce the measured machine
 exactly, but to provide the reference execution required by the corresponding
@@ -69,6 +76,7 @@ efficiency decomposition.
 When simulation is disabled with ``--skip-simulation``, metrics requiring
 idealized execution information cannot be computed and are reported as
 unavailable.
+
 
 Simple Metrics
 ==============
@@ -81,7 +89,7 @@ The model follows the hierarchical decomposition:
 
 .. math::
 
-   Global\_Eff = Par\_Eff \cdot Comp\_Scale
+   Global\_Eff = Par\_Eff \cdot CompScale
 
 and:
 
@@ -96,15 +104,15 @@ as:
 
    Comm\_Eff = Ser\_Eff \cdot Transfer\_Eff
 
-Serialization Efficiency and Transfer Efficiency require the idealized
-Dimemas simulation and are therefore available only when the required
+Serialization Efficiency and Transfer Efficiency require the MPI ideal
+simulation described above and are therefore available only when the required
 simulation can be performed.
 
 
 Notation
 --------
 
-The following notation is used for the simple metrics definitions.
+The following notation is used for the simple metric definitions.
 
 .. list-table::
    :header-rows: 1
@@ -129,15 +137,10 @@ The following notation is used for the simple metrics definitions.
    * - :math:`\max_{ideal}(Useful)`
      - Maximum useful computation duration obtained from the idealized
        Dimemas trace.
-   * - :math:`UsefulInstructions_i`
-     - Number of instructions collected during useful computation for
-       execution unit :math:`i`.
-   * - :math:`UsefulCycles_i`
-     - Number of cycles collected during useful computation for execution
-       unit :math:`i`.
-   * - :math:`N_I`
-     - Number of execution units reporting a positive useful-instruction
-       count.
+   * - :math:`Instructions`
+     - Number of processor instructions collected during useful computation.
+   * - :math:`Cycles`
+     - Number of processor cycles collected during useful computation.
    * - :math:`IPC`
      - Instructions per cycle during useful computation.
    * - :math:`Frequency`
@@ -182,7 +185,7 @@ decomposition:
 
 
 Load Balance
-------------
+~~~~~~~~~~~~
 
 **Load Balance** measures how evenly useful computation is distributed across
 the parallel execution units.
@@ -204,7 +207,7 @@ increasing workload imbalance.
 
 
 Communication Efficiency
-------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Communication Efficiency** measures the part of the application execution
 time that remains after accounting for the longest useful-computation path.
@@ -233,11 +236,7 @@ Serialization Efficiency
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Serialization Efficiency** characterizes the communication-related loss that
-remains after the communication environment has been idealized by Dimemas.
-
-BasicAnalysis obtains this metric from an idealized execution generated using
-Dimemas. The simulated trace is subsequently analyzed using the same
-Paraver-based extraction methodology applied to the measured execution.
+remains after the MPI communication environment has been idealized.
 
 BasicAnalysis computes:
 
@@ -251,11 +250,16 @@ BasicAnalysis computes:
    }
 
 where :math:`\max_{ideal}(Useful)` is the maximum useful-computation duration
-extracted from the idealized trace and :math:`T_{ideal}` is its application
+obtained from the idealized execution and :math:`T_{ideal}` is its application
 execution time.
 
 Lower Serialization Efficiency indicates increasing losses associated with
 dependencies and serialization among MPI processes.
+
+If the resulting Serialization Efficiency exceeds 100%, the measured and
+simulated executions do not provide a valid conventional efficiency
+decomposition. BasicAnalysis reports ``Warning!`` instead of the numerical
+value.
 
 
 Transfer Efficiency
@@ -265,8 +269,8 @@ Transfer Efficiency
 present in the measured execution relative to the idealized communication
 scenario.
 
-BasicAnalysis derives Transfer Efficiency from Communication Efficiency and
-Serialization Efficiency:
+Under the standard decomposition, BasicAnalysis derives Transfer Efficiency
+from Communication Efficiency and Serialization Efficiency:
 
 .. math::
 
@@ -284,34 +288,51 @@ therefore preserving the multiplicative relationship:
    Comm\_Eff =
    Ser\_Eff \cdot Transfer\_Eff
 
-When the idealized execution preserves the maximum useful-computation duration
-of the measured execution, this relationship simplifies to:
+If Serialization Efficiency is reported as ``Warning!``, BasicAnalysis cannot
+use this decomposition and instead computes Transfer Efficiency directly from
+the measured and idealized execution times:
 
 .. math::
 
    Transfer\_Eff =
-   \frac{T_{ideal}}{T}
+   \frac{
+      T_{ideal}
+   }{
+      T
+   }
+
+where :math:`T` is the measured application execution time.
 
 A lower Transfer Efficiency indicates increasing communication-transfer cost
 relative to the idealized execution.
 
-For the simple metric model, Serialization Efficiency and Transfer Efficiency
-are available for detailed MPI traces when the required Dimemas ideal
-simulation can be performed. They are reported as unavailable when the
-simulation is explicitly skipped or when the required idealized execution
-cannot be obtained.
+If the resulting Transfer Efficiency exceeds 100%, BasicAnalysis reports
+``Warning!`` instead of the numerical value.
 
-BasicAnalysis also checks the consistency of the simulation-derived values.
-A Serialization Efficiency incompatible with the expected efficiency range
-indicates that the measured and simulated executions do not provide a valid
-decomposition under the assumed ideal model. In this situation, BasicAnalysis
-reports a warning instead of interpreting the value as a conventional
-efficiency.
+Serialization Efficiency and Transfer Efficiency are available when the
+required MPI ideal simulation can be performed.
 
-When this occurs, the execution-time ratio of the idealized and measured
-executions can still be evaluated as a diagnostic indication of transfer
-behavior, but the resulting communication decomposition should be interpreted
-with caution.
+The consistency and validity of simulation-derived communication submetrics
+are discussed in `Simulation Validity`_.
+
+Simulation Validity
+~~~~~~~~~~~~~~~~~~~
+
+Serialization Efficiency and Transfer Efficiency depend on the consistency of
+the measured and idealized executions.
+
+BasicAnalysis checks the resulting simulation-derived values. When MPI
+Serialization Efficiency exceeds 100%, BasicAnalysis reports ``Warning!``
+instead of interpreting the value as a conventional efficiency. In this case,
+MPI Transfer Efficiency is also reported as ``Warning!`` because the
+multiplicative communication-efficiency decomposition is not considered valid.
+
+When MPI Serialization Efficiency is valid but the resulting MPI Transfer
+Efficiency exceeds 100%, MPI Transfer Efficiency is reported as ``Warning!``.
+
+The communication submetrics are reported as ``Non-Avail`` when the required
+simulation is unavailable, explicitly skipped, or unsupported for the
+detected programming model.
 
 
 Computation Scalability
@@ -320,8 +341,8 @@ Computation Scalability
 **Computation Scalability** characterizes how the useful computation evolves
 relative to a reference execution as the execution configuration changes.
 
-BasicAnalysis uses the average useful-computation duration per execution unit,
-:math:`\overline{Useful}`, and distinguishes between strong- and weak-scaling
+BasicAnalysis uses the total useful-computation duration,
+:math:`Useful_{tot}`, and distinguishes between strong- and weak-scaling
 experiments.
 
 For strong scaling:
@@ -330,9 +351,9 @@ For strong scaling:
 
    CompScale =
    \frac{
-      \overline{Useful}_{ref}
+      Useful_{tot,ref}
    }{
-      \overline{Useful}
+      Useful_{tot}
    }
 
 For weak scaling:
@@ -341,9 +362,9 @@ For weak scaling:
 
    CompScale =
    \frac{
-      \overline{Useful}_{ref}
+      Useful_{tot,ref}
    }{
-      \overline{Useful}
+      Useful_{tot}
    }
    \cdot
    \frac{P}{P_{ref}}
@@ -352,8 +373,8 @@ where :math:`P` is the number of parallel execution units and the ``ref``
 subscript denotes the reference execution.
 
 In strong scaling, the problem size is assumed to remain constant, so changes
-in average useful-computation time directly characterize the scalability of
-the computation.
+in total useful-computation time characterize the scalability of the
+computation.
 
 In weak scaling, the amount of work is expected to grow with the number of
 parallel resources. The factor :math:`P/P_{ref}` compensates for this expected
@@ -373,16 +394,9 @@ Computation Scalability submetrics
 ----------------------------------
 
 When the required hardware counters are available, BasicAnalysis provides
-additional metrics to characterize changes in computation performance.
-
-These factors help distinguish whether a change in Computation Scalability is
-associated with IPC, the number of executed instructions, or processor
-frequency.
-
-The decomposition separates changes in computation time into contributions
-associated with instruction throughput, the amount of executed instructions,
-and processor frequency. The factors should therefore be interpreted together
-when investigating a degradation in Computation Scalability.
+additional factors that decompose changes in Computation Scalability into
+contributions associated with instruction throughput, the amount of executed
+instructions, and processor frequency.
 
 The three factors form the computation-scalability decomposition used by
 BasicAnalysis:
@@ -396,12 +410,15 @@ BasicAnalysis:
    \cdot
    FrequencyScale
 
+The factors should be interpreted together when investigating a degradation
+in Computation Scalability.
+
 
 IPC Scalability
 ~~~~~~~~~~~~~~~
 
-**IPC Scalability** characterizes changes in the instruction throughput of
-useful Host computation relative to the reference execution.
+**IPC Scalability** characterizes changes in instruction throughput during
+useful computation relative to the reference execution.
 
 BasicAnalysis computes:
 
@@ -455,7 +472,14 @@ For weak scaling:
       Instructions
    }
    \cdot
-   \frac{P}{P_{ref}}
+   \frac{
+      P_{ins}
+   }{
+      P_{ins,ref}
+   }
+
+where :math:`P_{ins}` is the number of execution units contributing valid
+instruction-counter measurements.
 
 The weak-scaling correction accounts for the expected increase in the amount
 of work as the number of parallel resources grows.
@@ -469,8 +493,8 @@ increase the instruction count.
 Frequency Scalability
 ~~~~~~~~~~~~~~~~~~~~~
 
-**Frequency Scalability** characterizes changes in processor frequency relative
-to the reference execution.
+**Frequency Scalability** characterizes changes in average processor frequency
+during useful computation relative to the reference execution.
 
 BasicAnalysis computes:
 
@@ -479,17 +503,17 @@ BasicAnalysis computes:
    FrequencyScale =
    \frac{Frequency}{Frequency_{ref}}
 
-The processor frequency used by BasicAnalysis is derived from the number of
-processor cycles measured during useful computation and the corresponding
-useful-computation time:
+The average processor frequency used by BasicAnalysis is derived from the
+number of processor cycles measured during useful computation and the
+corresponding useful-computation time:
 
 .. math::
 
    Frequency =
    \frac{Cycles}{Useful\ Time}
 
-The resulting frequency is expressed in GHz after applying the corresponding
-unit conversion.
+BasicAnalysis reports the resulting average frequency in GHz after applying
+the corresponding unit conversion.
 
 Values below 100% indicate that the processor operates at a lower average
 frequency during useful computation than in the reference execution. Values
@@ -501,17 +525,107 @@ The metric identifies the contribution of frequency variation to Computation
 Scalability but does not by itself determine the cause of that variation.
 
 
-Hybrid MPI+X Metrics
-====================
+Hybrid MPI+X Metrics for CPU-Based Applications
+================================================
 
-For hybrid applications, BasicAnalysis extends the efficiency model to
-separate the contribution of the different parallel runtimes involved in the
-execution.
+For CPU-based hybrid applications, BasicAnalysis extends the application-level
+performance model by separating the contribution of MPI from that of the inner
+parallel runtime.
+
+The hybrid application-level model follows the hierarchy:
+
+.. math::
+
+   Global\_Eff =
+   Hybrid\_Par\_Eff \cdot CompScale
+
+Hybrid Parallel Efficiency is decomposed into the contributions of the outer
+MPI runtime and the inner parallel runtime:
+
+.. math::
+
+   Hybrid\_Par\_Eff =
+   MPI\_Par\_Eff \cdot Inner\_Par\_Eff
+
+MPI metrics characterize the outer MPI level, while derived runtime
+contributions quantify the multiplicative contribution of the inner parallel
+level to Hybrid Parallel Efficiency.
+
+Computation Scalability and its IPC, Instruction, and Frequency scalability
+submetrics follow the same formulation used by the simple metric model. For
+CPU-based hybrid applications, the number of parallel units is the sum of the 
+parallel units of both parallel runtime levels.
+
+This section describes the Computation Scalability, MPI runtime metrics, the
+Dimemas simulations used to derive communication submetrics, and the
+multiplicative decomposition used to obtain the contribution of the inner
+parallel level.
+
+
+Computation Scalability
+-----------------------
+
+For CPU-based MPI+X applications, **Computation Scalability** and its
+associated IPC, Instruction, and Frequency scalability submetrics are computed
+using the same formulation defined for the simple metric model.
+
+The difference lies in the parallel units used by the hybrid model.
+For a CPU-based hybrid execution, the total number of parallel units combines
+the parallel units associated with both parallel runtime levels.
+
+BasicAnalysis uses the total useful-computation duration,
+:math:`Useful_{tot}`.
+
+For strong scaling:
+
+.. math::
+
+   CompScale =
+   \frac{
+      Useful_{tot,ref}
+   }{
+      Useful_{tot}
+   }
+
+For weak scaling:
+
+.. math::
+
+   CompScale =
+   \frac{
+      Useful_{tot,ref}
+   }{
+      Useful_{tot}
+   }
+   \cdot
+   \frac{P}{P_{ref}}
+
+where :math:`P` represents the total parallel units of the hybrid
+execution and the ``ref`` subscript denotes the reference execution.
+
+The corresponding IPC Scalability, Instruction Scalability, and Frequency
+Scalability factors are computed using the same definitions described in
+`Computation Scalability submetrics`_ for the simple metric model.
+
+These factors preserve the computation-scalability decomposition:
+
+.. math::
+
+   CompScale =
+   IPCScale
+   \cdot
+   InstructionScale
+   \cdot
+   FrequencyScale
+
+
+MPI runtime metrics
+-------------------
 
 At the MPI level, BasicAnalysis evaluates the execution from the perspective
 of the MPI ranks using the time spent outside MPI calls. This allows the MPI
-contribution to Parallel Efficiency to be characterized independently of the
-second parallel runtime.
+contribution to Hybrid Parallel Efficiency to be characterized independently
+of the inner parallel runtime.
 
 The MPI component follows the hierarchy:
 
@@ -527,10 +641,6 @@ Efficiency can additionally be decomposed as:
 
    MPI\_Comm\_Eff =
    MPI\_Ser\_Eff \cdot MPI\_Transfer\_Eff
-
-
-Notation
---------
 
 The MPI component of the hybrid model introduces the following notation.
 
@@ -549,7 +659,7 @@ The MPI component of the hybrid model introduces the following notation.
    * - :math:`OutsideMPI_i`
      - Time spent outside MPI calls by MPI rank :math:`i`.
    * - :math:`t_i`
-     - Number of Host execution units associated with MPI rank :math:`i`
+     - Number of host execution units associated with MPI rank :math:`i`
        for the OutsideMPI measurement.
    * - :math:`T_{ideal}`
      - Application execution time of the MPI-ideal trace generated by
@@ -564,8 +674,8 @@ decomposition is to isolate the contribution of the MPI runtime within a
 hybrid application.
 
 BasicAnalysis extracts one representative OutsideMPI duration for each MPI
-rank. When MPI ranks contain different numbers of Host execution units, the
-OutsideMPI contribution is weighted by the number of Host execution units
+rank. When MPI ranks contain different numbers of host execution units, the
+OutsideMPI contribution is weighted by the number of host execution units
 associated with each rank when computing the average contribution used by MPI
 Parallel Efficiency and MPI Load Balance.
 
@@ -576,7 +686,7 @@ MPI Parallel Efficiency
 **MPI Parallel Efficiency** measures the efficiency associated with the MPI
 component of the hybrid execution.
 
-For the general case, where MPI ranks may have different numbers of Host
+For the general case, where MPI ranks may have different numbers of host
 execution units, BasicAnalysis computes:
 
 .. math::
@@ -589,9 +699,9 @@ execution units, BasicAnalysis computes:
    }
 
 The weighting by :math:`t_i` accounts for configurations in which different
-MPI ranks contain different numbers of Host execution units.
+MPI ranks contain different numbers of host execution units.
 
-When all MPI ranks have the same number of Host execution units, the
+When all MPI ranks have the same number of host execution units, the
 expression reduces to:
 
 .. math::
@@ -612,7 +722,7 @@ MPI Parallel Efficiency is decomposed as:
 
 
 MPI Load Balance
-----------------
+~~~~~~~~~~~~~~~~
 
 **MPI Load Balance** measures how evenly the time outside MPI calls is
 distributed across the MPI ranks.
@@ -633,9 +743,9 @@ For the general case, BasicAnalysis computes:
    }
 
 The numerator therefore represents the OutsideMPI duration averaged over the
-Host execution units associated with the MPI ranks.
+host execution units associated with the MPI ranks.
 
-When all MPI ranks have the same number of Host execution units, this reduces
+When all MPI ranks have the same number of host execution units, this reduces
 to:
 
 .. math::
@@ -653,7 +763,7 @@ between ranks from the MPI-runtime perspective.
 
 
 MPI Communication Efficiency
-----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **MPI Communication Efficiency** characterizes the communication and
 synchronization overhead observed from the MPI perspective by comparing the
@@ -693,12 +803,8 @@ MPI Serialization Efficiency
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **MPI Serialization Efficiency** characterizes the communication-related loss
-that remains from the MPI perspective after the modeled MPI communication
-environment has been idealized.
-
-BasicAnalysis obtains this metric from an MPI-ideal execution generated using
-Dimemas. The simulated trace is subsequently analyzed using the same
-Paraver-based extraction methodology applied to the measured execution.
+that remains from the MPI perspective after the MPI communication environment
+has been idealized.
 
 BasicAnalysis computes:
 
@@ -715,14 +821,9 @@ where :math:`\max_{ideal}(OutsideMPI)` is the maximum time spent outside MPI
 among the MPI ranks in the idealized execution and :math:`T_{ideal}` is the
 application execution time of that execution.
 
-The ideal simulation is configured to isolate the MPI communication
-contribution. The MPI communication environment is idealized, while the
-second parallel runtime is not simulated as part of this standard MPI-level
-experiment.
-
 A lower MPI Serialization Efficiency indicates increasing communication loss
 associated with dependencies and temporal serialization among MPI ranks that
-remain after idealizing the modeled MPI communication environment.
+remain after idealizing the MPI communication environment.
 
 
 MPI Transfer Efficiency
@@ -779,39 +880,26 @@ and :math:`\max(OutsideMPI)` is not assumed to be equal to
 :math:`\max_{ideal}(OutsideMPI)`.
 
 MPI Serialization Efficiency and MPI Transfer Efficiency are available when
-the required MPI-ideal Dimemas simulation can be performed for a supported
-detailed hybrid programming model. When simulation is explicitly disabled
-with ``--skip-simulation``, or the required simulation data is unavailable,
-these metrics are reported as unavailable.
+the required MPI-ideal Dimemas simulation can be performed for the
+corresponding hybrid programming model.
 
-BasicAnalysis also checks the consistency of the simulation-derived
-efficiencies. Values incompatible with the expected efficiency range are
-reported with a warning rather than interpreted as conventional efficiency
-values.
+The consistency and validity of simulation-derived communication submetrics
+are discussed in `Simulation Validity`_.
 
 
-Dimemas Simulation for Hybrid Applications
-------------------------------------------
+Dimemas simulation
+------------------
 
-The Dimemas simulation used to compute MPI Serialization Efficiency and MPI
-Transfer Efficiency is deliberately configured to isolate the MPI
-communication contribution of the hybrid execution.
+For CPU-based hybrid applications, the MPI-level simulation uses the ideal
+MPI communication configuration described above while disabling the inner
+parallel runtime.
 
-The purpose of this simulation is not to reproduce the physical machine on
-which the measured execution ran. Instead, BasicAnalysis constructs an
-idealized communication environment that provides the reference execution
-required by the MPI communication-efficiency decomposition.
-
-In the standard MPI-level simulation, the MPI communication environment is
-idealized while the second parallel runtime is disabled. This allows the
-simulation-derived quantities to be interpreted from the MPI perspective,
-consistently with the use of ``OutsideMPI`` in MPI Serialization Efficiency
-and MPI Transfer Efficiency.
+This allows the simulation-derived quantities to be interpreted from the MPI
+perspective, consistently with the use of ``OutsideMPI`` in MPI Serialization
+Efficiency and MPI Transfer Efficiency.
 
 BasicAnalysis currently applies this standard simulation methodology to
-MPI+OpenMP and MPI+CUDA applications. MPI+HIP is treated differently because
-the current BasicAnalysis-Dimemas workflow does not provide the corresponding
-simulation-derived communication submetrics.
+MPI+OpenMP applications.
 
 
 MPI+OpenMP
@@ -834,47 +922,8 @@ MPI communication contribution rather than to model the combined MPI+OpenMP
 execution.
 
 
-MPI+CUDA
-~~~~~~~~
-
-For the standard MPI-level analysis of an MPI+CUDA application,
-BasicAnalysis invokes Dimemas with CUDA simulation disabled.
-
-Conceptually, the experiment is:
-
-.. graphviz:: graphs/06_mpi_ideal_simulation_cuda.dot
-   :align: center
-
-As in the MPI+OpenMP case, the resulting idealized execution provides
-:math:`T_{ideal}` and :math:`\max_{ideal}(OutsideMPI)` for the MPI
-communication-efficiency decomposition.
-
-CUDA simulation is disabled because the objective of this experiment is to
-isolate the MPI communication contribution without introducing accelerator
-simulation effects into the MPI Serialization and Transfer Efficiency
-submetrics.
-
-
-MPI+HIP
-~~~~~~~
-
-MPI Communication Efficiency for MPI+HIP applications is computed directly
-from the measured execution and therefore does not require Dimemas.
-
-However, MPI Serialization Efficiency and MPI Transfer Efficiency require the
-MPI-ideal simulation described above. The current BasicAnalysis-Dimemas
-workflow does not provide the corresponding simulation-derived communication
-submetrics for HIP executions. These metrics are therefore reported as
-``Non-Avail`` for MPI+HIP.
-
-This limitation affects only the simulation-derived MPI communication
-submetrics. Metrics computed directly from the measured MPI+HIP trace,
-including the Host and Device execution-domain metrics, remain available when
-their required trace information is present.
-
-
 Optional MPI+OpenMP Hybrid Simulation
--------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For MPI+OpenMP applications, BasicAnalysis can optionally perform a second
 ideal simulation when ``--hyb-mpiomp`` is enabled.
@@ -889,6 +938,7 @@ BasicAnalysis therefore generates two different idealized executions:
 
 * an **MPI-ideal execution**, used to compute MPI Serialization Efficiency
   and MPI Transfer Efficiency; and
+
 * a **hybrid-ideal execution**, used to characterize the communication
   decomposition when both the MPI communication environment and the OpenMP
   execution are idealized according to the corresponding Dimemas models.
@@ -916,7 +966,7 @@ duration obtained from the hybrid-ideal trace and
 :math:`T_{ideal,hybrid}` is its execution time.
 
 BasicAnalysis then derives the corresponding hybrid Transfer Efficiency from
-the application-level Communication Efficiency measured for the hybrid
+the application-level Communication Efficiency of the measured hybrid
 execution:
 
 .. math::
@@ -928,13 +978,143 @@ execution:
       Hybrid\_Ser\_Eff
    }
 
-where :math:`Hybrid\_Comm\_Eff` denotes the Communication Efficiency of the
-measured hybrid application execution.
-
 These hybrid quantities are intermediate values used to derive the OpenMP
 contribution to the communication decomposition. They should not be confused
 with the MPI Serialization and Transfer Efficiencies obtained from the
 standard MPI-level simulation.
+
+Their use in deriving the OpenMP runtime contribution is described in
+`OpenMP communication submetrics`_.
+
+
+Advanced OpenMP Dimemas Simulation Options
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+BasicAnalysis provides advanced options that allow users to modify how
+OpenMP is treated in the Dimemas simulation.
+
+These options alter the simulated experiment. Consequently, metrics derived
+from the resulting simulated trace do not necessarily have the same
+interpretation as the standard BasicAnalysis Serialization Efficiency and
+Transfer Efficiency metrics described above.
+
+``-somp, --simulation_openmp``
+
+   Enables the simulation of OpenMP events for MPI+OpenMP applications.
+   Without this option, OpenMP simulation is disabled in the standard
+   MPI-level experiment.
+
+``--ideal-omp``
+
+   Uses the Dimemas ideal-OpenMP model during an MPI+OpenMP simulation.
+   OpenMP runtime-event duration is ignored, while the remaining duration is
+   associated with implicit synchronization.
+
+   This option modifies how OpenMP is modeled and is meaningful when OpenMP
+   simulation is enabled.
+
+These options are intended for users who understand the corresponding
+Dimemas simulation models and want to perform customized simulation
+experiments.
+
+The standard BasicAnalysis methodology uses the simulation configuration
+selected internally for each supported programming model. Enabling these
+advanced options changes the assumptions of the idealized execution and may
+therefore change the meaning and interpretation of the simulation-derived
+metrics.
+
+
+Derived Inner-Runtime Contributions
+-----------------------------------
+
+For CPU-based hierarchical hybrid applications, BasicAnalysis derives the
+contribution of the inner parallel level from the application-level and MPI
+runtime metrics.
+
+The model assumes the multiplicative decomposition:
+
+.. math::
+
+   Hybrid\_Par\_Eff =
+   MPI\_Par\_Eff \cdot Inner\_Par\_Eff
+
+Therefore:
+
+.. math::
+
+   Inner\_Par\_Eff =
+   \frac{Hybrid\_Par\_Eff}{MPI\_Par\_Eff}
+
+Similarly:
+
+.. math::
+
+   Inner\_LB\_Eff =
+   \frac{Hybrid\_LB\_Eff}{MPI\_LB\_Eff}
+
+and:
+
+.. math::
+
+   Inner\_Comm\_Eff =
+   \frac{Hybrid\_Comm\_Eff}{MPI\_Comm\_Eff}
+
+These quantities are derived multiplicative contributions of the inner
+parallel level and do not require the inner runtime to be isolated directly
+from the trace.
+
+
+MPI+OpenMP Runtime Contribution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For the currently supported MPI+OpenMP case, the generic inner-runtime
+contributions defined above correspond to the OpenMP runtime contribution:
+
+.. math::
+
+   Inner\_Par\_Eff \equiv OMP\_Par\_Eff
+
+.. math::
+
+   Inner\_LB\_Eff \equiv OMP\_LB\_Eff
+
+.. math::
+
+   Inner\_Comm\_Eff \equiv OMP\_Comm\_Eff
+
+Therefore, the application-level decomposition can be expressed as:
+
+.. math::
+
+   Hybrid\_Par\_Eff =
+   MPI\_Par\_Eff \cdot OMP\_Par\_Eff
+
+.. math::
+
+   Hybrid\_LB\_Eff =
+   MPI\_LB\_Eff \cdot OMP\_LB\_Eff
+
+.. math::
+
+   Hybrid\_Comm\_Eff =
+   MPI\_Comm\_Eff \cdot OMP\_Comm\_Eff
+
+The application-level metrics in these expressions are those measured for the
+complete MPI+OpenMP execution, while the MPI metrics represent the MPI
+contribution isolated through the ``OutsideMPI``-based decomposition described
+earlier.
+
+The resulting OpenMP factors therefore represent the multiplicative
+contribution required to relate the MPI-level metrics to the corresponding
+application-level metrics.
+
+
+OpenMP communication submetrics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When the optional MPI+OpenMP hybrid simulation is enabled with
+``--hyb-mpiomp``, BasicAnalysis can also derive the OpenMP contribution to
+Serialization Efficiency and Transfer Efficiency.
 
 The OpenMP Serialization Efficiency contribution is derived as:
 
@@ -982,224 +1162,8 @@ complete successfully, and the corresponding simulated-trace measurements
 can be obtained.
 
 
-Advanced Dimemas Simulation Options
------------------------------------
-
-BasicAnalysis provides advanced options that allow users to modify how the
-second parallel runtime is treated in the Dimemas simulation.
-
-These options alter the simulated experiment. Consequently, metrics derived
-from the resulting simulated trace do not necessarily have the same
-interpretation as the standard BasicAnalysis Serialization Efficiency and
-Transfer Efficiency metrics described above.
-
-``-somp, --simulation_openmp``
-   Enables the simulation of OpenMP events for MPI+OpenMP applications.
-   Without this option, OpenMP simulation is disabled in the standard
-   MPI-level experiment.
-
-``-scuda, --simulation_cuda``
-   Enables the simulation of CUDA events for MPI+CUDA applications.
-   Without this option, CUDA simulation is disabled in the standard
-   MPI-level experiment.
-
-``--ideal-omp``
-   Uses the Dimemas ideal-OpenMP model during an MPI+OpenMP simulation.
-   OpenMP runtime-event duration is ignored, while the remaining duration is
-   associated with implicit synchronization.
-
-   This option modifies how OpenMP is modeled and is meaningful when OpenMP
-   simulation is enabled.
-
-These options are intended for users who understand the corresponding
-Dimemas simulation models and want to perform customized simulation
-experiments.
-
-The standard BasicAnalysis methodology uses the simulation configuration
-selected internally for each supported programming model. Enabling these
-advanced options changes the assumptions of the idealized execution and may
-therefore change the meaning and interpretation of the simulation-derived
-metrics.
-
-
-Simulation Validity
--------------------
-
-Serialization Efficiency and Transfer Efficiency depend on the validity of
-the ideal simulation.
-
-BasicAnalysis checks the consistency of the simulation-derived values. A
-Serialization Efficiency above 100% indicates that the measured and
-simulated executions do not provide a valid efficiency decomposition under
-the expected model. In this situation, BasicAnalysis reports a warning rather
-than interpreting the value as a conventional efficiency.
-
-The communication submetrics are reported as ``Non-Avail`` when the required
-simulation is unavailable, explicitly skipped, or unsupported for the
-detected programming model.
-
-
-Derived Runtime Contributions
-=============================
-
-The MPI metrics described above characterize the contribution of the MPI
-runtime to the execution of a hybrid application. BasicAnalysis also derives
-the contribution associated with the second parallel runtime.
-
-These runtime-specific factors are obtained from the multiplicative
-decomposition of the application-level metrics. They are therefore
-**derived contributions**, rather than independent efficiency measurements.
-
-For a hybrid execution, the application-level efficiency factor is interpreted
-as the product of the MPI contribution and the contribution of the second
-parallel runtime.
-
-
-MPI+OpenMP Runtime Contribution
--------------------------------
-
-For MPI+OpenMP applications, BasicAnalysis decomposes the application-level
-Parallel Efficiency into MPI and OpenMP contributions:
-
-.. math::
-
-   Parallel\_Eff =
-   MPI\_Par\_Eff \cdot OMP\_Par\_Eff
-
-The OpenMP Parallel Efficiency contribution is therefore derived as:
-
-.. math::
-
-   OMP\_Par\_Eff =
-   \frac{
-      Parallel\_Eff
-   }{
-      MPI\_Par\_Eff
-   }
-
-The same multiplicative decomposition is applied independently to Load
-Balance and Communication Efficiency.
-
-For Load Balance:
-
-.. math::
-
-   LoadBalance =
-   MPI\_LB\_Eff \cdot OMP\_LB\_Eff
-
-and therefore:
-
-.. math::
-
-   OMP\_LB\_Eff =
-   \frac{
-      LoadBalance
-   }{
-      MPI\_LB\_Eff
-   }
-
-For Communication Efficiency:
-
-.. math::
-
-   Comm\_Eff =
-   MPI\_Comm\_Eff \cdot OMP\_Comm\_Eff
-
-which gives:
-
-.. math::
-
-   OMP\_Comm\_Eff =
-   \frac{
-      Comm\_Eff
-   }{
-      MPI\_Comm\_Eff
-   }
-
-The application-level metrics in these expressions are those measured for the
-complete MPI+OpenMP execution, while the MPI metrics represent the MPI
-contribution isolated through the OutsideMPI-based decomposition described
-earlier.
-
-The resulting OpenMP factors therefore represent the multiplicative
-contribution required to relate the MPI-level metrics to the corresponding
-application-level metrics.
-
-
-OpenMP communication submetrics
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-When the optional MPI+OpenMP hybrid simulation is enabled with
-``--hyb-mpiomp``, BasicAnalysis can also derive the OpenMP contribution to
-Serialization Efficiency and Transfer Efficiency.
-
-As described in the previous section, the hybrid ideal simulation provides:
-
-.. math::
-
-   Hybrid\_Ser\_Eff
-
-and:
-
-.. math::
-
-   Hybrid\_Transfer\_Eff
-
-while the standard MPI-level simulation provides:
-
-.. math::
-
-   MPI\_Ser\_Eff
-
-and:
-
-.. math::
-
-   MPI\_Transfer\_Eff
-
-BasicAnalysis derives the OpenMP contributions as:
-
-.. math::
-
-   OMP\_Ser\_Eff =
-   \frac{
-      Hybrid\_Ser\_Eff
-   }{
-      MPI\_Ser\_Eff
-   }
-
-and:
-
-.. math::
-
-   OMP\_Transfer\_Eff =
-   \frac{
-      Hybrid\_Transfer\_Eff
-   }{
-      MPI\_Transfer\_Eff
-   }
-
-therefore preserving:
-
-.. math::
-
-   Hybrid\_Ser\_Eff =
-   MPI\_Ser\_Eff \cdot OMP\_Ser\_Eff
-
-and:
-
-.. math::
-
-   Hybrid\_Transfer\_Eff =
-   MPI\_Transfer\_Eff \cdot OMP\_Transfer\_Eff
-
-These OpenMP Serialization and Transfer Efficiency values are available only
-when the optional hybrid simulation is explicitly requested and successfully
-completed.
-
-
 Interpretation of Derived Runtime Contributions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The runtime factors above are multiplicative contributions relative to the
 MPI component. They are not standalone efficiencies obtained from an
@@ -1214,7 +1178,7 @@ For example:
 
    OMP\_LB\_Eff =
    \frac{
-      LoadBalance
+      Hybrid\_LB\_Eff
    }{
       MPI\_LB\_Eff
    }
@@ -1224,212 +1188,238 @@ MPI Load Balance.
 
 A value above 100% must therefore not be interpreted as an execution
 efficiency above the theoretical maximum. Instead, it indicates that the
-derived inner-runtime contribution is larger than the corresponding MPI
-contribution within the multiplicative decomposition.
-
-The same interpretation applies to the derived runtime contributions of
-MPI+GPU applications.
+application-level metric is greater than the corresponding MPI-level metric,
+resulting in a multiplicative inner-runtime contribution above 100%.
 
 
-MPI+GPU Runtime Contribution
-----------------------------
+Hybrid MPI+GPU Metrics
+======================
 
-For MPI+CUDA and MPI+HIP applications, BasicAnalysis applies the same
-multiplicative runtime decomposition used for other hybrid programming models.
+For MPI+GPU applications, BasicAnalysis extends the hybrid performance model
+to account for both the Host and accelerator components of the execution.
 
-At the Parallel Runtime Model level:
+The analysis provides two complementary views:
 
-.. math::
+* the **Parallel Runtime Model**, which separates the contributions of the MPI
+  and CUDA/HIP runtimes to the hybrid application-level efficiency; and
 
-   Parallel\_Eff =
-   MPI\_Par\_Eff \cdot GPU\_Par\_Eff
+* the **Host/Device Execution Domains**, which characterize where
+  accelerator-related inefficiency manifests in the physical execution
+  domains.
 
-where ``GPU`` represents the CUDA or HIP runtime according to the programming
-model detected in the trace.
-
-The accelerator-runtime contribution is therefore derived as:
-
-.. math::
-
-   GPU\_Par\_Eff =
-   \frac{
-      Parallel\_Eff
-   }{
-      MPI\_Par\_Eff
-   }
-
-The same decomposition is applied to Load Balance:
-
-.. math::
-
-   GPU\_LB\_Eff =
-   \frac{
-      LoadBalance
-   }{
-      MPI\_LB\_Eff
-   }
-
-and Communication Efficiency:
-
-.. math::
-
-   GPU\_Comm\_Eff =
-   \frac{
-      Comm\_Eff
-   }{
-      MPI\_Comm\_Eff
-   }
-
-As for MPI+OpenMP, these quantities are **derived multiplicative
-contributions**. They are not independent measurements of accelerator
-execution and may therefore exceed 100%.
-
-These runtime contributions must not be confused with the metrics of the
-Device Execution Domain. The Parallel Runtime Model attributes the
-application-level efficiency to the MPI and CUDA/HIP runtime contributions,
-whereas the Device Execution Domain independently characterizes how
-effectively the physical accelerators execute the work supplied by the Host.
-
-For MPI+GPU applications, the application-level metrics required by this
-runtime decomposition need special treatment because a physical accelerator
-may expose several execution streams. BasicAnalysis therefore maps and
-flattens GPU stream activity before constructing the corresponding
-application-level metrics.
+The construction of the GPU-related application-level and execution-domain
+quantities relies on the correct association of GPU stream activity with the
+corresponding physical devices.
 
 
-GPU Stream-to-Device Mapping
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Stream-to-device activity aggregation
+-------------------------------------
 
-CUDA and HIP traces can expose multiple execution streams associated with
-each physical GPU. Treating every stream as an independent parallel unit
-would make the efficiency metrics depend on the number of streams and could
-double-count activity that executes concurrently on the same device.
+GPU traces may contain several execution streams associated with the same
+physical accelerator. BasicAnalysis therefore does not treat individual GPU
+streams as independent physical execution resources when constructing the
+MPI+GPU metrics.
 
-BasicAnalysis therefore maps the GPU execution streams represented in the
-trace to their corresponding physical devices.
+Instead, GPU stream activity is first mapped to the corresponding physical
+devices using the device information available in the Paraver trace
+metadata.
 
-Let:
+For each physical device :math:`d`, BasicAnalysis collects the useful-
+computation intervals from all streams mapped to that device and computes
+their temporal union. Overlapping intervals are therefore counted only once.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 25 75
-
-   * - Symbol
-     - Description
-   * - :math:`D`
-     - Number of physical GPU devices identified in the trace.
-   * - :math:`d`
-     - Physical-device index.
-   * - :math:`S_d`
-     - Set of GPU streams mapped to device :math:`d`.
-   * - :math:`I^{useful}_s`
-     - Useful execution intervals reported for stream :math:`s`.
-   * - :math:`Useful_d`
-     - Flattened useful execution time of physical device :math:`d`.
-   * - :math:`UsefulDevice`
-     - Sum of the flattened useful times of all physical devices.
-   * - :math:`UsefulDevice_{max}`
-     - Maximum flattened useful time among the physical devices.
-
-For each physical device, BasicAnalysis merges the useful intervals of all
-streams mapped to that device:
+The resulting useful-computation duration of device :math:`d` is:
 
 .. math::
 
    Useful_d =
    \left|
-      \bigcup_{s \in S_d} I^{useful}_s
+      \bigcup_{s \in Streams(d)} UsefulIntervals_s
    \right|
 
-where the vertical bars represent the total duration of the merged intervals.
+where :math:`Streams(d)` denotes the set of GPU streams mapped to physical
+device :math:`d`.
 
-Only intervals identified as useful accelerator activity by the corresponding
-BasicAnalysis/Paramedir configuration are included.
-
-Consequently, overlapping useful activity from different streams of the same
-GPU is counted only once. In general:
-
-.. math::
-
-   Useful_d \neq
-   \sum_{s \in S_d} Useful_s
-
-The total useful device activity is then:
+The aggregate useful device computation is then:
 
 .. math::
 
    UsefulDevice =
    \sum_{d=1}^{D} Useful_d
 
-and:
+where :math:`D` is the number of physical devices.
+
+BasicAnalysis also obtains:
 
 .. math::
 
    UsefulDevice_{max} =
    \max_d(Useful_d)
 
-The GPU execution units used by the corresponding metric model are therefore
-physical devices after stream flattening, rather than individual GPU streams.
+This stream-to-device mapping and interval flattening prevents concurrent
+activity occurring on different streams of the same physical device from
+being double-counted.
 
 
-MPI+GPU Application-Level Metrics
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Device memory-transfer activity
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-In the **classic MPI+GPU model**, BasicAnalysis constructs the
-application-level metrics using Host execution units together with the
-flattened physical GPU devices.
+BasicAnalysis applies the same physical-device mapping principle to
+memory-transfer activity.
 
-Let:
+For each physical device, memory-transfer intervals from all associated GPU
+streams are collected and flattened. BasicAnalysis then removes any portion
+of the resulting transfer activity that overlaps useful device computation.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 25 75
+Only memory-transfer activity occurring outside useful computation therefore
+contributes additional device active time.
 
-   * - Symbol
-     - Description
-   * - :math:`H`
-     - Number of Host execution units.
-   * - :math:`UsefulHost`
-     - Total useful Host computation.
-   * - :math:`UsefulHost_{max}`
-     - Maximum useful computation time among the Host execution units.
-   * - :math:`D`
-     - Number of physical GPU devices after stream-to-device mapping.
-   * - :math:`UsefulDevice`
-     - Total useful Device activity after stream flattening.
-   * - :math:`UsefulDevice_{max}`
-     - Maximum useful Device activity among the physical devices.
-
-The total number of execution units considered by the classic MPI+GPU model
-is:
+For device :math:`d`:
 
 .. math::
 
-   N = H + D
+   UsefulMemTransfer_d =
+   Useful_d + NonOverlappingTransfer_d
+
+where :math:`NonOverlappingTransfer_d` is the duration of memory-transfer
+activity that does not overlap useful computation on that physical device.
+
+BasicAnalysis then obtains:
+
+.. math::
+
+   UsefulMemTransfer_{max} =
+   \max_d(UsefulMemTransfer_d)
+
+This construction prevents useful computation and memory-transfer activity
+occurring concurrently on different streams of the same physical device from
+being double-counted.
+
+
+MPI+GPU Application-Level Metrics
+---------------------------------
+
+For MPI+GPU applications, BasicAnalysis constructs hybrid application-level
+metrics that account for useful computation performed in both the Host and
+Device execution domains.
+
+Let:
+
+* :math:`UsefulHost` denote the aggregate useful Host computation;
+* :math:`UsefulDevice` denote the aggregate useful Device computation after
+  stream-to-device mapping and interval flattening;
+* :math:`H` denote the number of Host execution units;
+* :math:`D` denote the number of physical devices; and
+* :math:`T` denote the application execution time.
+
+The hybrid number of parallel units is therefore:
+
+.. math::
+
+   H + D
 
 rather than the number of Host execution units plus the number of GPU
 streams.
 
-The application-level useful activity is:
+
+Computation Scalability
+~~~~~~~~~~~~~~~~~~~~~~~
+
+For MPI+GPU applications, **Computation Scalability** characterizes how the
+useful computation of the complete hybrid execution evolves relative to the
+reference execution.
+
+The application-level useful computation combines Host and Device useful
+computation:
 
 .. math::
 
-   Useful =
+   Useful_{app} =
    UsefulHost + UsefulDevice
 
-and BasicAnalysis computes:
+where :math:`UsefulDevice` is the total useful Device computation obtained
+after GPU streams have been mapped to their corresponding physical devices
+and overlapping useful-computation intervals on each device have been
+flattened as described in `Stream-to-device activity aggregation`_.
+
+GPU streams are therefore not treated as independent parallel execution units
+when constructing either the Device useful-computation quantity or the
+application-level parallel units.
+
+For strong scaling, BasicAnalysis computes:
 
 .. math::
 
-   Parallel\_Eff =
+   CompScale =
+   \frac{
+      Useful_{app,ref}
+   }{
+      Useful_{app}
+   }
+
+For weak scaling, the application-level parallel units is:
+
+.. math::
+
+   P_{app} = H + D
+
+where :math:`H` is the number of Host execution units and :math:`D` is the
+number of physical devices.
+
+BasicAnalysis therefore computes:
+
+.. math::
+
+   CompScale =
+   \frac{
+      Useful_{app,ref}
+   }{
+      Useful_{app}
+   }
+   \cdot
+   \frac{
+      H + D
+   }{
+      H_{ref} + D_{ref}
+   }
+
+This normalization uses the same physical parallel units as the MPI+GPU
+application-level model. In particular, GPU streams are not counted as
+independent Device resources; the Device contribution is represented by the
+number of physical devices.
+
+Within the Parallel Runtime Model, Computation Scalability is reported as a
+single factor for the complete MPI+GPU execution. Unlike the CPU-based hybrid
+model, BasicAnalysis does not decompose it into IPC, Instruction, and
+Frequency scalability submetrics.
+
+The Host/Device Execution Domains provide a complementary execution-domain
+view of Computation Scalability. In that view, Host Computation Scalability
+and Device Computation Scalability are computed independently using the
+parallel units associated with each physical execution domain: Host
+execution units for the Host domain and physical devices for the Device
+domain.
+
+
+Hybrid Parallel Efficiency
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+BasicAnalysis computes:
+
+.. math::
+
+   Hybrid\_Par\_Eff =
    \frac{
       UsefulHost + UsefulDevice
    }{
       (H+D)T
    }
 
-The maximum useful execution time across the Host and Device execution units
-is:
+
+Hybrid Load Balance
+~~~~~~~~~~~~~~~~~~~
+
+Let:
 
 .. math::
 
@@ -1439,45 +1429,820 @@ is:
       UsefulDevice_{max}
    )
 
-which gives:
+where :math:`UsefulHost_{max}` is the maximum useful-computation duration
+among the Host execution units and :math:`UsefulDevice_{max}` is the maximum
+flattened useful-computation duration among the physical devices.
+
+BasicAnalysis computes:
 
 .. math::
 
-   LoadBalance =
+   Hybrid\_LB\_Eff =
    \frac{
-      \frac{
-         UsefulHost + UsefulDevice
-      }{
-         H+D
-      }
+      \frac{UsefulHost + UsefulDevice}{H+D}
    }{
       Useful_{max}
    }
 
-and:
+
+Hybrid Communication Efficiency
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+BasicAnalysis computes:
 
 .. math::
 
-   Comm\_Eff =
+   Hybrid\_Comm\_Eff =
    \frac{
       Useful_{max}
    }{
       T
    }
 
-therefore preserving:
+The hybrid application-level metrics preserve the multiplicative
+decomposition:
 
 .. math::
 
-   Parallel\_Eff =
-   LoadBalance \cdot Comm\_Eff
+   Hybrid\_Par\_Eff =
+   Hybrid\_LB\_Eff \cdot Hybrid\_Comm\_Eff
 
-These application-level quantities are subsequently combined with the MPI
-metrics to derive the CUDA or HIP runtime contributions described above.
+These quantities characterize the complete MPI+GPU execution and provide the
+application-level reference used by the Parallel Runtime Model.
 
-This classic application-level decomposition is distinct from the
-Host/Device execution-domain analysis described later in this chapter.
 
+MPI+GPU Parallel Runtime Model
+------------------------------
+
+The Parallel Runtime Model separates the contribution of the outer MPI
+runtime from that of the accelerator runtime.
+
+The MPI contribution is characterized using the MPI runtime metrics described
+for the hybrid model. For MPI+GPU applications, however, ``OutsideMPI`` is
+treated strictly as an MPI-rank quantity. BasicAnalysis uses one representative
+``OutsideMPI`` value per MPI rank, independently of the number of GPU streams
+associated with that rank. Consequently, MPI Parallel Efficiency, MPI Load
+Balance, and MPI Communication Efficiency are computed over the MPI ranks; 
+GPU streams do not contribute to the number of parallel units of
+these MPI-level metrics.
+
+The MPI-level decomposition remains:
+
+.. math::
+
+   MPI\_Par\_Eff =
+   MPI\_LB\_Eff \cdot MPI\_Comm\_Eff
+
+The accelerator-runtime contribution is then derived as the multiplicative
+contribution required to relate the MPI-level metrics to the corresponding
+hybrid application-level metrics.
+
+For Parallel Efficiency:
+
+.. math::
+
+   Hybrid\_Par\_Eff =
+   MPI\_Par\_Eff \cdot GPU\_Par\_Eff
+
+therefore:
+
+.. math::
+
+   GPU\_Par\_Eff =
+   \frac{
+      Hybrid\_Par\_Eff
+   }{
+      MPI\_Par\_Eff
+   }
+
+For Load Balance:
+
+.. math::
+
+   Hybrid\_LB\_Eff =
+   MPI\_LB\_Eff \cdot GPU\_LB\_Eff
+
+therefore:
+
+.. math::
+
+   GPU\_LB\_Eff =
+   \frac{
+      Hybrid\_LB\_Eff
+   }{
+      MPI\_LB\_Eff
+   }
+
+For Communication Efficiency:
+
+.. math::
+
+   Hybrid\_Comm\_Eff =
+   MPI\_Comm\_Eff \cdot GPU\_Comm\_Eff
+
+therefore:
+
+.. math::
+
+   GPU\_Comm\_Eff =
+   \frac{
+      Hybrid\_Comm\_Eff
+   }{
+      MPI\_Comm\_Eff
+   }
+
+Here ``GPU`` represents the CUDA or HIP runtime according to the programming
+model detected in the trace.
+
+These accelerator-runtime factors are **derived multiplicative
+contributions**, analogous to the derived inner-runtime contributions of the
+CPU-based hybrid model. They are not independent measurements of a CUDA-only
+or HIP-only execution and are therefore not mathematically restricted to
+100%.
+
+The runtime contributions must not be confused with the metrics of the Device
+Execution Domain. The Parallel Runtime Model attributes efficiency losses to
+the MPI and CUDA/HIP runtime contributions, whereas the Host/Device analysis
+characterizes where accelerator-related inefficiency manifests in the
+physical execution domains.
+
+
+Host and Device Execution Domains
+---------------------------------
+
+For MPI+CUDA and MPI+HIP applications, BasicAnalysis provides an additional
+Host/Device decomposition.
+
+This view is complementary to the Parallel Runtime Model. The Parallel Runtime
+Model attributes efficiency losses to the MPI and CUDA/HIP runtime
+contributions, while the execution-domain analysis identifies whether
+accelerator-related inefficiency manifests in the Host or Device execution
+domain.
+
+
+Host Execution Domain
+~~~~~~~~~~~~~~~~~~~~~
+
+The Host domain characterizes useful Host computation and the Host-side
+interaction with the accelerator.
+
+Its hierarchy is:
+
+.. graphviz:: graphs/06_host_efficiency_hierarchy.dot
+   :align: center
+
+The Host Parallel Efficiency hierarchy is:
+
+.. math::
+
+   Host\_Par\_Eff =
+   MPI\_Par\_Eff \cdot DeviceOffload\_Eff
+
+with:
+
+.. math::
+
+   MPI\_Par\_Eff =
+   MPI\_LB\_Eff \cdot MPI\_Comm\_Eff
+
+and, when the required MPI-ideal simulation is available:
+
+.. math::
+
+   MPI\_Comm\_Eff =
+   MPI\_Ser\_Eff \cdot MPI\_Transfer\_Eff
+
+
+Device Offload Efficiency
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Device Offload Efficiency** characterizes the fraction of the time outside
+MPI that corresponds to useful Host computation.
+
+Let :math:`UsefulHost` denote the accumulated useful Host-computation time and
+:math:`OutsideMPI` the accumulated OutsideMPI duration across the MPI ranks.
+
+BasicAnalysis computes:
+
+.. math::
+
+   DeviceOffload\_Eff =
+   \frac{
+      UsefulHost
+   }{
+      OutsideMPI
+   }
+
+A low Device Offload Efficiency indicates that a significant fraction of the
+Host execution outside MPI does not correspond to useful Host computation.
+
+This time can include accelerator-runtime activity such as kernel launches,
+synchronization, memory-management operations, or other Host-side activity
+associated with supplying and coordinating work on the accelerator.
+
+Device Offload Efficiency does not measure the efficiency of GPU kernel
+execution itself. Device-side behavior is characterized separately by the
+Device Execution Domain.
+
+
+Host Parallel Efficiency
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Host Parallel Efficiency** measures the fraction of the available Host
+execution capacity corresponding to useful Host computation.
+
+BasicAnalysis decomposes it as:
+
+.. math::
+
+   Host\_Par\_Eff =
+   MPI\_Par\_Eff \cdot DeviceOffload\_Eff
+
+For a homogeneous Host configuration, this relationship can be expressed as:
+
+.. math::
+
+   MPI\_Par\_Eff =
+   \frac{OutsideMPI}{HT}
+
+and:
+
+.. math::
+
+   DeviceOffload\_Eff =
+   \frac{UsefulHost}{OutsideMPI}
+
+therefore:
+
+.. math::
+
+   Host\_Par\_Eff =
+   \frac{UsefulHost}{HT}
+
+where :math:`H` is the number of Host execution units.
+
+
+Host Computation Scalability
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Host Computation Scalability** measures how the aggregate amount of useful
+Host computation evolves across execution configurations.
+
+For strong scaling, using configuration :math:`0` as the reference:
+
+.. math::
+
+   Host\_CompScale_n =
+   \frac{
+      UsefulHost_0
+   }{
+      UsefulHost_n
+   }
+
+with:
+
+.. math::
+
+   Host\_CompScale_0 = 1
+
+Under ideal strong scaling, the total Host computational work remains
+approximately constant and Host Computation Scalability therefore remains
+close to 100%.
+
+For weak scaling:
+
+.. math::
+
+   Host\_CompScale_n =
+   \frac{
+      UsefulHost_0
+   }{
+      UsefulHost_n
+   }
+   \cdot
+   \frac{H_n}{H_0}
+
+where :math:`H_n/H_0` is the ratio of Host execution units between
+configuration :math:`n` and the reference execution.
+
+The number of Host execution units is obtained from the Host rank/threads
+identified in the trace.
+
+Under ideal weak scaling, aggregate useful Host computation grows
+proportionally with the Host execution resources, resulting in a value close
+to 100%.
+
+
+Host Computation Scalability Submetrics
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When the required Host-side hardware-counter information is available,
+BasicAnalysis further decomposes Host Computation Scalability into IPC,
+Instruction, and Frequency scalability factors:
+
+.. math::
+
+   Host\_CompScale =
+   Host\_IPCScale
+   \cdot Host\_InstructionScale
+   \cdot Host\_FrequencyScale
+
+These factors apply the computation-scalability decomposition to the
+hardware-counter information associated with useful Host computation.
+
+For weak scaling, Host Instruction Scalability is normalized using the number
+of Host execution units that provide valid instruction-counter measurements.
+Under normal trace conditions, this parallel-unit count corresponds to the Host 
+execution units contributing useful computation and the multiplicative 
+relationship is preserved.
+
+If instruction-counter measurements are missing for some Host execution units,
+the reported child factors may not reproduce Host Computation Scalability
+exactly. Such a discrepancy indicates incomplete hardware-counter information
+rather than a different definition of the scalability model.
+
+
+Host IPC Scalability
+""""""""""""""""""""
+
+**Host IPC Scalability** characterizes changes in Host instruction throughput
+during useful Host computation relative to the reference execution.
+
+BasicAnalysis computes:
+
+.. math::
+
+   Host\_IPCScale =
+   \frac{
+      HostIPC
+   }{
+      HostIPC_{ref}
+   }
+
+where:
+
+.. math::
+
+   HostIPC =
+   \frac{
+      UsefulInstructions
+   }{
+      UsefulCycles
+   }
+
+Values below 100% indicate a reduction in Host instruction throughput relative
+to the reference execution.
+
+
+Host Instruction Scalability
+""""""""""""""""""""""""""""
+
+**Host Instruction Scalability** characterizes changes in the amount of
+processor instructions associated with useful Host computation.
+
+For strong scaling:
+
+.. math::
+
+   Host\_InstructionScale =
+   \frac{
+      UsefulInstructions_{ref}
+   }{
+      UsefulInstructions
+   }
+
+For weak scaling:
+
+.. math::
+
+   Host\_InstructionScale =
+   \frac{
+      UsefulInstructions_{ref}
+   }{
+      UsefulInstructions
+   }
+   \cdot
+   \frac{
+      P_{ins}
+   }{
+      P_{ins,ref}
+   }
+
+where :math:`P_{ins}` is the number of Host execution units contributing
+valid instruction-counter measurements.
+
+The weak-scaling correction therefore uses the parallel units of Host execution
+units contributing valid instruction-counter measurements. Under normal trace
+conditions, this number corresponds to the number of Host execution units
+used by Host Computation Scalability.
+
+
+Host Frequency Scalability
+""""""""""""""""""""""""""
+
+**Host Frequency Scalability** characterizes changes in the effective
+processor frequency during useful Host computation relative to the reference
+execution.
+
+BasicAnalysis computes:
+
+.. math::
+
+   Host\_FrequencyScale =
+   \frac{
+      HostFrequency
+   }{
+      HostFrequency_{ref}
+   }
+
+The effective Host frequency is derived from the Host-side cycle and
+useful-computation measurements used by the Host model.
+
+Values below 100% indicate that useful Host computation executes at a lower
+effective processor frequency than in the reference configuration.
+
+The effective Host frequency used for Host Frequency Scalability should not be
+confused with the Average Frequency reported by BasicAnalysis as a general
+performance indicator.
+
+
+Host Global Efficiency
+^^^^^^^^^^^^^^^^^^^^^^
+
+**Host Global Efficiency** combines Host Parallel Efficiency and Host
+Computation Scalability:
+
+.. math::
+
+   Host\_Global\_Eff =
+   Host\_Par\_Eff \cdot Host\_CompScale
+
+Therefore:
+
+.. math::
+
+   Host\_Global\_Eff =
+   MPI\_Par\_Eff
+   \cdot DeviceOffload\_Eff
+   \cdot Host\_CompScale
+
+For a single-trace analysis, where Host Computation Scalability cannot be
+evaluated relative to another execution configuration, BasicAnalysis reports:
+
+.. math::
+
+   Host\_Global\_Eff =
+   Host\_Par\_Eff
+
+
+Device Execution Domain
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The Device domain evaluates useful accelerator activity after all GPU streams
+have been mapped and flattened to their corresponding physical devices.
+
+Its hierarchy is:
+
+.. graphviz:: graphs/06_device_efficiency_hierarchy.dot
+   :align: center
+
+
+Device Parallel Efficiency
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Device Parallel Efficiency** measures the fraction of the available physical
+Device execution capacity corresponding to useful device computation.
+
+BasicAnalysis computes:
+
+.. math::
+
+   Device\_Par\_Eff =
+   \frac{
+      UsefulDevice
+   }{
+      DT
+   }
+
+where :math:`D` is the number of physical devices after stream-to-device
+mapping.
+
+
+Device Load Balance
+^^^^^^^^^^^^^^^^^^^
+
+**Device Load Balance** measures how evenly useful computation is distributed
+among the physical devices:
+
+.. math::
+
+   Device\_LB\_Eff =
+   \frac{
+      UsefulDevice/D
+   }{
+      UsefulDevice_{max}
+   }
+
+A value close to 100% indicates that useful computation is similarly
+distributed among the physical devices. Lower values indicate increasing
+imbalance in useful device activity.
+
+
+Device Communication Efficiency
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Device Communication Efficiency** characterizes the additional active device
+time associated with memory transfers that do not overlap useful computation.
+
+BasicAnalysis computes:
+
+.. math::
+
+   Device\_Comm\_Eff =
+   \frac{
+      UsefulDevice_{max}
+   }{
+      UsefulMemTransfer_{max}
+   }
+
+The numerator and denominator are independently computed maxima across the
+physical devices and are not required to correspond to the same device.
+
+A low Device Communication Efficiency indicates that non-overlapped
+memory-transfer activity contributes substantially to the maximum device
+active time relative to the maximum useful-computation time observed across
+the devices.
+
+
+Device Orchestration Efficiency
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Device Orchestration Efficiency** measures how much of the application
+execution time is covered by the longest useful-computation plus
+non-overlapped-memory-transfer device activity.
+
+BasicAnalysis computes:
+
+.. math::
+
+   Device\_Orch\_Eff =
+   \frac{
+      UsefulMemTransfer_{max}
+   }{
+      T
+   }
+
+Lower values indicate increasing periods during which the devices are not
+performing useful computation or non-overlapped memory-transfer activity.
+
+Such periods can reflect limitations in supplying work to the accelerators,
+Host-side orchestration delays, synchronization, dependencies, or other
+effects that leave the devices without active work. The metric identifies the
+presence of these inactive periods but does not by itself determine their
+cause.
+
+
+Device Parallel-Efficiency Decomposition
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The three Device factors preserve the multiplicative decomposition:
+
+.. math::
+
+   Device\_Par\_Eff =
+   Device\_LB\_Eff
+   \cdot
+   Device\_Comm\_Eff
+   \cdot
+   Device\_Orch\_Eff
+
+Indeed:
+
+.. math::
+
+   \begin{aligned}
+   Device\_Par\_Eff ={}&
+   \frac{UsefulDevice/D}{UsefulDevice_{max}}
+   \cdot
+   \frac{UsefulDevice_{max}}{UsefulMemTransfer_{max}}
+   \\
+   &{}\cdot
+   \frac{UsefulMemTransfer_{max}}{T}
+   =
+   \frac{UsefulDevice}{DT}
+   \end{aligned}
+
+
+Device Computation Scalability
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Device Computation Scalability** measures how aggregate useful device
+computation evolves across execution configurations.
+
+The useful-device quantity used by this metric is the aggregate physical-
+device activity obtained after stream-to-device mapping and interval
+flattening:
+
+.. math::
+
+   UsefulDevice_n =
+   \sum_{d=1}^{D_n} Useful_{d,n}
+
+It is therefore not the sum of the raw useful times of all GPU streams.
+
+For strong scaling:
+
+.. math::
+
+   Device\_CompScale_n =
+   \frac{
+      UsefulDevice_0
+   }{
+      UsefulDevice_n
+   }
+
+with:
+
+.. math::
+
+   Device\_CompScale_0 = 1
+
+Under ideal strong scaling, aggregate useful device computation remains
+approximately constant.
+
+For weak scaling:
+
+.. math::
+
+   Device\_CompScale_n =
+   \frac{
+      UsefulDevice_0
+   }{
+      UsefulDevice_n
+   }
+   \cdot
+   \frac{D_n}{D_0}
+
+where :math:`D_n/D_0` is the ratio of physical devices between configuration
+:math:`n` and the reference execution.
+
+Under ideal weak scaling, aggregate useful device computation grows
+proportionally with the number of physical devices, resulting in a value
+close to 100%.
+
+
+Device Global Efficiency
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Device Global Efficiency** combines Device Parallel Efficiency and Device
+Computation Scalability:
+
+.. math::
+
+   Device\_Global\_Eff =
+   Device\_Par\_Eff \cdot Device\_CompScale
+
+Expanding the Device Parallel Efficiency decomposition:
+
+.. math::
+
+   \begin{aligned}
+   Device\_Global\_Eff ={}&
+   Device\_LB\_Eff
+   \cdot Device\_Comm\_Eff
+   \\
+   &{}\cdot Device\_Orch\_Eff
+   \cdot Device\_CompScale
+   \end{aligned}
+
+For a single-trace analysis, where Device Computation Scalability cannot be
+evaluated relative to another execution configuration, BasicAnalysis reports:
+
+.. math::
+
+   Device\_Global\_Eff =
+   Device\_Par\_Eff
+
+
+Interpretation of Host and Device Metrics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Host and Device execution-domain metrics are complementary views of an
+MPI+GPU execution and should be interpreted together with the application-
+level and runtime-specific metrics.
+
+The absolute values of Host Global Efficiency and Device Global Efficiency
+should not be directly compared to determine which execution domain
+"contributes more" to application performance. The two metrics characterize
+different parallel resources and different aspects of the heterogeneous
+execution.
+
+The application-level metrics identify the overall performance loss. The
+Parallel Runtime Model identifies the runtime contribution associated with
+parallel inefficiency, while the Host and Device execution-domain metrics
+localize where accelerator-related inefficiency manifests.
+
+Within the Host domain, Device Offload Efficiency helps distinguish useful
+Host computation from Host-side accelerator interaction, while the Host
+Computation Scalability factors characterize changes in the computational
+behavior of useful Host work.
+
+Within the Device domain, Device Load Balance characterizes the distribution
+of useful computation across physical accelerators, Device Communication
+Efficiency characterizes additional active time associated with
+non-overlapped memory transfers, and Device Orchestration Efficiency
+characterizes periods in which the devices are not supplied with useful
+computation or non-overlapped transfer activity.
+
+These views should therefore be used as complementary evidence when
+investigating the source of a performance loss rather than as interchangeable
+efficiency measurements.
+
+
+Dimemas simulation
+------------------
+
+As for MPI+X CPU-based applications, BasicAnalysis uses Dimemas in MPI+GPU
+applications to obtain the idealized execution required for the MPI
+communication-efficiency decomposition.
+
+The MPI-level simulation follows the same methodology: the MPI communication
+environment is idealized using infinite bandwidth and zero latency, while
+accelerator simulation is disabled. The resulting simulation-derived
+quantities can therefore be interpreted from the MPI perspective, consistently
+with the use of ``OutsideMPI`` in MPI Serialization Efficiency and MPI
+Transfer Efficiency.
+
+For MPI+GPU applications, these MPI communication submetrics are used wherever
+the MPI contribution is represented in the analysis. This includes both the
+MPI contribution of the Parallel Runtime Model and the MPI component of the
+Host execution-domain hierarchy.
+
+BasicAnalysis currently applies this simulation methodology to MPI+CUDA
+applications. MPI+HIP is treated differently because the current
+BasicAnalysis-Dimemas workflow does not provide the corresponding
+simulation-derived communication submetrics.
+
+
+MPI+CUDA
+~~~~~~~~
+
+For the standard MPI-level analysis of an MPI+CUDA application, BasicAnalysis
+invokes Dimemas with CUDA simulation disabled.
+
+Conceptually, the experiment is:
+
+.. graphviz:: graphs/06_mpi_ideal_simulation_cuda.dot
+   :align: center
+
+The resulting idealized execution provides :math:`T_{ideal}` and
+:math:`\max_{ideal}(OutsideMPI)`, which are used to compute MPI Serialization
+Efficiency and MPI Transfer Efficiency.
+
+Disabling CUDA simulation allows this experiment to isolate the MPI
+communication contribution without introducing accelerator-simulation effects
+into the MPI Serialization and Transfer Efficiency submetrics.
+
+
+CUDA Simulation Option
+~~~~~~~~~~~~~~~~~~~~~~
+
+BasicAnalysis provides the ``-scuda, --simulation_cuda`` option to enable
+CUDA simulation in Dimemas.
+
+This option changes the simulated experiment from the standard MPI-level
+simulation used by the BasicAnalysis performance model. In the standard
+methodology, CUDA simulation is disabled so that the idealized execution
+isolates the MPI communication contribution.
+
+When CUDA simulation is explicitly enabled, the resulting simulated execution
+also incorporates the CUDA simulation model. Consequently, performance metrics
+derived from this simulated execution do not represent the standard
+BasicAnalysis MPI communication-efficiency decomposition and should not be
+interpreted as the MPI Serialization Efficiency and MPI Transfer Efficiency
+defined by the performance model described in this chapter.
+
+This option is therefore intended for customized simulation experiments rather
+than for obtaining the standard BasicAnalysis performance metrics.
+
+
+MPI+HIP
+~~~~~~~
+
+MPI Communication Efficiency for MPI+HIP applications is computed directly
+from the measured execution and therefore does not require Dimemas.
+
+However, MPI Serialization Efficiency and MPI Transfer Efficiency require the
+MPI-ideal simulation described above. The current BasicAnalysis-Dimemas
+workflow does not provide the corresponding simulation-derived communication
+submetrics for HIP executions. These metrics are therefore reported as
+``Non-Avail`` for MPI+HIP.
+
+This limitation affects only the simulation-derived MPI communication
+submetrics. Metrics computed directly from the measured MPI+HIP trace,
+including the available Parallel Runtime Model factors and the Host and Device
+execution-domain metrics, remain available when their required trace
+information is present.
 
 
 OpenMP Runtime-Specific Metrics
@@ -1488,28 +2253,14 @@ for **OpenMP-only** and **MPI+OpenMP** applications. These metrics are based
 on the OpenMP efficiency model introduced by TALP and provide an isolated
 view of the OpenMP execution.
 
-These metrics must not be confused with the OpenMP contribution derived from
-the Parallel Runtime Model for MPI+OpenMP applications.
-
-In the Parallel Runtime Model, the OpenMP contribution is obtained from the
-multiplicative decomposition of the application-level and MPI efficiencies.
-For example:
-
-.. math::
-
-   OpenMP\_Par\_Eff =
-   \frac{
-      Parallel\_Eff
-   }{
-      MPI\_Par\_Eff
-   }
-
-This derived contribution characterizes how OpenMP contributes to the
-application-level efficiency decomposition.
+These metrics must not be confused with the derived OpenMP contribution of
+the Parallel Runtime Model described in `MPI+OpenMP Runtime Contribution`_.
+That contribution quantifies the multiplicative contribution of OpenMP to
+the application-level efficiency decomposition.
 
 In contrast, the OpenMP Runtime-Specific metrics are computed from
 OpenMP-specific timing information extracted from the trace. Their purpose is
-to characterize the OpenMP execution itself and determine which OpenMP
+to characterize the OpenMP execution itself and identify which OpenMP
 mechanisms contribute to its inefficiency.
 
 The analysis separates three main sources of OpenMP inefficiency:
@@ -1556,9 +2307,8 @@ The formulation uses four timing components:
      - Thread-capacity time lost because useful work is unevenly distributed
        among OpenMP threads inside parallel regions.
    * - :math:`T^{OMP}_{sched}`
-     - Remaining OpenMP thread-capacity time associated with runtime
-       scheduling and fork/join overhead after the serial-execution and
-       useful-work-imbalance components have been accounted for.
+     - Thread-capacity time associated with OpenMP runtime scheduling and
+       fork/join overhead.
 
 The total OpenMP execution capacity represented by the model is therefore:
 
@@ -1592,7 +2342,7 @@ and OpenMP Parallel Efficiency is:
 
 
 OpenMP Serial Efficiency
-------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 **OpenMP Serial Efficiency** characterizes the loss of thread capacity caused
 by execution outside OpenMP parallel regions.
@@ -1606,7 +2356,8 @@ For each MPI rank in an MPI+OpenMP execution, or each OpenMP process in an
 OpenMP-only execution, BasicAnalysis first determines the duration for which
 OpenMP parallelism is not active.
 
-Let:
+Let :math:`r` denote an MPI rank for an MPI+OpenMP execution or an OpenMP
+process for an OpenMP-only execution.
 
 .. list-table::
    :header-rows: 1
@@ -1615,8 +2366,7 @@ Let:
    * - Symbol
      - Description
    * - :math:`T^{active}_{serial,r}`
-     - Duration for which OpenMP parallelism is not active for rank or
-       OpenMP process :math:`r`.
+     - Duration for which OpenMP parallelism is not active for :math:`r`.
    * - :math:`N_{threads,r}`
      - Number of OpenMP threads associated with :math:`r`.
 
@@ -1670,7 +2420,7 @@ contribution from serial execution outside OpenMP parallel regions.
 
 
 OpenMP Load Balance
--------------------
+~~~~~~~~~~~~~~~~~~~
 
 **OpenMP Load Balance** characterizes how evenly useful computation is
 distributed among OpenMP threads inside parallel regions.
@@ -1737,16 +2487,15 @@ measuring time spent in an OpenMP waiting state.
 
 
 OpenMP Scheduling Efficiency
-----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**OpenMP Scheduling Efficiency** characterizes the remaining OpenMP runtime
-overhead after serial-execution and useful-work-imbalance losses have been
-separated.
+**OpenMP Scheduling Efficiency** characterizes the OpenMP runtime overhead
+associated with scheduling and fork/join activity, after serial-execution
+and useful-work-imbalance losses have been represented separately in the
+multiplicative decomposition.
 
-The term :math:`T^{OMP}_{sched}` represents the remaining OpenMP
-thread-capacity time associated with runtime scheduling and fork/join
-overhead after the serial-execution and useful-work-imbalance components have
-been accounted for.
+The :math:`T^{OMP}_{sched}` component defined above represents this remaining
+OpenMP runtime-related thread-capacity loss.
 
 BasicAnalysis computes:
 
@@ -1775,7 +2524,7 @@ contribution from scheduling and fork/join overhead.
 
 
 Multiplicative decomposition
-----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The three OpenMP runtime-specific factors form a multiplicative decomposition
 of OpenMP Parallel Efficiency:
@@ -1825,7 +2574,6 @@ attributed to serial execution, useful-work imbalance, or the remaining
 OpenMP runtime scheduling and fork/join overhead.
 
 
-
 OpenMP-Only and MPI+OpenMP Applications
 ---------------------------------------
 
@@ -1856,11 +2604,11 @@ Runtime-Specific metrics are designed to isolate inefficiencies attributable
 to the OpenMP runtime. Time spent executing MPI calls is therefore not
 classified as an OpenMP runtime loss.
 
-MPI execution can, however, contribute indirectly to the OpenMP serial-loss
-component. When the master thread executes an MPI call outside an OpenMP
-parallel region, the remaining OpenMP worker threads are inactive. The
-corresponding unused worker-thread capacity contributes to
-:math:`T^{OMP}_{serial}`.
+MPI execution can nevertheless contribute indirectly to the OpenMP
+serial-loss component through unused worker-thread capacity. When the master
+thread executes an MPI call outside an OpenMP parallel region, the remaining
+OpenMP worker threads are inactive. The corresponding unused worker-thread
+capacity contributes to :math:`T^{OMP}_{serial}`.
 
 This treatment allows the same OpenMP efficiency decomposition to be applied
 to OpenMP-only and MPI+OpenMP executions while preserving the runtime-specific
@@ -1901,712 +2649,6 @@ runtime-specific analysis can expose OpenMP behavior that may not be apparent
 from the application-level runtime decomposition alone.
 
 
-Host and Device Metrics for MPI+GPU Applications
-------------------------------------------------
-
-For MPI+GPU applications, BasicAnalysis complements the application-level and
-runtime-specific metrics with an execution-domain view that separates Host-side
-and Device-side performance behavior.
-
-This view is intended to identify where performance losses manifest in
-accelerator-based applications. The Host metrics characterize MPI behavior,
-Host computation, and the effectiveness of the offload path, while the Device
-metrics characterize the distribution and continuity of useful computation
-across the accelerator devices.
-
-The Host and Device views are complementary to the application-level and
-runtime-specific analyses. They use execution-domain-specific definitions and
-should therefore not be interpreted as an additional decomposition of the
-application-level Global Efficiency.
-
-
-Host Metrics
-~~~~~~~~~~~~
-
-The Host metrics characterize the efficiency of the Host execution domain in
-MPI+GPU applications. They combine MPI behavior with the fraction of the
-non-MPI execution that corresponds to useful Host computation.
-
-The Host hierarchy is:
-
-.. math::
-
-   Host\_Global\_Eff =
-   Host\_Par\_Eff \cdot Host\_CompScale
-
-with:
-
-.. math::
-
-   Host\_Par\_Eff =
-   MPI\_Par\_Eff \cdot DeviceOffload\_Eff
-
-The MPI component can be further analyzed through:
-
-.. math::
-
-   MPI\_Par\_Eff =
-   MPI\_LoadBalance \cdot MPI\_Comm\_Eff
-
-and, when communication decomposition is available:
-
-.. math::
-
-   MPI\_Comm\_Eff =
-   Serialization\_Eff \cdot Transfer\_Eff
-
-
-Device Offload Efficiency
-^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Device Offload Efficiency characterizes the fraction of the execution outside
-MPI that corresponds to useful Host computation.
-
-Let :math:`UsefulHost` denote the accumulated useful Host-computation time and
-:math:`OutsideMPI` the total OutsideMPI duration accumulated across the MPI
-ranks in the measured execution.
-
-BasicAnalysis computes:
-
-.. math::
-
-   DeviceOffload\_Eff =
-   \frac{UsefulHost}{OutsideMPI}
-
-A low value indicates that only a small fraction of the time outside MPI is
-classified as useful Host computation. The remaining time may include
-accelerator-runtime activity, kernel-launch and synchronization operations,
-memory-management operations, waiting associated with accelerator execution,
-or other non-useful Host-side activity.
-
-Therefore, Device Offload Efficiency should be interpreted as an indicator of
-how effectively the non-MPI Host execution contributes useful Host
-computation. It does not measure the efficiency of GPU kernel execution
-itself.
-
-
-Host Parallel Efficiency
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-Host Parallel Efficiency combines the MPI Parallel Efficiency with Device
-Offload Efficiency:
-
-.. math::
-
-   Host\_Par\_Eff =
-   MPI\_Par\_Eff \cdot DeviceOffload\_Eff
-
-This formulation captures two distinct sources of Host-side parallel
-inefficiency:
-
-* losses associated with MPI execution; and
-* losses associated with non-useful activity outside MPI.
-
-For the usual case in which the MPI OutsideMPI measurements and Host
-execution-unit population use the same homogeneous execution-unit basis, this
-relationship corresponds to:
-
-.. math::
-
-   Host\_Par\_Eff =
-   \frac{UsefulHost}{H T}
-
-where :math:`H` is the number of Host execution units and :math:`T` is the
-application runtime.
-
-The multiplicative formulation used by BasicAnalysis remains applicable when
-MPI ranks contain different numbers of Host execution units, for which MPI
-Parallel Efficiency applies the corresponding execution-unit weighting.
-
-
-Host Computation Scalability
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Host Computation Scalability evaluates how the useful Host-computation time
-changes relative to the reference execution.
-
-For strong scaling:
-
-.. math::
-
-   Host\_CompScale_n =
-   \frac{UsefulHost_0}{UsefulHost_n}
-
-where execution :math:`0` is the reference configuration and execution
-:math:`n` is the configuration being evaluated.
-
-For weak scaling, BasicAnalysis accounts for the increase in the number of
-Host execution units:
-
-.. math::
-
-   Host\_CompScale_n =
-   \frac{UsefulHost_0}{UsefulHost_n}
-   \cdot
-   \frac{H_n}{H_0}
-
-where :math:`H_0` and :math:`H_n` are the numbers of Host execution units in
-the reference and evaluated executions, respectively.
-
-In BasicAnalysis, the Host execution-unit population is obtained from the
-Host threads identified in the trace.
-
-A value below 100% indicates that useful Host computation scales less
-favorably than expected under the selected scaling model. A value above 100%
-indicates that useful Host computation takes proportionally less time than in
-the reference execution.
-
-
-Host Computation Scalability Submetrics
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-When the required hardware counters are available, BasicAnalysis reports
-additional Host-side scalability factors associated with instruction
-throughput, the amount of executed instructions, and processor frequency:
-
-* Host IPC Scalability;
-* Host Instruction Scalability; and
-* Host Frequency Scalability.
-
-These metrics help characterize changes observed in Host Computation
-Scalability.
-
-For strong-scaling executions, their formulation is algebraically consistent
-with the Host Computation Scalability relationship. For weak scaling, Host
-Computation Scalability is normalized using the number of Host execution
-units, while Host Instruction Scalability uses the execution units
-contributing positive useful-instruction measurements. The factors should
-therefore be interpreted as complementary diagnostic metrics when these
-resource populations differ.
-
-
-Host IPC Scalability
-""""""""""""""""""""
-
-Host IPC Scalability characterizes changes in instruction throughput during
-useful Host computation relative to the reference execution.
-
-BasicAnalysis computes the IPC associated with useful computation as:
-
-.. math::
-
-   HostIPC =
-   \frac{UsefulInstructions}{UsefulCycles}
-
-and:
-
-.. math::
-
-   Host\_IPCScale_n =
-   \frac{HostIPC_n}{HostIPC_0}
-
-A value below 100% indicates a reduction in the number of useful instructions
-completed per processor cycle relative to the reference execution. This may
-reflect changes in the computational behavior of the Host code, including
-changes in memory behavior, instruction mix, or other effects that reduce
-instruction throughput.
-
-
-Host Instruction Scalability
-"""""""""""""""""""""""""""""
-
-Host Instruction Scalability characterizes changes in the amount of useful
-Host instructions executed relative to the reference execution.
-
-For strong scaling:
-
-.. math::
-
-   Host\_InstructionScale_n =
-   \frac{Instructions_0}{Instructions_n}
-
-For weak scaling:
-
-.. math::
-
-   Host\_InstructionScale_n =
-   \frac{Instructions_0}{Instructions_n}
-   \cdot
-   \frac{P^{ins}_n}{P^{ins}_0}
-
-where :math:`P^{ins}` is the number of execution units contributing positive
-useful-instruction measurements.
-
-A value below 100% indicates that the evaluated execution performs more useful
-instructions than expected relative to the reference configuration. Possible
-causes include additional computational work, changes in the executed code
-path, or scaling-related overhead that contributes to the useful-computation
-region.
-
-
-Host Frequency Scalability
-"""""""""""""""""""""""""""
-
-Host Frequency Scalability characterizes changes in the effective processor
-frequency during useful Host computation.
-
-The effective Host frequency used for this metric is derived from the
-processor cycles accumulated during useful computation and the total useful
-Host-computation duration:
-
-.. math::
-
-   HostFrequency =
-   \frac{UsefulCycles}{UsefulHost}
-
-BasicAnalysis then computes:
-
-.. math::
-
-   Host\_FrequencyScale_n =
-   \frac{HostFrequency_n}{HostFrequency_0}
-
-A value below 100% indicates that the effective processor frequency during
-useful Host computation has decreased relative to the reference execution.
-
-This may result from hardware frequency management, power or thermal
-constraints, or from changes in Host execution behavior that affect the
-measured cycle rate.
-
-The effective Host frequency used for Host Frequency Scalability should not be
-confused with the Average Frequency reported by BasicAnalysis as a general
-performance indicator. Average Frequency is obtained independently from the
-frequency information extracted from the trace.
-
-
-Host Global Efficiency
-^^^^^^^^^^^^^^^^^^^^^^
-
-Host Global Efficiency combines Host Parallel Efficiency and Host Computation
-Scalability:
-
-.. math::
-
-   Host\_Global\_Eff =
-   Host\_Par\_Eff \cdot Host\_CompScale
-
-For a single-trace analysis, where Computation Scalability cannot be evaluated
-against a reference execution, BasicAnalysis reports:
-
-.. math::
-
-   Host\_Global\_Eff = Host\_Par\_Eff
-
-Host Global Efficiency therefore summarizes the combined impact of Host-side
-parallel losses and Host computation scalability. Its components should be
-examined to determine whether a low value originates primarily from MPI
-behavior, the offload path, or degradation of useful Host computation when
-scaling.
-
-
-Device Metrics
-~~~~~~~~~~~~~~
-
-The Device metrics characterize the execution of useful computation across the
-accelerator devices.
-
-The Device hierarchy is:
-
-.. math::
-
-   Device\_Global\_Eff =
-   Device\_Par\_Eff \cdot Device\_CompScale
-
-Device Parallel Efficiency is decomposed as:
-
-.. math::
-
-   Device\_Par\_Eff =
-   Device\_LoadBalance
-   \cdot Device\_Comm\_Eff
-   \cdot Device\_Orchestration\_Eff
-
-This decomposition separates three effects:
-
-* how evenly useful computation is distributed among devices;
-* the contribution of device memory-transfer activity relative to useful
-  device computation; and
-* how continuously useful computation and memory-transfer activity occupy the
-  application runtime.
-
-
-Stream-to-Device Activity Aggregation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-The Device metrics are not computed directly from the activity of individual
-GPU streams. CUDA and HIP executions may expose several streams associated
-with the same physical accelerator, and activity on different streams can
-overlap in time.
-
-Treating each stream as an independent execution unit would therefore make the
-metrics depend on the number of streams and could count concurrent activity on
-the same physical device more than once.
-
-BasicAnalysis first maps the GPU streams represented in the Paraver trace to
-their corresponding physical devices. The mapping uses the execution
-information associated with the trace, including the thread labels and device
-information represented in the Paraver ``.row`` file.
-
-Let :math:`S_d` denote the set of GPU streams mapped to physical device
-:math:`d`.
-
-
-Useful Device Computation
-"""""""""""""""""""""""""
-
-For each stream :math:`s`, BasicAnalysis obtains the time intervals identified
-as useful accelerator activity:
-
-.. math::
-
-   I^{useful}_s
-
-For each physical device, the useful intervals of all streams mapped to that
-device are combined:
-
-.. math::
-
-   I^{useful}_d =
-   \bigcup_{s \in S_d} I^{useful}_s
-
-Overlapping intervals are merged before their duration is computed. The useful
-time associated with physical device :math:`d` is therefore:
-
-.. math::
-
-   Useful_d =
-   \left| I^{useful}_d \right|
-
-where :math:`|\cdot|` denotes the total duration of the merged intervals.
-
-Consequently, useful activity occurring simultaneously on several streams of
-the same device is counted only once. In general:
-
-.. math::
-
-   Useful_d \neq
-   \sum_{s \in S_d} Useful_s
-
-The Device-level quantities used by the metric model are then:
-
-.. math::
-
-   UsefulDevice =
-   \sum_{d=1}^{D} Useful_d
-
-and:
-
-.. math::
-
-   UsefulDevice_{max} =
-   \max_d(Useful_d)
-
-where :math:`D` is the number of physical devices.
-
-Thus, the execution units of the Device metric model are physical devices
-after stream flattening, rather than individual GPU streams.
-
-
-Device Memory-Transfer Activity
-"""""""""""""""""""""""""""""""
-
-BasicAnalysis applies the same device-level aggregation to accelerator
-memory-transfer activity.
-
-Let :math:`I^{transfer}_s` denote the memory-transfer intervals identified for
-GPU stream :math:`s`. For each physical device, BasicAnalysis first combines
-the intervals from all streams mapped to that device:
-
-.. math::
-
-   I^{transfer}_d =
-   \bigcup_{s \in S_d} I^{transfer}_s
-
-The resulting transfer intervals are also flattened so that overlapping
-transfers on different streams of the same device are counted only once.
-
-Memory-transfer activity can overlap useful Device computation. Because this
-overlap represents simultaneous activity on the same physical device,
-BasicAnalysis does not add the overlapping portion again to the Device active
-time.
-
-The transfer activity contributing additional Device active time is therefore:
-
-.. math::
-
-   I^{transfer-only}_d =
-   I^{transfer}_d
-   \setminus
-   I^{useful}_d
-
-and its duration is:
-
-.. math::
-
-   NonOverlappingTransfer_d =
-   \left|
-      I^{transfer-only}_d
-   \right|
-
-BasicAnalysis then defines the useful-plus-transfer activity for each physical
-device as:
-
-.. math::
-
-   UsefulMemTransfer_d =
-   Useful_d +
-   NonOverlappingTransfer_d
-
-The corresponding maximum used by the Device communication and orchestration
-metrics is:
-
-.. math::
-
-   UsefulMemTransfer_{max} =
-   \max_d(UsefulMemTransfer_d)
-
-This construction ensures that useful computation and memory-transfer activity
-that overlap in time are not double-counted.
-
-The Device metrics described below are computed from these physical-device
-quantities rather than directly from the raw per-stream measurements.
-
-
-Device Parallel Efficiency
-^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Let :math:`D` be the number of accelerator devices, :math:`T` the application
-runtime, and :math:`UsefulDevice` the total useful device-computation time
-accumulated across all devices.
-
-BasicAnalysis computes:
-
-.. math::
-
-   Device\_Par\_Eff =
-   \frac{UsefulDevice}{D T}
-
-This metric represents the average fraction of the application runtime during
-which the devices perform useful computation.
-
-A low value indicates that, on average, the devices spend a significant
-fraction of the application runtime without performing useful device
-computation. The Device Load Balance, Device Communication Efficiency, and
-Device Orchestration Efficiency metrics help characterize the source of this
-loss.
-
-
-Device Load Balance
-^^^^^^^^^^^^^^^^^^^
-
-Let :math:`UsefulDevice_{max}` denote the maximum useful-computation time
-observed among the devices.
-
-BasicAnalysis computes:
-
-.. math::
-
-   Device\_LoadBalance =
-   \frac{UsefulDevice / D}{UsefulDevice_{max}}
-
-This metric compares the average useful device-computation time with the
-maximum observed on any device.
-
-A value close to 100% indicates that useful computation is distributed
-similarly across the devices. A lower value indicates that some devices
-perform substantially less useful computation than the most heavily loaded
-device.
-
-Device Load Balance therefore identifies imbalance in the distribution of
-useful accelerator work.
-
-
-Device Communication Efficiency
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-To distinguish useful device computation from time associated with memory
-transfers, BasicAnalysis considers the maximum device activity including
-useful computation and memory-transfer activity.
-
-Let :math:`UsefulMemTransferDevice_{max}` denote the maximum accumulated
-useful-computation plus memory-transfer time observed for a device.
-
-BasicAnalysis computes:
-
-.. math::
-
-   Device\_Comm\_Eff =
-   \frac{UsefulDevice_{max}}
-        {UsefulMemTransferDevice_{max}}
-
-A low value indicates that memory-transfer activity represents a significant
-fraction of the active interval associated with the most active device.
-
-This metric should be interpreted as a device-side communication indicator
-associated with accelerator memory transfers. It does not represent MPI
-communication, which is analyzed separately through the MPI runtime metrics.
-
-
-Device Orchestration Efficiency
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Device Orchestration Efficiency relates the maximum device activity including
-useful computation and memory transfers to the total application runtime:
-
-.. math::
-
-   Device\_Orchestration\_Eff =
-   \frac{UsefulMemTransferDevice_{max}}{T}
-
-A low value indicates that even the most active device spends a significant
-fraction of the application runtime without either useful computation or the
-memory-transfer activity captured by the Device model.
-
-This may indicate gaps between kernel executions, delayed kernel submission,
-Host-side synchronization, dependencies between Host and Device execution, or
-other orchestration effects that prevent the accelerator from being supplied
-with work continuously.
-
-The metric identifies the presence of such gaps but does not by itself
-determine their root cause. Detailed trace analysis may therefore be required
-to identify the responsible Host-Device interaction.
-
-
-Device Parallel Efficiency Decomposition
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-The Device metrics form the following multiplicative relationship:
-
-.. math::
-
-   Device\_LoadBalance
-   \cdot Device\_Comm\_Eff
-   \cdot Device\_Orchestration\_Eff
-
-Substituting the metric definitions gives:
-
-.. math::
-
-   \frac{UsefulDevice/D}{UsefulDevice_{max}}
-   \cdot
-   \frac{UsefulDevice_{max}}
-        {UsefulMemTransferDevice_{max}}
-   \cdot
-   \frac{UsefulMemTransferDevice_{max}}{T}
-
-which simplifies to:
-
-.. math::
-
-   \frac{UsefulDevice}{D T}
-
-and therefore:
-
-.. math::
-
-   Device\_Par\_Eff =
-   Device\_LoadBalance
-   \cdot Device\_Comm\_Eff
-   \cdot Device\_Orchestration\_Eff
-
-This decomposition allows BasicAnalysis to distinguish whether low Device
-Parallel Efficiency is primarily associated with work imbalance, memory
-transfers, or insufficient continuity of device activity.
-
-
-Device Computation Scalability
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Device Computation Scalability evaluates how useful accelerator computation
-changes relative to the reference execution.
-
-For strong scaling:
-
-.. math::
-
-   Device\_CompScale_n =
-   \frac{UsefulDevice_0}{UsefulDevice_n}
-
-For weak scaling, BasicAnalysis accounts for the increase in the number of
-accelerator devices:
-
-.. math::
-
-   Device\_CompScale_n =
-   \frac{UsefulDevice_0}{UsefulDevice_n}
-   \cdot
-   \frac{D_n}{D_0}
-
-where :math:`D_0` and :math:`D_n` are the numbers of accelerator devices in
-the reference and evaluated executions, respectively.
-
-A value below 100% indicates that useful device computation takes
-proportionally more time than expected under the selected scaling model. This
-may reflect changes in kernel execution behavior, additional device work, or
-other scalability effects affecting accelerator computation.
-
-Unlike Host Computation Scalability, BasicAnalysis does not currently provide
-a hardware-counter-based decomposition of Device Computation Scalability.
-
-
-Device Global Efficiency
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-Device Global Efficiency combines Device Parallel Efficiency and Device
-Computation Scalability:
-
-.. math::
-
-   Device\_Global\_Eff =
-   Device\_Par\_Eff \cdot Device\_CompScale
-
-For a single-trace analysis, where Device Computation Scalability cannot be
-evaluated against a reference execution, BasicAnalysis reports:
-
-.. math::
-
-   Device\_Global\_Eff = Device\_Par\_Eff
-
-Device Global Efficiency therefore summarizes the combined effects of
-device-side parallel execution and the scalability of useful device
-computation.
-
-
-Interpreting the Host and Device Views
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The Host and Device metrics provide complementary execution-domain views of an
-MPI+GPU application.
-
-A low Host Global Efficiency indicates that performance losses manifest on the
-Host side. The hierarchy can then be followed to determine whether the loss is
-associated primarily with MPI behavior, Device Offload Efficiency, or Host
-Computation Scalability.
-
-A low Device Global Efficiency indicates that performance losses manifest in
-accelerator execution. Device Parallel Efficiency can then be decomposed into
-Device Load Balance, Device Communication Efficiency, and Device Orchestration
-Efficiency to distinguish work-distribution, memory-transfer, and
-orchestration-related effects.
-
-The absolute values of Host Global Efficiency and Device Global Efficiency
-should not be directly compared to determine which execution domain
-"contributes more" to the application-level inefficiency. They are
-domain-specific analytical views with different useful-time populations and
-normalizations.
-
-Instead, they should be used hierarchically to identify where an inefficiency
-manifests and which component provides the strongest evidence for its origin.
-The application-level metrics indicate the overall performance loss, the
-Parallel Runtime Model identifies the runtime associated with parallel
-inefficiency, and the Host/Device views localize accelerator-related behavior
-to the corresponding execution domain.
-
-When these metrics identify a significant loss, detailed trace analysis with
-Paraver or another specialized performance-analysis tool can be used to
-localize the behavior in time and validate its underlying cause.
-
-
 I/O Metrics
 ===========
 
@@ -2623,17 +2665,17 @@ BasicAnalysis distinguishes between:
 * MPI-I/O activity; and
 * POSIX and ANSI C File I/O activity.
 
-The availability of these metrics depends on the corresponding I/O activity
-being captured in the trace.
+API-specific I/O metrics are available when the corresponding I/O activity is
+present in the trace.
 
 
 I/O Efficiency
 --------------
 
-I/O Efficiency characterizes the relative weight of File I/O activity with
-respect to useful computation.
+**I/O Efficiency** characterizes the overall weight of File I/O activity
+relative to useful computation.
 
-Let:
+The following notation is used by the I/O metrics:
 
 .. list-table::
    :header-rows: 1
@@ -2644,21 +2686,30 @@ Let:
    * - :math:`Useful`
      - Total useful computation time.
    * - :math:`MPIIO`
-     - Total MPI-I/O activity measured in the trace.
+     - Total I/O time done by MPI-I/O calls measured in the trace.
    * - :math:`POSIXIO`
-     - Total POSIX and ANSI C File I/O activity measured in the trace.
+     - Total I/O time done by POSIX and ANSI C File I/O calls measured in the trace.
+   * - :math:`P`
+     - Number of Host execution units considered by the I/O metric. For simple 
+       execution models, this corresponds to the parallel-unit count of the
+       analyzed configuration. For hybrid applications, accelerator execution
+       contexts are excluded because File I/O activity is attributed to the Host.
+   * - :math:`T`
+     - Application execution time represented by the analyzed trace.
 
 BasicAnalysis computes:
 
 .. math::
 
    IO\_Eff =
-   \frac{Useful}
-        {Useful + MPIIO + POSIXIO}
+   \frac{
+      Useful
+   }{
+      Useful + MPIIO + POSIXIO
+   }
 
 A value close to 100% indicates that File I/O represents only a small fraction
 of the activity considered by this metric relative to useful computation.
-
 A lower value indicates that File I/O has an increasing weight relative to
 useful computation.
 
@@ -2670,11 +2721,8 @@ the File I/O activity observed in the trace.
 MPI I/O Efficiency
 ------------------
 
-MPI I/O Efficiency characterizes the fraction of the aggregate execution
+**MPI I/O Efficiency** characterizes the fraction of the aggregate execution
 capacity that is not spent in MPI-I/O activity.
-
-Let :math:`P` be the number of parallel execution units considered by the
-metric and :math:`T` the application execution time.
 
 BasicAnalysis computes:
 
@@ -2682,10 +2730,14 @@ BasicAnalysis computes:
 
    MPI\_IO\_Eff =
    1 -
-   \frac{MPIIO}{P T}
+   \frac{
+      MPIIO
+   }{
+      P T
+   }
 
 where :math:`MPIIO` is the total MPI-I/O duration accumulated across the
-parallel execution units.
+parallel execution units represented in the measurement.
 
 A value close to 100% indicates that MPI-I/O consumes only a small fraction
 of the aggregate execution capacity. Lower values indicate an increasing
@@ -2698,8 +2750,9 @@ detected in the analyzed execution.
 MPI I/O Load Balance
 --------------------
 
-MPI I/O Load Balance characterizes how evenly MPI-I/O activity is distributed
-across the execution units represented in the MPI-I/O measurement.
+**MPI I/O Load Balance** characterizes how evenly MPI-I/O activity is
+distributed across the execution units represented in the MPI-I/O
+measurement.
 
 Let :math:`MPIIO_i` be the MPI-I/O duration associated with execution unit
 :math:`i`. BasicAnalysis computes:
@@ -2707,15 +2760,18 @@ Let :math:`MPIIO_i` be the MPI-I/O duration associated with execution unit
 .. math::
 
    MPI\_IO\_LB =
-   \frac{\overline{MPIIO}}
-        {\max(MPIIO)}
+   \frac{
+      \overline{MPIIO}
+   }{
+      \max(MPIIO)
+   }
 
 where :math:`\overline{MPIIO}` is the average MPI-I/O duration across the
 execution units represented in the measurement.
 
-A value close to 100% indicates that MPI-I/O duration is similarly distributed
-across those execution units. Lower values indicate that some execution units
-spend substantially more time in MPI-I/O than others.
+A value close to 100% indicates that MPI-I/O duration is similarly
+distributed across those execution units. Lower values indicate that some
+execution units spend substantially more time in MPI-I/O than others.
 
 A low MPI I/O Load Balance may be associated with uneven I/O volumes,
 rank-specific I/O behavior, serialized I/O, or aggregator-dominated access
@@ -2729,7 +2785,7 @@ detected.
 POSIX I/O Efficiency
 --------------------
 
-POSIX I/O Efficiency characterizes the fraction of the aggregate execution
+**POSIX I/O Efficiency** characterizes the fraction of the aggregate execution
 capacity that is not spent in POSIX or ANSI C File I/O activity captured by
 the trace.
 
@@ -2739,12 +2795,15 @@ BasicAnalysis computes:
 
    POSIX\_IO\_Eff =
    1 -
-   \frac{POSIXIO}{P T}
+   \frac{
+      POSIXIO
+   }{
+      P T
+   }
 
 where :math:`POSIXIO` is the total POSIX and ANSI C File I/O duration
-accumulated across the parallel execution units, :math:`P` is the number of
-parallel execution units considered by the metric, and :math:`T` is the
-application execution time.
+accumulated across the parallel execution units represented in the
+measurement.
 
 A value close to 100% indicates that POSIX and ANSI C File I/O consumes only
 a small fraction of the aggregate execution capacity. Lower values indicate
@@ -2757,9 +2816,9 @@ File I/O activity is detected in the analyzed execution.
 POSIX I/O Load Balance
 ----------------------
 
-POSIX I/O Load Balance characterizes how evenly POSIX and ANSI C File I/O
-activity is distributed across the execution units that perform the measured
-I/O.
+**POSIX I/O Load Balance** characterizes how evenly POSIX and ANSI C File I/O
+activity is distributed across the execution units represented in the
+measurement.
 
 Let :math:`POSIXIO_i` be the File I/O duration associated with execution unit
 :math:`i`. BasicAnalysis computes:
@@ -2767,11 +2826,14 @@ Let :math:`POSIXIO_i` be the File I/O duration associated with execution unit
 .. math::
 
    POSIX\_IO\_LB =
-   \frac{\overline{POSIXIO}}
-        {\max(POSIXIO)}
+   \frac{
+      \overline{POSIXIO}
+   }{
+      \max(POSIXIO)
+   }
 
-where :math:`\overline{POSIXIO}` is the average File I/O duration across the
-execution units represented in the measurement.
+where :math:`\overline{POSIXIO}` is the average POSIX and ANSI C File I/O
+duration across the execution units represented in the measurement.
 
 A value close to 100% indicates that File I/O duration is similarly
 distributed across those execution units. Lower values indicate increasing
@@ -2780,7 +2842,8 @@ I/O than others.
 
 A low POSIX I/O Load Balance may result from uneven data distribution,
 rank-specific File I/O, serialized access, or differences in the amount of
-data processed by individual execution units.
+data processed by individual execution units. Detailed trace or I/O analysis
+is required to determine the underlying cause.
 
 POSIX I/O Load Balance is reported as ``Non-Avail`` when no POSIX or ANSI C
 File I/O activity is detected.
@@ -2789,18 +2852,20 @@ File I/O activity is detected.
 Interpretation of the I/O Metrics
 ---------------------------------
 
-The I/O metrics provide complementary views of the File I/O activity observed
-during execution.
+The I/O metrics provide complementary perspectives on the File I/O activity
+observed during execution.
 
 **I/O Efficiency** characterizes the overall weight of File I/O relative to
-useful computation, while **MPI I/O Efficiency** and **POSIX I/O Efficiency**
-identify the contribution associated with the corresponding File I/O
-interface.
+useful computation. In contrast, **MPI I/O Efficiency** and **POSIX I/O
+Efficiency** characterize how much of the aggregate execution capacity is not
+consumed by activity associated with the corresponding File I/O interface.
+The API-specific efficiencies are therefore not simply a decomposition of
+I/O Efficiency.
 
-The I/O Load Balance metrics provide a different perspective. They characterize
+The I/O Load Balance metrics provide a different perspective by characterizing
 the distribution of I/O duration among the execution units represented in the
-measurement and can therefore reveal imbalance even when the overall weight of
-I/O is relatively small.
+corresponding measurement. They can therefore reveal I/O imbalance even when
+the overall weight of I/O is relatively small.
 
 Conversely, a high I/O Load Balance does not imply that File I/O overhead is
 small. All execution units may spend a similarly large amount of time in I/O.
@@ -2819,11 +2884,13 @@ General Metrics
 ===============
 
 BasicAnalysis also reports the classic parallel-performance indicators
-**Speedup** and **Efficiency** when multiple execution configurations are
-analyzed.
+**Speedup** and **Scaling Efficiency** when multiple execution configurations
+are analyzed.
 
 These quantities describe the overall scaling behavior of the application and
-are computed with respect to the reference execution.
+are computed with respect to the reference execution. They are general scaling
+indicators and do not form part of the multiplicative performance-efficiency
+model described in the preceding sections.
 
 Let:
 
@@ -2842,10 +2909,11 @@ Let:
    * - :math:`P(n)`
      - Application-level parallel-unit count of configuration :math:`n`.
 
-The parallel-unit count is the configuration-level resource count used by
-BasicAnalysis for the overall scaling experiment. It should not be confused
-with the Host- or Device-specific resource populations used by the
-corresponding execution-domain scalability metrics.
+The parallel-unit count is the application-level execution-unit count used by
+BasicAnalysis to represent each configuration in the overall scaling
+experiment. It should not be confused with the Host execution-unit count or
+the number of physical devices used by the corresponding execution-domain
+scalability metrics.
 
 
 Speedup
@@ -2858,7 +2926,7 @@ For strong scaling, BasicAnalysis computes:
    Speedup(n) =
    \frac{T(0)}{T(n)}
 
-The ideal strong-scaling Speedup grows proportionally with the increase in
+Under ideal strong scaling, Speedup grows proportionally with the increase in
 parallel resources.
 
 For weak scaling, BasicAnalysis computes:
@@ -2871,13 +2939,17 @@ For weak scaling, BasicAnalysis computes:
    \frac{P(n)}{P(0)}
 
 The resource ratio accounts for the increase in workload expected in a
-weak-scaling experiment. Under ideal weak scaling, execution time remains
-constant while the workload and resources increase proportionally, and the
-reported Speedup therefore follows the resource-growth ratio.
+weak-scaling experiment. This normalization allows the reported Speedup to
+retain the resource-growth interpretation: under ideal weak scaling,
+execution time remains constant while workload and resources increase
+proportionally, and Speedup therefore follows the resource-growth ratio.
 
 
 Scaling Efficiency
 ------------------
+
+**Scaling Efficiency** expresses the achieved scaling behavior relative to
+the ideal behavior defined by the selected scaling model.
 
 For strong scaling, BasicAnalysis computes:
 
@@ -2893,29 +2965,28 @@ or equivalently:
 .. math::
 
    Efficiency(n) =
-   \frac{Speedup(n)}
-        {P(n)/P(0)}
+   \frac{
+      Speedup(n)
+   }{
+      P(n)/P(0)
+   }
 
-For weak scaling:
+For weak scaling, BasicAnalysis computes:
 
 .. math::
 
    Efficiency(n) =
    \frac{T(0)}{T(n)}
 
-Under ideal strong or weak scaling:
-
-.. math::
-
-   Efficiency(n) = 1
-
-Therefore, a value close to 1 indicates behavior close to the ideal scaling
-case defined by the selected scaling model. Lower values indicate increasing
-loss of scaling efficiency.
+For both scaling models, a value of 1 represents ideal scaling behavior
+relative to the reference execution. Values below 1 indicate increasing loss
+of scaling efficiency, while values above 1 indicate scaling behavior better
+than the corresponding ideal reference, for example in a superlinear
+strong-scaling case.
 
 Unlike the efficiency factors of the hierarchical performance model, which
-are reported as percentages, this general Scaling Efficiency indicator is
-reported as a dimensionless value, where 1 corresponds to 100% efficiency.
+are reported as percentages, Scaling Efficiency is reported as a
+dimensionless value, where 1 corresponds to 100% efficiency.
 
 
 Metric Availability
@@ -2930,22 +3001,22 @@ corresponding analysis.
 
 Typical cases include:
 
-* Computation Scalability and the associated scalability factors when only one
-  execution configuration is analyzed;
+* application-level Computation Scalability and its associated scalability
+  factors when only one execution configuration is analyzed;
 
-* IPC, Instruction Scalability, and Frequency Scalability when the required
+* IPC Scalability, Instruction Scalability, and Frequency Scalability,
+  including their Host-side counterparts when applicable, when the required
   hardware-counter information is not available;
 
-* Host and Device Computation Scalability when only one MPI+GPU execution is
-  analyzed;
+* Host and Device Computation Scalability when only one MPI+GPU execution
+  configuration is analyzed;
 
 * MPI Serialization Efficiency and MPI Transfer Efficiency when the required
   Dimemas simulation is unavailable, explicitly skipped, or unsupported for
   the detected programming model;
 
-* OpenMP Serialization Efficiency and OpenMP Transfer Efficiency when the
-  optional MPI+OpenMP hybrid simulation is not requested or cannot be
-  completed;
+* derived OpenMP Serialization and Transfer contributions when the optional
+  MPI+OpenMP hybrid simulation is not requested or cannot be completed;
 
 * MPI I/O Efficiency and MPI I/O Load Balance when no MPI-I/O activity is
   detected;
@@ -2962,5 +3033,5 @@ analysis. It should not be interpreted as zero efficiency.
 
 The set of available metrics depends on the trace mode, programming model,
 number of analyzed execution configurations, available hardware counters,
-detected runtime activity, availability of the required simulation, and the
-selected analysis options.
+detected runtime and I/O activity, availability of the required simulation,
+and the selected analysis options.

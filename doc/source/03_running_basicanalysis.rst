@@ -178,7 +178,7 @@ CUDA activity:
    Enable simulation of CUDA events.
 
 The role of Dimemas, the idealized execution, and the metrics that depend on
-simulation are described in :doc:`05_methodology`.
+simulation are described in :doc:`06_metrics`.
 
 
 Trace-mode detection
