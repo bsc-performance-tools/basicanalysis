@@ -93,6 +93,7 @@ make help
 doc/
 ├── source/
 │   ├── _static/        # Custom styles and static resources
+│   ├── graphs/         # Graphviz source files for the User Guide diagrams
 │   ├── images/         # Images used by the User Guide
 │   ├── conf.py         # Sphinx configuration
 │   ├── index.rst       # Main documentation index
