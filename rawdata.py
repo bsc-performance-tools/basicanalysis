@@ -596,6 +596,117 @@ def parse_outside_mpi_stats(path, runtime_value):
     return result
 
 
+def parse_outside_mpi_stats_gpu(path):
+    """
+    Parse outside_mpi.stats for an MPI+GPU execution.
+
+    OutsideMPI is interpreted strictly at MPI-rank level. One representative
+    Host thread (THREAD app.task.1) is used for each MPI rank. GPU stream
+    execution contexts are therefore excluded from the MPI-level population.
+
+    Returns:
+      {
+        'outsidempi_tot_diff': ...,
+        'outsidempi_tot': ...,
+        'outsidempi_avg': ...,
+        'outsidempi_max': ...,
+        'mpicomm_tot': ...,
+        'mpi_proc_count': ...,
+      }
+    """
+
+    result = {
+        'outsidempi_tot_diff': 'NaN',
+        'outsidempi_tot': 'NaN',
+        'outsidempi_avg': 'NaN',
+        'outsidempi_max': 'NaN',
+        'mpicomm_tot': 'NaN',
+        'mpi_proc_count': 0,
+    }
+
+    outside_mpi_by_rank = []
+    total_row = None
+
+    with open(path) as f:
+        next(f, None)  # skip header
+
+        for raw_line in f:
+            line = raw_line.rstrip('\n')
+            parts = line.split('\t')
+
+            if not parts or parts[0] == '':
+                continue
+
+            key = parts[0].strip()
+
+            # Preserve Total row for MPI communication totals.
+            if key == 'Total':
+                total_row = parts
+                continue
+
+            if key in SUMMARY_KEYS:
+                continue
+
+            if not key.startswith('THREAD '):
+                continue
+
+            if len(parts) < 2 or parts[1] == '':
+                continue
+
+            # MPI-rank representative:
+            # THREAD app.task.1
+            try:
+                thread_id = key.split()[1]
+                thread_fields = thread_id.split('.')
+
+                if len(thread_fields) != 3:
+                    continue
+
+                if thread_fields[2] != '1':
+                    continue
+
+                value = float(parts[1])
+
+            except (IndexError, ValueError):
+                continue
+
+            outside_mpi_by_rank.append(value)
+
+    if outside_mpi_by_rank:
+        outside_total = sum(outside_mpi_by_rank)
+        mpi_proc_count = len(outside_mpi_by_rank)
+
+        result['outsidempi_tot'] = outside_total
+
+        # For MPI+GPU no execution-context weighting is applied.
+        # Keep both totals identical so downstream MPI metrics use
+        # the rank-based formulation.
+        result['outsidempi_tot_diff'] = outside_total
+
+        result['outsidempi_avg'] = (
+            outside_total
+            / mpi_proc_count
+        )
+
+        result['outsidempi_max'] = max(
+            outside_mpi_by_rank
+        )
+
+        result['mpi_proc_count'] = mpi_proc_count
+
+    # MPI communication total from the Total row.
+    if total_row is not None and len(total_row) > 2:
+        list_mpi_tot = [
+            float(value)
+            for value in total_row[2:]
+            if value != ''
+        ]
+
+        result['mpicomm_tot'] = sum(list_mpi_tot)
+
+    return result
+
+
 def parse_tab_stats(path):
     """
     Parse stats files where rows are:
@@ -2337,10 +2448,17 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
 
     # outside_mpi
     if os.path.exists(trace_name + '.outside_mpi.stats.csv') and is_detailed_mpi:
-        outside_data = parse_outside_mpi_stats(
-            trace_name + '.outside_mpi.stats.csv',
-            trace_raw_data['runtime']
-        )
+
+        if is_mpi_gpu:
+            outside_data = parse_outside_mpi_stats_gpu(
+                trace_name + '.outside_mpi.stats.csv'
+            )
+
+        else:
+            outside_data = parse_outside_mpi_stats(
+                trace_name + '.outside_mpi.stats.csv',
+                trace_raw_data['runtime']
+            )
         trace_raw_data['outsidempi_tot_diff'] = outside_data['outsidempi_tot_diff']
         trace_raw_data['outsidempi_tot'] = outside_data['outsidempi_tot']
         trace_raw_data['outsidempi_avg'] = outside_data['outsidempi_avg']

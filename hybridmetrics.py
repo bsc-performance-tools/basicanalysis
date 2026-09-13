@@ -1192,8 +1192,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     # --------------------------------------------------
 
                     useful_app_ref = (
-                        float(raw_data['useful_host'][trace_list[0]])
-                        + float(raw_data['useful_device'][trace_list[0]])
+                        float(raw_data['useful_host'][reference])
+                        + float(raw_data['useful_device'][reference])
                     )
 
                     useful_app = (
@@ -1208,10 +1208,25 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                             * 100.0
                         )
                     else:
+                        app_units_ref = (
+                            int(raw_data['count_host_threads'][reference])
+                            + int(raw_data['count_devices'][reference])
+                        )
+
+                        app_units = (
+                            int(raw_data['count_host_threads'][trace])
+                            + int(raw_data['count_devices'][trace])
+                        )
+
+                        app_ratio = (
+                            float(app_units)
+                            / float(app_units_ref)
+                        )
+
                         mod_factors['comp_scale'][trace] = (
                             useful_app_ref
                             / useful_app
-                            * proc_ratio
+                            * app_ratio
                             * 100.0
                         )
 
@@ -1340,7 +1355,9 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             if (not outmpi_measures) or cmdl_args.skip_simulation:
                 hybrid_factors['transfer_eff'][trace] = 'Non-Avail'
-            elif hybrid_factors['serial_eff'][trace] != 'Warning!':
+            elif hybrid_factors['serial_eff'][trace] == 'Warning!':
+                hybrid_factors['transfer_eff'][trace] = 'Warning!'            
+            else:
                 if trace_mode[trace] == "Detailed+MPI+OpenMP" and cmdl_args.hyb_mpiomp:
                     mod_factors['transfer_eff'][trace] = float(mod_factors['comm_eff'][trace]) \
                     / float(mod_factors['serial_eff'][trace]) * 100.0
@@ -1365,6 +1382,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 if not hybrid_factors['transfer_eff'][trace] == 'Non-Avail':
                     if round(hybrid_factors['transfer_eff'][trace]) > 100:
                         hybrid_factors['transfer_eff'][trace] = 'Warning!'
+            
         except:
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
                     or trace_mode[trace] == 'Detailed+MPI+CUDA':
@@ -1520,6 +1538,20 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 )
 
                 hybrid_gpu_factors['hybrid_eff'][trace] = hybrid_parallel_eff
+    
+                # --------------------------------------------------
+                # Classic MPI+GPU Global Efficiency
+                # --------------------------------------------------
+                if len(trace_list) > 1:
+                    mod_factors['global_eff'][trace] = (
+                        hybrid_parallel_eff
+                        * float(mod_factors['comp_scale'][trace])
+                        / 100.0
+                    )
+                else:
+                    mod_factors['global_eff'][trace] = (
+                        hybrid_parallel_eff
+                    )
 
                 hybrid_gpu_factors['mpi_parallel_eff'][trace] = hybrid_factors['mpi_parallel_eff'][trace]
                 hybrid_gpu_factors['mpi_load_balance'][trace] = hybrid_factors['mpi_load_balance'][trace]
