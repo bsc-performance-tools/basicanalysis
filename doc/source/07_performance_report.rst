@@ -16,11 +16,15 @@ weight and distribution of File I/O activity. Finally, the Scaling view shows
 how performance and efficiency factors evolve across the analyzed
 configurations.
 
+Throughout this workflow, Metric Details provides contextual guidance to
+help interpret the reported metrics and continue the performance diagnosis.
+
 These views are complementary and may use different analytical scopes. Not all
 metrics shown in the report belong to the same multiplicative efficiency model.
 
-The following sections describe the purpose of each report view and how to use
-them during a performance analysis.
+The following sections describe the report interface, the purpose of each
+analysis view, and the functionality available to support the performance
+analysis.
 
 
 Report Interface
@@ -48,16 +52,17 @@ report views.
 
    Performance report navigation.
 
-The report is designed as a guided analysis workspace. The primary views
-provide complementary perspectives on the same execution rather than
-independent analyses.
-
 Runtime-specific analysis is accessed from the Parallel Runtime Model through
 the **Runtime Analysis** selector rather than as a separate primary view.
 
+Metric values in the interactive efficiency tables can be clicked to open the
+**Metric Details** view. This view provides the metric definition,
+interpretation of the observed value, and recommended next diagnostic steps.
+The Metric Details functionality is described later in this chapter.
+
 The controls on the right side of the navigation bar provide access to the
 complementary split view and to the report export functions. These features
-are described later in this chapter.
+are also described later in this chapter.
 
 
 Execution Overview
@@ -330,6 +335,50 @@ Use the trends to identify which factors degrade as the application scales. A
 degrading metric identifies where the scalability loss becomes visible, but it
 does not by itself establish the root cause. Further trace analysis may be
 required to explain the observed behavior.
+
+
+Metric Details
+--------------
+
+The interactive report provides additional information for each performance
+metric through the **Metric Details** view. This information helps users
+understand the meaning of a metric value and identify the next steps for
+further performance analysis.
+
+To open the Metric Details view, click a metric value in any of the interactive
+efficiency tables. A dialog is displayed for the selected metric and execution,
+as shown :numref:`fig-report-metrics-details`.
+
+.. _fig-report-metrics-details:
+
+.. figure:: images/report-metrics-details.png
+   :align: center
+   :width: 95%
+   :alt: Metric Details view for Device Offload Efficiency
+
+   Metric Details view for Device Offload Efficiency. The dialog provides the
+   metric definition, interpretation of the selected value, and recommended
+   next diagnostic steps.
+
+The dialog identifies the metric, its analysis context, the selected execution,
+and the corresponding metric value. It then provides:
+
+* **Definition** -- explains what the metric measures from a performance-analysis
+  perspective.
+
+* **Interpretation** -- explains how to interpret the observed value. When
+  applicable, the interpretation also accounts for the efficiency range
+  associated with the value (for example, critical or low efficiency).
+
+* **Next diagnostic step** -- recommends the subsequent analysis to investigate
+  the performance factor represented by the metric, including related metrics
+  or execution domains that should be examined.
+
+The information presented in **Metric Details** is adapted to the selected
+metric and its analysis context. This is particularly relevant for hybrid
+applications, where the report distinguishes between application-level metrics,
+contributions from the different parallel runtimes, and Host/Device
+execution-domain metrics.
 
 
 Comparing Complementary Views

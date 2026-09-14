@@ -17,11 +17,11 @@
 
 # -- Project information -----------------------------------------------------
 project = u'BasicAnalysis'
-copyright = u'2019, BSC Performance Tools'
+copyright = u'2026, BSC Performance Tools'
 author = u'BSC Performance Tools'
 
 # The full version, including alpha/beta/rc tags
-release = u'1.0'
+release = u'2026.09.15'
 
 
 # -- General configuration ---------------------------------------------------
