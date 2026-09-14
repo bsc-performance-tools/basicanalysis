@@ -811,6 +811,10 @@ def _build_io_metrics_section(
         _build_metric_interaction_hint_html()
     )
 
+    guidance_html = (
+        _build_io_metrics_guidance_html()
+    )
+
     efficiency_scale_html = (
         _build_efficiency_scale_html()
     )
@@ -862,6 +866,8 @@ def _build_io_metrics_section(
         window["metricInfo_io-metrics"] = {info_json};
         </script>
 
+        {guidance_html}
+        
         {trace_header_note}
 
         {metric_interaction_hint_html}
@@ -883,6 +889,7 @@ def _build_io_metrics_section(
     </section>
     """.format(
         info_json=info_json,
+        guidance_html=guidance_html,
         trace_header_note=trace_header_note,
         metric_interaction_hint_html=metric_interaction_hint_html,
         trace_column_description=html.escape(
@@ -3357,6 +3364,118 @@ def _build_printable_scaling_guidance_html():
     </div>
     """
 
+def _build_printable_io_section(
+        other_metrics,
+        trace_list,
+        trace_labels,
+        trace_column_description,
+        section_number):
+    """Build the printable File I/O Metrics analysis."""
+
+    metric_keys = list(IO_ORDER)
+
+    metric_sources = {
+        metric_key: other_metrics
+        for metric_key in metric_keys
+    }
+
+    filtered_keys = _filter_available_metric_keys(
+        metric_keys,
+        metric_sources,
+        trace_list,
+    )
+
+    if not filtered_keys:
+        return ""
+
+    table_html = _build_efficiency_table_html(
+        metric_keys=filtered_keys,
+        metric_info=IO_METRIC_INFO,
+        metric_sources=metric_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        section_id="print-io-metrics",
+        tree=[],
+        printable=True,
+    )
+
+    scope_note_html = """
+    <div class="analysis-scope-note">
+        <h3>Analysis focus</h3>
+
+        <p>
+            I/O Metrics provide complementary information about the
+            contribution and distribution of File I/O activity in the
+            measured execution.
+        </p>
+
+        <p>
+            These metrics are reported independently from the hierarchical
+            performance-efficiency model and should not be interpreted as
+            a multiplicative decomposition of application efficiency.
+        </p>
+    </div>
+    """
+
+    trend_html = ""
+
+    if len(trace_list) > 1:
+        trend_html = _build_metric_trend_plot_html(
+            metric_keys=filtered_keys,
+            metric_info=IO_METRIC_INFO,
+            metric_sources=metric_sources,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            title="I/O Efficiency Trends",
+            description=(
+                "Compare how File I/O efficiency and I/O load balance "
+                "evolve across the analyzed execution configurations."
+            ),
+            x_axis_title=trace_column_description,
+            y_axis_title="Efficiency (%)",
+            bounded_percentage=True,
+            printable=True,
+        )
+
+    return """
+    <section
+        class="print-metric-section
+               print-page-section
+               print-io-analysis"
+    >
+        <header class="print-section-header">
+            <h2>{section_number} I/O Analysis</h2>
+
+            <p class="print-section-description">
+                Complementary File I/O efficiency and load-balance metrics
+                for the analyzed execution.
+            </p>
+        </header>
+
+        {scope_note_html}
+
+        <p class="trace-header-note">
+            <b>Trace columns:</b>
+            <code>{trace_column_description}</code>
+        </p>
+
+        <div class="print-metric-results metric-table-card">
+            {table_html}
+        </div>
+
+        {trend_html}
+
+    </section>
+    """.format(
+        section_number=section_number,
+        scope_note_html=scope_note_html,
+        trace_column_description=html.escape(
+            trace_column_description
+        ),
+        table_html=table_html,
+        trend_html=trend_html,
+    )
+
 
 def _build_printable_scaling_section(
         scalability_data,
@@ -4385,6 +4504,43 @@ def _build_scaling_guidance_html():
             show how the active parallel runtimes contribute to scaling,
             while Host and Device trends show where accelerator-related
             scalability effects manifest.
+        </p>
+    </section>
+    """
+
+
+def _build_io_metrics_guidance_html():
+    """Explain how to interpret the complementary File I/O metrics."""
+
+    return """
+    <section
+        class="analysis-guide-note"
+        aria-label="How to read the I/O Metrics view"
+    >
+        <h3>How to read this view</h3>
+
+        <p>
+            Use this view to characterize the contribution and distribution
+            of <strong>File I/O activity</strong> observed in the execution.
+            Start with <strong>I/O Efficiency</strong> to assess the overall
+            weight of File I/O relative to useful computation.
+        </p>
+
+        <p>
+            Continue with <strong>MPI I/O Efficiency</strong> and
+            <strong>POSIX I/O Efficiency</strong> to examine the execution
+            capacity consumed by activity associated with each File I/O
+            interface. Use the corresponding <strong>I/O Load Balance</strong>
+            metrics to determine how evenly that activity is distributed
+            across the execution units represented in the measurement.
+        </p>
+
+        <p>
+            These metrics are <strong>complementary to the hierarchical
+            performance-efficiency model</strong>. They do not contribute to
+            Global Efficiency, Parallel Efficiency, or Computation
+            Scalability and should therefore be interpreted independently
+            rather than as part of the multiplicative efficiency hierarchy.
         </p>
     </section>
     """
@@ -11686,6 +11842,9 @@ def _build_basicanalysis_printable_report_html(
     )
 
     execution_domains_section_number = None
+
+    io_section_number = None
+
     scaling_section_number = None
 
 
@@ -11782,8 +11941,49 @@ def _build_basicanalysis_printable_report_html(
                 )
             )
 
+
     # --------------------------------------------------
-    # 6. Scaling analysis
+    # 6. I/O analysis
+    # --------------------------------------------------
+
+    io_html = ""
+
+    if _has_io_metrics(
+            other_metrics,
+            trace_list):
+
+        io_section_number = next_section_number
+        next_section_number += 1
+
+        io_metric_sources = {
+            metric_key: other_metrics
+            for metric_key in IO_ORDER
+        }
+
+        io_filtered_keys = _filter_available_metric_keys(
+            IO_ORDER,
+            io_metric_sources,
+            trace_list,
+        )
+
+        if io_filtered_keys:
+            _collect_metric_reference(
+                metric_reference,
+                io_filtered_keys,
+                IO_METRIC_INFO,
+            )
+
+        io_html = _build_printable_io_section(
+            other_metrics=other_metrics,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            trace_column_description=trace_column_description,
+            section_number=io_section_number,
+        )
+
+
+    # --------------------------------------------------
+    # 7. Scaling analysis
     # --------------------------------------------------
 
     scaling_html = ""
@@ -11872,6 +12072,7 @@ def _build_basicanalysis_printable_report_html(
         {parallel_runtime_model_html}
         {runtime_specific_html}
         {execution_domains_html}
+        {io_html}
         {scaling_html}
         {appendix_html}
     """.format(
@@ -11884,6 +12085,7 @@ def _build_basicanalysis_printable_report_html(
         efficiency_scale_html=efficiency_scale_html,
         runtime_specific_html=runtime_specific_html,
         execution_domains_html=execution_domains_html,
+        io_html=io_html,
         scaling_html=scaling_html,
         appendix_html=appendix_html,
     )
