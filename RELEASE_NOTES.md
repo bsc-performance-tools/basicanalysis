@@ -1,6 +1,6 @@
 # Release Notes
 
-## 2026.09.14
+## 2026.09.15
 
 > **Versioning:** Starting with this release, BasicAnalysis adopts
 > Calendar Versioning (CalVer) using the `YYYY.MM.DD` format.
