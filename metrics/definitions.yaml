@@ -28,8 +28,8 @@ metrics:
     family: global
     analysis_level: application
     metric_type: compound_efficiency
-    definition: Top-level efficiency used to assess the overall quality of parallelization. It combines losses introduced
-      by parallel execution with changes in the cost of useful computation as resources scale.
+    definition:   Top-level efficiency used to assess the overall performance efficiency of the application. 
+      It combines the effects of parallel execution and the scalability of useful computation as resources increase.
     formula:
       text: GE = PE × CompScale
       latex: GE = PE \\times CompScale
@@ -60,9 +60,10 @@ metrics:
     family: global
     analysis_level: application
     metric_type: compound_efficiency
-    definition: Measures the inefficiency introduced by parallel execution, including uneven distribution of useful
-      computation and time spent in communication or parallel-runtime activity. In the POP model it is the ratio
-      of average useful computation time to total runtime and equals Load Balance multiplied by Communication Efficiency.
+    definition:   Measures the efficiency of the parallel execution. It reflects losses
+      associated with distributing computational work across parallel execution
+      units and with the communication, synchronization, or runtime activity
+      required to coordinate their execution.
     formula:
       text: PE = average useful computation time / total runtime = LB × CommE
       latex: PE = \frac{\overline{Useful}}{T} = LB \times CommE
@@ -97,8 +98,7 @@ metrics:
     family: global
     analysis_level: application
     metric_type: efficiency
-    definition: Measures how evenly useful computation is distributed across the resources considered by the selected
-      model. It is computed as the average useful computation time divided by the maximum useful computation time.
+    definition: Measures how evenly useful computation is distributed across the parallel execution units.
     formula:
       text: LB = average useful time / maximum useful time
       latex: LB = \\frac{\\frac{1}{P}\\sum_{i=1}^{P} Useful_i}{\\max_i(Useful_i)}
@@ -127,9 +127,8 @@ metrics:
     family: global
     analysis_level: application
     metric_type: compound_efficiency
-    definition: Measures efficiency loss due to time spent in communication or parallel-runtime activity rather
-      than useful computation after load-imbalance effects are separated. In the POP model it is the maximum useful
-      computation time divided by total runtime and decomposes into Serialization Efficiency and Transfer Efficiency.
+    definition: Measures the efficiency of parallel execution with respect to communication,
+     synchronization, and other parallel-runtime overheads.
     formula:
       text: CommE = maximum useful computation time / total runtime = SerE × TE
       latex: CommE = \frac{\max_i(Useful_i)}{T} = SerE \times TE
@@ -149,8 +148,8 @@ metrics:
     - Synchronization
     - Runtime management
     next_steps:
-    - Inspect Serialization Efficiency.
-    - Inspect Transfer Efficiency.
+    - Inspect Serialization Efficiency and Transfer Efficiency when available.
+    - Otherwise, inspect communication, synchronization, and parallel-runtime activity in the trace.
     children:
     - serial_eff
     - transfer_eff
@@ -229,8 +228,7 @@ metrics:
     analysis_level: application
     metric_type: compound_scalability
     definition: Measures how the total time spent in useful computation changes relative to a reference execution
-      as resources increase. For strong scaling, it is the ratio of the total useful computation time in the reference
-      execution to the total useful computation time in the target execution.
+      as the application scales.
     formula:
       text: CompScale = total useful computation time at reference / total useful computation time at target
       latex: CompScale = \frac{\sum_i Useful_{i,ref}}{\sum_i Useful_{i,target}}
@@ -261,14 +259,13 @@ metrics:
     family: global
     analysis_level: scalability
     metric_type: scalability
-    definition: Compares instructions per cycle (IPC) during useful computation in the target execution with the
-      reference execution. It indicates whether the rate at which useful instructions are executed decreases, is
-      preserved, or improves at scale.
+    definition: Measures how the number of instructions executed per processor cycle changes
+     relative to a reference execution as the application scales.
     formula:
       text: IPCScale = IPC_target / IPC_reference
       latex: IPCScale = \\frac{IPC_{target}}{IPC_{ref}}
     interpretation:
-      low: Low values indicate a lower useful-instruction execution rate than in the reference execution.
+      low: Low values indicate that fewer instructions are executed per processor cycle than in the reference execution.
       high: Values near 100% indicate preserved IPC relative to the reference; higher values indicate improved IPC.
       above_100: Values above 100% indicate higher IPC than in the reference execution.
     typical_causes:
@@ -289,14 +286,13 @@ metrics:
     family: global
     analysis_level: scalability
     metric_type: scalability
-    definition: Compares the total number of useful instructions in the reference execution with the total number
-      in the target execution. A decrease in Instruction Scalability corresponds to an increase in the total number
-      of instructions required to solve the computational problem at scale.
+    definition: Measures how the number of instructions executed during useful computation
+     changes relative to a reference execution as the application scales.
     formula:
       text: InstScale = instructions_reference / instructions_target
       latex: InstScale = \\frac{Instructions_{ref}}{Instructions_{target}}
     interpretation:
-      low: Low values indicate that more total useful instructions are required than in the reference execution.
+      low: Low values indicate that more instructions are executed during useful computation than in the reference execution.
       high: Values near 100% indicate that the total useful instruction count is preserved relative to the reference
         execution.
       above_100: Values above 100% indicate fewer total useful instructions than in the reference execution.
@@ -320,12 +316,8 @@ metrics:
     metric_type: scalability
 
     definition: >
-      Compares the effective processor frequency associated with useful
-      computation in the target execution with the reference execution.
-      The effective frequency is derived from the total CPU cycles measured
-      during useful computation and the corresponding useful computation time.
-      This formulation is used so that Frequency Scalability remains consistent
-      with the multiplicative decomposition of Computation Scalability.
+      Measures how the processor frequency during useful computation changes
+      relative to a reference execution as the application scales.
 
     formula:
       text: >
@@ -344,8 +336,7 @@ metrics:
 
     interpretation:
       low: >
-        Low values indicate a lower effective processor frequency during useful
-        computation than in the reference execution.
+        Low values indicate that useful computation executes at a lower processor frequency than in the reference execution.
       high: >
         Values near 100% indicate that the effective processor frequency during
         useful computation is preserved relative to the reference execution.
@@ -374,15 +365,14 @@ metrics:
     family: hybrid
     analysis_level: composed_runtime
     metric_type: compound_efficiency
-    definition: Parallel efficiency of the complete hybrid execution. It measures the percentage of execution time
-      spent outside the active parallel runtimes and captures the combined contribution of the parallel programming
-      models to parallel inefficiency.
+    definition: Measures the parallel efficiency of the complete hybrid execution,
+     accounting for the combined contribution of the active parallel runtimes.
     formula:
       text: HybridPE = HybridLB × HybridCommE = MPI_PE × Runtime_PE
       latex: HybridPE = HybridLB \times HybridCommE = MPI\_PE \times Runtime\_PE
     interpretation:
       low: Low values indicate that one or more active parallel runtimes contribute substantial inefficiency.
-      high: High values indicate that little execution time is lost in the active parallel runtimes.
+      high: High values indicate that the active parallel runtimes introduce little parallel inefficiency.
       above_100: Values above 100% are not expected for Hybrid Parallel Efficiency and should be checked.
     typical_causes:
     - MPI inefficiency
@@ -402,8 +392,9 @@ metrics:
     family: mpi
     analysis_level: runtime_specific
     metric_type: compound_efficiency
-    definition: MPI contribution to the parallel efficiency of a hybrid execution. From the MPI perspective, all
-      time outside MPI calls, including activity in the inner parallel runtime, is considered useful.
+    definition:   Measures the contribution of the MPI level to the Parallel Efficiency of
+      the hybrid execution. From the MPI perspective, activity outside MPI calls,
+      including computation and inner-runtime activity, is considered productive.
     formula:
       text: MPI_PE = sum OutsideMPI_i / (P × T) = MPI_LB × MPI_CommE
       latex: MPI\_PE = \frac{\sum_{i=1}^{P} OutsideMPI_i}{P \cdot T} = MPI\_LB \times MPI\_CommE
@@ -412,16 +403,25 @@ metrics:
         P: Number of MPI ranks
         T: Total runtime
     interpretation:
-      low: Low values indicate significant inefficiency attributable to the MPI component.
-      high: High values indicate that the MPI component introduces little parallel inefficiency.
-      above_100: Values above 100% are not expected for the directly computed MPI component and should be checked.
+      low: >
+        Low values indicate substantial efficiency loss attributed to the MPI
+        level. Some MPI waiting may, however, be caused by delays originating in
+        the inner runtime, because the model attributes waiting observed inside
+        MPI to the MPI component first.
+      high: >
+        High values indicate that little parallel inefficiency is attributed to
+        the MPI level.
+      above_100: >
+        Values above 100% are not expected for the directly computed MPI component
+        and should be checked.
     typical_causes:
     - MPI load imbalance
     - MPI synchronization
     - MPI transfer cost
     next_steps:
-    - Inspect MPI Load Balance.
-    - Inspect MPI Communication Efficiency.
+      - Inspect MPI Load Balance and MPI Communication Efficiency.
+      - When MPI waiting is significant, check whether delayed MPI ranks originate
+        from imbalance or overhead in the inner runtime.
     children:
     - mpi_load_balance
     - mpi_comm_eff
@@ -433,9 +433,8 @@ metrics:
     family: mpi
     analysis_level: runtime_specific
     metric_type: efficiency
-    definition: MPI contribution to load-balance efficiency in the hybrid execution. It measures how evenly time
-      outside MPI is distributed across MPI ranks, treating the inner-runtime activity as useful from the MPI point
-      of view.
+    definition: Measures how evenly time spent outside MPI calls is distributed across
+     MPI ranks.
     formula:
       text: MPI_LB = average OutsideMPI / maximum OutsideMPI
       latex: MPI\\_LB = \\frac{\\frac{1}{P}\\sum_i OutsideMPI_i}{\\max_i(OutsideMPI_i)}
@@ -448,7 +447,8 @@ metrics:
     - Process mapping
     - Rank-specific delays
     next_steps:
-    - Inspect useful computation per rank.
+    - Inspect the distribution of time outside MPI calls across MPI ranks.
+    - Identify ranks or execution phases responsible for the imbalance.
     children: []
     sources:
     - ispdc2020_hybrid
@@ -458,9 +458,10 @@ metrics:
     family: mpi
     analysis_level: runtime_specific
     metric_type: compound_efficiency
-    definition: MPI contribution to communication efficiency in the hybrid execution. It measures the efficiency
-      loss associated with MPI communication while treating all time outside MPI as useful from the MPI point of
-      view.
+    definition: Measures the efficiency of the MPI execution with respect to communication,
+      synchronization, and other MPI runtime overheads. Activity outside MPI,
+      including computation and inner-runtime activity, is considered productive
+      from the MPI perspective.
     formula:
       text: MPI_CommE = maximum OutsideMPI / runtime
       latex: MPI\\_CommE = \\frac{\\max_i(OutsideMPI_i)}{T}
@@ -473,8 +474,8 @@ metrics:
     - Network transfer time
     - Collective synchronization
     next_steps:
-    - Inspect MPI Serialization Efficiency.
-    - Inspect MPI Transfer Efficiency.
+      - Inspect MPI Serialization Efficiency and MPI Transfer Efficiency when available.
+      - Otherwise, inspect MPI communication and synchronization activity in the trace.
     children:
     - serial_eff
     - transfer_eff
@@ -488,19 +489,29 @@ metrics:
     family_template: '{runtime_family}'
     analysis_level: runtime_contribution
     metric_type: compound_efficiency
-    definition_template: '{runtime} contribution to Hybrid Parallel Efficiency in the MPI+{runtime} multiplicative
-      model. It represents the portion of hybrid parallel performance not attributed to MPI and is derived as the
-      ratio of Hybrid Parallel Efficiency to MPI Parallel Efficiency. It is a contribution factor, not an isolated
-      runtime-specific efficiency.'
+    definition_template: >
+      Measures the contribution of the {runtime} level to the Parallel Efficiency
+      of the complete hybrid execution after the MPI contribution has been
+      separated. It is a derived contribution factor, not an isolated
+      {runtime} efficiency.
     formula:
       text_template: '{runtime}_PE = HybridPE / MPI_PE'
       latex_template: '{runtime}\\_PE = \\frac{{HybridPE}}{{MPI\\_PE}}'
     interpretation:
-      low_template: Values below 100% indicate parallel inefficiency attributable to the {runtime} component.
-      high_template: Values near 100% indicate little additional inefficiency attributable to the {runtime} component.
-      above_100_template: 'Values above 100% indicate a compensation effect: the {runtime} component mitigates an
-        MPI-level inefficiency. They do not represent efficiency beyond the ideal execution and should not be treated
-        as direct optimization targets.'
+      low_template: >
+        Values below 100% indicate parallel inefficiency attributed to the
+        {runtime} component after the MPI contribution has been separated.
+
+      high_template: >
+        Values near 100% indicate little additional parallel inefficiency
+        attributed to the {runtime} component.
+
+      above_100_template: >
+        Values above 100% do not represent an isolated {runtime} efficiency greater
+        than 100%. They indicate that the MPI-first decomposition has attributed
+        more efficiency loss to the MPI level than is reflected in the complete
+        hybrid Parallel Efficiency. This may occur when delays originating in the
+        {runtime} level manifest as MPI waiting and are therefore attributed to MPI.
     typical_causes_template:
     - '{runtime} load imbalance'
     - '{runtime} communication, synchronization, or runtime overhead'
@@ -520,22 +531,35 @@ metrics:
     family_template: '{runtime_family}'
     analysis_level: runtime_contribution
     metric_type: efficiency
-    definition_template: '{runtime} contribution to Hybrid Load Balance in the MPI+{runtime} multiplicative model.
-      It is derived as the ratio of Hybrid Load Balance to MPI Load Balance and represents the portion of hybrid
-      load-balance behavior not attributed to MPI.'
+    definition_template: >
+      Measures the contribution of the {runtime} level to the Load Balance of the
+      complete hybrid execution. It is a derived contribution factor, not an
+      isolated {runtime} load-balance efficiency.
     formula:
       text_template: '{runtime}_LB = HybridLB / MPI_LB'
       latex_template: '{runtime}\\_LB = \\frac{{HybridLB}}{{MPI\\_LB}}'
     interpretation:
-      low_template: Values below 100% indicate load-balance inefficiency attributable to the {runtime} component.
-      high_template: Values near 100% indicate little additional load-balance inefficiency attributable to the {runtime}
-        component.
-      above_100_template: Values above 100% indicate a compensation effect in which the {runtime} component mitigates
-        load imbalance observed at the MPI level. They are not direct optimization targets.
+      low_template: >
+        Values below 100% indicate that the {runtime} level introduces additional
+        load imbalance in the complete hybrid execution.
+
+      high_template: >
+        Values near 100% indicate that the {runtime} level introduces little
+        additional load imbalance.
+
+      above_100_template: >
+        Values above 100% indicate that the complete hybrid execution is more
+        load-balanced than the MPI-level execution view. The distribution of work
+        at the {runtime} level therefore partially compensates load imbalance
+        attributed to the MPI level. This is a relative contribution between the
+        two execution views, not an isolated {runtime} load-balance efficiency
+        greater than 100%.
     typical_causes_template:
     - Uneven work distribution associated with {runtime}
     next_steps_template:
-    - Inspect an isolated {runtime} load-balance metric when available.
+      - Compare Hybrid Load Balance and MPI Load Balance.
+      - Inspect the distribution of work across MPI ranks and {runtime} execution units.
+      - Inspect an isolated {runtime} load-balance metric when available.
     children: []
     sources:
     - ispdc2020_hybrid
@@ -547,26 +571,39 @@ metrics:
     family_template: '{runtime_family}'
     analysis_level: runtime_contribution
     metric_type: efficiency
-    definition_template: '{runtime} contribution to Hybrid Communication Efficiency in the MPI+{runtime} multiplicative
-      model. It is derived as the ratio of Hybrid Communication Efficiency to MPI Communication Efficiency and represents
-      the communication-related contribution not attributed to MPI.'
+    definition_template: >
+      Measures the contribution of the {runtime} level to the Communication
+      Efficiency of the complete hybrid execution. It reflects communication,
+      synchronization, data movement, and runtime-management overheads associated
+      with the {runtime} level after the MPI contribution has been separated.
+      It is a derived contribution factor, not an isolated {runtime}
+      communication efficiency.
     formula:
       text_template: '{runtime}_CommE = HybridCommE / MPI_CommE'
       latex_template: '{runtime}\\_CommE = \\frac{{HybridCommE}}{{MPI\\_CommE}}'
     interpretation:
-      low_template: Values below 100% indicate communication-related inefficiency attributable to the {runtime}
-        component.
-      high_template: Values near 100% indicate little additional communication-related inefficiency attributable
-        to the {runtime} component.
-      above_100_template: Values above 100% indicate a compensation effect in the multiplicative decomposition.
-        They do not represent efficiency beyond the ideal execution and should not be treated as direct optimization
-        targets.
+      low_template: >
+        Values below 100% indicate additional communication- or runtime-related
+        inefficiency associated with the {runtime} level.
+      high_template: >
+        Values near 100% indicate little additional communication- or
+        runtime-related inefficiency associated with the {runtime} level.
+      above_100_template: >
+        Values above 100% indicate that Hybrid Communication Efficiency is higher
+        than MPI Communication Efficiency. The value therefore represents a
+        positive relative contribution of the {runtime} level in the multiplicative
+        decomposition, not an isolated {runtime} communication efficiency above
+        100%. Cross-runtime interactions and the MPI-first attribution of waiting
+        time may contribute to this behavior, so the cause should be confirmed from
+        the trace.
     typical_causes_template:
     - '{runtime} synchronization'
     - '{runtime} runtime management'
     - Data movement
     next_steps_template:
-    - Inspect an isolated {runtime} runtime-specific analysis when available.
+      - Compare Hybrid Communication Efficiency and MPI Communication Efficiency.
+      - Inspect an isolated {runtime} runtime-specific analysis when available.
+      - For values above 100%, inspect MPI waiting together with the preceding {runtime} activity to identify possible cross-runtime effects.
     children: []
     sources:
     - ispdc2020_hybrid
@@ -576,9 +613,11 @@ metrics:
     family: openmp
     analysis_level: runtime_contribution
     metric_type: derived_efficiency
-    definition: OpenMP serialization contribution in the MPI+OpenMP multiplicative model. It reflects structural
-      limitations of the OpenMP parallelization, such as inherent dependencies or limited available parallelism,
-      after the MPI serialization contribution has been removed.
+    definition: >
+      Measures the contribution of the OpenMP runtime to Serialization Efficiency
+      in the hybrid execution, characterizing efficiency losses associated with
+      serialized execution and waiting at the OpenMP level. It is a derived
+      contribution factor, not an isolated OpenMP Serialization Efficiency.
     formula:
       text: OMP_SerE = Hybrid_SerE / MPI_SerE
       latex: OMP\_SerE = \frac{Hybrid\_SerE}{MPI\_SerE}
@@ -624,9 +663,13 @@ metrics:
     family: openmp
     analysis_level: runtime_contribution
     metric_type: derived_efficiency
-    definition: OpenMP transfer contribution in the MPI+OpenMP multiplicative model. It captures OpenMP runtime
-      overheads such as synchronization, scheduling, fork/join activity, and thread management after the MPI transfer
-      contribution has been removed.
+    definition: >
+      Measures the contribution of the OpenMP runtime to Transfer Efficiency in
+      the hybrid execution, characterizing efficiency losses associated with
+      OpenMP runtime overheads such as synchronization, scheduling, fork/join
+      activity, and thread management after serialization effects have been
+      separated. It is a derived contribution factor, not an isolated OpenMP
+      Transfer Efficiency or a measure of physical data transfer between threads.
     formula:
       text: OMP_TransferE = Hybrid_TransferE / MPI_TransferE
       latex: OMP\_TransferE = \frac{Hybrid\_TransferE}{MPI\_TransferE}
@@ -652,8 +695,12 @@ metrics:
       low: Values below 100% indicate significant OpenMP runtime overhead from synchronization, scheduling, fork/join
         activity, or thread management.
       high: Values near 100% indicate little additional OpenMP runtime-management overhead.
-      above_100: Values above 100% indicate a compensation effect in the multiplicative decomposition and are not
-        direct optimization targets.
+      above_100: >
+        Values above 100% indicate that Hybrid Transfer Efficiency is higher than
+        MPI Transfer Efficiency. The value is therefore a relative contribution
+        produced by the multiplicative decomposition, not an isolated OpenMP
+        Transfer Efficiency greater than 100%. The underlying cause should be
+        confirmed from the simulation results and trace.
     typical_causes:
     - Frequent fork/join operations
     - OpenMP scheduling overhead
@@ -673,9 +720,11 @@ metrics:
     family: openmp
     analysis_level: runtime_specific
     metric_type: compound_efficiency
-    definition: 'Overall efficiency of the isolated OpenMP execution. It separates three OpenMP-specific sources
-      of inefficiency: serial execution outside OpenMP parallel regions, useful-work imbalance inside parallel regions,
-      and OpenMP scheduling/fork-join runtime overhead.'
+    definition: >
+      Measures the efficiency of the OpenMP execution, reflecting losses associated
+      with serial execution outside OpenMP parallel regions, the distribution of
+      useful computation across threads, and OpenMP scheduling, synchronization,
+      and runtime overheads.
     formula:
       text: OMP_PE = OMP_Serial × OMP_LB × OMP_Sched = T_noOMP / (T_noOMP + T_OMP_serial + T_OMP_Imbal + T_OMP_sched)
       latex: OMP\_PE = OMP\_Serial \times OMP\_LB \times OMP\_Sched = \frac{T_{noOMP}}{T_{noOMP}+T^{OMP}_{serial}+T^{OMP}_{Imbal}+T^{OMP}_{sched}}
@@ -710,22 +759,29 @@ metrics:
     family: openmp
     analysis_level: runtime_specific
     metric_type: efficiency
-    definition: Efficiency associated with serial execution outside OpenMP parallel regions. It quantifies the loss
-      caused by regions where only the master thread is active and the corresponding inactive-worker capacity is
-      not used for OpenMP parallel execution.
+    definition: >
+      Measures the efficiency loss associated with serial execution outside OpenMP
+      parallel regions, where the available OpenMP worker threads are not used for
+      parallel computation.
     formula:
       text: OMP_Serial = T_noOMP / (T_noOMP + T_OMP_serial)
       latex: OMP\_Serial = \frac{T_{noOMP}}{T_{noOMP}+T^{OMP}_{serial}}
     interpretation:
-      low: Low values indicate that a relevant fraction of the execution occurs outside OpenMP parallel regions.
-      high: High values indicate that serial execution outside OpenMP parallel regions is small.
-      above_100: Values above 100% are not expected and should be checked.
+      low: >
+        Low values indicate that a significant fraction of the execution occurs
+        serially outside OpenMP parallel regions, leaving available OpenMP worker
+        threads unused for parallel computation.
+      high: >
+        High values indicate that serial execution outside OpenMP parallel regions
+        represents only a small efficiency loss.
+      above_100: >
+        Values above 100% are not expected and should be checked.
     typical_causes:
     - Serial initialization or finalization
     - Small parallel coverage
     - Sequential regions between parallel regions
     next_steps:
-    - Inspect useful computation outside OpenMP regions.
+      - Inspect useful computation outside OpenMP parallel regions and identify the dominant serial regions.
     children: []
     sources:
     - basicanalysis_openmp_runtime
@@ -735,9 +791,9 @@ metrics:
     family: openmp
     analysis_level: runtime_specific
     metric_type: efficiency
-    definition: Efficiency of useful-work distribution among OpenMP threads inside OpenMP parallel regions. It captures
-      the loss that occurs when some threads perform less useful computation while other threads in the same parallel
-      region remain active.
+    definition: >
+      Measures how evenly useful computation is distributed among OpenMP threads
+      inside parallel regions.
     formula:
       text: OMP_LB = (T_noOMP + T_OMP_serial) / (T_noOMP + T_OMP_serial + T_OMP_Imbal)
       latex: OMP\_LB = \frac{T_{noOMP}+T^{OMP}_{serial}}{T_{noOMP}+T^{OMP}_{serial}+T^{OMP}_{Imbal}}
@@ -750,7 +806,8 @@ metrics:
     - Irregular tasks
     - Static scheduling mismatch
     next_steps:
-    - Inspect useful computation per thread and region.
+      - Inspect useful computation per thread and OpenMP parallel region.
+      - Identify regions with the largest thread imbalance.
     children: []
     sources:
     - basicanalysis_openmp_runtime
@@ -760,9 +817,9 @@ metrics:
     family: openmp
     analysis_level: runtime_specific
     metric_type: efficiency
-    definition: Efficiency associated with OpenMP runtime scheduling and fork/join activity. It quantifies OpenMP
-      runtime overhead that is not attributed to serial execution outside parallel regions or to useful-work imbalance
-      inside parallel regions.
+    definition: >
+      Measures the efficiency of the OpenMP execution with respect to scheduling
+      and fork/join runtime overheads.
     formula:
       text: OMP_Sched = (T_noOMP + T_OMP_serial + T_OMP_Imbal) / (T_noOMP + T_OMP_serial + T_OMP_Imbal + T_OMP_sched)
       latex: OMP\_Sched = \frac{T_{noOMP}+T^{OMP}_{serial}+T^{OMP}_{Imbal}}{T_{noOMP}+T^{OMP}_{serial}+T^{OMP}_{Imbal}+T^{OMP}_{sched}}
@@ -776,7 +833,8 @@ metrics:
     - Synchronization
     - Runtime management
     next_steps:
-    - Inspect scheduling and fork/join states.
+      - Inspect OpenMP scheduling and fork/join activity in the trace.
+      - Identify parallel regions with frequent or fine-grained runtime activity.
     children: []
     sources:
     - basicanalysis_openmp_runtime
@@ -786,15 +844,25 @@ metrics:
     family: host
     analysis_level: execution_domain
     metric_type: compound_efficiency
-    definition: Overall efficiency of the host execution domain. It combines Host Parallel Efficiency with Computation
-      Scalability on the host side.
+    definition: >
+      Measures the overall efficiency of the Host execution domain, accounting for
+      losses associated with parallel and accelerator-offload activity together
+      with changes in the scalability of useful Host computation.
     formula:
       text: HostGE = HostPE × HostCompScale
       latex: HostGE = HostPE \times HostCompScale
     interpretation:
-      low: The host domain is inefficient due to parallel/offload overhead or poor computation scaling.
-      high: Host-side execution is efficient.
-      above_100: Values above 100% should be checked.
+      low: >
+        Low values indicate that parallel/offload overhead, changes in Host
+        computation scalability, or both limit the efficiency of the Host execution
+        domain.
+      high: >
+        High values indicate efficient Host execution with small parallel/offload
+        losses and favorable Host computation scalability.
+      above_100: >
+        Values above 100% can occur when favorable Host computation scalability
+        more than compensates Host parallel/offload losses; interpret them relative
+        to the reference execution.
     typical_causes:
     - MPI overhead
     - Accelerator offload overhead
@@ -813,22 +881,30 @@ metrics:
     family: host
     analysis_level: execution_domain
     metric_type: compound_efficiency
-    definition: Parallel efficiency of the host execution domain. In the GPU TALP multiplicative model, it is decomposed
-      into the MPI Parallel Efficiency contribution and Device Offload Efficiency.
+    definition: >
+      Measures the parallel efficiency of the Host execution domain, accounting for
+      losses associated with MPI execution and with offloading, managing, and
+      waiting for accelerator activity.
     formula:
       text: HostPE = MPI_PE × DeviceOffloadE
       latex: HostPE = MPI\_PE \times DeviceOffloadE
     interpretation:
-      low: MPI or accelerator offload overhead dominates host execution.
-      high: Host-side parallel overhead is small.
-      above_100: Values above 100% should be checked.
+      low: >
+        Low values indicate significant Host-side efficiency loss associated with
+        MPI execution, accelerator offload activity, or both.
+      high: >
+        High values indicate small Host-side efficiency losses from MPI execution
+        and accelerator offload activity.
+      above_100: >
+        Values above 100% are not expected and should be checked.
     typical_causes:
     - MPI overhead
     - Kernel launch overhead
     - Host-device synchronization
     - Host-device data movement
+    - Waiting for accelerator execution
     next_steps:
-    - Compare MPI Parallel Efficiency and Device Offload Efficiency.
+      - Compare MPI Parallel Efficiency and Device Offload Efficiency.
     children:
     - mpi_parallel_eff
     - dev_offload_eff
@@ -840,9 +916,11 @@ metrics:
     family: host
     analysis_level: execution_domain
     metric_type: efficiency
-    definition: Host-side efficiency associated with the use of the accelerator. It accounts for time spent offloading
-      work, launching kernels, waiting for kernels, waiting for data, and sending data to the accelerator rather
-      than performing useful host computation.
+    definition: >
+      Measures the efficiency of the Host execution domain with respect to
+      accelerator offload activity, accounting for Host time spent managing or
+      waiting for accelerator activity rather than performing useful Host
+      computation.
     formula:
       text: DeviceOffloadE = sum C_i / sum(C_i + W_i)
       latex: DeviceOffloadE = \frac{\sum_{i=1}^{P} C_i}{\sum_{i=1}^{P} C_i + \sum_{i=1}^{P} W_i}
@@ -854,7 +932,10 @@ metrics:
     interpretation:
       low: Low values indicate that a large fraction of host-side time is spent managing or waiting for accelerator
         activity. Very low values can be expected in applications whose host mainly feeds and waits for the device.
-      high: High values indicate that little host-side time is lost to accelerator-management and offload overhead.
+      high: >
+        High values indicate that a small fraction of Host-side time is spent
+        managing or waiting for accelerator activity relative to useful Host
+        computation.
       above_100: Values above 100% are not expected and should be checked.
     typical_causes:
     - Offloading work to the accelerator
@@ -875,21 +956,28 @@ metrics:
     family: host
     analysis_level: execution_domain
     metric_type: compound_scalability
-    definition: Computation Scalability of useful host computation relative to a reference execution. It describes
-      how the cost of useful host computation changes as resources scale.
+    definition: >
+      Measures how the cost of useful Host computation changes relative to a
+      reference execution as the application scales.
     formula:
       text: HostCompScale = host useful time at reference / host useful time at target
       latex: HostCompScale = \\frac{HostUseful_{ref}}{HostUseful_{target}}
     interpretation:
-      low: Host computation becomes more expensive at scale.
-      high: Host computation scales well.
-      above_100: Values above 100% may indicate favorable scaling.
+      low: >
+        Low values indicate that useful Host computation becomes more expensive
+        relative to the reference execution as the application scales.
+      high: >
+        Values near 100% indicate that the cost of useful Host computation is
+        preserved relative to the reference execution.
+      above_100: >
+        Values above 100% indicate that useful Host computation becomes less
+        expensive relative to the reference execution.
     typical_causes:
     - Lower host IPC
     - More host instructions
     - Frequency changes
     next_steps:
-    - Inspect IPC, Instruction, and Frequency Scalability.
+    - Inspect Host IPC, Instruction, and Frequency Scalability.
     children:
     - host_ipc_scale
     - host_inst_scale
@@ -903,22 +991,27 @@ metrics:
     family: host
     analysis_level: execution_domain
     metric_type: scalability
-    definition: Compares instructions per cycle (IPC) during useful host
-      computation in the target execution with the reference execution. It
-      indicates whether the rate at which useful host instructions are executed
-      decreases, is preserved, or improves at scale.
+    definition: >
+      Measures how the number of instructions executed per processor cycle during
+      useful Host computation changes relative to a reference execution as the
+      application scales.
     formula:
       text: HostIPCScale = HostIPC_target / HostIPC_reference
       latex: HostIPCScale = \frac{HostIPC_{target}}{HostIPC_{ref}}
       variables:
         HostIPC: Useful host instructions divided by useful host cycles
     interpretation:
-      low: Low values indicate a lower host useful-instruction execution rate
-        than in the reference execution.
-      high: Values near 100% indicate preserved host IPC relative to the
-        reference execution; higher values indicate improved IPC.
-      above_100: Values above 100% indicate higher host IPC than in the
-        reference execution.
+      low: >
+        Low values indicate that fewer instructions are executed per processor
+        cycle during useful Host computation than in the reference execution.
+      high: >
+        Values near 100% indicate that the number of instructions executed per
+        processor cycle during useful Host computation is preserved relative to
+        the reference execution.
+      above_100: >
+        Values above 100% indicate that more instructions are executed per
+        processor cycle during useful Host computation than in the reference
+        execution.
     typical_causes:
     - Cache misses
     - Memory-bandwidth saturation
@@ -937,20 +1030,23 @@ metrics:
     family: host
     analysis_level: execution_domain
     metric_type: scalability
-    definition: Compares the total number of useful host instructions in the
-      reference execution with the total number in the target execution. A
-      decrease in Host Instruction Scalability indicates that more host
-      instructions are required at scale.
+    definition: >
+      Measures how the number of instructions executed during useful Host
+      computation changes relative to a reference execution as the application
+      scales.
     formula:
       text: HostInstScale = host instructions_reference / host instructions_target
       latex: HostInstScale = \frac{HostInstructions_{ref}}{HostInstructions_{target}}
     interpretation:
-      low: Low values indicate that more useful host instructions are required
-        than in the reference execution.
-      high: Values near 100% indicate that the useful host instruction count is
-        preserved relative to the reference execution.
-      above_100: Values above 100% indicate fewer useful host instructions than
-        in the reference execution.
+      low: >
+        Low values indicate that more instructions are executed during useful Host
+        computation than in the reference execution.
+      high: >
+        Values near 100% indicate that the number of instructions executed during
+        useful Host computation is preserved relative to the reference execution.
+      above_100: >
+        Values above 100% indicate that fewer instructions are executed during
+        useful Host computation than in the reference execution.
     typical_causes:
     - Additional host-side parallel bookkeeping
     - Additional runtime or offload management
@@ -969,11 +1065,9 @@ metrics:
     family: host
     analysis_level: execution_domain
     metric_type: scalability
-    definition: Compares the effective processor frequency associated with
-      useful host computation in the target execution with the reference
-      execution. The effective host frequency is derived from the total useful
-      CPU cycles and the corresponding useful host computation time so that the
-      metric is consistent with the Host Computation Scalability decomposition.
+    definition: >
+      Measures how the processor frequency during useful Host computation changes
+      relative to a reference execution as the application scales.
     formula:
       text: HostFreqScale = (UsefulCycles_target / HostUsefulTime_target) /
         (UsefulCycles_reference / HostUsefulTime_reference)
@@ -984,12 +1078,15 @@ metrics:
         UsefulCycles: Total CPU cycles measured during useful host computation
         HostUsefulTime: Total useful host computation time
     interpretation:
-      low: Low values indicate a lower effective host processor frequency than
-        in the reference execution.
-      high: Values near 100% indicate that effective host processor frequency is
-        preserved relative to the reference execution.
-      above_100: Values above 100% indicate a higher effective host processor
-        frequency than in the reference execution.
+      low: >
+        Low values indicate a lower processor frequency during useful Host
+        computation than in the reference execution.
+      high: >
+        Values near 100% indicate that the processor frequency during useful Host
+        computation is preserved relative to the reference execution.
+      above_100: >
+        Values above 100% indicate a higher processor frequency during useful Host
+        computation than in the reference execution.
     typical_causes:
     - Power limits
     - Thermal throttling
@@ -1009,22 +1106,31 @@ metrics:
     family: device
     analysis_level: execution_domain
     metric_type: compound_efficiency
-    definition: Overall efficiency of the device execution domain. In the GPU TALP model, Device Global Efficiency
-      is decomposed into Device Parallel Efficiency and a device-computation component.
+    definition: >
+      Measures the overall efficiency of the Device execution domain, accounting
+      for losses associated with parallel Device execution together with changes
+      in the scalability of useful Device computation.
     formula:
-      text: DeviceGE = DevicePE × DeviceComputation
-      latex: DeviceGE = DevicePE \times DeviceComputation
-      status: provisional
+      text: DeviceGE = DevicePE × DeviceCompScale
+      latex: DeviceGE = DevicePE \times DeviceCompScale
     interpretation:
-      low: Low values indicate inefficiency in device parallel execution, device computation, or both.
-      high: High values indicate efficient use of the device execution domain.
-      above_100: Interpret values above 100% relative to the device-computation component and the selected reference;
-        the device-computation formulation is model dependent.
+      low: >
+        Low values indicate that parallel Device execution, changes in Device
+        computation scalability, or both limit the efficiency of the Device
+        execution domain.
+      high: >
+        High values indicate efficient Device execution with small parallel losses
+        and favorable Device computation scalability.
+      above_100: >
+        Values above 100% can occur when favorable Device computation scalability
+        more than compensates Device parallel-execution losses; interpret them
+        relative to the reference execution.
     typical_causes:
-    - Device idle time
-    - Device imbalance
-    - Data movement
-    - Poor device computation scalability
+      - Device idle time
+      - Device imbalance
+      - Data movement
+      - Device orchestration overhead
+      - Reduced Device computation scalability
     next_steps:
     - Inspect Device Parallel Efficiency.
     - Inspect Device Computation Scalability.
@@ -1039,9 +1145,10 @@ metrics:
     family: device
     analysis_level: execution_domain
     metric_type: compound_efficiency
-    definition: Parallel efficiency of the device execution domain. It measures the fraction of available device
-      resource-time spent in useful computation and decomposes multiplicatively into Device Load Balance, Device
-      Communication Efficiency, and Device Orchestration Efficiency.
+    definition: >
+      Measures the parallel efficiency of the Device execution domain in terms of
+      the fraction of aggregate Device execution time spent performing useful
+      Device computation.
     formula:
       text: DevicePE = sum G_i / (T × N) = DeviceLB × DeviceCommE × DeviceOrchesE
       latex: DevicePE = \frac{\sum_{i=1}^{N} G_i}{T \cdot N} = DeviceLB \times DeviceCommE \times DeviceOrchesE
@@ -1050,9 +1157,14 @@ metrics:
         N: Number of devices
         T: Total elapsed time
     interpretation:
-      low: Device resources are not continuously and effectively used.
-      high: Device-side parallel overhead is small.
-      above_100: Values above 100% should be checked.
+      low: >
+        Low values indicate that a significant fraction of aggregate Device
+        execution time is not spent performing useful Device computation.
+      high: >
+        High values indicate that most of the aggregate Device execution time is
+        spent performing useful Device computation.
+      above_100: >
+        Values above 100% are not expected and should be checked.
     typical_causes:
     - Device imbalance
     - Data movement
@@ -1074,8 +1186,9 @@ metrics:
     family: device
     analysis_level: execution_domain
     metric_type: efficiency
-    definition: Efficiency of useful-computation distribution across the devices. It quantifies inefficiency caused
-      when not all GPUs perform useful computation for the same amount of time.
+    definition: >
+      Measures how evenly useful computation time is distributed across the
+      Devices.
     formula:
       text: DeviceLB = sum G_i / (N × max(G_i))
       latex: DeviceLB = \frac{\sum_{i=1}^{N} G_i}{N \cdot \max_i(G_i)}
@@ -1083,16 +1196,21 @@ metrics:
         G_i: Useful computation time of device i
         N: Number of devices
     interpretation:
-      low: Low values indicate that the GPUs do not perform useful computation for a similar amount of time.
-      high: High values indicate that useful device computation is evenly distributed across GPUs.
-      above_100: Values above 100% are not expected and should be checked.
+      low: >
+        Low values indicate that useful computation time is unevenly distributed
+        across the Devices.
+      high: >
+        High values indicate that useful computation time is evenly distributed
+        across the Devices.
+      above_100: >
+        Values above 100% are not expected and should be checked.
     typical_causes:
     - Uneven device assignment
     - Uneven kernel workload
     - Different work per process or GPU
     next_steps:
-    - Inspect useful device time per GPU.
-    - In future, separate intra-process and inter-process device imbalance.
+      - Inspect useful Device computation time per Device.
+      - Identify Devices with significantly higher or lower useful computation time.
     children: []
     sources:
     - basicanalysis_host_device
@@ -1102,9 +1220,10 @@ metrics:
     family: device
     analysis_level: execution_domain
     metric_type: efficiency
-    definition: Efficiency associated with device data movement. It quantifies inefficiency caused because data
-      movement is not instantaneous, including transfers between host and device, between devices, and accelerator-aware
-      communication such as NCCL or CUDA-aware MPI.
+    definition: >
+      Measures the efficiency of Device execution with respect to non-overlapped
+      data movement, including transfers between Host and Device, between Devices,
+      and accelerator-aware communication.
     formula:
       text: DeviceCommE = max(G_i) / max(G_j + D_j)
       latex: DeviceCommE = \frac{\max_i(G_i)}{\max_j(G_j + D_j)}
@@ -1113,9 +1232,14 @@ metrics:
         D_i: Device data-movement time of device i that is not overlapped with computation
       status: model_specific
     interpretation:
-      low: Low values indicate significant efficiency loss because device data movement is not instantaneous.
-      high: High values indicate that non-overlapped device data-movement overhead is small.
-      above_100: Values above 100% are not expected and should be checked.
+      low: >
+        Low values indicate significant efficiency loss associated with
+        non-overlapped Device data movement.
+      high: >
+        High values indicate that non-overlapped Device data-movement overhead is
+        small relative to useful Device computation.
+      above_100: >
+        Values above 100% are not expected and should be checked.
     typical_causes:
     - Host-to-device copies
     - Device-to-host copies
@@ -1124,8 +1248,8 @@ metrics:
     - CUDA-aware MPI
     - Synchronization associated with transfers
     next_steps:
-    - Inspect transfer direction, volume, and overlap.
-    - Inspect NCCL and CUDA-aware MPI activity when present.
+      - Inspect transfer direction, volume, and overlap with Device computation.
+      - Inspect NCCL and CUDA-aware MPI activity when present.  
     children: []
     sources:
     - basicanalysis_host_device
@@ -1135,9 +1259,10 @@ metrics:
     family: device
     analysis_level: execution_domain
     metric_type: efficiency
-    definition: Efficiency associated with keeping the device supplied with available work. It quantifies inefficiency
-      caused when the GPU has no executable work, for example while waiting for work from the host or because of
-      dependencies between kernels.
+    definition: >
+      Measures how continuously the Device is supplied with executable work,
+      reflecting efficiency losses caused by periods in which Device work is
+      unavailable.
     formula:
       text: DeviceOrchesE = max(G_i + D_i) / T
       latex: DeviceOrchesE = \frac{\max_i(G_i + D_i)}{T}
@@ -1147,17 +1272,22 @@ metrics:
         T: Total elapsed time
       status: model_specific
     interpretation:
-      low: Low values indicate that the GPU is not efficiently used because executable work is frequently unavailable.
-      high: High values indicate that the device is kept supplied with work for most of the execution.
-      above_100: Values above 100% are not expected and should be checked.
+      low: >
+        Low values indicate substantial periods in which executable Device work is
+        unavailable.
+      high: >
+        High values indicate that the Device is supplied with executable work for
+        most of the execution.
+      above_100: >
+        Values above 100% are not expected and should be checked.
     typical_causes:
     - Waiting for work from the host
     - Dependencies between kernels
     - Insufficient available device work
     next_steps:
-    - Inspect kernel-launch frequency.
-    - Inspect stream dependencies and overlap.
-    - Inspect periods of device idle time.
+      - Inspect kernel-launch timing and gaps between Device activities.
+      - Inspect stream dependencies and overlap.
+      - Inspect periods of Device idle time.
     children: []
     sources:
     - basicanalysis_host_device
@@ -1167,32 +1297,40 @@ metrics:
     family: device
     analysis_level: execution_domain
     metric_type: scalability
-    definition: Device-computation component describing how effectively the computational resources inside the accelerator
-      are used. The GPU TALP methodology identifies aspects such as streams, warps, occupancy, instruction behavior,
-      and specialized units such as Tensor Cores as relevant evidence; its exact formulation is not yet fixed by
-      the methodology.
+
+    definition: Measures how device useful-computation time changes relative to the reference execution as the application scales.
+      For strong scaling, it evaluates the reduction in total device useful-computation time. For weak scaling, it evaluates
+      the change in device useful-computation time normalized by the number of devices.
+
     formula:
-      text: 'Device computation formulation: TBD in the GPU TALP methodology'
-      latex: ''
-      status: provisional
+      text: 'Strong: useful_device_ref / useful_device; Weak: (useful_device_ref / useful_device) * (devices / devices_ref)'
+      latex: '\mathrm{DevCompScale}_{strong} = \frac{U_{dev,ref}}{U_{dev}}, \quad
+        \mathrm{DevCompScale}_{weak} = \frac{U_{dev,ref}}{U_{dev}}\frac{D}{D_{ref}}'
+      status: implemented
+
     interpretation:
-      low: Low values indicate reduced effectiveness of computation inside the accelerator relative to the selected
-        reference or model.
-      high: High values indicate effective use of computational resources inside the accelerator.
-      above_100: Interpret values above 100% relative to the selected reference and the BasicAnalysis implementation;
-        the generic TALP formulation is still provisional.
+      low: Low values indicate that useful computation on the devices takes longer than expected relative to the reference
+        execution, reducing device-side computation scalability.
+      high: Values close to 100% indicate that device useful-computation time scales as expected relative to the reference
+        execution.
+      above_100: Values above 100% indicate that device useful-computation time improved beyond the reference-based scaling
+        expectation.
+
     typical_causes:
-    - Reduced occupancy
-    - Lower warp efficiency
-    - Memory-bandwidth pressure
-    - Instruction mix changes
-    - Limited Tensor Core use
+    - Reduced device computational throughput
+    - Lower effective parallelism or occupancy
+    - Increased SIMD/SIMT inefficiency or thread divergence
+    - Increased memory-system pressure or less efficient memory-access behavior
+    - Changes in instruction mix or computational intensity
+
     next_steps:
-    - Inspect streams, warps, occupancy, instructions, and Tensor Core usage when available.
+    - Compare device kernel execution and hardware-efficiency characteristics with the reference execution, including kernel
+      durations, occupancy or available parallelism, SIMD/SIMT execution behavior, memory-system behavior, and instruction mix.
+
     children: []
+
     sources:
     - basicanalysis_host_device
-
   avg_frequency:
     name: Average Frequency
     short_name: Avg Frequency

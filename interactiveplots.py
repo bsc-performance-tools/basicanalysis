@@ -2499,10 +2499,10 @@ def _metric_info_json(
         # A report section may provide execution-model-specific diagnostic
         # routing. This does not replace the metric semantics; it specializes
         # the next diagnostic step for the current analysis context.
-        contextual_action = info.get("action")
+        # contextual_action = info.get("action")
 
-        if contextual_action:
-            recommendations = [contextual_action]
+        # if contextual_action:
+        #    recommendations = [contextual_action]
 
 
 
