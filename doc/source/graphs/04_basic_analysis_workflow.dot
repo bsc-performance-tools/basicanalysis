@@ -29,7 +29,7 @@
        ];
 
        analyze [
-           label="analyze_traces.py",
+           label="analyze_trace.py",
            shape=box,
            fillcolor="#E8F5E9"
        ];
@@ -53,7 +53,7 @@
       ];
 
        merge [
-           label="merge_rawdata.py",
+           label="merge_trace_results.py",
            shape=box,
            fillcolor="#E8F5E9"
        ];

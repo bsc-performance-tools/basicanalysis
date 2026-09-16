@@ -222,13 +222,13 @@ as a three-stage workflow:
 1. Analyze the traces and generate reusable raw-data files:
 
    ```bash
-   analyze_traces.py [options] <list-of-traces>
+   analyze_trace.py [options] <list-of-traces>
    ```
 
 2. Merge the generated raw data:
 
    ```bash
-   merge_rawdata.py --output merged_rawdata.json <rawdata-files>
+   merge_trace_results.py --output merged_rawdata.json <rawdata-files>
    ```
 
 3. Compute the metrics and generate the reports and plots:
@@ -237,9 +237,14 @@ as a three-stage workflow:
    compute_metrics_from_merged.py --merged-input merged_rawdata.json
    ```
 
-This workflow allows trace analysis to be separated from metric computation
-and is particularly useful when processing many traces or when individual
-trace analyses need to be repeated.
+The staged workflow separates trace processing from metric computation.
+Individual traces can be analyzed independently, allowing their processing
+to be distributed across different jobs or compute nodes when required. This
+is particularly useful for large or computationally expensive traces whose
+processing or simulation may require significant memory or execution time.
+
+The generated raw-data files can also be reused, allowing metrics and reports
+to be regenerated without processing the original traces again.
 
 See the BasicAnalysis User Guide for the complete staged workflow and
 available options.

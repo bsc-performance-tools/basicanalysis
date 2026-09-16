@@ -14,33 +14,39 @@ independent stages:
    file.
 #. **Raw-data merge**: combine the per-trace raw-data files into a single
    merged dataset.
-#. **Metric computation**: compute the efficiency metrics and other performance 
+#. **Metric computation**: compute the efficiency metrics and other performance
    indicators, tables, plots, and performance report.
 
 The workflow can be summarized as:
 
 .. graphviz:: graphs/04_basic_analysis_workflow.dot
    :align: center
-   
-This workflow is particularly useful when analyzing many or expensive traces.
-If the analysis of one trace fails, the successfully generated raw-data files
-can be preserved and only the failed trace needs to be analyzed again. The
-resulting files can then be merged again without repeating the successful
-trace analyses.
 
-The staged workflow also separates the potentially expensive trace-processing
-phase from metric computation, allowing the final metrics and reports to be
-regenerated from previously extracted raw data.
+The staged workflow is particularly useful when analyzing multiple large or
+computationally expensive traces. Because each trace is analyzed independently,
+trace processing can be distributed across different jobs or compute nodes.
+This is especially useful when trace processing or simulation requires
+significant memory or execution time.
+
+The independent per-trace results also make the analysis more flexible. Once
+a trace has been successfully analyzed, its raw-data file can be preserved and
+reused in subsequent stages. If a trace needs to be reanalyzed, only that trace
+has to be processed again, and the resulting raw-data files can then be merged
+without repeating the other trace analyses.
+
+Finally, separating trace processing from metric computation allows the final
+metrics and reports to be regenerated from previously extracted raw data
+without processing the original traces again.
 
 
 Trace analysis
 ==============
 
-The first stage is performed with ``analyze_traces.py``:
+The first stage is performed with ``analyze_trace.py``:
 
 .. code-block:: sh
 
-   analyze_traces.py [options] [trace_list ...]
+   analyze_trace.py [options] [trace_list ...]
 
 The command accepts Paraver traces in both uncompressed ``.prv`` format and
 compressed ``.prv.gz`` format.
@@ -49,19 +55,19 @@ For example:
 
 .. code-block:: sh
 
-   analyze_traces.py trace_1.prv trace_2.prv trace_3.prv
+   analyze_trace.py trace_1.prv trace_2.prv trace_3.prv
 
 Compressed traces can be analyzed directly:
 
 .. code-block:: sh
 
-   analyze_traces.py trace_1.prv.gz trace_2.prv.gz
+   analyze_trace.py trace_1.prv.gz trace_2.prv.gz
 
 Wildcard expressions can also be used:
 
 .. code-block:: sh
 
-   analyze_traces.py *.prv
+   analyze_trace.py *.prv
 
 The trace-analysis stage performs the operations required to prepare the raw
 performance information for each execution. Depending on the selected
@@ -82,15 +88,15 @@ Analysis configuration
 ----------------------
 
 The trace-analysis stage supports the analysis options that affect raw-data
-extraction, including the metric workflow, scaling selection, trace-mode
-detection, simulation configuration, trace-size limit, and parallel trace
-processing.
+extraction and simulation, including trace-mode detection, simulation
+configuration, trace-size limits, and parallel processing of independent
+traces.
 
 For example:
 
 .. code-block:: sh
 
-   analyze_traces.py --jobs auto *.prv
+   analyze_trace.py --jobs auto *.prv
 
 can analyze independent traces concurrently.
 
@@ -100,24 +106,29 @@ with:
 
 .. code-block:: sh
 
-   analyze_traces.py --help
+   analyze_trace.py --help
 
 
 Merging raw data
 ================
 
 After the required traces have been analyzed, their raw-data JSON files can be
-combined with ``merge_rawdata.py``:
+combined with ``merge_trace_results.py``:
 
 .. code-block:: sh
 
-   merge_rawdata.py --output merged_rawdata.json <rawdata-files>
+   merge_trace_results.py --output merged_rawdata.json <rawdata-files>
 
 For example:
 
 .. code-block:: sh
 
-   merge_rawdata.py --output merged_rawdata.json *.rawdata.json
+   merge_trace_results.py --output merged_rawdata.json *.rawdata.json
+
+
+By default, the merge stage orders traces according to the number of
+processes. This behavior can be controlled with the ``-ord``
+option.
 
 The merge operation combines the independent trace-analysis results into a
 single dataset that can be used for comparative and scalability analysis.
@@ -127,7 +138,7 @@ including the analyzed trace set, trace metadata, raw performance data, and
 parallel-configuration information.
 
 Raw-data files do not need to have been generated in the same
-``analyze_traces.py`` execution. This makes it possible to analyze traces
+``analyze_trace.py`` execution. This makes it possible to analyze traces
 independently or to replace the raw data corresponding to a trace that needed
 to be reanalyzed.
 
@@ -135,7 +146,7 @@ The available command-line options can be displayed with:
 
 .. code-block:: sh
 
-   merge_rawdata.py --help
+   merge_trace_results.py --help
 
 
 Computing metrics from merged data
@@ -167,8 +178,8 @@ Metric configuration
 --------------------
 
 Options that affect final metric computation can be specified at this stage.
-These include the metric workflow, scaling model, trace ordering, and the
-performance model used for MPI+GPU applications.
+These include the metric workflow, scaling model, and the performance model
+used for MPI+GPU applications.
 
 For example:
 
@@ -184,7 +195,7 @@ or:
 
    compute_metrics_from_merged.py \
        --merged-input merged_rawdata.json \
-       --pop_model_to_apply talp
+       -pop-model classic
 
 The complete set of options can be displayed with:
 
@@ -203,7 +214,7 @@ For example, suppose three traces are analyzed:
 
 .. code-block:: sh
 
-   analyze_traces.py trace_1.prv trace_2.prv trace_3.prv
+   analyze_trace.py trace_1.prv trace_2.prv trace_3.prv
 
 and the analysis succeeds for ``trace_1`` and ``trace_3`` but fails for
 ``trace_2``.
@@ -213,13 +224,13 @@ be analyzed again:
 
 .. code-block:: sh
 
-   analyze_traces.py trace_2.prv
+   analyze_trace.py trace_2.prv
 
 The available raw-data files can then be merged:
 
 .. code-block:: sh
 
-   merge_rawdata.py --output merged_rawdata.json *.rawdata.json
+   merge_trace_results.py --output merged_rawdata.json *.rawdata.json
 
 and the final metrics regenerated:
 
@@ -240,13 +251,13 @@ First, analyze the traces:
 
 .. code-block:: sh
 
-   analyze_traces.py trace_1.prv trace_2.prv trace_3.prv
+   analyze_trace.py trace_1.prv trace_2.prv trace_3.prv
 
 Second, merge the generated raw-data files:
 
 .. code-block:: sh
 
-   merge_rawdata.py --output merged_rawdata.json *.rawdata.json
+   merge_trace_results.py --output merged_rawdata.json *.rawdata.json
 
 Finally, compute the performance metrics and generate the reports:
 
