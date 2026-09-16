@@ -1970,6 +1970,12 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     trace_raw_data = create_trace_raw_data()
     mpi_proc_count = None
 
+    execution_mapping = get_execution_mapping(
+        trace,
+        trace_mode_value,
+    )
+
+
     # Create process-specific scratch directory
     base_name = os.path.basename(trace)
     if base_name.endswith(".prv.gz"):
@@ -2180,11 +2186,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         print(
             "==DEBUG== Execution mapping:",
             trace,
-            get_execution_mapping(
-                trace,
-                trace_mode_value,
-                )
-            )
+            execution_mapping,
+        )
 
 
     # ------------------------------------------------------------
@@ -2907,6 +2910,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         "trace_task_per_node": trace_task_per_node_value,
         "trace_tasks": trace_tasks_value,
         "trace_threads": trace_threads_value,
+        "execution_mapping": execution_mapping,
         "raw_data": trace_raw_data,
         "mpi_proc_count": mpi_proc_count,
     }
