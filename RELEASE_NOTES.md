@@ -1,5 +1,21 @@
 # Release Notes
 
+## 2026.09.17
+
+This is a corrective release addressing issues identified in the staged
+analysis workflow introduced in version 2026.09.15.
+
+### Fixes
+
+- Fixed staged trace analysis to support multiple input traces while generating
+  an independent raw-data JSON file for each trace.
+- Fixed the merge of per-trace raw-data JSON files.
+- Fixed the preservation of execution-mapping information when generating
+  reports through the staged workflow.
+- Corrected staged-workflow commands, options, and usage examples in the
+  User Guide and README.
+
+
 ## 2026.09.15
 
 > **Versioning:** Starting with this release, BasicAnalysis adopts

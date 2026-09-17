@@ -41,7 +41,7 @@ __copyright__ = "Copyright 2019, Barcelona Supercomputing Center (BSC)"
 
 __version_major__ = 2026
 __version_minor__ = 9
-__version_micro__ = 15
+__version_micro__ = 17
 __version__ = f"{__version_major__}.{__version_minor__:02d}.{__version_micro__:02d}"
 
 
