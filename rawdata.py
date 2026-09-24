@@ -1052,6 +1052,92 @@ def parse_io_operations_stats(path):
     return stats
 
 
+def parse_io_request_size_histogram(path):
+    """Parse a Paraver I/O request-size count histogram.
+
+    The CSV contains one column per non-empty request-size interval.
+    Interval boundaries are encoded in the column headers, while the
+    Total row contains the number of I/O operations in each interval.
+
+    Returns:
+        list: Histogram bins in the form:
+            [
+                {
+                    'min': 8.0,
+                    'max': 2107.96,
+                    'count': 466608.0,
+                },
+                ...
+            ]
+    """
+    with open(path) as f:
+        lines = f.readlines()
+
+    if not lines:
+        return []
+
+    # Parse histogram intervals from the header.
+    header = lines[0].rstrip('\n').split('\t')[1:]
+
+    intervals = []
+
+    for column in header:
+        column = column.strip()
+
+        if not column:
+            continue
+
+        # Paraver interval format: [lower..upper)
+        if not (column.startswith('[') and column.endswith(')')):
+            continue
+
+        bounds = column[1:-1].split('..')
+
+        if len(bounds) != 2:
+            continue
+
+        lower = float(bounds[0].replace(',', ''))
+        upper = float(bounds[1].replace(',', ''))
+
+        intervals.append((lower, upper))
+
+    # Find the Total row.
+    total_values = None
+
+    for line in lines[1:]:
+        fields = line.rstrip('\n').split('\t')
+
+        if fields and fields[0].strip() == 'Total':
+            total_values = [
+                float(value)
+                for value in fields[1:]
+                if value.strip()
+            ]
+            break
+
+    if total_values is None:
+        return []
+
+    # The number of histogram intervals and Total values must match.
+    if len(intervals) != len(total_values):
+        raise ValueError(
+            "I/O request-size histogram has a different number of "
+            "intervals and Total values: "
+            f"{len(intervals)} intervals, {len(total_values)} values"
+        )
+
+    bins = []
+
+    for (lower, upper), count in zip(intervals, total_values):
+        bins.append({
+            'min': lower,
+            'max': upper,
+            'count': count,
+        })
+
+    return bins
+
+
 def flushing_stats_has_data(path):
     with open(path) as f:
         for line in f:
@@ -1098,7 +1184,17 @@ def create_io_raw_data():
                 },
             }
             for operation in IO_OPERATIONS
-        }
+        },
+        'request_size': {
+            'read': {
+                'bins': [],
+                'coverage': None,
+            },
+            'write': {
+                'bins': [],
+                'coverage': None,
+            },
+        },
     }
 
 
@@ -1912,6 +2008,9 @@ def init_cfgs():
     # I/O cfgs
     cfgs['io_calls_time'] = os.path.join(cfgs['root_dir'], 'io-calls-time.cfg')
     cfgs['io_calls_count'] = os.path.join(cfgs['root_dir'], 'io-calls-count.cfg')
+    cfgs['io_read_size_count'] = os.path.join(cfgs['root_dir'], 'hist-read-size-count.cfg')
+    cfgs['io_write_size_count'] = os.path.join(cfgs['root_dir'], 'hist-write-size-count.cfg')
+
 
     return cfgs
 
@@ -2153,6 +2252,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     ## new I/O cfgs
     cmd_base.extend([cfgs['io_calls_time'], trace_name + '.io_calls_time.stats.csv'])
     cmd_base.extend([cfgs['io_calls_count'], trace_name + '.io_calls_count.stats.csv'])
+    cmd_base.extend([cfgs['io_read_size_count'], trace_name + '.io_read_size_count.stats.csv'])
+    cmd_base.extend([cfgs['io_write_size_count'], trace_name + '.io_write_size_count.stats.csv'])
 
     if is_detailed_mpi:
         cmd_base.extend([cfgs['mpi_io'], trace_name + '.mpi_io.stats.csv'])
@@ -2495,11 +2596,19 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         content_insttructions = []
 
 
+    io_count_path = trace_name + '.io_calls_count.stats.csv'
+    io_time_path = trace_name + '.io_calls_time.stats.csv'
+    read_size_path = trace_name + '.io_read_size_count.stats.csv'
+    write_size_path = trace_name + '.io_write_size_count.stats.csv'
+
+    io_count_exists = os.path.exists(io_count_path)
+    io_time_exists = os.path.exists(io_time_path)
+    read_size_exists = os.path.exists(read_size_path)
+    write_size_exists = os.path.exists(write_size_path)
+
     # POSIX I/O operation counts
-    if os.path.exists(trace_name + '.io_calls_count.stats.csv'):
-        io_count_stats = parse_io_operations_stats(
-            trace_name + '.io_calls_count.stats.csv'
-        )
+    if io_count_exists:
+        io_count_stats = parse_io_operations_stats(io_count_path)
 
         for operation in IO_OPERATIONS:
             if operation in io_count_stats:
@@ -2508,10 +2617,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
                 )
 
     # POSIX I/O operation times
-    if os.path.exists(trace_name + '.io_calls_time.stats.csv'):
-        io_time_stats = parse_io_operations_stats(
-            trace_name + '.io_calls_time.stats.csv'
-        )
+    if io_time_exists:
+        io_time_stats = parse_io_operations_stats(io_time_path)
 
         for operation in IO_OPERATIONS:
             if operation in io_time_stats:
@@ -2519,6 +2626,44 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
                     io_time_stats[operation]
                 )
 
+    # POSIX I/O read request-size distribution
+    if read_size_exists:
+        trace_io_data['request_size']['read']['bins'] = (
+            parse_io_request_size_histogram(read_size_path)
+        )
+
+    # POSIX I/O write request-size distribution
+    if write_size_exists:
+        trace_io_data['request_size']['write']['bins'] = (
+            parse_io_request_size_histogram(write_size_path)
+        )
+
+    # POSIX I/O request-size histogram coverage
+    for operation, size_exists in (
+        ('read', read_size_exists),
+        ('write', write_size_exists),
+    ):
+        if not (io_count_exists and size_exists):
+            continue
+
+        bins = trace_io_data['request_size'][operation]['bins']
+
+        histogram_count = sum(
+            bin_['count'] for bin_ in bins
+        )
+
+        operation_count = (
+            trace_io_data['operations'][operation]['count']['tot']
+        )
+
+        if operation_count > 0:
+            trace_io_data['request_size'][operation]['coverage'] = (
+                histogram_count / operation_count
+            )
+
+
+    print("I/O DATA:")
+    print(trace_io_data)
 
     # POSIX-IO aggregates
     posixio_totals = None
@@ -2990,6 +3135,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     # new I/O cfgs
     move_files(trace_name + '.io_calls_time.stats.csv', local_path_dest, cmdl_args)
     move_files(trace_name + '.io_calls_count.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.io_read_size_count.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.io_write_size_count.stats.csv', local_path_dest, cmdl_args)
 
     if is_detailed_mpi:
         move_files(trace_name + '.mpi_io.stats.csv', local_path_dest, cmdl_args)

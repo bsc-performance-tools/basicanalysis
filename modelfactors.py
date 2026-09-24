@@ -50,9 +50,6 @@ def main():
         cmdl_args,
     )
 
-    print("\nI/O DATA:")
-    print(analysis_result["io_data"])
-
     metrics_result = compute_metrics(
         analysis_result,
         trace_list,
