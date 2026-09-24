@@ -12,7 +12,7 @@ from utils import parse_arguments, check_installation
 
 def analyze_traces(trace_list, trace_processes, trace_task_per_node,
                    trace_mode, trace_tasks, trace_threads, cmdl_args):
-    raw_data, list_mpi_procs_count = gather_raw_data(
+    raw_data, io_data, list_mpi_procs_count = gather_raw_data(
         trace_list,
         trace_processes,
         trace_task_per_node,
@@ -25,6 +25,7 @@ def analyze_traces(trace_list, trace_processes, trace_task_per_node,
 
     return {
         "raw_data": raw_data,
+        "io_data": io_data,
         "list_mpi_procs_count": list_mpi_procs_count,
     }
 
@@ -48,6 +49,9 @@ def main():
         trace_threads,
         cmdl_args,
     )
+
+    print("\nI/O DATA:")
+    print(analysis_result["io_data"])
 
     metrics_result = compute_metrics(
         analysis_result,

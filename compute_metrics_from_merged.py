@@ -57,10 +57,12 @@ def main():
     trace_task_per_node = merged["trace_task_per_node"]
     trace_mode = merged["trace_mode"]
     raw_data = merged["raw_data"]
+    io_data = merged["io_data"]
     list_mpi_procs_count = merged["list_mpi_procs_count"]
 
     analysis_result = {
         "raw_data": raw_data,
+        "io_data": io_data,
         "list_mpi_procs_count": list_mpi_procs_count,
     }
 

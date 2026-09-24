@@ -53,7 +53,7 @@ def main():
         trace_mode,
     ) = reconstruct_trace_metadata(results, order_traces=args.order_traces)
 
-    raw_data, list_mpi_procs_count = merge_trace_results(results, trace_list)
+    raw_data, io_data, list_mpi_procs_count = merge_trace_results(results, trace_list)
 
     merged = {
         "trace_list": trace_list,
@@ -63,6 +63,7 @@ def main():
         "trace_task_per_node": trace_task_per_node,
         "trace_mode": trace_mode,
         "raw_data": raw_data,
+        "io_data": io_data,
         "list_mpi_procs_count": list_mpi_procs_count,
     }
 
