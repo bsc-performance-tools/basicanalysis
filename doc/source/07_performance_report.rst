@@ -439,6 +439,68 @@ PDF generation is therefore initiated explicitly from the interactive report;
 BasicAnalysis does not automatically generate a PDF during normal execution.
 
 
+.. _sec:report-programming-model-comparison:
+
+Programming Model Comparison
+----------------------------
+
+When the analyzed traces use different programming models (see
+:ref:`sec:comparing-programming-models`), the report is organized into tabs
+instead of the views described above:
+
+* **Programming Model Comparison**, which compares all the analyzed traces.
+* One tab per programming model, for example **MPI**, **MPI+OpenMP**, or
+  **MPI+CUDA**, with the complete report of the traces of that model.
+
+.. _fig-report-programming-model-comparison:
+
+.. figure:: images/report-programming-model-comparison.png
+   :width: 100%
+   :align: center
+   :alt: BasicAnalysis Programming Model Comparison
+
+   Programming Model Comparison of MPI, MPI+OpenMP, and MPI+CUDA executions.
+
+The **Programming Model Comparison** tab contains:
+
+* the programming models compared and the reference execution used for
+  Speedup;
+* the trace configuration and execution mapping of all the traces;
+* general metrics: elapsed time, Speedup, average IPC, and average frequency;
+* the efficiency metrics of each trace, organized as described in
+  :ref:`sec:methodology-programming-model-comparison`; and
+* I/O metrics, when File I/O activity is detected.
+
+In the efficiency table, shown in
+:numref:`fig-report-programming-model-comparison`, each column shows the
+metrics of the programming model of the corresponding trace. Hatched cells
+correspond to metrics that do not apply to that programming model, such as the
+OpenMP metrics of an MPI+CUDA execution. Device metrics are grouped after the
+Host metrics.
+
+Metric values can be clicked to open **Metric Details**. Each value opens the
+description of the metric of its own programming model. For example, in the
+MPI Load Balance row, the value of an MPI execution describes Load Balance,
+while the value of an MPI+CUDA execution describes the MPI Load Balance of the
+Host.
+
+Each programming-model tab contains the complete report of the traces of that
+model, analyzed as an independent set: Execution Overview, Parallel Runtime
+Model, Execution Domains, I/O Analysis, and, when the tab contains several
+traces, Scaling. The report of each tab is the same report that BasicAnalysis
+generates when those traces are analyzed alone, and it provides its own
+navigation, Metric Details, and export functions.
+
+The **Print comparison** button prints the Programming Model Comparison tab
+or saves it as PDF. The report of each programming model is printed from its
+own export menu.
+
+A typical comparison starts in the Programming Model Comparison tab to
+identify which implementation shows the largest efficiency losses and in which
+factor, and continues in the tab of that programming model to analyze the
+losses in detail.
+
+
 Following the Analysis Workflow
 -------------------------------
 

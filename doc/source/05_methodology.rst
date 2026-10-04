@@ -29,6 +29,8 @@ The methodology is organized around the following perspectives:
   contribution and distribution of File I/O activity.
 * **Scaling Analysis**, which examines how performance and efficiency factors
   evolve across execution configurations.
+* **Comparison of Programming Models**, which compares executions that use
+  different programming models.
 
 The following sections describe how these perspectives are related and how
 they can be used according to the objective of the performance assessment.
@@ -980,6 +982,116 @@ limitation without being the factor responsible for the observed scaling
 degradation.
 
 
+.. _sec:methodology-programming-model-comparison:
+
+Comparison of programming models
+================================
+
+Executions that use different programming models can be compared, for example
+to evaluate a new MPI+CUDA implementation of an application against its legacy
+MPI or MPI+OpenMP version. Such a comparison is not a scaling study: the
+executions use different kinds of parallel resources and their efficiency
+metrics are defined by different models.
+
+BasicAnalysis therefore describes each execution with the efficiency metrics of
+its own programming model and presents them side by side, aligning the metrics
+that represent the same performance factor.
+
+Compared metrics
+----------------
+
+The comparison is organized around the parallel-efficiency hierarchy, which is
+defined for every MPI-based programming model:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 23 23 24
+
+   * - Metric
+     - MPI
+     - MPI+OpenMP
+     - MPI+GPU
+   * - Parallel Efficiency
+     - Parallel Efficiency
+     - Hybrid Parallel Efficiency
+     - Host Parallel Efficiency
+   * - MPI Parallel Efficiency, Load Balance, Communication, Serialization,
+       and Transfer Efficiency
+     - Classic MPI metrics
+     - MPI metrics
+     - Host MPI metrics
+   * - OpenMP Parallel Efficiency, Load Balance, and Communication
+       Efficiency
+     - —
+     - OpenMP contribution
+     - —
+   * - Device Offload Efficiency
+     - —
+     - —
+     - Host metric
+   * - Device Parallel Efficiency, Load Balance, Communication, and
+       Orchestration Efficiency
+     - —
+     - —
+     - Device metrics
+
+In each programming model, the top-level metric is the product of the MPI
+contribution and the contribution of the second level, when present:
+
+* MPI: Parallel Efficiency equals MPI Parallel Efficiency.
+* MPI+OpenMP: Parallel Efficiency = MPI Parallel Efficiency × OpenMP Parallel
+  Efficiency.
+* MPI+GPU: Host Parallel Efficiency = MPI Parallel Efficiency × Device Offload
+  Efficiency.
+
+The top-level metric is therefore comparable across programming models. When
+at least one MPI+GPU execution is compared, it is labeled **Host Parallel
+Efficiency**, because it describes the Host side of the accelerator
+executions; when only CPU-based models are compared, it is labeled
+**Parallel Efficiency**.
+
+For MPI executions, the MPI metrics are the classic POP metrics, based on
+useful computation. For hybrid executions, the MPI metrics are based on the
+time spent outside MPI, as in the Parallel Runtime Model. For an MPI execution,
+both formulations differ only by the time outside MPI that is not useful
+computation, such as File I/O. The classic formulation is used because it is
+the one from which BasicAnalysis obtains Serialization and Transfer Efficiency
+for MPI executions, and it gives the same values as the analysis of the MPI
+execution alone.
+
+Metrics that do not apply to a programming model are left empty. The Metric
+Details of each value describe the metric of the corresponding execution's
+programming model.
+
+Reference execution and Speedup
+-------------------------------
+
+Scalability metrics, such as Computation Scalability and its IPC,
+Instruction, and Frequency factors, compare the computation of an execution
+with that of a reference execution. Across programming models, this
+comparison mixes different kinds of computation, for example CPU-only useful
+computation and CPU+GPU useful computation, and the resulting values would not
+be meaningful. For the same reason, scaling detection is not applied.
+BasicAnalysis therefore does not compute these metrics, nor the Global
+Efficiency and Efficiency metrics that depend on them, across programming
+models.
+
+Elapsed time and Speedup remain available. Speedup is the ratio between the
+elapsed time of the first execution and that of each execution, and directly
+answers whether an implementation is faster than the reference. IPC and
+processor frequency are reported for each execution as general metrics.
+
+Analysis per programming model
+------------------------------
+
+The comparison is complemented by the analysis of the executions of each
+programming model as an independent set. When several executions use the same
+programming model, this analysis includes the usual scaling analysis between
+them. The comparison therefore identifies how the implementations differ,
+while the per-model analysis explains the behavior of each implementation in
+detail.
+
+
 Complementary analytical views
 ==============================
 
@@ -1018,6 +1130,10 @@ A useful way to interpret them is:
 
    How do the performance factors and their contributions evolve as the
    execution configuration changes?
+
+**Comparison of Programming Models**
+
+   How do executions that use different programming models compare?
 
 These perspectives can be followed progressively during a comprehensive
 performance assessment or selected individually when investigating a specific

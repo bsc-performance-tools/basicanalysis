@@ -29,6 +29,9 @@ possible next steps for further performance analysis.
 * File I/O analysis with complementary efficiency and load-balance metrics for
   MPI-I/O and POSIX/ANSI C File I/O activity.
 * Strong and weak scaling evaluation across multiple execution configurations.
+* Comparison of executions that use different programming models, such as
+  MPI+CUDA vs MPI or MPI+OpenMP, with the complete analysis of each
+  programming model.
 * Metric Details with metric definitions, possible causes of performance
   losses, and guidance for further analysis.
 * Interactive Performance Report with complementary analysis views and

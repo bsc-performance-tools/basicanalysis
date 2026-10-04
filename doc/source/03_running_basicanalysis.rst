@@ -230,6 +230,70 @@ Trace ordering is particularly relevant when several configurations are
 analyzed because the first execution is used as the reference for several
 relative performance and scalability metrics.
 
+Preserving the input order is also useful when the analyzed traces are not a
+scaling study, for example when comparing executions with the same parallel
+resources but different problems, or executions that use different
+programming models (see :ref:`sec:comparing-programming-models`). In these
+cases, list the trace to be used as reference first and use ``-ord not``.
+
+
+.. _sec:comparing-programming-models:
+
+Comparing programming models
+============================
+
+BasicAnalysis can compare executions that use different programming models,
+for example a new MPI+CUDA implementation of an application with its legacy
+MPI or MPI+OpenMP version, or the MPI+CUDA and MPI+HIP versions of the same
+application.
+
+The comparison is activated automatically when more than one trace is
+analyzed and the traces do not all use the same programming model. No
+additional option is required:
+
+.. code-block:: sh
+
+   modelfactors.py app_mpi.prv app_mpi_cuda.prv app_mpi_openmp.prv
+
+When all traces use the same programming model, BasicAnalysis performs the
+usual analysis and its output is not affected.
+
+In the comparison:
+
+* Each trace is described with the efficiency metrics of its own programming
+  model. Metrics that do not apply to a programming model, such as Device
+  metrics for an MPI execution, are left empty.
+* Scaling detection and the metrics computed relative to a reference
+  execution, such as Global Efficiency and Computation Scalability, are not
+  computed across programming models.
+* Elapsed time and Speedup remain available. Speedup is the runtime ratio
+  relative to the first trace.
+* The interactive report contains a **Programming Model Comparison** tab and
+  one tab per programming model with the complete analysis of its traces.
+
+The first trace is the reference for Speedup. By default, traces are ordered
+according to their parallel configuration (see `Trace ordering`_). To use a
+specific execution as reference, for example the legacy version of the
+application, list it first and preserve the input order:
+
+.. code-block:: sh
+
+   modelfactors.py -ord not app_legacy_mpi.prv app_new_mpi_cuda.prv
+
+The comparison is supported for **Detailed** traces of MPI-based programming
+models, such as MPI, MPI+OpenMP, MPI+CUDA, and MPI+HIP. If a trace set with
+different programming models contains a Burst trace or a trace without MPI,
+BasicAnalysis stops and lists the traces that cannot be compared. These traces
+should be analyzed separately.
+
+The comparison always uses the hybrid metric workflow, which covers all
+MPI-based programming models, even when ``--metrics simple`` is selected.
+
+The comparison is also available in the staged workflow
+(:doc:`04_staged_workflow`). The methodology of the comparison is described in
+:ref:`sec:methodology-programming-model-comparison`, and the corresponding
+report views in :ref:`sec:report-programming-model-comparison`.
+
 
 Parallel trace analysis
 =======================

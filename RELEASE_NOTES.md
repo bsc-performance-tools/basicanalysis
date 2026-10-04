@@ -35,6 +35,10 @@
     of the same model).
   - A printable version of the comparison.
 
+- Document the comparison of programming models in the User Guide: usage and
+  selection of the reference execution with `-ord not`, methodology, report
+  views, output files, and limitations.
+
 ### Fixes
 
 - Fixed GPU stream counting for MPI+CUDA traces using legacy CUDA thread

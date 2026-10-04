@@ -39,6 +39,10 @@ Efficiency tables can be exported from the report as PNG images. The report
 also provides export options for multiple tables and can be printed or saved as
 a PDF using the browser.
 
+When the analyzed traces use different programming models, the report
+contains a Programming Model Comparison tab and one tab per programming model
+with the complete report of its traces.
+
 See :doc:`07_performance_report` for a detailed description of the report,
 its analytical views, and its export capabilities.
 
@@ -75,6 +79,17 @@ Additional model-specific CSV files may also be generated. For example,
 OpenMP analyses can generate ``omp_talp_metrics.csv``, while MPI+GPU analyses
 using the Host/Device execution-domain model can generate
 ``talp_metrics.csv``.
+
+When the analyzed traces use different programming models, BasicAnalysis
+also writes:
+
+``comparison_metrics.csv``
+   Contains the comparison of the efficiency metrics of the traces, with the
+   same rows as the comparison table printed on the terminal. Cells of
+   metrics that do not apply to a programming model are empty. In this case,
+   the reference-based metrics in ``modelfactors.csv`` and
+   ``other_metrics.csv``, such as scalability metrics and Efficiency, are
+   reported as ``N/A``.
 
 The availability of individual files and metrics depends on the programming
 model, the information contained in the traces, the number of analyzed
@@ -114,6 +129,11 @@ containing plotting instructions and the corresponding metric data.
 
 I/O metric plots are provided within the interactive report and are not
 generated as separate static visualization files.
+
+When the analyzed traces use different programming models, the static
+efficiency tables and the scaling plots are not generated, because they
+assume a single programming model. The comparison is available in the
+terminal output, in ``comparison_metrics.csv``, and in the interactive report.
 
 
 Intermediate Analysis Files

@@ -112,3 +112,31 @@ underlying storage-system cause.
 When I/O activity represents a significant performance factor, detailed trace
 analysis or specialized I/O performance-analysis tools may be required for
 further diagnosis.
+
+
+Comparison of Programming Models
+--------------------------------
+
+The comparison of executions that use different programming models is
+supported for Detailed traces of MPI-based programming models, such as MPI,
+MPI+OpenMP, MPI+CUDA, and MPI+HIP. Burst traces and traces without MPI cannot
+be included in such a comparison and must be analyzed separately.
+
+Scalability metrics, Global Efficiency, Efficiency, and the detection of the
+scaling model are not computed across programming models, because they would
+compare computation performed on different kinds of resources. Speedup is
+computed relative to the first trace and should be interpreted as a comparison
+of elapsed times. When the compared executions solve different problems or
+problem sizes, Speedup does not represent a performance improvement of the
+same computation.
+
+The comparison relates metrics that represent the same performance factor in
+each programming model, but these metrics may be computed from different
+quantities. For example, the MPI metrics of an MPI execution are based on
+useful computation, while those of a hybrid execution are based on the time
+spent outside MPI. Small differences between executions should therefore be
+interpreted with care.
+
+The interactive report embeds the complete report of each programming model.
+When many programming models are compared, the report file is therefore
+larger than the report of a single analysis.
