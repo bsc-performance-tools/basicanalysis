@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### New Features
+
+- Add **comparison of programming models**. When the analyzed traces use
+  different programming models (e.g. MPI+CUDA vs MPI, MPI vs MPI+OpenMP, or
+  MPI+CUDA vs MPI+HIP), BasicAnalysis prints a comparison table where each
+  trace shows the efficiency metrics of its own programming model:
+  - Rows are shown when they apply to at least one trace; cells of metrics
+    that do not apply to a programming model are left empty.
+  - The top row is *Host Parallel efficiency* when an MPI+GPU trace is
+    compared, and *Parallel efficiency* when only CPU-based models are
+    compared.
+  - Scaling detection and reference-based metrics (Global efficiency,
+    Computation/IPC/Instruction/Frequency scalability, Efficiency) are not
+    computed across programming models. Execution time and Speedup
+    (runtime ratio against the first trace) remain available.
+  - The comparison table is also written to `comparison_metrics.csv`.
+  - Efficiency-table and scaling plots are not generated in this mode.
+  - Comparison is supported for Detailed traces of MPI-based programming
+    models. A Burst trace, or a trace without MPI, in a comparison stops the
+    analysis with a message listing the unsupported traces.
+
 ### Fixes
 
 - Fixed GPU stream counting for MPI+CUDA traces using legacy CUDA thread

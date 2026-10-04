@@ -12,6 +12,7 @@ import reportdata
 from report import build_analysis_context, build_report_model
 import html_to_pdf
 import os
+from comparison import is_comparison_mode, print_comparison_info
 
 from simplemetrics import (
     compute_model_factors,
@@ -89,7 +90,15 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
     raw_data = analysis_result["raw_data"]
     list_mpi_procs_count = analysis_result["list_mpi_procs_count"]
 
-    if cmdl_args.metrics == 'hybrid' and trace_metrics > 0:
+    # Traces with different programming models are always compared
+    # with the hybrid metrics, which cover every MPI-based model.
+    comparison = is_comparison_mode(trace_list, trace_mode)
+
+    if comparison and cmdl_args.metrics != 'hybrid':
+        print("==INFO== Traces use different programming models: "
+              "hybrid metrics are used for the comparison.")
+
+    if (cmdl_args.metrics == 'hybrid' and trace_metrics > 0) or comparison:
         (
             mod_factors,
             mod_factors_scale_plus_io,
@@ -186,6 +195,10 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
     scaling_info = metrics_result.get("scaling_info")
     print_scaling_info(scaling_info)    
 
+    comparison = is_comparison_mode(trace_list, trace_mode)
+    if comparison:
+        print_comparison_info(trace_list, trace_mode)
+
     if metrics_result["kind"] == "hybrid":
         mod_factors = metrics_result["mod_factors"]
         mod_factors_scale_plus_io = metrics_result["mod_factors_scale_plus_io"]
@@ -213,7 +226,21 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
             "Detailed+MPI+HIP",
         )
 
-        if (cmdl_args.pop_model_to_apply == 'talp') and is_mpi_gpu:
+        if comparison:
+            hybridmetrics.print_comparison_table(
+                mod_factors,
+                hybrid_factors,
+                device_factors,
+                host_factors,
+                other_metrics,
+                trace_list,
+                trace_processes,
+                trace_tasks,
+                trace_threads,
+                trace_mode,
+                raw_data,
+            )
+        elif (cmdl_args.pop_model_to_apply == 'talp') and is_mpi_gpu:
             hybridmetrics.print_talp_metrics_csv(
                 device_factors,
                 host_factors,
@@ -260,6 +287,20 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
             )
 
         hybridmetrics.print_mod_factors_csv(mod_factors, hybrid_factors, trace_list, trace_processes,trace_mode)
+
+        if comparison:
+            hybridmetrics.print_comparison_csv(
+                mod_factors,
+                hybrid_factors,
+                device_factors,
+                host_factors,
+                trace_list,
+                trace_processes,
+                trace_tasks,
+                trace_threads,
+                trace_mode,
+                raw_data,
+            )
 
         if any(
             trace_mode[trace] == "Detailed+MPI+OpenMP"
@@ -319,11 +360,18 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
     mod_factors = metrics_result["mod_factors"]
     hybrid_factors = metrics_result["hybrid_factors"]
 
+    # Efficiency-table, model-factor and speedup plots assume a single
+    # programming model. They are not produced when comparing models.
+    comparison = is_comparison_mode(trace_list, trace_mode)
+    if comparison:
+        print('Comparison of programming models: efficiency-table and '
+              'scaling plots are not generated.')
+
     error_plot_table = False
     if not can_plot_tables():
         print('Numpy/Pandas/Matplotlib/Seaborn modules not available. '
               'Skipping efficiency table plotting with python.')
-        if len(trace_list) > 1:
+        if len(trace_list) > 1 and not comparison:
             out_ver_gnuplot = subprocess.check_output(["gnuplot", "--version"])
             if 'gnuplot 5.' not in str(out_ver_gnuplot):
                 print('It requires gnuplot version 5.0 or higher. '
@@ -343,7 +391,9 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
     )    
 
     if not error_plot_table:
-        if (cmdl_args.pop_model_to_apply == 'talp') and is_mpi_gpu:
+        if comparison:
+            pass  # Efficiency-table plots assume a single programming model.
+        elif (cmdl_args.pop_model_to_apply == 'talp') and is_mpi_gpu:
             hybridmetrics.plots_talp_efficiency_table_matplot(
                 trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data, cmdl_args
             )
@@ -370,7 +420,7 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
             print('Plotly/interactiveplots module not available. '
                  'Skipping interactive HTML report.')            
 
-        if len(trace_list) > 1:
+        if len(trace_list) > 1 and not comparison:
             if cmdl_args.pop_model_to_apply == 'classic':
                 hybridmetrics.plots_modelfactors_matplot(
                     trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args
@@ -385,7 +435,8 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
         error_plot_lineal = True
 
     if not error_plot_lineal:
-        if len(trace_list) > 1 and (cmdl_args.pop_model_to_apply == 'classic'):
+        if (len(trace_list) > 1 and not comparison
+                and cmdl_args.pop_model_to_apply == 'classic'):
             plots.plot_hybrid_metrics(
                 mod_factors,
                 hybrid_factors,

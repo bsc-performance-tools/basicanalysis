@@ -9,6 +9,15 @@ import math
 from rawdata import *
 from collections import OrderedDict
 from scaling import get_scaling_info
+from comparison import (
+    NOT_APPLICABLE,
+    build_comparison_device_rows,
+    build_comparison_rows,
+    clear_reference_metrics,
+    get_comparison_scaling_info,
+    get_programming_model,
+    is_comparison_mode,
+)
 from configuration import (
     format_configuration_label,
     disambiguate_configuration_labels,
@@ -849,12 +858,18 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
 
     # Detect and select the scaling model.
-    scaling_info = get_scaling_info(
-        raw_data,
-        trace_list,
-        trace_processes,
-        cmdl_args,
-    )
+    # Traces with different programming models are compared, not scaled.
+    comparison = is_comparison_mode(trace_list, trace_mode)
+
+    if comparison:
+        scaling_info = get_comparison_scaling_info()
+    else:
+        scaling_info = get_scaling_info(
+            raw_data,
+            trace_list,
+            trace_processes,
+            cmdl_args,
+        )
 
     scaling = scaling_info.selected
 
@@ -1323,6 +1338,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             if (not outmpi_measures) or cmdl_args.skip_simulation:
                 hybrid_factors['serial_eff'][trace] = 'Non-Avail'
+                if trace_mode[trace] == "Detailed+MPI":
+                    mod_factors['serial_eff'][trace] = 'Non-Avail'
             elif trace_mode[trace] == "Detailed+MPI+OpenMP" and cmdl_args.hyb_mpiomp:
                 mod_factors['serial_eff'][trace] = float(raw_data['hybrid_useful_dim'][trace]) \
                                                    / float(raw_data['hybrid_runtime_dim'][trace]) * 100.0
@@ -1337,6 +1354,9 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 mod_factors['serial_eff'][trace] = float(raw_data['useful_dim'][trace]) \
                                                    / float(raw_data['runtime_dim'][trace]) * 100.0
                 hybrid_factors['serial_eff'][trace] = 'N/A'
+                # Same check as the classic MPI metrics (simplemetrics.py).
+                if round(mod_factors['serial_eff'][trace]) > 100:
+                    mod_factors['serial_eff'][trace] = 'Warning!'
             elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 mod_factors['serial_eff'][trace] = 'N/A'
                 hybrid_factors['serial_eff'][trace] = 'Non-Avail'
@@ -1355,6 +1375,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             if (not outmpi_measures) or cmdl_args.skip_simulation:
                 hybrid_factors['transfer_eff'][trace] = 'Non-Avail'
+                if trace_mode[trace] == "Detailed+MPI":
+                    mod_factors['transfer_eff'][trace] = 'Non-Avail'
             elif hybrid_factors['serial_eff'][trace] == 'Warning!':
                 hybrid_factors['transfer_eff'][trace] = 'Warning!'            
             else:
@@ -1369,8 +1391,15 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                         / float(hybrid_factors['serial_eff'][trace]) * 100.0
                     mod_factors['transfer_eff'][trace] = 'N/A'
                 elif trace_mode[trace] == "Detailed+MPI":
-                    mod_factors['transfer_eff'][trace] = float(mod_factors['comm_eff'][trace]) \
-                                                         / float(mod_factors['serial_eff'][trace]) * 100.0
+                    # Same computation as the classic MPI metrics (simplemetrics.py).
+                    if mod_factors['serial_eff'][trace] != 'Warning!':
+                        mod_factors['transfer_eff'][trace] = float(mod_factors['comm_eff'][trace]) \
+                                                             / float(mod_factors['serial_eff'][trace]) * 100.0
+                    else:
+                        mod_factors['transfer_eff'][trace] = float(raw_data['runtime_dim'][trace]) \
+                                                             / float(raw_data['runtime'][trace]) * 100.0
+                    if round(mod_factors['transfer_eff'][trace]) > 100:
+                        mod_factors['transfer_eff'][trace] = 'Warning!'
                     hybrid_factors['transfer_eff'][trace] = 'N/A'
                 elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                     hybrid_factors['transfer_eff'][trace] = 'Non-Avail'
@@ -2103,6 +2132,15 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             other_metrics['efficiency'][trace] = 'NaN'
 
+    if comparison:
+        clear_reference_metrics(trace_list, {
+            'mod_factors': mod_factors,
+            'mod_factors_scale_plus_io': mod_factors_scale_plus_io,
+            'host_factors': host_factors,
+            'device_factors': device_factors,
+            'other_metrics': other_metrics,
+        })
+
     return (
         mod_factors,
         mod_factors_scale_plus_io,
@@ -2478,6 +2516,184 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
     print('')
 
 
+def _format_comparison_value(value, number_format):
+    """Format a comparison-table cell.
+
+    Numbers use number_format, not-applicable cells stay empty, and
+    textual states (Non-Avail, NaN, Warning!) are kept as they are.
+    """
+    if value == NOT_APPLICABLE:
+        return ''
+
+    try:
+        if str(value) == 'nan':
+            return 'NaN'
+        return number_format.format(value)
+    except (ValueError, TypeError):
+        return '{}'.format(value)
+
+
+def _get_comparison_rows(mod_factors, hybrid_factors, device_factors,
+                         host_factors, trace_list, trace_mode):
+    """Return (application rows, device rows) of the comparison table."""
+    rows = build_comparison_rows(
+        trace_list,
+        trace_mode,
+        mod_factors,
+        hybrid_factors,
+        host_factors,
+    )
+
+    device_rows = build_comparison_device_rows(
+        trace_list,
+        trace_mode,
+        device_factors,
+    )
+
+    return rows, device_rows
+
+
+def print_comparison_table(mod_factors, hybrid_factors, device_factors,
+                           host_factors, other_metrics, trace_list,
+                           trace_processes, trace_tasks, trace_threads,
+                           trace_mode, raw_data):
+    """Print the efficiency metrics of traces with different programming
+    models in human readable form on stdout.
+
+    Each trace shows the metrics of its own programming model. Cells of
+    metrics that do not apply to a programming model are left empty.
+    """
+    warning_flush_wrong = []
+    warning_simulation = []
+    for trace in trace_list:
+        if other_metrics['flushing'][trace] >= 15.0:
+            warning_flush_wrong.append(1)
+        if "Warning!" in (
+                hybrid_factors['serial_eff'][trace],
+                hybrid_factors['transfer_eff'][trace],
+                mod_factors['serial_eff'][trace],
+                mod_factors['transfer_eff'][trace]):
+            warning_simulation.append(1)
+
+    if len(warning_flush_wrong) > 0:
+        print("WARNING! Flushing in a trace is too high. Disabling standard output metrics...")
+        print("         Flushing is an overhead due to the tracer, please review your trace.")
+        print('')
+        return
+
+    rows, device_rows = _get_comparison_rows(
+        mod_factors, hybrid_factors, device_factors, host_factors,
+        trace_list, trace_mode,
+    )
+
+    print('\n Overview of the Efficiency metrics (comparison of programming models):')
+
+    longest_name = max(
+        len(label)
+        for label, _ in rows + device_rows
+    )
+    longest_name = max(longest_name, len(mod_hybrid_factors_doc['omp_comm_eff']))
+
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
+
+    value_to_adjust = max(
+        14,
+        max(len(label) for label in configuration_labels) + 1,
+    )
+
+    line = 'Configuration'.rjust(longest_name)
+    line_trace_mode = 'Trace mode'.rjust(longest_name)
+
+    for index, trace in enumerate(trace_list):
+        line += ' | ' + configuration_labels[index].rjust(value_to_adjust)
+        line_trace_mode += ' | ' + get_programming_model(
+            trace_mode[trace]
+        ).rjust(value_to_adjust)
+
+    line_head = line
+
+    print(''.ljust(len(line_head), '='))
+    print(line_trace_mode)
+    print(line_head)
+    print(''.ljust(len(line_head), '='))
+
+    def print_rows(table_rows):
+        for label, values in table_rows:
+            line = label.ljust(longest_name)
+            for trace in trace_list:
+                line += ' | ' + _format_comparison_value(
+                    values[trace], '{0:.2f}%'
+                ).rjust(value_to_adjust)
+            print(line)
+
+    print_rows(rows)
+
+    if device_rows:
+        print(''.ljust(len(line_head), '-'))
+        print_rows(device_rows)
+
+    print(''.ljust(len(line_head), '='))
+    print('Empty cells: metric not applicable to the programming model.')
+    if len(warning_simulation) > 0:
+        print("===> Warning! Metrics obtained from simulated traces exceed 100%. "
+              "Please review original and simulated traces.")
+    print('')
+
+
+def print_comparison_csv(mod_factors, hybrid_factors, device_factors,
+                         host_factors, trace_list, trace_processes,
+                         trace_tasks, trace_threads, trace_mode, raw_data):
+    """Print the comparison table in a csv file.
+
+    Same rows as print_comparison_table(). Cells of metrics that do not
+    apply to a programming model are left empty.
+    """
+    delimiter = ';'
+    file_path = os.path.join(os.getcwd(), 'comparison_metrics.csv')
+
+    rows, device_rows = _get_comparison_rows(
+        mod_factors, hybrid_factors, device_factors, host_factors,
+        trace_list, trace_mode,
+    )
+
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
+
+    with open(file_path, 'w') as output:
+        line = '"Metric"'
+        for label in configuration_labels:
+            line += delimiter + '"' + label + '"'
+        output.write(line + '\n')
+
+        line = '"Trace mode"'
+        for trace in trace_list:
+            line += delimiter + get_programming_model(trace_mode[trace])
+        output.write(line + '\n')
+
+        for label, values in rows + device_rows:
+            line = '"' + label.strip() + '"'
+            for trace in trace_list:
+                line += delimiter + _format_comparison_value(
+                    values[trace], '{0:.6f}'
+                )
+            output.write(line + '\n')
+
+    print('Comparison metrics written to ' + file_path)
+
+
 def print_other_metrics_table(
         other_metrics,
         trace_list,
@@ -2540,6 +2756,12 @@ def print_other_metrics_table(
     # General performance indicators
     # --------------------------------------------------
 
+    # Efficiency is relative to the reference trace resources and is
+    # not computed across programming models.
+    multi_trace_keys = ['speedup', 'ipc', 'freq', 'elapsed_time']
+    if not is_comparison_mode(trace_list, trace_mode):
+        multi_trace_keys.append('efficiency')
+
     for mod_key in other_metrics_doc:
 
         line = other_metrics_doc[mod_key].ljust(
@@ -2548,13 +2770,7 @@ def print_other_metrics_table(
 
         if len(trace_list) > 1:
 
-            if mod_key in [
-                'speedup',
-                'ipc',
-                'freq',
-                'elapsed_time',
-                'efficiency',
-            ]:
+            if mod_key in multi_trace_keys:
 
                 for trace in trace_list:
 

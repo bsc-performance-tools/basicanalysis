@@ -6,6 +6,7 @@ from __future__ import print_function, division
 
 import json
 
+from comparison import check_comparison_support
 from pipeline import count_hybrid_traces, compute_metrics, generate_reports, generate_plots
 from utils import build_argument_parser
 from argparse import SUPPRESS
@@ -65,6 +66,8 @@ def main():
         "io_data": io_data,
         "list_mpi_procs_count": list_mpi_procs_count,
     }
+
+    check_comparison_support(trace_list, trace_mode)
 
     trace_metrics = count_hybrid_traces(trace_list, trace_mode)
 

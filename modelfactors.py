@@ -4,6 +4,7 @@
 
 from __future__ import print_function, division
 
+from comparison import check_comparison_support
 from pipeline import count_hybrid_traces, compute_metrics, generate_reports, generate_plots
 from rawdata import gather_raw_data, print_raw_data_csv
 from tracemetadata import get_traces_from_args
@@ -37,6 +38,8 @@ def main():
 
     trace_list, trace_processes, trace_tasks, trace_threads, trace_task_per_node, trace_mode = \
         get_traces_from_args(cmdl_args)
+
+    check_comparison_support(trace_list, trace_mode)
 
     trace_metrics = count_hybrid_traces(trace_list, trace_mode)
 
