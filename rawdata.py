@@ -11,7 +11,7 @@ import shutil
 import json
 from utils import which
 from collections import OrderedDict, defaultdict
-from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping
+from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label
 from utils import run_command, move_files,remove_files, create_temp_folder
 
 
@@ -1475,10 +1475,6 @@ def count_gpu_streams_by_mpi_rank(row_path):
         >0 -> homogeneous number of streams per MPI rank
         -1 -> non-uniform number of streams across MPI ranks
     """
-    def is_gpu_stream_label(label):
-        label = str(label).strip()
-        return label.startswith("GPU_") or label.startswith("GPU-")
-
     thread_to_label = parse_row_thread_labels(row_path)
 
     streams_by_rank = defaultdict(int)

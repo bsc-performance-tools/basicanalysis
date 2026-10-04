@@ -1,5 +1,16 @@
 # Release Notes
 
+## Unreleased
+
+### Fixes
+
+- Fixed GPU stream counting for MPI+CUDA traces using legacy CUDA thread
+  labels (`CUDA-D<n>.S<m>-<node>`). The number of devices was detected
+  correctly, but the GPU streams and streams per MPI rank were reported as 0
+  in the Execution Overview. Device and stream counting now share the same
+  `.row` label recognition.
+
+
 ## 2026.09.17
 
 This is a corrective release addressing issues identified in the staged

@@ -691,6 +691,35 @@ def get_execution_mapping(prv_file, trace_mode):
     return mapping
 
 
+# --------------------------------------------------------------
+# GPU stream labels in the LEVEL THREAD section of a .row file.
+# Shared by device and stream counting so both recognize the
+# same formats.
+# --------------------------------------------------------------
+
+# New format: GPU_<uuid>.<stream>
+GPU_UUID_LABEL_RE = re.compile(r"^GPU_([^.]+)(?:\.(\d+))?\s*$")
+
+# Legacy format: CUDA-D1.S2-as04r1b15
+CUDA_LEGACY_LABEL_RE = re.compile(r"^CUDA-(D\d+)\.[^-]*-([^\s]+)\s*$")
+
+# New Extrae generic GPU format: GPU-D1.S2
+GPU_DEVICE_LABEL_RE = re.compile(r"^GPU-(D\d+)\.S(\d+)\s*$")
+
+
+def is_gpu_stream_label(label) -> bool:
+    """Return True if a .row thread label identifies a GPU stream."""
+    label = str(label).strip()
+    return any(
+        regex.match(label)
+        for regex in (
+            GPU_UUID_LABEL_RE,
+            CUDA_LEGACY_LABEL_RE,
+            GPU_DEVICE_LABEL_RE,
+        )
+    )
+
+
 def get_device_stream_id_mapping(
     prv_file,
     start_id: int = 1,
@@ -713,16 +742,9 @@ def get_device_stream_id_mapping(
         where <node> is obtained positionally from LEVEL CPU.
     """
     THREAD_RE = re.compile(r"^THREAD\s+\d+\.\d+\.\d+\s*$")
-
-    # New format: GPU_<uuid>.<stream>
-    GPU_RE = re.compile(r"^GPU_([^.]+)(?:\.(\d+))?\s*$")
-
-    # Legacy format: CUDA-D1.S2-as04r1b15
-    CUDA_RE = re.compile(r"^CUDA-(D\d+)\.[^-]*-([^\s]+)\s*$")
-
-    # New Extrae generic GPU format:
-    #   GPU-D1.S2
-    GPU_DEVICE_RE = re.compile(r"^GPU-(D\d+)\.S(\d+)\s*$")
+    GPU_RE = GPU_UUID_LABEL_RE
+    CUDA_RE = CUDA_LEGACY_LABEL_RE
+    GPU_DEVICE_RE = GPU_DEVICE_LABEL_RE
 
     dev_to_ids: Dict[str, List[str]] = defaultdict(list)
     next_id = start_id
