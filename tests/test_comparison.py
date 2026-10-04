@@ -5,6 +5,8 @@ from contextlib import redirect_stdout
 
 from comparison import (
     NOT_APPLICABLE,
+    build_comparison_cells,
+    build_comparison_device_cells,
     build_comparison_device_rows,
     build_comparison_rows,
     check_comparison_support,
@@ -89,7 +91,8 @@ class ComparisonModeTests(unittest.TestCase):
         self.assertEqual(scaling_info.selected, "strong")
 
 
-class ComparisonRowsTests(unittest.TestCase):
+class _ComparisonFixture(unittest.TestCase):
+    """Factor dictionaries for one MPI+CUDA, one MPI and one MPI+OpenMP trace."""
 
     def setUp(self):
         self.trace_mode = {
@@ -120,6 +123,10 @@ class ComparisonRowsTests(unittest.TestCase):
              "dev_orches_eff"),
             {CUDA: 50.0, MPI: 'N/A', OMP: 'N/A'},
         )
+
+
+
+class ComparisonRowsTests(_ComparisonFixture):
 
     def _rows(self, trace_list):
         return dict(build_comparison_rows(
@@ -176,6 +183,51 @@ class ComparisonRowsTests(unittest.TestCase):
         device_pe = device_rows['DEVICE Parallel efficiency']
         self.assertEqual(device_pe[CUDA], 50.0)
         self.assertEqual(device_pe[MPI], NOT_APPLICABLE)
+
+
+class ComparisonCellsTests(_ComparisonFixture):
+    """Cells refer to the metric of each trace's own programming model."""
+
+    def _cells(self, trace_list):
+        return dict(build_comparison_cells(
+            trace_list,
+            self.trace_mode,
+            self.mod_factors,
+            self.hybrid_factors,
+            self.host_factors,
+        ))
+
+    def test_cells_use_the_metric_of_each_model(self):
+        cells = self._cells([CUDA, MPI, OMP])
+
+        load_balance = cells['   -- MPI Load balance']
+        self.assertEqual(load_balance[CUDA].metric_key, 'mpi_load_balance')
+        self.assertEqual(load_balance[MPI].metric_key, 'load_balance')
+        self.assertEqual(load_balance[OMP].metric_key, 'mpi_load_balance')
+
+        top = cells['Host Parallel efficiency']
+        self.assertEqual(top[CUDA].metric_key, 'host_parallel_eff')
+        self.assertEqual(top[MPI].metric_key, 'parallel_eff')
+        self.assertEqual(top[OMP].metric_key, 'hybrid_eff')
+        self.assertEqual(top[OMP].runtime, 'OpenMP')
+
+    def test_not_applicable_cells_are_none(self):
+        cells = self._cells([CUDA, MPI, OMP])
+
+        omp_pe = cells['-- OpenMP Parallel efficiency']
+        self.assertIsNone(omp_pe[CUDA])
+        self.assertIsNone(omp_pe[MPI])
+        self.assertEqual(omp_pe[OMP].metric_key, 'omp_parallel_eff')
+        self.assertEqual(omp_pe[OMP].runtime, 'OpenMP')
+
+        device_cells = dict(build_comparison_device_cells(
+            [CUDA, MPI], self.trace_mode, self.device_factors
+        ))
+        self.assertIsNone(device_cells['DEVICE Parallel efficiency'][MPI])
+        self.assertEqual(
+            device_cells['DEVICE Parallel efficiency'][CUDA].metric_key,
+            'dev_parallel_eff',
+        )
 
 
 class ClearReferenceMetricsTests(unittest.TestCase):

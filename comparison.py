@@ -206,9 +206,36 @@ def print_comparison_info(trace_list, trace_mode):
     print("")
 
 
-def build_comparison_rows(trace_list, trace_mode, mod_factors,
-                          hybrid_factors, host_factors):
-    """Build the rows of the comparison table.
+class ComparisonCell(object):
+    """One cell of the comparison table.
+
+    value       metric value of the trace
+    metric_key  metric of the trace's programming model shown in the cell;
+                used to resolve its definition (Metric Details)
+    runtime     runtime used to resolve runtime-specific definitions
+                (e.g. OpenMP for omp_parallel_eff), or None
+    """
+
+    __slots__ = ('value', 'metric_key', 'runtime')
+
+    def __init__(self, value, metric_key, runtime=None):
+        self.value = value
+        self.metric_key = metric_key
+        self.runtime = runtime
+
+
+def _trace_kind(mode):
+    """Classify a trace mode for the comparison table."""
+    if is_gpu_model(mode):
+        return 'gpu'
+    if get_second_level_runtime(mode) is not None:
+        return 'mpi_x'
+    return 'mpi'
+
+
+def build_comparison_cells(trace_list, trace_mode, mod_factors,
+                           hybrid_factors, host_factors):
+    """Build the application rows of the comparison table.
 
     Each trace contributes the metrics of its own programming model:
 
@@ -216,13 +243,13 @@ def build_comparison_rows(trace_list, trace_mode, mod_factors,
         MPI+<CPU>   -> MPI and second-level runtime metrics (hybrid_factors)
         MPI+GPU     -> Host metrics (host_factors)
 
-    Device metrics are built by build_comparison_device_rows().
+    Device metrics are built by build_comparison_device_cells().
 
     Rows are included when they apply to at least one trace. Cells of
-    traces where the metric does not apply contain NOT_APPLICABLE.
+    traces where the metric does not apply are None.
 
     Returns:
-        list of (label, {trace: value})
+        list of (label, {trace: ComparisonCell or None})
     """
     has_gpu = any(is_gpu_model(trace_mode[trace]) for trace in trace_list)
 
@@ -232,24 +259,23 @@ def build_comparison_rows(trace_list, trace_mode, mod_factors,
         if runtime is not None and runtime not in second_level_runtimes:
             second_level_runtimes.append(runtime)
 
-    def kind(trace):
-        if is_gpu_model(trace_mode[trace]):
-            return 'gpu'
-        if get_second_level_runtime(trace_mode[trace]) is not None:
-            return 'mpi_x'
-        return 'mpi'
-
     def row(label, sources):
-        """sources maps a trace kind to (factors, key)."""
-        values = {}
+        """sources maps a trace kind to (factors, key[, knowledge key])."""
+        cells = {}
         for trace in trace_list:
-            source = sources.get(kind(trace))
+            source = sources.get(_trace_kind(trace_mode[trace]))
             if source is None:
-                values[trace] = NOT_APPLICABLE
-            else:
-                factors, key = source
-                values[trace] = factors[key][trace]
-        return (label, values)
+                cells[trace] = None
+                continue
+
+            factors, key = source[0], source[1]
+            metric_key = source[2] if len(source) > 2 else key
+            cells[trace] = ComparisonCell(
+                factors[key][trace],
+                metric_key,
+                get_second_level_runtime(trace_mode[trace]),
+            )
+        return (label, cells)
 
     def mpi_row(label, gpu_key, mpi_x_key, mpi_key):
         return row(label, {
@@ -264,9 +290,11 @@ def build_comparison_rows(trace_list, trace_mode, mod_factors,
         top_label = 'Parallel efficiency'
 
     rows = [
+        # For MPI+<CPU>, Parallel efficiency equals the Hybrid Parallel
+        # efficiency (MPI x second-level runtime).
         row(top_label, {
             'gpu': (host_factors, 'host_parallel_eff'),
-            'mpi_x': (mod_factors, 'parallel_eff'),
+            'mpi_x': (mod_factors, 'parallel_eff', 'hybrid_eff'),
             'mpi': (mod_factors, 'parallel_eff'),
         }),
         mpi_row('-- MPI Parallel efficiency',
@@ -288,13 +316,15 @@ def build_comparison_rows(trace_list, trace_mode, mod_factors,
                 ('-- {} Parallel efficiency', 'omp_parallel_eff'),
                 ('   -- {} Load balance', 'omp_load_balance'),
                 ('   -- {} Communication efficiency', 'omp_comm_eff')):
-            values = {}
+            cells = {}
             for trace in trace_list:
                 if get_second_level_runtime(trace_mode[trace]) == runtime:
-                    values[trace] = hybrid_factors[key][trace]
+                    cells[trace] = ComparisonCell(
+                        hybrid_factors[key][trace], key, runtime
+                    )
                 else:
-                    values[trace] = NOT_APPLICABLE
-            rows.append((label.format(runtime), values))
+                    cells[trace] = None
+            rows.append((label.format(runtime), cells))
 
     if has_gpu:
         rows.append(row('-- Device Offload efficiency', {
@@ -304,7 +334,7 @@ def build_comparison_rows(trace_list, trace_mode, mod_factors,
     return rows
 
 
-def build_comparison_device_rows(trace_list, trace_mode, device_factors):
+def build_comparison_device_cells(trace_list, trace_mode, device_factors):
     """Build the Device rows of the comparison table (MPI+GPU only).
 
     Returns an empty list when no trace uses a GPU programming model.
@@ -318,12 +348,45 @@ def build_comparison_device_rows(trace_list, trace_mode, device_factors):
             ('   -- Device Load balance', 'dev_load_balance'),
             ('   -- Device Communication efficiency', 'dev_comm_eff'),
             ('   -- Device Orchestration efficiency', 'dev_orches_eff')):
-        values = {}
+        cells = {}
         for trace in trace_list:
             if is_gpu_model(trace_mode[trace]):
-                values[trace] = device_factors[key][trace]
+                cells[trace] = ComparisonCell(
+                    device_factors[key][trace], key
+                )
             else:
-                values[trace] = NOT_APPLICABLE
-        rows.append((label, values))
+                cells[trace] = None
+        rows.append((label, cells))
 
     return rows
+
+
+def _cells_to_values(rows):
+    """Convert cell rows into value rows (None -> NOT_APPLICABLE)."""
+    return [
+        (label, {
+            trace: NOT_APPLICABLE if cell is None else cell.value
+            for trace, cell in cells.items()
+        })
+        for label, cells in rows
+    ]
+
+
+def build_comparison_rows(trace_list, trace_mode, mod_factors,
+                          hybrid_factors, host_factors):
+    """Application rows of the comparison table as values.
+
+    Returns:
+        list of (label, {trace: value}); not-applicable cells contain
+        NOT_APPLICABLE.
+    """
+    return _cells_to_values(build_comparison_cells(
+        trace_list, trace_mode, mod_factors, hybrid_factors, host_factors,
+    ))
+
+
+def build_comparison_device_rows(trace_list, trace_mode, device_factors):
+    """Device rows of the comparison table as values (MPI+GPU only)."""
+    return _cells_to_values(build_comparison_device_cells(
+        trace_list, trace_mode, device_factors,
+    ))

@@ -9887,6 +9887,35 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
 
     output_html = os.path.join(os.getcwd(), "basicanalysis_interactive_report.html")
 
+    html_content = build_basicanalysis_interactive_report_html(
+        metrics_result,
+        analysis_result,
+        report,
+        report_model,
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        cmdl_args,
+    )
+
+    with open(output_html, "w") as output_file:
+        output_file.write(html_content)
+
+    print("Interactive report written to {}".format(output_html))
+
+    return output_html
+
+
+def build_basicanalysis_interactive_report_html(metrics_result,
+                                                analysis_result,
+                                                report, report_model,
+                                                trace_list, trace_processes,
+                                                trace_tasks, trace_threads,
+                                                trace_mode, cmdl_args):
+    """Build the unified interactive HTML report and return it."""
+
     other_metrics = metrics_result["other_metrics"]
 
     model = _report_execution_model(trace_mode, trace_list, metrics_result)
@@ -11102,12 +11131,7 @@ def plot_basicanalysis_interactive_report(metrics_result, analysis_result,
         workspace_html=workspace_html, printable_report_html=printable_report_body,
     )
 
-    with open(output_html, "w") as output_file:
-        output_file.write(html_content)
-
-    print("Interactive report written to {}".format(output_html))
-
-    return output_html
+    return html_content
 
 
 

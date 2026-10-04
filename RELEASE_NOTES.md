@@ -23,6 +23,18 @@
     models. A Burst trace, or a trace without MPI, in a comparison stops the
     analysis with a message listing the unsupported traces.
 
+- Add the **interactive report for the comparison of programming models**.
+  When the traces use different programming models, the interactive report
+  contains:
+  - A *Programming Model Comparison* tab with the trace configuration,
+    execution mapping, general metrics, the efficiency comparison heatmap
+    and I/O metrics. Every value opens its Metric Details, using the
+    definition of the metric of that trace's programming model.
+  - One tab per programming model with the complete standard report of its
+    traces, analyzed as an independent set (including scaling between traces
+    of the same model).
+  - A printable version of the comparison.
+
 ### Fixes
 
 - Fixed GPU stream counting for MPI+CUDA traces using legacy CUDA thread

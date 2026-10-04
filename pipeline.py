@@ -4,7 +4,10 @@
 
 from __future__ import print_function, division
 
+import io
 import subprocess
+from collections import OrderedDict
+from contextlib import redirect_stdout
 
 import hybridmetrics
 import plots
@@ -12,7 +15,11 @@ import reportdata
 from report import build_analysis_context, build_report_model
 import html_to_pdf
 import os
-from comparison import is_comparison_mode, print_comparison_info
+from comparison import (
+    get_programming_model,
+    is_comparison_mode,
+    print_comparison_info,
+)
 
 from simplemetrics import (
     compute_model_factors,
@@ -40,6 +47,7 @@ error_import_interactiveplots = False
 
 try:
     import interactiveplots
+    import comparisonreport
 except ImportError:
     error_import_interactiveplots = True
 
@@ -402,7 +410,24 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
                 trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args
             )
 
-        if not error_import_interactiveplots:           
+        if not error_import_interactiveplots and comparison:
+            comparisonreport.plot_comparison_interactive_report(
+                metrics_result,
+                report,
+                report_model,
+                trace_list,
+                trace_mode,
+                build_model_group_reports(
+                    analysis_result,
+                    trace_list,
+                    trace_processes,
+                    trace_tasks,
+                    trace_threads,
+                    trace_mode,
+                    cmdl_args,
+                ),
+            )
+        elif not error_import_interactiveplots:           
             interactiveplots.plot_basicanalysis_interactive_report(
                 metrics_result,
                 analysis_result,
@@ -515,17 +540,10 @@ def generate_simple_plots(metrics_result, analysis_result, report,
         subprocess.check_output(["rm", "efficiency_table.gp"])
 
 
-def generate_plots(
-    metrics_result,
-    analysis_result,
-    trace_list,
-    trace_processes,
-    trace_tasks,
-    trace_threads,
-    trace_mode,
-    cmdl_args,
-):
-    """Generate all plots."""
+def build_report_models(metrics_result, analysis_result, trace_list,
+                        trace_processes, trace_tasks, trace_threads,
+                        trace_mode, cmdl_args):
+    """Build the report data, analysis context and semantic report model."""
 
     report = reportdata.build_report(
         metrics_result,
@@ -549,6 +567,101 @@ def generate_plots(
 
     report_model = build_report_model(analysis_context)
     report_model.validate()
+
+    return report, analysis_context, report_model
+
+
+def build_model_group_reports(analysis_result, trace_list, trace_processes,
+                              trace_tasks, trace_threads, trace_mode,
+                              cmdl_args):
+    """Build the standard interactive report of each programming model.
+
+    Used when comparing programming models. The traces of each model are
+    analyzed as an independent set: metrics (including scaling between
+    traces of the same model) are recomputed for the group, so each report
+    matches a standalone analysis of those traces.
+
+    Returns:
+        list of {"model", "traces", "html"}, in trace order.
+    """
+    groups = OrderedDict()
+    for trace in trace_list:
+        groups.setdefault(
+            get_programming_model(trace_mode[trace]), []
+        ).append(trace)
+
+    model_reports = []
+
+    for model, group in groups.items():
+        # Group metrics are not printed: the terminal and CSV outputs
+        # describe the comparison of all traces.
+        with redirect_stdout(io.StringIO()):
+            group_metrics = compute_metrics(
+                analysis_result,
+                group,
+                trace_processes,
+                trace_tasks,
+                trace_threads,
+                trace_mode,
+                cmdl_args,
+                count_hybrid_traces(group, trace_mode),
+            )
+
+            group_report, _, group_report_model = build_report_models(
+                group_metrics,
+                analysis_result,
+                group,
+                trace_processes,
+                trace_tasks,
+                trace_threads,
+                trace_mode,
+                cmdl_args,
+            )
+
+            group_html = interactiveplots.build_basicanalysis_interactive_report_html(
+                group_metrics,
+                analysis_result,
+                group_report,
+                group_report_model,
+                group,
+                trace_processes,
+                trace_tasks,
+                trace_threads,
+                trace_mode,
+                cmdl_args,
+            )
+
+        model_reports.append({
+            "model": model,
+            "traces": group,
+            "html": group_html,
+        })
+
+    return model_reports
+
+
+def generate_plots(
+    metrics_result,
+    analysis_result,
+    trace_list,
+    trace_processes,
+    trace_tasks,
+    trace_threads,
+    trace_mode,
+    cmdl_args,
+):
+    """Generate all plots."""
+
+    report, analysis_context, report_model = build_report_models(
+        metrics_result,
+        analysis_result,
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        cmdl_args,
+    )
 
     if cmdl_args.debug:
         print("==DEBUG== Report data model created")
