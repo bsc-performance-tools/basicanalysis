@@ -167,6 +167,7 @@ class OverviewBuilderTests(unittest.TestCase):
             child_ids,
             [
                 "trace-configuration",
+                "execution-mapping",
                 "general-information",
                 "general-metrics",
                 "paraver-validation",
@@ -183,20 +184,26 @@ class OverviewBuilderTests(unittest.TestCase):
 
         self.assertEqual(
             child_orders,
-            [10, 20, 30, 40],
+            [10, 20, 30, 40, 50],
         )
 
     def test_child_payloads_reference_overview_data(self):
         section = self._build_section()
 
         trace_section = section.children[0]
-        general_section = section.children[1]
-        metrics_section = section.children[2]
-        resource_section = section.children[3]
+        mapping_section = section.children[1]
+        general_section = section.children[2]
+        metrics_section = section.children[3]
+        resource_section = section.children[4]
 
         self.assertEqual(
             trace_section.payload,
             section.payload.traces,
+        )
+
+        self.assertEqual(
+            mapping_section.payload,
+            section.payload.execution_mappings,
         )
 
         self.assertEqual(

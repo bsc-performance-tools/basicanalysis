@@ -812,7 +812,7 @@ class AnalysisCatalogueTests(unittest.TestCase):
 
         self.assertEqual(
             labels["overview"],
-            "Overview",
+            "Execution Overview",
         )
 
         self.assertEqual(
@@ -827,7 +827,7 @@ class AnalysisCatalogueTests(unittest.TestCase):
 
         self.assertEqual(
             labels["computation-scalability"],
-            "Computation Scalability",
+            "Scaling",
         )
 
         self.assertEqual(
