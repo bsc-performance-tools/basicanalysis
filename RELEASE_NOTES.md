@@ -39,7 +39,24 @@
   selection of the reference execution with `-ord not`, methodology, report
   views, output files, and limitations.
 
+- Add **Host/Device metrics for GPU applications without MPI** (CUDA and HIP
+  with a serial host). These traces now use the Host/Device execution-domain
+  model, as MPI+GPU traces do:
+  - Device metrics (Parallel Efficiency, Load Balance, Communication and
+    Orchestration Efficiency, Device Computation Scalability) are computed as
+    for MPI+GPU.
+  - Host Parallel Efficiency equals Device Offload Efficiency, computed from
+    the host useful time over the whole execution of the host threads.
+  - MPI, Serialization and Transfer metrics do not apply and are omitted.
+  - The Execution Domains view of the interactive report is available.
+  - `--pop_model_to_apply classic` keeps the previous flattened metrics.
+
 ### Fixes
+
+- Fixed device and stream detection for traces with legacy HIP thread labels
+  (`HIP-D<n>.S<m>-<node>`). Devices and streams were reported as 0 and the
+  Device useful time was not aggregated. All `.row` label parsing now uses the
+  same label recognition.
 
 - Fixed GPU stream counting for MPI+CUDA traces using legacy CUDA thread
   labels (`CUDA-D<n>.S<m>-<node>`). The number of devices was detected

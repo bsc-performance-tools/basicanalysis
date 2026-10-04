@@ -11,7 +11,7 @@ import shutil
 import json
 from utils import which
 from collections import OrderedDict, defaultdict
-from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label
+from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label, is_host_gpu_mode, CUDA_LEGACY_LABEL_RE
 from utils import run_command, move_files,remove_files, create_temp_folder
 
 
@@ -1847,6 +1847,7 @@ def device_key_from_row_label(
 
     Legacy:
         CUDA-D1.S1-as07r1b02 -> as07r1b02:D1
+        HIP-D1.S1-nid006767  -> nid006767:D1
 
     UUID:
         GPU_a2f80454.1 -> <node>:a2f80454
@@ -1895,18 +1896,12 @@ def device_key_from_row_label(
         return f"{node}:{device_part}"
 
     # ---------------------------------------------------------
-    # Legacy CUDA format
+    # Legacy CUDA / HIP format
     # Node is already encoded in the label.
     # ---------------------------------------------------------
-    if label.startswith("CUDA-"):
-        parts = label.split("-")
-
-        if len(parts) < 3:
-            return None
-
-        ds_part = parts[1]
-        node_part = "-".join(parts[2:])
-        device_part = ds_part.split(".")[0]
+    match = CUDA_LEGACY_LABEL_RE.match(label)
+    if match:
+        device_part, node_part = match.group(1), match.group(2)
 
         return f"{node_part}:{device_part}"
 
@@ -2351,11 +2346,22 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_mode_value == 'Detailed+MPI+OpenMP'
     )
 
-    is_cuda = trace_mode_value == 'Detailed+MPI+CUDA'
-    is_hip = trace_mode_value == 'Detailed+MPI+HIP'
+    is_cuda = trace_mode_value in ('Detailed+MPI+CUDA', 'Detailed+CUDA')
+    is_hip = trace_mode_value in ('Detailed+MPI+HIP', 'Detailed+HIP')
 
-    is_mpi_gpu = is_cuda or is_hip
-    is_talp_gpu = (is_mpi_gpu and cmdl_args.pop_model_to_apply == 'talp')
+    is_mpi_gpu = trace_mode_value in ('Detailed+MPI+CUDA', 'Detailed+MPI+HIP')
+
+    # GPU without MPI uses the Host/Device model only with the TALP-style
+    # metrics; the classic model keeps the flattened simple metrics.
+    is_host_gpu = (
+        is_host_gpu_mode(trace_mode_value)
+        and cmdl_args.pop_model_to_apply == 'talp'
+    )
+
+    is_talp_gpu = (
+        (is_mpi_gpu or is_host_gpu)
+        and cmdl_args.pop_model_to_apply == 'talp'
+    )
 
     mapping_devices = None
     trace_sim = ''
@@ -3028,7 +3034,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
 
     # GPU metrics
     time_gpu_agg = 0.0
-    if (is_mpi_gpu and os.path.exists(row_path)):
+    if ((is_mpi_gpu or is_host_gpu) and os.path.exists(row_path)):
         trace_raw_data['useful_device'] = 0.0
         trace_raw_data['useful_device_max'] = 0.0
         trace_raw_data['useful_memtransf_device'] = 0.0
@@ -3386,7 +3392,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         move_files(trace_name + '.2dh_BurstEff.stats.csv', local_path_dest, cmdl_args)
         move_files(trace_name + '.burst_useful.stats.csv', local_path_dest, cmdl_args)
 
-    if is_mpi_gpu:
+    if is_mpi_gpu or is_host_gpu:
         if os.path.exists(trace_name + '.useful_host.stats.csv'):
             move_files(trace_name + '.useful_host.stats.csv', local_path_dest, cmdl_args)
         if os.path.exists(trace_name + '.useful_streams.stats.csv'):

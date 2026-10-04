@@ -9,6 +9,7 @@ import math
 from rawdata import *
 from collections import OrderedDict
 from scaling import get_scaling_info
+from tracemetadata import is_host_gpu_mode
 from comparison import (
     NOT_APPLICABLE,
     build_comparison_device_rows,
@@ -882,11 +883,25 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         is_mpi_gpu = trace_mode[trace] in ('Detailed+MPI+CUDA','Detailed+MPI+HIP',)        
 
+        # GPU without MPI (serial host): Host/Device model with the
+        # TALP-style metrics. The classic model uses the simple metrics.
+        is_host_gpu = (
+            is_host_gpu_mode(trace_mode[trace])
+            and cmdl_args.pop_model_to_apply == 'talp'
+        )
+
         # Control OutMPI values no availables
         if math.isnan(float(raw_data['outsidempi_avg'][trace])) or math.isnan(float(raw_data['outsidempi_max'][trace])):
             outmpi_measures = False
         else:
             outmpi_measures = True
+
+        # Host/Device metrics: MPI+GPU with outside-MPI measures, or GPU
+        # without MPI.
+        host_device_measures = (
+            (outmpi_measures and is_mpi_gpu)
+            or is_host_gpu
+        )
 
         # Flushing measurements
         try:  # except NaN
@@ -1165,7 +1180,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                    * proc_ratio * 100.0
                     else:
                         mod_factors['comp_scale'][trace] = 100.0
-                elif outmpi_measures and is_mpi_gpu:
+                elif host_device_measures:
                     # --------------------------------------------------
                     # Host Computation Scalability
                     # Execution Domains / TALP Host metric
@@ -1619,6 +1634,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 host_factors['mpi_parallel_eff'][trace] = hybrid_factors['mpi_parallel_eff'][trace]
                 host_factors['mpi_comm_eff'][trace] = hybrid_factors['mpi_comm_eff'][trace]
                 host_factors['mpi_load_balance'][trace] = hybrid_factors['mpi_load_balance'][trace]
+            elif is_host_gpu:
+                host_factors['mpi_parallel_eff'][trace] = 'N/A'
+                host_factors['mpi_comm_eff'][trace] = 'N/A'
+                host_factors['mpi_load_balance'][trace] = 'N/A'
             else:
                 host_factors['mpi_parallel_eff'][trace] = 'Non-Avail'
                 host_factors['mpi_comm_eff'][trace] = 'Non-Avail'
@@ -1631,7 +1650,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     # ------------> BEGIN MPI communication sub-metrics HOST
         #### HOST Serialization
         try:
-            if not outmpi_measures or cmdl_args.skip_simulation:
+            if is_host_gpu:
+                host_factors['serial_eff'][trace] = 'N/A'
+
+            elif not outmpi_measures or cmdl_args.skip_simulation:
                 host_factors['serial_eff'][trace] = 'Non-Avail'
 
             elif trace_mode[trace] == 'Detailed+MPI+CUDA':
@@ -1646,7 +1668,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         #### HOST Transfer
         try:
-            if not outmpi_measures or cmdl_args.skip_simulation:
+            if is_host_gpu:
+                host_factors['transfer_eff'][trace] = 'N/A'
+
+            elif not outmpi_measures or cmdl_args.skip_simulation:
                 host_factors['transfer_eff'][trace] = 'Non-Avail'
 
             elif trace_mode[trace] == 'Detailed+MPI+CUDA':
@@ -1663,7 +1688,15 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         
         ### Offloading
         try:  # except NaN
-            if not outmpi_measures:
+            if is_host_gpu:
+                # Without MPI, the host time available for useful
+                # computation is the whole execution of the host threads.
+                host_factors['dev_offload_eff'][trace] = 100 * (
+                    float(raw_data['useful_host'][trace])
+                    / (float(raw_data['runtime'][trace])
+                       * int(raw_data['count_host_threads'][trace]))
+                )
+            elif not outmpi_measures:
                 host_factors['dev_offload_eff'][trace] = 'Non-Avail'
             elif is_mpi_gpu:
                 host_factors['dev_offload_eff'][trace] = 100 * (float(raw_data['useful_host'][trace])\
@@ -1675,7 +1708,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         
         ### Host Parallel Efficiency
         try:  # except NaN
-            if not outmpi_measures:
+            if is_host_gpu:
+                # Serial host: no host parallel-runtime level.
+                host_factors['host_parallel_eff'][trace] = \
+                    host_factors['dev_offload_eff'][trace]
+            elif not outmpi_measures:
                 host_factors['host_parallel_eff'][trace] = 'Non-Avail'
             elif is_mpi_gpu:
                 host_factors['host_parallel_eff'][trace] = (host_factors['mpi_parallel_eff'][trace]/100) \
@@ -1687,13 +1724,13 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
     # ------->  Devices metrics
         try:  # except NaN
-            if not outmpi_measures:
+            if not outmpi_measures and not is_host_gpu:
                 device_factors['dev_parallel_eff'][trace] = 'Non-Avail'
                 device_factors['dev_load_balance'][trace] = 'Non-Avail'
                 device_factors['dev_comm_eff'][trace] = 'Non-Avail'
                 device_factors['dev_orches_eff'][trace] = 'Non-Avail'
                 host_factors['dev_offload_eff'][trace] = 'Non-Avail'
-            elif is_mpi_gpu:
+            elif is_mpi_gpu or is_host_gpu:
                 device_factors['dev_parallel_eff'][trace] = 100 * (float(raw_data['useful_device'][trace])\
                 /(int(raw_data['count_devices'][trace])*float(raw_data['runtime'][trace])))
 
@@ -1722,7 +1759,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         
         # Device Computation Scalability
         try:
-            if outmpi_measures and is_mpi_gpu and (len(trace_list) > 1):
+            if host_device_measures and (len(trace_list) > 1):
 
                 reference = trace_list[0]
 
@@ -1763,7 +1800,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         # Device Global Efficiency
         try:
-            if outmpi_measures and is_mpi_gpu:
+            if host_device_measures:
 
                 if len(trace_list) > 1:
                     device_factors['dev_global_eff'][trace] = (
@@ -1827,7 +1864,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             ):
                 mod_factors['ipc_scale'][trace] = 'Non-Avail'
 
-                if outmpi_measures and is_mpi_gpu:
+                if host_device_measures:
                     host_factors['host_ipc_scale'][trace] = 'Non-Avail'
 
             elif trace_mode[trace][:5] != 'Burst' and trace_mode[trace] != 'Sampling':
@@ -1838,7 +1875,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         * 100.0
                     )
 
-                    if outmpi_measures and is_mpi_gpu:
+                    if host_device_measures:
                         host_factors['host_ipc_scale'][trace] = \
                             mod_factors['ipc_scale'][trace]
                     else:
@@ -1938,7 +1975,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         # Host Frequency Scalability for MPI+GPU
         try:
-            if len(trace_list) > 1 and outmpi_measures and is_mpi_gpu:
+            if len(trace_list) > 1 and host_device_measures:
 
                 reference = trace_list[0]
 
@@ -2039,7 +2076,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                             * 100.0
                         )
 
-                    if outmpi_measures and is_mpi_gpu:
+                    if host_device_measures:
                         host_factors['host_inst_scale'][trace] = \
                             mod_factors['inst_scale'][trace]
                     else:
@@ -2089,7 +2126,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
        
         try:  # except NaN
-            if outmpi_measures and is_mpi_gpu:
+            if host_device_measures:
                 if len(trace_list) > 1:
                     host_factors['host_global_eff'][trace] = (host_factors['host_parallel_eff'][trace]/100) \
                 * (host_factors['host_comp_scale'][trace]/100) * 100
@@ -2347,6 +2384,22 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
 
 
 #### TALP metrics
+def _talp_host_keys(host_factors, trace_list):
+    """Host metrics shown in the Host/Device table.
+
+    Metrics that do not apply to any trace are omitted, e.g. the MPI
+    metrics of GPU applications without MPI.
+    """
+    return [
+        mod_key
+        for mod_key in mod_host_factors_doc
+        if not all(
+            host_factors[mod_key][trace] == 'N/A'
+            for trace in trace_list
+        )
+    ]
+
+
 def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors,device_factors, host_factors , trace_list,
                             trace_processes, trace_tasks, trace_threads, trace_mode, raw_data):
     """Prints the model factors table in human readable form on stdout."""  
@@ -2477,7 +2530,7 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
     else:
         print(''.ljust(len(line_procs_factors), '-'))
         
-    for mod_key in mod_host_factors_doc:
+    for mod_key in _talp_host_keys(host_factors, trace_list):
         line = mod_host_factors_doc[mod_key].ljust(longest_name)
         for trace in trace_list:
             line += ' | '
@@ -4035,7 +4088,7 @@ def print_talp_metrics_csv(
         output.write(line + '\n')
 
         # HOST metrics
-        for mod_key in mod_host_factors_doc:
+        for mod_key in _talp_host_keys(host_factors, trace_list):
             line = "\"" + mod_host_factors_doc[mod_key] + "\""
             for trace in trace_list:
                 line += delimiter
@@ -4125,7 +4178,10 @@ def plots_talp_efficiency_table_matplot(
         columns=cols
     )
 
-    host_rows = len(mod_host_factors_doc)
+    # Host rows written to talp_metrics.csv (rows that do not apply to
+    # any trace are omitted).
+    host_labels = set(mod_host_factors_doc.values())
+    host_rows = sum(1 for metric in metrics if metric in host_labels)
 
     _plot_efficiency_heatmap(
         df_plot,

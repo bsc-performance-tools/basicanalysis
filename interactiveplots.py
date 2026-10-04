@@ -12,6 +12,7 @@ import html
 import plotly.graph_objects as go
 
 from configuration import format_configuration_label
+from tracemetadata import is_host_gpu_mode
 
 from report.renderer.html import (
     build_analysis_catalogue,
@@ -10056,9 +10057,13 @@ def build_basicanalysis_interactive_report_html(metrics_result,
 
     execution_domains_html = ""
 
+    # MPI+GPU and GPU without MPI share the Host/Device model.
     if (
         metrics_result["kind"] == "hybrid"
-        and trace_mode[trace_list[0]] in ("Detailed+MPI+CUDA","Detailed+MPI+HIP")
+        and (
+            trace_mode[trace_list[0]] in ("Detailed+MPI+CUDA","Detailed+MPI+HIP")
+            or is_host_gpu_mode(trace_mode[trace_list[0]])
+        )
     ):
         host_factors = metrics_result["host_factors"]
         device_factors = metrics_result["device_factors"]

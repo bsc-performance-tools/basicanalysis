@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from rawdata import count_gpu_streams_by_mpi_rank
+from rawdata import count_gpu_streams_by_mpi_rank, device_key_from_row_label
 from tracemetadata import (
     get_device_stream_id_mapping,
     is_gpu_stream_label,
@@ -81,6 +81,24 @@ GPU_b3e91565.1
 """
 
 
+# GPU application without MPI using legacy HIP labels:
+# 1 host thread, 2 devices with one stream each.
+LEGACY_HIP_ROW = """\
+LEVEL CPU SIZE 3
+1.nid006767
+2.nid006767
+3.nid006767
+
+LEVEL NODE SIZE 1
+nid006767
+
+LEVEL THREAD SIZE 3
+THREAD 1.1.1
+HIP-D1.S1-nid006767
+HIP-D2.S1-nid006767
+"""
+
+
 class GpuStreamCountTests(unittest.TestCase):
 
     def setUp(self):
@@ -145,9 +163,28 @@ class GpuStreamCountTests(unittest.TestCase):
         self.assertEqual(streams["total_streams"], 3)
         self.assertEqual(streams["streams_per_rank"], -1)
 
+    def test_legacy_hip_labels(self):
+        prv_file = self._write_row(LEGACY_HIP_ROW)
+
+        devices, streams = self._assert_consistent(prv_file)
+
+        self.assertEqual(len(devices), 2)
+        self.assertEqual(streams["total_streams"], 2)
+
+    def test_device_key_from_legacy_labels(self):
+        self.assertEqual(
+            device_key_from_row_label("CUDA-D1.S2-as04r1b15"),
+            "as04r1b15:D1",
+        )
+        self.assertEqual(
+            device_key_from_row_label("HIP-D3.S1-nid006767"),
+            "nid006767:D3",
+        )
+
     def test_is_gpu_stream_label(self):
         for label in (
             "CUDA-D1.S1-as06r4b08",
+            "HIP-D1.S1-nid006767",
             "GPU-D1.S2",
             "GPU_a2f80454.1",
         ):

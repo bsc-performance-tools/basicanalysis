@@ -692,6 +692,24 @@ def get_execution_mapping(prv_file, trace_mode):
 
 
 # --------------------------------------------------------------
+# GPU programming models without MPI.
+#
+# The host side has no MPI level. These traces use the Host/Device
+# model with the TALP-style metrics (--pop_model_to_apply talp).
+# --------------------------------------------------------------
+
+HOST_GPU_MODES = (
+    'Detailed+CUDA',
+    'Detailed+HIP',
+)
+
+
+def is_host_gpu_mode(mode):
+    """Return True for GPU programming models without MPI."""
+    return mode in HOST_GPU_MODES
+
+
+# --------------------------------------------------------------
 # GPU stream labels in the LEVEL THREAD section of a .row file.
 # Shared by device and stream counting so both recognize the
 # same formats.
@@ -700,8 +718,8 @@ def get_execution_mapping(prv_file, trace_mode):
 # New format: GPU_<uuid>.<stream>
 GPU_UUID_LABEL_RE = re.compile(r"^GPU_([^.]+)(?:\.(\d+))?\s*$")
 
-# Legacy format: CUDA-D1.S2-as04r1b15
-CUDA_LEGACY_LABEL_RE = re.compile(r"^CUDA-(D\d+)\.[^-]*-([^\s]+)\s*$")
+# Legacy format: CUDA-D1.S2-as04r1b15 (HIP: HIP-D1.S2-nid006767)
+CUDA_LEGACY_LABEL_RE = re.compile(r"^(?:CUDA|HIP)-(D\d+)\.[^-]*-([^\s]+)\s*$")
 
 # New Extrae generic GPU format: GPU-D1.S2
 GPU_DEVICE_LABEL_RE = re.compile(r"^GPU-(D\d+)\.S(\d+)\s*$")
@@ -728,8 +746,9 @@ def get_device_stream_id_mapping(
     """
     Supports three row formats:
 
-    Legacy CUDA:
+    Legacy CUDA / HIP:
         CUDA-D1.S1-as07r1b02
+        HIP-D1.S1-nid006767
         -> as07r1b02:D1
 
     UUID-based:

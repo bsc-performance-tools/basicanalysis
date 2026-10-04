@@ -15,6 +15,7 @@ import reportdata
 from report import build_analysis_context, build_report_model
 import html_to_pdf
 import os
+from tracemetadata import is_host_gpu_mode
 from comparison import (
     get_programming_model,
     is_comparison_mode,
@@ -106,7 +107,16 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
         print("==INFO== Traces use different programming models: "
               "hybrid metrics are used for the comparison.")
 
-    if (cmdl_args.metrics == 'hybrid' and trace_metrics > 0) or comparison:
+    # GPU without MPI uses the Host/Device model of the hybrid metrics
+    # with the TALP-style metrics; the classic model keeps the simple
+    # (flattened) metrics.
+    host_gpu = (
+        cmdl_args.metrics == 'hybrid'
+        and cmdl_args.pop_model_to_apply == 'talp'
+        and any(is_host_gpu_mode(trace_mode[trace]) for trace in trace_list)
+    )
+
+    if (cmdl_args.metrics == 'hybrid' and trace_metrics > 0) or comparison or host_gpu:
         (
             mod_factors,
             mod_factors_scale_plus_io,
@@ -229,9 +239,13 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
 
         hybridmetrics.print_other_metrics_csv(other_metrics, trace_list, trace_processes)
         
-        is_mpi_gpu = trace_mode[trace_list[0]] in (
-            "Detailed+MPI+CUDA",
-            "Detailed+MPI+HIP",
+        # MPI+GPU and GPU without MPI share the Host/Device model.
+        is_mpi_gpu = (
+            trace_mode[trace_list[0]] in (
+                "Detailed+MPI+CUDA",
+                "Detailed+MPI+HIP",
+            )
+            or is_host_gpu_mode(trace_mode[trace_list[0]])
         )
 
         if comparison:
@@ -393,9 +407,13 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
                     print(output_gnuplot_h)
         error_plot_table = True
 
-    is_mpi_gpu = trace_mode[trace_list[0]] in (
-        "Detailed+MPI+CUDA",
-        "Detailed+MPI+HIP",
+    # MPI+GPU and GPU without MPI share the Host/Device model.
+    is_mpi_gpu = (
+        trace_mode[trace_list[0]] in (
+            "Detailed+MPI+CUDA",
+            "Detailed+MPI+HIP",
+        )
+        or is_host_gpu_mode(trace_mode[trace_list[0]])
     )    
 
     if not error_plot_table:
