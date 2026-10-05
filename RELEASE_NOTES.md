@@ -1,5 +1,19 @@
 # Release Notes
 
+## Unreleased
+
+### New Features
+
+- Extend the Host/Device metrics to GPU applications whose host threads use
+  a CPU parallel runtime (e.g. OpenMP+CUDA), with Host runtime metrics such
+  as OpenMP Parallel efficiency.
+
+### Improvements
+
+- Show the configuration of GPU applications without MPI as
+  `units (host threads+streams) [devices]`, e.g. `6 (1+5) [1D]`.
+
+
 ## 2026.10.05
 
 ### New Features
