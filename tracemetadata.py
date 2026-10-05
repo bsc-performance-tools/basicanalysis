@@ -694,19 +694,46 @@ def get_execution_mapping(prv_file, trace_mode):
 # --------------------------------------------------------------
 # GPU programming models without MPI.
 #
-# The host side has no MPI level. These traces use the Host/Device
-# model with the TALP-style metrics (--pop_model_to_apply talp).
+# The host side has no MPI level: it is either serial (Detailed+CUDA)
+# or uses a CPU parallel runtime (Detailed+OpenMP+CUDA, ...). These
+# traces use the Host/Device model with the TALP-style metrics
+# (--pop_model_to_apply talp).
 # --------------------------------------------------------------
 
-HOST_GPU_MODES = (
-    'Detailed+CUDA',
-    'Detailed+HIP',
-)
+GPU_RUNTIMES = ('CUDA', 'HIP')
+
+# CPU parallel runtimes that can drive the GPU from the host threads.
+HOST_RUNTIMES = ('Pthreads', 'OpenMP', 'OmpSs')
 
 
 def is_host_gpu_mode(mode):
-    """Return True for GPU programming models without MPI."""
-    return mode in HOST_GPU_MODES
+    """Return True for Detailed GPU programming models without MPI."""
+    parts = str(mode).split('+')
+    return (
+        parts[0] == 'Detailed'
+        and 'MPI' not in parts
+        and any(runtime in parts for runtime in GPU_RUNTIMES)
+    )
+
+
+def host_runtime_of_mode(mode):
+    """Return the CPU parallel runtime of the host, or None.
+
+    Examples:
+        Detailed+OpenMP+CUDA   -> OpenMP
+        Detailed+Pthreads+HIP  -> Pthreads
+        Detailed+CUDA          -> None (serial host)
+    """
+    runtimes = [
+        part
+        for part in str(mode).split('+')
+        if part in HOST_RUNTIMES
+    ]
+
+    if not runtimes:
+        return None
+
+    return '+'.join(runtimes)
 
 
 # --------------------------------------------------------------

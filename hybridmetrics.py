@@ -9,7 +9,7 @@ import math
 from rawdata import *
 from collections import OrderedDict
 from scaling import get_scaling_info
-from tracemetadata import is_host_gpu_mode
+from tracemetadata import is_host_gpu_mode, host_runtime_of_mode
 from comparison import (
     NOT_APPLICABLE,
     build_comparison_device_rows,
@@ -132,6 +132,9 @@ mod_host_factors_doc = OrderedDict([
                                ('mpi_comm_eff', '       -- MPI Communication efficiency'),
                                ('serial_eff', '          -- Serialization efficiency'),
                                ('transfer_eff', '          -- Transfer efficiency'),
+                               ('host_runtime_parallel_eff', '   == Host runtime Parallel efficiency'),
+                               ('host_runtime_load_balance', '       -- Host runtime Load balance'),
+                               ('host_runtime_comm_eff', '       -- Host runtime Communication efficiency'),
                                ('dev_offload_eff', '   == Device Offload efficiency'),
                                ('host_comp_scale', '-- Host Computation scalability'),
                                ('host_ipc_scale', '   == IPC scalability'),
@@ -459,6 +462,20 @@ def _build_hybrid_configuration_labels(
                 gpu_streams=total_gpu_streams,
                 streams_per_rank=streams_per_rank,
                 devices=devices,
+                separator=separator,
+            )
+
+        # --------------------------------------------------
+        # GPU without MPI (serial or threaded host)
+        # --------------------------------------------------
+
+        elif is_host_gpu_mode(trace_mode[trace]):
+
+            label = format_configuration_label(
+                model_key="gpu",
+                processes=trace_processes[trace],
+                gpu_streams=raw_data['count_gpu_streams'][trace],
+                devices=raw_data['count_devices'][trace],
                 separator=separator,
             )
 
@@ -1686,11 +1703,68 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
     # --------------> END MPI communication sub-metrics HOST
         
+        ### Host parallel runtime (GPU without MPI, threaded host)
+        #
+        # Host time outside the host runtime = useful host computation
+        # + GPU runtime calls. It plays the role of the time outside MPI
+        # in MPI+GPU executions.
+        host_runtime = (
+            host_runtime_of_mode(trace_mode[trace])
+            if is_host_gpu else None
+        )
+
+        try:  # except NaN
+            if host_runtime is None:
+                host_factors['host_runtime_parallel_eff'][trace] = 'N/A'
+                host_factors['host_runtime_load_balance'][trace] = 'N/A'
+                host_factors['host_runtime_comm_eff'][trace] = 'N/A'
+            else:
+                outside_tot = raw_data.get(
+                    'host_outside_runtime_tot', {}
+                ).get(trace, 'Non-Avail')
+                outside_avg = raw_data.get(
+                    'host_outside_runtime_avg', {}
+                ).get(trace, 'Non-Avail')
+                outside_max = raw_data.get(
+                    'host_outside_runtime_max', {}
+                ).get(trace, 'Non-Avail')
+
+                if 'Non-Avail' in (outside_tot, outside_avg, outside_max):
+                    host_factors['host_runtime_parallel_eff'][trace] = 'Non-Avail'
+                    host_factors['host_runtime_load_balance'][trace] = 'Non-Avail'
+                    host_factors['host_runtime_comm_eff'][trace] = 'Non-Avail'
+                else:
+                    runtime_value = float(raw_data['runtime'][trace])
+                    host_threads = int(raw_data['count_host_threads'][trace])
+
+                    host_factors['host_runtime_parallel_eff'][trace] = (
+                        float(outside_tot)
+                        / (runtime_value * host_threads)
+                        * 100.0
+                    )
+                    host_factors['host_runtime_load_balance'][trace] = (
+                        float(outside_avg) / float(outside_max) * 100.0
+                    )
+                    host_factors['host_runtime_comm_eff'][trace] = (
+                        float(outside_max) / runtime_value * 100.0
+                    )
+        except (TypeError, ValueError, ZeroDivisionError):
+            host_factors['host_runtime_parallel_eff'][trace] = 'NaN'
+            host_factors['host_runtime_load_balance'][trace] = 'NaN'
+            host_factors['host_runtime_comm_eff'][trace] = 'NaN'
+
         ### Offloading
         try:  # except NaN
-            if is_host_gpu:
-                # Without MPI, the host time available for useful
-                # computation is the whole execution of the host threads.
+            if is_host_gpu and host_runtime is not None:
+                # Useful host time over the host time outside the host
+                # runtime (useful + GPU runtime calls).
+                host_factors['dev_offload_eff'][trace] = 100 * (
+                    float(raw_data['useful_host'][trace])
+                    / float(raw_data['host_outside_runtime_tot'][trace])
+                )
+            elif is_host_gpu:
+                # Serial host: the host time available for useful
+                # computation is the whole execution of the host thread.
                 host_factors['dev_offload_eff'][trace] = 100 * (
                     float(raw_data['useful_host'][trace])
                     / (float(raw_data['runtime'][trace])
@@ -1708,7 +1782,12 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         
         ### Host Parallel Efficiency
         try:  # except NaN
-            if is_host_gpu:
+            if is_host_gpu and host_runtime is not None:
+                # Host PE = Host runtime PE x Device Offload efficiency
+                host_factors['host_parallel_eff'][trace] = (
+                    host_factors['host_runtime_parallel_eff'][trace] / 100
+                ) * (host_factors['dev_offload_eff'][trace] / 100) * 100
+            elif is_host_gpu:
                 # Serial host: no host parallel-runtime level.
                 host_factors['host_parallel_eff'][trace] = \
                     host_factors['dev_offload_eff'][trace]
@@ -2400,6 +2479,28 @@ def _talp_host_keys(host_factors, trace_list):
     ]
 
 
+def _talp_host_label(mod_key, trace_list, trace_mode):
+    """Label of a Host metric in the Host/Device table.
+
+    The Host runtime metrics are labelled with the runtime of the host
+    threads (e.g. OpenMP) when all traces use the same one.
+    """
+    label = mod_host_factors_doc[mod_key]
+
+    if not mod_key.startswith('host_runtime_'):
+        return label
+
+    runtimes = set(
+        host_runtime_of_mode(trace_mode[trace])
+        for trace in trace_list
+    ) - {None}
+
+    if len(runtimes) == 1:
+        return label.replace('Host runtime', runtimes.pop())
+
+    return label
+
+
 def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors,device_factors, host_factors , trace_list,
                             trace_processes, trace_tasks, trace_threads, trace_mode, raw_data):
     """Prints the model factors table in human readable form on stdout."""  
@@ -2451,6 +2552,16 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
     print('\n Overview of the Efficiency metrics:')
 
     longest_name = len(sorted(mod_hybrid_factors_doc.values(), key=len)[-1])
+
+    # Host runtime labels (e.g. OpenMP Communication efficiency) can be
+    # longer than the default labels.
+    longest_name = max(
+        [longest_name]
+        + [
+            len(_talp_host_label(mod_key, trace_list, trace_mode))
+            for mod_key in _talp_host_keys(host_factors, trace_list)
+        ]
+    )
     
     line = 'Configuration'.rjust(longest_name)
     line_trace_mode = 'Trace mode'.rjust(longest_name)
@@ -2531,7 +2642,9 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
         print(''.ljust(len(line_procs_factors), '-'))
         
     for mod_key in _talp_host_keys(host_factors, trace_list):
-        line = mod_host_factors_doc[mod_key].ljust(longest_name)
+        line = _talp_host_label(
+            mod_key, trace_list, trace_mode
+        ).ljust(longest_name)
         for trace in trace_list:
             line += ' | '
             try:  # except NaN
@@ -4089,7 +4202,9 @@ def print_talp_metrics_csv(
 
         # HOST metrics
         for mod_key in _talp_host_keys(host_factors, trace_list):
-            line = "\"" + mod_host_factors_doc[mod_key] + "\""
+            line = "\"" + _talp_host_label(
+                mod_key, trace_list, trace_mode
+            ) + "\""
             for trace in trace_list:
                 line += delimiter
                 try:
@@ -4178,10 +4293,14 @@ def plots_talp_efficiency_table_matplot(
         columns=cols
     )
 
-    # Host rows written to talp_metrics.csv (rows that do not apply to
-    # any trace are omitted).
-    host_labels = set(mod_host_factors_doc.values())
-    host_rows = sum(1 for metric in metrics if metric in host_labels)
+    # Host rows precede the first Device row in talp_metrics.csv (rows
+    # that do not apply to any trace are omitted).
+    device_labels = set(mod_device_factors_doc.values())
+    host_rows = next(
+        (index for index, metric in enumerate(metrics)
+         if metric in device_labels),
+        len(metrics),
+    )
 
     _plot_efficiency_heatmap(
         df_plot,

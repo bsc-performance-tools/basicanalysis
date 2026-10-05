@@ -81,7 +81,10 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('time_no_omp', 'Useful + MPI time.'),
                             ('time_omp_imbalance', 'Time lost due to load imbalance among OpenMP threads.'),
                             ('time_omp_schedule', 'Time spent in OpenMP scheduling and fork/join.'),
-                            ('time_omp_serial', 'Serial OpenMP loss from inactive threads outside parallel regions.')
+                            ('time_omp_serial', 'Serial OpenMP loss from inactive threads outside parallel regions.'),
+                            ('host_outside_runtime_tot', 'Host time outside the host runtime: useful + GPU calls (total)'),
+                            ('host_outside_runtime_avg', 'Host time outside the host runtime: useful + GPU calls (average)'),
+                            ('host_outside_runtime_max', 'Host time outside the host runtime: useful + GPU calls (maximum)')
                             ])
 
 
@@ -196,27 +199,21 @@ def parse_total_average_max(path):
     return total, avg, maximum
 
 
-def parse_host_useful_stats(path):
+def parse_host_thread_values(path):
     """
-    Parse useful_host.stats.csv using only real host execution rows.
+    Parse a per-thread stats file keeping only real host execution rows.
 
     Host rows are identified by labels of the form:
         THREAD app.task.thread
 
     GPU rows (GPU_*, GPU-*, CUDA-*, ...) are ignored even if Paraver
     reports a non-zero value for them. This is important for cut traces,
-    where boundary effects may produce small spurious Running values on
-    GPU rows.
+    where boundary effects may produce small spurious values on GPU rows.
 
     Returns:
-        (total, maximum)
-
-    where:
-        total   = sum of useful duration across host threads
-        maximum = maximum useful duration among host threads
+        OrderedDict mapping host thread label -> first numeric value
     """
-
-    host_values = []
+    host_values = OrderedDict()
 
     with open(path) as f:
         for raw_line in f:
@@ -225,7 +222,7 @@ def parse_host_useful_stats(path):
             if not line:
                 continue
 
-            # useful_host.stats.csv is tab-separated.
+            # Paramedir stats files are tab-separated.
             parts = line.split('\t')
 
             if not parts:
@@ -253,7 +250,23 @@ def parse_host_useful_stats(path):
                     continue
 
             if value is not None:
-                host_values.append(value)
+                host_values[row_label] = value
+
+    return host_values
+
+
+def parse_host_useful_stats(path):
+    """
+    Parse useful_host.stats.csv using only real host execution rows.
+
+    Returns:
+        (total, maximum)
+
+    where:
+        total   = sum of useful duration across host threads
+        maximum = maximum useful duration among host threads
+    """
+    host_values = list(parse_host_thread_values(path).values())
 
     if not host_values:
         return None, None
@@ -262,6 +275,47 @@ def parse_host_useful_stats(path):
         sum(host_values),
         max(host_values),
     )
+
+
+def compute_host_outside_runtime(useful_host_path, gpu_calls_path):
+    """
+    Time spent by each host thread outside the host parallel runtime.
+
+    For GPU applications without MPI, the host time outside the host
+    runtime (OpenMP, Pthreads, ...) is the useful host computation plus
+    the time spent in GPU runtime calls (launching kernels, transferring
+    data, waiting for the device):
+
+        outside_i = useful_i + gpu_calls_i
+
+    Returns:
+        (total, average, maximum) over host threads, or None when the
+        stats are not available.
+    """
+    if not (os.path.exists(useful_host_path) and os.path.exists(gpu_calls_path)):
+        return None
+
+    useful = parse_host_thread_values(useful_host_path)
+    gpu_calls = parse_host_thread_values(gpu_calls_path)
+
+    threads = list(useful.keys()) + [
+        thread for thread in gpu_calls if thread not in useful
+    ]
+
+    if not threads:
+        return None
+
+    outside = [
+        useful.get(thread, 0.0) + gpu_calls.get(thread, 0.0)
+        for thread in threads
+    ]
+
+    return (
+        sum(outside),
+        sum(outside) / len(outside),
+        max(outside),
+    )
+
 
 def parse_total_as_int(path):
     total = 0.0
@@ -2120,6 +2174,8 @@ def init_cfgs():
 
     ### HIP
     cfgs['useful_host_hip'] = os.path.join(cfgs['root_dir'], 'useful_host_hip.cfg')
+    cfgs['gpu_calls_host'] = os.path.join(cfgs['root_dir'], 'gpu_calls_host.cfg')
+    cfgs['gpu_calls_host_hip'] = os.path.join(cfgs['root_dir'], 'gpu_calls_host_hip.cfg')
     cfgs['useful_streams_hip'] = os.path.join(cfgs['root_dir'], 'useful_streams_hip.cfg')
     cfgs['memtransfer_streams_hip'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams_hip.cfg')    
 
@@ -2346,8 +2402,16 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_mode_value == 'Detailed+MPI+OpenMP'
     )
 
-    is_cuda = trace_mode_value in ('Detailed+MPI+CUDA', 'Detailed+CUDA')
-    is_hip = trace_mode_value in ('Detailed+MPI+HIP', 'Detailed+HIP')
+    is_cuda = (
+        trace_mode_value == 'Detailed+MPI+CUDA'
+        or (is_host_gpu_mode(trace_mode_value)
+            and 'CUDA' in trace_mode_value.split('+'))
+    )
+    is_hip = (
+        trace_mode_value == 'Detailed+MPI+HIP'
+        or (is_host_gpu_mode(trace_mode_value)
+            and 'HIP' in trace_mode_value.split('+'))
+    )
 
     is_mpi_gpu = trace_mode_value in ('Detailed+MPI+CUDA', 'Detailed+MPI+HIP')
 
@@ -2411,11 +2475,13 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
 
     
     if is_cuda:
+        gpu_calls_host_cfg = cfgs['gpu_calls_host']
         useful_host_cfg = cfgs['useful_host']
         useful_streams_cfg = cfgs['useful_streams']
         memtransfer_streams_cfg = cfgs['memtransfer_streams']
 
     elif is_hip:
+        gpu_calls_host_cfg = cfgs['gpu_calls_host_hip']
         useful_host_cfg = cfgs['useful_host_hip']
         useful_streams_cfg = cfgs['useful_streams_hip']
         memtransfer_streams_cfg = cfgs['memtransfer_streams_hip']    
@@ -2427,6 +2493,14 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
             useful_host_cfg,
             trace_name + '.useful_host.stats.csv'
         ])
+
+        # GPU without MPI: host time in GPU runtime calls, used to obtain
+        # the host time outside the host parallel runtime.
+        if is_host_gpu:
+            cmd_base.extend([
+                gpu_calls_host_cfg,
+                trace_name + '.gpu_calls_host.stats.csv'
+            ])
 
         # Count GPU devices
         mapping_devices = get_device_stream_id_mapping(trace)
@@ -3108,6 +3182,25 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         else:
             trace_raw_data['useful_host'] = 0.0
             trace_raw_data['useful_host_max'] = 0.0
+
+    # GPU without MPI: host time outside the host parallel runtime
+    host_outside = None
+    if is_host_gpu:
+        host_outside = compute_host_outside_runtime(
+            trace_name + '.useful_host.stats.csv',
+            trace_name + '.gpu_calls_host.stats.csv',
+        )
+
+    if host_outside is not None:
+        (
+            trace_raw_data['host_outside_runtime_tot'],
+            trace_raw_data['host_outside_runtime_avg'],
+            trace_raw_data['host_outside_runtime_max'],
+        ) = host_outside
+    else:
+        trace_raw_data['host_outside_runtime_tot'] = 'Non-Avail'
+        trace_raw_data['host_outside_runtime_avg'] = 'Non-Avail'
+        trace_raw_data['host_outside_runtime_max'] = 'Non-Avail'
           
     # OpenMP TALP-style raw timings
     if is_openmp:    
@@ -3393,6 +3486,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         move_files(trace_name + '.burst_useful.stats.csv', local_path_dest, cmdl_args)
 
     if is_mpi_gpu or is_host_gpu:
+        if os.path.exists(trace_name + '.gpu_calls_host.stats.csv'):
+            move_files(trace_name + '.gpu_calls_host.stats.csv', local_path_dest, cmdl_args)
         if os.path.exists(trace_name + '.useful_host.stats.csv'):
             move_files(trace_name + '.useful_host.stats.csv', local_path_dest, cmdl_args)
         if os.path.exists(trace_name + '.useful_streams.stats.csv'):

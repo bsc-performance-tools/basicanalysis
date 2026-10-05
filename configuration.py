@@ -69,11 +69,25 @@ def format_configuration_label(
     # --------------------------------------------------
 
     elif model_key == "gpu":
-        label = str(
-            gpu_streams
-            if gpu_streams is not None
-            else processes
-        )
+        # Host threads + GPU streams, e.g. 6 (1+5) [1D]. When streams or
+        # devices are not known (e.g. not counted with the classic model),
+        # only the number of parallel units is shown.
+        try:
+            gpu_streams_value = int(float(gpu_streams))
+            devices_value = int(float(devices))
+            host_threads = int(processes) - gpu_streams_value
+
+            if host_threads < 1 or gpu_streams_value < 1 or devices_value < 1:
+                raise ValueError
+
+            label = "{} ({}+{}) [{}D]".format(
+                int(processes),
+                host_threads,
+                gpu_streams_value,
+                devices_value,
+            )
+        except (TypeError, ValueError):
+            label = str(processes)
 
     # --------------------------------------------------
     # MPI + GPU

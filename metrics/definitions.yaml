@@ -910,6 +910,102 @@ metrics:
     - dev_offload_eff
     sources:
     - basicanalysis_host_device
+  host_runtime_parallel_eff:
+    name_template: '{runtime} Parallel Efficiency'
+    short_name_template: '{runtime} PE'
+    family_template: '{runtime_family}'
+    analysis_level: execution_domain
+    metric_type: compound_efficiency
+    definition_template: >
+      Measures the efficiency of the Host execution domain with respect to the
+      {runtime} runtime of the Host threads in an accelerator application
+      without MPI. It is the fraction of the Host threads' time spent outside
+      the {runtime} runtime, that is, in useful Host computation or in
+      accelerator runtime calls.
+    formula:
+      text_template: '{runtime}_PE = sum(C_i + W_i) / (T * H)'
+      latex_template: '{runtime}\\_PE = \\frac{{\\sum_{{i=1}}^{{H}} (C_i + W_i)}}{{T \\cdot H}}'
+    interpretation:
+      low_template: >
+        Values below 100% indicate that the Host threads spend time in the
+        {runtime} runtime, for example waiting at synchronization points,
+        in scheduling or fork/join overhead, or idle outside parallel regions.
+      high_template: >
+        Values near 100% indicate that the Host threads spend little time in
+        the {runtime} runtime.
+      above_100_template: Values above 100% are not expected and should be checked.
+    typical_causes_template:
+    - '{runtime} load imbalance between Host threads'
+    - '{runtime} synchronization, scheduling, or fork/join overhead'
+    - Serial Host execution with idle {runtime} threads
+    next_steps_template:
+    - Inspect the {runtime} Load Balance and Communication Efficiency.
+    - Compare with Device Offload Efficiency.
+    children:
+    - host_runtime_load_balance
+    - host_runtime_comm_eff
+    sources:
+    - basicanalysis_host_device
+  host_runtime_load_balance:
+    name_template: '{runtime} Load Balance'
+    short_name_template: '{runtime} LB'
+    family_template: '{runtime_family}'
+    analysis_level: execution_domain
+    metric_type: efficiency
+    definition_template: >
+      Measures how evenly the time spent outside the {runtime} runtime, in
+      useful Host computation or in accelerator runtime calls, is distributed
+      across the Host threads.
+    formula:
+      text_template: '{runtime}_LB = avg_i(C_i + W_i) / max_i(C_i + W_i)'
+      latex_template: '{runtime}\\_LB = \\frac{{avg_i (C_i + W_i)}}{{max_i (C_i + W_i)}}'
+    interpretation:
+      low_template: >
+        Values below 100% indicate that some Host threads perform more useful
+        computation or accelerator management than others, while the rest wait
+        in the {runtime} runtime.
+      high_template: >
+        Values near 100% indicate an even distribution of the Host work across
+        the {runtime} threads.
+      above_100_template: Values above 100% are not expected and should be checked.
+    typical_causes_template:
+    - Uneven work distribution across {runtime} threads
+    - Accelerator management concentrated in some Host threads
+    next_steps_template:
+    - Inspect the distribution of useful Host computation and accelerator runtime calls across Host threads.
+    children: []
+    sources:
+    - basicanalysis_host_device
+  host_runtime_comm_eff:
+    name_template: '{runtime} Communication Efficiency'
+    short_name_template: '{runtime} Comm'
+    family_template: '{runtime_family}'
+    analysis_level: execution_domain
+    metric_type: efficiency
+    definition_template: >
+      Measures the efficiency of the Host threads with respect to {runtime}
+      synchronization and runtime overheads, based on the Host thread that
+      spends the most time outside the {runtime} runtime.
+    formula:
+      text_template: '{runtime}_CommE = max_i(C_i + W_i) / T'
+      latex_template: '{runtime}\\_CommE = \\frac{{max_i (C_i + W_i)}}{{T}}'
+    interpretation:
+      low_template: >
+        Values below 100% indicate that even the busiest Host thread spends
+        time in the {runtime} runtime, for example in synchronization,
+        scheduling, or fork/join overhead.
+      high_template: >
+        Values near 100% indicate little {runtime} synchronization or runtime
+        overhead on the busiest Host thread.
+      above_100_template: Values above 100% are not expected and should be checked.
+    typical_causes_template:
+    - '{runtime} synchronization'
+    - '{runtime} scheduling or fork/join overhead'
+    next_steps_template:
+    - Inspect {runtime} synchronization and runtime activity on the Host threads.
+    children: []
+    sources:
+    - basicanalysis_host_device
   dev_offload_eff:
     name: Device Offload Efficiency
     short_name: Offload

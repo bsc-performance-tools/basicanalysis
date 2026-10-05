@@ -52,7 +52,11 @@ def _programming_model_key(programming_model: str) -> str:
     if normalized == "OMPSS":
         return "ompss"
 
-    if normalized in ("CUDA", "HIP"):
+    # GPU without MPI, with a serial or threaded host
+    # (CUDA, OPENMP+CUDA, PTHREADS+HIP, ...).
+    if "MPI" not in normalized.split("+") and (
+        "CUDA" in normalized.split("+") or "HIP" in normalized.split("+")
+    ):
         return "gpu"
 
     if normalized in (

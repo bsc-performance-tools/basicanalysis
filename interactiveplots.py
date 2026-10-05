@@ -12,7 +12,7 @@ import html
 import plotly.graph_objects as go
 
 from configuration import format_configuration_label
-from tracemetadata import is_host_gpu_mode
+from tracemetadata import is_host_gpu_mode, host_runtime_of_mode
 
 from report.renderer.html import (
     build_analysis_catalogue,
@@ -346,6 +346,40 @@ def _build_talp_metric_info():
 TALP_METRIC_INFO = _build_talp_metric_info()
 
 
+def _talp_metric_info(host_runtime=None):
+    """Host/Device metric metadata for a given host parallel runtime.
+
+    GPU applications without MPI whose host threads use a CPU parallel
+    runtime (e.g. OpenMP) add the Host runtime metrics, labelled and
+    described for that runtime.
+    """
+    if host_runtime is None:
+        return TALP_METRIC_INFO
+
+    metric_info = dict(TALP_METRIC_INFO)
+    metric_info.update(
+        METRIC_PROVIDER.build(
+            {
+                "host_runtime_parallel_eff": {
+                    "label": "   == {} Parallel efficiency".format(host_runtime),
+                    "short_label": " -- {} PE".format(host_runtime),
+                },
+                "host_runtime_load_balance": {
+                    "label": "       -- {} Load balance".format(host_runtime),
+                    "short_label": " -- {} LB".format(host_runtime),
+                },
+                "host_runtime_comm_eff": {
+                    "label": "       -- {} Communication efficiency".format(host_runtime),
+                    "short_label": " -- {} Comm".format(host_runtime),
+                },
+            },
+            runtime=host_runtime,
+        )
+    )
+
+    return metric_info
+
+
 
 def _build_openmp_metric_info():
     """OpenMP runtime-specific metrics from the shared knowledge base."""
@@ -523,6 +557,11 @@ TALP_TREE = [
                     _tree_node("transfer_eff"),
                 ]),
             ]),
+            # GPU without MPI: CPU parallel runtime of the host threads.
+            _tree_node("host_runtime_parallel_eff", [
+                _tree_node("host_runtime_load_balance"),
+                _tree_node("host_runtime_comm_eff"),
+            ]),
             _tree_node("dev_offload_eff"),
         ]),
         _tree_node("host_comp_scale", [
@@ -550,6 +589,11 @@ HOST_TREE = [
                     _tree_node("serial_eff"),
                     _tree_node("transfer_eff"),
                 ]),
+            ]),
+            # GPU without MPI: CPU parallel runtime of the host threads.
+            _tree_node("host_runtime_parallel_eff", [
+                _tree_node("host_runtime_load_balance"),
+                _tree_node("host_runtime_comm_eff"),
             ]),
             _tree_node("dev_offload_eff"),
         ]),
@@ -2034,7 +2078,11 @@ def _programming_model_key(programming_model):
     if model == "OMPSS":
         return "ompss"
 
-    if model in ("CUDA", "HIP"):
+    # GPU without MPI, with a serial or threaded host
+    # (CUDA, OPENMP+CUDA, PTHREADS+HIP, ...).
+    if "MPI" not in model.split("+") and (
+        "CUDA" in model.split("+") or "HIP" in model.split("+")
+    ):
         return "gpu"
 
     if model in (
@@ -2116,6 +2164,9 @@ def _report_trace_label(
             processes=trace_info.get("processes"),
             gpu_streams=trace_info.get(
                 "gpu_streams"
+            ),
+            devices=trace_info.get(
+                "devices"
             ),
             trace_id=trace_id,
             separator='×',
@@ -2571,7 +2622,7 @@ def _metric_value_color(value):
 
 
 
-def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_sources, device_sources, trace_list, trace_labels, trace_header_note, trace_column_description="",):
+def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_sources, device_sources, trace_list, trace_labels, trace_header_note, trace_column_description="", host_runtime=None,):
     """Build the combined Host/Device Execution Domains analysis.
 
     The Execution Domains view presents Host and Device metrics as two
@@ -2589,7 +2640,10 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
 
     metric_knowledge = _build_metric_knowledge(
         metric_keys=all_metric_keys,
+        runtime=host_runtime,
     )
+
+    talp_metric_info = _talp_metric_info(host_runtime)
 
     guidance_html = _build_execution_domains_guidance_html()
 
@@ -2603,7 +2657,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
 
     host_table_html = _build_efficiency_table_html(
         metric_keys=host_metric_keys,
-        metric_info=TALP_METRIC_INFO,
+        metric_info=talp_metric_info,
         metric_sources=host_sources,
         trace_list=trace_list,
         trace_labels=trace_labels,
@@ -2618,7 +2672,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
 
     device_table_html = _build_efficiency_table_html(
         metric_keys=device_metric_keys,
-        metric_info=TALP_METRIC_INFO,
+        metric_info=talp_metric_info,
         metric_sources=device_sources,
         trace_list=trace_list,
         trace_labels=trace_labels,
@@ -2633,7 +2687,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
 
     info_json = _metric_info_json(
         all_metric_keys,
-        TALP_METRIC_INFO,
+        talp_metric_info,
         metric_knowledge,
     )
 
@@ -10068,6 +10122,13 @@ def build_basicanalysis_interactive_report_html(metrics_result,
         host_factors = metrics_result["host_factors"]
         device_factors = metrics_result["device_factors"]
 
+        # CPU parallel runtime of the host threads (GPU without MPI).
+        host_runtime = (
+            host_runtime_of_mode(trace_mode[trace_list[0]])
+            if is_host_gpu_mode(trace_mode[trace_list[0]])
+            else None
+        )
+
         host_keys = [
             "host_global_eff",
             "host_parallel_eff",
@@ -10076,6 +10137,9 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             "mpi_comm_eff",
             "serial_eff",
             "transfer_eff",
+            "host_runtime_parallel_eff",
+            "host_runtime_load_balance",
+            "host_runtime_comm_eff",
             "dev_offload_eff",
             "host_comp_scale",
             "host_ipc_scale",
@@ -10119,7 +10183,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
 
         host_html = _build_metric_tree_heatmap_section(
             metric_keys=host_filtered_keys,
-            metric_info=TALP_METRIC_INFO,
+            metric_info=_talp_metric_info(host_runtime),
             metric_sources=host_sources,
             trace_list=trace_list,
             trace_labels=trace_labels,
@@ -10128,6 +10192,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             tree_kind="host",
             trace_header_note=trace_header_note,
             trace_column_description=trace_column_description,
+            runtime=host_runtime,
         )
 
         device_html = _build_metric_tree_heatmap_section(
@@ -10152,6 +10217,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             trace_labels=trace_labels,
             trace_header_note=trace_header_note,
             trace_column_description=trace_column_description,
+            host_runtime=host_runtime,
         )        
 
     # ---- OpenMP runtime-specific efficiency metrics
