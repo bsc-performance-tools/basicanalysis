@@ -1,13 +1,5 @@
 # Release Notes
 
-## Unreleased
-
-### Improvements
-
-- The message shown when the interactive report cannot be generated now
-  includes the cause, such as a missing Python package (`plotly` or `yaml`).
-
-
 ## 2026.10.05
 
 ### New Features
@@ -23,6 +15,11 @@
 - Add Host/Device metrics and the Execution Domains view for GPU
   applications without MPI (CUDA and HIP with a serial host).
   `--pop_model_to_apply classic` keeps the previous metrics.
+
+### Improvements
+
+- The message shown when the interactive report cannot be generated now
+  includes the cause, such as a missing Python package (`plotly` or `yaml`).
 
 ### Fixes
 
