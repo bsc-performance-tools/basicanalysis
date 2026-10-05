@@ -45,12 +45,23 @@ error_import_numpy = False
 error_import_plotly = False
 
 error_import_interactiveplots = False
+# Reason the interactive report cannot be generated (e.g. a missing
+# package such as plotly or yaml), shown to the user.
+error_import_interactiveplots_reason = ''
 
 try:
     import interactiveplots
     import comparisonreport
-except ImportError:
+except ImportError as error:
     error_import_interactiveplots = True
+    error_import_interactiveplots_reason = str(error)
+
+
+def print_interactive_report_unavailable():
+    """Explain why the interactive HTML report is skipped."""
+    print('Plotly/interactiveplots module not available ({}). '
+          'Skipping interactive HTML report.'.format(
+              error_import_interactiveplots_reason))
 
 
 try:
@@ -460,8 +471,7 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
             )
 
         else:
-            print('Plotly/interactiveplots module not available. '
-                 'Skipping interactive HTML report.')            
+            print_interactive_report_unavailable()
 
         if len(trace_list) > 1 and not comparison:
             if cmdl_args.pop_model_to_apply == 'classic':
@@ -536,8 +546,7 @@ def generate_simple_plots(metrics_result, analysis_result, report,
             )
 
         else:
-            print('Plotly/interactiveplots module not available. '
-                      'Skipping interactive HTML report.')
+            print_interactive_report_unavailable()
 
         if len(trace_list) > 1:
             plots_modelfactors_matplot(

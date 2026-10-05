@@ -1,5 +1,13 @@
 # Release Notes
 
+## Unreleased
+
+### Improvements
+
+- The message shown when the interactive report cannot be generated now
+  includes the cause, such as a missing Python package (`plotly` or `yaml`).
+
+
 ## 2026.10.05
 
 ### New Features
