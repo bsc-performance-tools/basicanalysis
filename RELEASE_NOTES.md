@@ -1,68 +1,27 @@
 # Release Notes
 
-## Unreleased
+## 2026.10.05
 
 ### New Features
 
-- Add **comparison of programming models**. When the analyzed traces use
-  different programming models (e.g. MPI+CUDA vs MPI, MPI vs MPI+OpenMP, or
-  MPI+CUDA vs MPI+HIP), BasicAnalysis prints a comparison table where each
-  trace shows the efficiency metrics of its own programming model:
-  - Rows are shown when they apply to at least one trace; cells of metrics
-    that do not apply to a programming model are left empty.
-  - The top row is *Host Parallel efficiency* when an MPI+GPU trace is
-    compared, and *Parallel efficiency* when only CPU-based models are
-    compared.
-  - Scaling detection and reference-based metrics (Global efficiency,
-    Computation/IPC/Instruction/Frequency scalability, Efficiency) are not
-    computed across programming models. Execution time and Speedup
-    (runtime ratio against the first trace) remain available.
-  - The comparison table is also written to `comparison_metrics.csv`.
-  - Efficiency-table and scaling plots are not generated in this mode.
-  - Comparison is supported for Detailed traces of MPI-based programming
-    models. A Burst trace, or a trace without MPI, in a comparison stops the
-    analysis with a message listing the unsupported traces.
-
-- Add the **interactive report for the comparison of programming models**.
-  When the traces use different programming models, the interactive report
-  contains:
-  - A *Programming Model Comparison* tab with the trace configuration,
-    execution mapping, general metrics, the efficiency comparison heatmap
-    and I/O metrics. Every value opens its Metric Details, using the
-    definition of the metric of that trace's programming model.
-  - One tab per programming model with the complete standard report of its
-    traces, analyzed as an independent set (including scaling between traces
-    of the same model).
-  - A printable version of the comparison.
-
-- Document the comparison of programming models in the User Guide: usage and
-  selection of the reference execution with `-ord not`, methodology, report
-  views, output files, and limitations.
-
-- Add **Host/Device metrics for GPU applications without MPI** (CUDA and HIP
-  with a serial host). These traces now use the Host/Device execution-domain
-  model, as MPI+GPU traces do:
-  - Device metrics (Parallel Efficiency, Load Balance, Communication and
-    Orchestration Efficiency, Device Computation Scalability) are computed as
-    for MPI+GPU.
-  - Host Parallel Efficiency equals Device Offload Efficiency, computed from
-    the host useful time over the whole execution of the host threads.
-  - MPI, Serialization and Transfer metrics do not apply and are omitted.
-  - The Execution Domains view of the interactive report is available.
-  - `--pop_model_to_apply classic` keeps the previous flattened metrics.
+- Add the comparison of executions that use different programming models,
+  for example a new MPI+CUDA implementation with its MPI or MPI+OpenMP
+  version, or MPI+CUDA with MPI+HIP. Each trace is described with the
+  efficiency metrics of its own programming model. The comparison is shown
+  in the terminal, written to `comparison_metrics.csv`, and presented in a
+  new *Programming Model Comparison* tab of the interactive report, together
+  with the complete report of each programming model. See *Comparing
+  programming models* in the User Guide.
+- Add Host/Device metrics and the Execution Domains view for GPU
+  applications without MPI (CUDA and HIP with a serial host).
+  `--pop_model_to_apply classic` keeps the previous metrics.
 
 ### Fixes
 
-- Fixed device and stream detection for traces with legacy HIP thread labels
-  (`HIP-D<n>.S<m>-<node>`). Devices and streams were reported as 0 and the
-  Device useful time was not aggregated. All `.row` label parsing now uses the
-  same label recognition.
-
-- Fixed GPU stream counting for MPI+CUDA traces using legacy CUDA thread
-  labels (`CUDA-D<n>.S<m>-<node>`). The number of devices was detected
-  correctly, but the GPU streams and streams per MPI rank were reported as 0
-  in the Execution Overview. Device and stream counting now share the same
-  `.row` label recognition.
+- Fixed the number of GPU streams reported as 0 for traces with legacy CUDA
+  and HIP thread labels (`CUDA-D<n>.S<m>-<node>`, `HIP-D<n>.S<m>-<node>`).
+  For HIP traces, the number of devices and the Device metrics were also
+  affected.
 
 
 ## 2026.09.17

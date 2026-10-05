@@ -21,7 +21,7 @@ copyright = u'2026, BSC Performance Tools'
 author = u'BSC Performance Tools'
 
 # The full version, including alpha/beta/rc tags
-release = u'2026.09.17'
+release = u'2026.10.05'
 
 
 # -- General configuration ---------------------------------------------------
