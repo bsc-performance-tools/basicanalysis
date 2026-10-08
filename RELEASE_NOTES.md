@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Improvements
+
+- Identify useful Device computation by the *Running* state on the GPU
+  streams, which corresponds to kernel execution, for CUDA and HIP. A single
+  configuration now serves both runtimes and does not depend on the kernel
+  event code used by the Extrae version. In cut traces, kernels already
+  running at the beginning of the trace are now also counted.
+
 ### Fixes
 
 - Fixed the detection of GPU memory transfers for traces generated with

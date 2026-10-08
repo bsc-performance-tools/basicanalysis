@@ -22,9 +22,12 @@ CUDA-D1.S2-node1
 """
 
 # Paramedir timeline export: thread, start, duration, value.
-# Useful (kernels): stream 1 from 0 to 100, stream 2 from 50 to 150.
+# Useful (Running state):
+#  - stream 1 from 0 to 100, stream 2 from 50 to 150 (kernels);
+#  - host thread from 0 to 500: host computation, ignored.
 USEFUL = """\
 #paramedir timeline
+1.1.1\t0\t500\t1
 1.1.2\t0\t100\t1
 1.1.2\t100\t100\t0
 1.1.3\t50\t100\t1
@@ -42,7 +45,7 @@ MEMTRANSFER = """\
 """
 
 
-class GpuTransferAggregationTests(unittest.TestCase):
+class GpuDeviceAggregationTests(unittest.TestCase):
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -72,7 +75,7 @@ class GpuTransferAggregationTests(unittest.TestCase):
         # useful 150 + non-overlapped transfer 50; host interval ignored.
         self.assertAlmostEqual(result["useful_memtransf_device_total"], 200.0)
 
-    def test_host_transfer_intervals_are_not_reported(self):
+    def test_host_intervals_are_not_reported(self):
         result = self._aggregate()
         self.assertEqual(result["unknown_memtransfer_threads"], [])
         self.assertEqual(result["unknown_useful_threads"], [])
