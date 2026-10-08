@@ -1927,15 +1927,25 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
       - overlapping useful across streams is counted once
       - transfer overlapping useful is considered computation
       - only transfer not already covered by useful adds extra duration
+
+    Memory transfers are the state 17 (Memory transfer) intervals of the GPU
+    stream threads. State 17 also appears on host threads (the host side of
+    a synchronous copy); those intervals are not device transfers and are
+    ignored.
     """
     thread_to_device = build_thread_to_device_map_from_row(row_path)
+    host_threads = {
+        thread_obj
+        for thread_obj, label in parse_row_thread_labels(row_path).items()
+        if str(label).strip().startswith('THREAD ')
+    }
 
     useful_rows = parse_gpu_stream_stats(useful_stats_path, positive_only=True)
 
     useful_by_rank = defaultdict(list)
 
     if memtransfer_stats_path and os.path.exists(memtransfer_stats_path):
-        memtransfer_rows = parse_gpu_stream_stats(memtransfer_stats_path, active_values=(3.0, 7.0))
+        memtransfer_rows = parse_gpu_stream_stats(memtransfer_stats_path, positive_only=True)
     else:
         memtransfer_rows = []
 
@@ -1961,7 +1971,8 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
     for thread_obj, start, end in memtransfer_rows:
         device_key = thread_to_device.get(thread_obj)
         if device_key is None:
-            unknown_memtransfer_threads.add(thread_obj)
+            if thread_obj not in host_threads:
+                unknown_memtransfer_threads.add(thread_obj)
             continue
         memtransfer_by_device[device_key].append((start, end))
 
@@ -2116,12 +2127,14 @@ def init_cfgs():
     ### CUDA
     cfgs['useful_host'] = os.path.join(cfgs['root_dir'], 'useful_host.cfg')
     cfgs['useful_streams'] = os.path.join(cfgs['root_dir'], 'useful_streams.cfg')
-    cfgs['memtransfer_streams'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams.cfg')
+    # Memory transfers: state 17 (Memory transfer), for CUDA and HIP. The
+    # transfer event code changes between Extrae versions.
+    cfgs['memtransfer_streams'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams_state.cfg')
 
     ### HIP
     cfgs['useful_host_hip'] = os.path.join(cfgs['root_dir'], 'useful_host_hip.cfg')
     cfgs['useful_streams_hip'] = os.path.join(cfgs['root_dir'], 'useful_streams_hip.cfg')
-    cfgs['memtransfer_streams_hip'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams_hip.cfg')    
+    cfgs['memtransfer_streams_hip'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams_state.cfg')
 
     # OpenMP TALP-style timing extractors
     cfgs['omp_useful_regions'] = os.path.join(cfgs['root_dir'], '2d-Useful-duration-in-parallelregion.cfg')

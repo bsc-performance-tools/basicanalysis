@@ -1267,6 +1267,14 @@ Device memory-transfer activity
 BasicAnalysis applies the same physical-device mapping principle to
 memory-transfer activity.
 
+Memory-transfer intervals are the intervals in which a GPU stream is in the
+*Memory transfer* state. This definition does not depend on the event code
+used by the tracing tool to record the transfer, which can differ between
+Extrae versions, and applies to both CUDA and HIP. The *Memory transfer*
+state can also appear on host threads, representing the host side of a
+synchronous copy; these intervals are not device activity and are not
+considered.
+
 For each physical device, memory-transfer intervals from all associated GPU
 streams are collected and flattened. BasicAnalysis then removes any portion
 of the resulting transfer activity that overlaps useful device computation.

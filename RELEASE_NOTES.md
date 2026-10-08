@@ -1,5 +1,17 @@
 # Release Notes
 
+## Unreleased
+
+### Fixes
+
+- Fixed the detection of GPU memory transfers for traces generated with
+  Extrae versions that record transfers with a different event code. Device
+  memory transfers are now identified by the *Memory transfer* state on the
+  GPU streams, for CUDA and HIP. In affected traces, Device Communication
+  Efficiency was reported as 100% and Device Orchestration Efficiency was
+  slightly underestimated.
+
+
 ## 2026.10.05
 
 ### New Features
