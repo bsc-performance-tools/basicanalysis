@@ -1180,6 +1180,13 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                    * proc_ratio * 100.0
                     else:
                         mod_factors['comp_scale'][trace] = 100.0
+                elif host_device_measures and 'Non-Avail' in (
+                        raw_data['useful_host'][trace],
+                        raw_data['useful_host'][trace_list[0]]):
+                    # nsys2prv traces: no state records to measure host
+                    # useful, so no host (or application) scalability.
+                    host_factors['host_comp_scale'][trace] = 'Non-Avail'
+                    mod_factors['comp_scale'][trace] = 'Non-Avail'
                 elif host_device_measures:
                     # --------------------------------------------------
                     # Host Computation Scalability
@@ -1688,7 +1695,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         
         ### Offloading
         try:  # except NaN
-            if is_host_gpu:
+            if is_host_gpu and raw_data['useful_host'][trace] == 'Non-Avail':
+                # nsys2prv traces: no state records to measure host useful.
+                host_factors['dev_offload_eff'][trace] = 'Non-Avail'
+            elif is_host_gpu:
                 # Without MPI, the host time available for useful
                 # computation is the whole execution of the host threads.
                 host_factors['dev_offload_eff'][trace] = 100 * (
@@ -2126,7 +2136,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
        
         try:  # except NaN
-            if host_device_measures:
+            if (host_device_measures
+                    and raw_data['useful_host'][trace] == 'Non-Avail'):
+                # nsys2prv traces: no host useful time.
+                host_factors['host_global_eff'][trace] = 'Non-Avail'
+            elif host_device_measures:
                 if len(trace_list) > 1:
                     host_factors['host_global_eff'][trace] = (host_factors['host_parallel_eff'][trace]/100) \
                 * (host_factors['host_comp_scale'][trace]/100) * 100
@@ -2291,6 +2305,8 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         elif trace_mode[trace][0:len("Burst")] == "Burst":
             mode_string = trace_mode[trace]
         elif trace_mode[trace] == "Sampling":
+            mode_string = trace_mode[trace]
+        elif trace_mode[trace].startswith("nsys2prv"):
             mode_string = trace_mode[trace]
 
         line_trace_mode += mode_string.rjust(value_to_adjust)
@@ -2492,6 +2508,8 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
         elif trace_mode[trace][0:len("Burst")] == "Burst":
             mode_string = trace_mode[trace]
         elif trace_mode[trace] == "Sampling":
+            mode_string = trace_mode[trace]
+        elif trace_mode[trace].startswith("nsys2prv"):
             mode_string = trace_mode[trace]
 
         line_trace_mode += mode_string.rjust(value_to_adjust)

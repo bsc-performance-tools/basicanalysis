@@ -11,7 +11,8 @@ import shutil
 import json
 from utils import which
 from collections import OrderedDict, defaultdict
-from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label, is_host_gpu_mode, CUDA_LEGACY_LABEL_RE
+from nsys2prvmetrics import process_one_nsys2prv_trace
+from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label, is_host_gpu_mode, is_nsys2prv_mode, CUDA_LEGACY_LABEL_RE
 from utils import run_command, move_files,remove_files, create_temp_folder
 
 
@@ -2309,6 +2310,12 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         "mpi_proc_count": int or None,
       }
     """
+    if is_nsys2prv_mode(trace_mode_value):
+        return process_one_nsys2prv_trace(
+            trace, trace_process_count, trace_task_per_node_value,
+            trace_mode_value, trace_tasks_value, trace_threads_value,
+            cmdl_args, cfgs, path_dest)
+
     trace_raw_data = create_trace_raw_data()
     trace_io_data = create_io_raw_data()
 

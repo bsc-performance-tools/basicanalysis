@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### New Features
+
+- Add Device metrics for traces generated with nsys2prv from NVIDIA Nsight
+  Systems reports (CUDA). These traces are detected automatically and
+  analyzed with their own configurations, without changing the analysis of
+  Extrae traces. Following the TALP device model, useful Device time is
+  taken from the kernel events, and Device communication from the memory
+  operations (copies and `memset`) and NCCL kernel events. Host metrics are reported as `Non-Avail`, since nsys2prv traces
+  have no state records.
+
 ### Improvements
 
 - Identify useful Device computation by the *Running* state on the GPU
@@ -12,6 +22,11 @@
 
 ### Fixes
 
+- Fixed the reading of trace headers without CPU information, such as those
+  written by nsys2prv (0 nodes), which stopped the analysis.
+- Fixed the automatic scaling detection when some indicators are not
+  available (e.g. useful time or instructions), which stopped the analysis
+  of several traces. Unavailable indicators no longer vote.
 - Fixed the detection of GPU memory transfers for traces generated with
   Extrae versions that record transfers with a different event code. Device
   memory transfers are now identified by the *Memory transfer* state on the

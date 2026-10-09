@@ -134,78 +134,84 @@ def get_traces_from_args(cmdl_args):
 
     for trace in trace_list:
         trace_task_per_node[trace] = get_task_per_node(trace)
+
+        # nsys2prv: the GPU hardware-metrics threads are not execution units.
+        if is_nsys2prv_mode(trace_mode[trace]):
+            trace_processes[trace] -= count_nsys2prv_metrics_threads(trace)
            
     print("Starting Analysis for the following sorted traces list:")
     print_overview(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, trace_task_per_node)
     return trace_list, trace_processes, trace_tasks, trace_threads, trace_task_per_node, trace_mode
 
 
+def _read_header_line(prv_file):
+    """Return the '#Paraver' header line of a .prv or .prv.gz trace."""
+    opener = gzip.open if prv_file.endswith(".prv.gz") else open
+    with opener(prv_file, 'rt') as tracefile:
+        for line in tracefile:
+            if line.startswith("#Paraver"):
+                return line.rstrip('\n')
+    raise ValueError(f"Paraver header not found in {prv_file}")
+
+
+# Header after the date: <time>[_<unit>]:<nodes>[(<cpus>)]:<n_appl>:<appl>...
+# where the first application is <n_tasks>[:](<threads>:<node>,...).
+# Extrae writes '1:4(1:1,...)'; nsys2prv writes '0:1:2:(1:1,6:1)', with
+# 0 nodes, no CPU list and a ':' before the task list.
+_HEADER_RE = re.compile(
+    r"^#Paraver \([^)]*\):[^:]+:(?P<nodes>\d+)(?:\((?P<cpus>[^)]*)\))?"
+    r":(?P<n_appl>\d+):(?P<n_tasks>\d+):?\((?P<tasks>[^)]*)\)"
+)
+
+
+def parse_trace_header(prv_file):
+    """Parse the resources and the first application of the trace header.
+
+    Returns a dict with:
+      nodes:            number of nodes declared in the header (may be 0)
+      cpus_per_node:    list with the CPUs of each node (may be empty)
+      tasks:            number of tasks of the first application
+      threads_per_task: list with the threads of each task
+      node_per_task:    list with the node of each task
+    """
+    line = _read_header_line(prv_file)
+    match = _HEADER_RE.match(line)
+    if not match:
+        raise ValueError(f"Unsupported Paraver header in {prv_file}: {line[:200]}")
+
+    cpus = match.group('cpus')
+    task_entries = [t.split(':') for t in match.group('tasks').split(',') if t]
+
+    return {
+        'nodes': int(match.group('nodes')),
+        # Dimemas writes a trailing comma in the CPU list: '8(8,8,)'.
+        'cpus_per_node': [int(c) for c in cpus.split(',') if c] if cpus else [],
+        'tasks': int(match.group('n_tasks')),
+        'threads_per_task': [int(t[0]) for t in task_entries],
+        'node_per_task': [int(t[1]) for t in task_entries],
+    }
+
+
 def get_num_processes(prv_file, cmdl_args):
-    """Gets the number of processes in a trace from the according .row file.
+    """Gets the number of processes in a trace from the trace header.
     Please note: return value needs to be integer because this function is also
     used as sorting key.
     """
-    file_trace_name = "not found"
-    if prv_file[-4:] == ".prv":
-        tracefile = open(prv_file)
-        file_trace_name = prv_file[:-4]+".prv"
-        for line in tracefile:
-            header_trace = line.split('_')
-            break
-        tracefile.close()
-    elif prv_file[-7:] == ".prv.gz":
-        file_trace_name = prv_file[:-4] + ".prv.gz"
-        with gzip.open(prv_file, 'rt') as f:
-            for line in f:
-                if "#Paraver" in line:
-                    header_trace = line.split('_')
-                    break
-        f.close()
-
     if cmdl_args.debug:
-        #if file_trace_name == "not found":
         print("Trace File ", prv_file)
 
-    header_to_print = header_trace[1].split(':')[3].split('(')
-    tasks = header_to_print[0]
-    threads = header_to_print[1]
-    list_procspernode = header_trace[1].split('(')[2].split(')')[0].split(',')
+    header = parse_trace_header(prv_file)
+    total_procs = sum(header['threads_per_task'])
+    threads = header['threads_per_task'][0]
 
-    total_procs = 0
-    for proc_node in list_procspernode:
-        total_procs += int(proc_node.split(':')[0])
-
-    return int(total_procs), int(tasks), int(threads)
+    return int(total_procs), int(header['tasks']), int(threads)
 
 
 def get_tasks_threads(prv_file):
-    """Gets the tasks and threads from the .prv file.
+    """Gets the tasks and the maximum threads per task from the .prv file.
       """
-    if prv_file[-4:] == ".prv":
-        tracefile = open(prv_file)
-        for line in tracefile:
-            header_trace = line.split('_')
-            break
-        tracefile.close()
-
-    if prv_file[-7:] == ".prv.gz":
-        with gzip.open(prv_file, 'rt') as f:
-            for line in f:
-                if "#Paraver" in line:
-                    header_trace = line.split('_')
-                    break
-        f.close()
-    #print("header_trace: ", header_trace[1].split('(')[2].split(')')[0].split(','))
-    threads_per_task_per_node = header_trace[1].split('(')[2].split(')')[0].split(',')
-    first_elements = [int(item.split(':')[0]) for item in threads_per_task_per_node]
-    #print("first_elements: ",max(first_elements))
-    header_to_print = header_trace[1].split(':')[3].split('(')
-    #print("header_to_print: ", header_to_print)
-    tasks = header_to_print[0]
-    threads = max(first_elements)
-    #threads = header_to_print[1]
-
-    return int(tasks), int(threads)
+    header = parse_trace_header(prv_file)
+    return int(header['tasks']), int(max(header['threads_per_task']))
 
 
 def get_task_per_node(prv_file):
@@ -213,49 +219,29 @@ def get_task_per_node(prv_file):
     corresponding .prv or .row file. If .row exists, tasks and nodes
      are taken from row; otherwise, they are taken from .prv.
     """
-    row_file = True
-
-    if prv_file[-4:] == ".prv":
-        if os.path.exists(prv_file[:-4] + '.row'):
-            tracefile = open(prv_file[:-4] + '.row')
-        else:
-            tracefile = prv_file[:-4]
-            row_file = False
-    elif prv_file[-7:] == ".prv.gz":
-        if os.path.exists(prv_file[:-7] + '.row'):
-            tracefile = open(prv_file[:-7] + '.row')
-        else:
-            tracefile = prv_file[:-7]
-            row_file = False
+    if prv_file.endswith(".prv.gz"):
+        row_path = prv_file[:-7] + '.row'
+    else:
+        row_path = prv_file[:-4] + '.row'
 
     tasks = 0
     nodes = 1
-    if row_file:
-        for line in tracefile:
-            if "LEVEL CPU SIZE" in line:
-                tasks = int(line[15:])
-            if "LEVEL NODE SIZE" in line:
-                nodes = int(line[15:])
-        tracefile.close()
-        task_nodes = math.ceil(int(tasks) / int(nodes))
-    else:
-        if prv_file[-4:] == ".prv":
-            tracefile = open(prv_file)
+    if os.path.exists(row_path):
+        with open(row_path) as tracefile:
             for line in tracefile:
-                header_trace = line.split('_')
-                break
-            tracefile.close()
+                if "LEVEL CPU SIZE" in line:
+                    tasks = int(line[15:])
+                if "LEVEL NODE SIZE" in line:
+                    nodes = int(line[15:])
+        if tasks == 0:
+            # No LEVEL CPU section (e.g. nsys2prv): use the header tasks.
+            tasks = parse_trace_header(prv_file)['tasks']
+        return int(math.ceil(int(tasks) / max(int(nodes), 1)))
 
-        if prv_file[-7:] == ".prv.gz":
-            with gzip.open(prv_file, 'rt') as f:
-                for line in f:
-                    if "#Paraver" in line:
-                        header_trace = line.split('_')
-                        break
-            f.close()
-        task_nodes = int(header_trace[1].split(':')[1].split('(')[1].replace(')','').split(',')[0])
-
-    return int(task_nodes)
+    header = parse_trace_header(prv_file)
+    if header['cpus_per_node']:
+        return int(header['cpus_per_node'][0])
+    return int(header['tasks'])
 
 def human_readable(size, precision=1):
     """Converts a given size in bytes to the value in human readable form."""
@@ -698,15 +684,46 @@ def get_execution_mapping(prv_file, trace_mode):
 # model with the TALP-style metrics (--pop_model_to_apply talp).
 # --------------------------------------------------------------
 
+# --------------------------------------------------------------
+# Traces generated with nsys2prv (NVIDIA Nsight Systems).
+#
+# They are analyzed with their own configurations and use the
+# Host/Device model of GPU applications without MPI.
+# --------------------------------------------------------------
+
+NSYS2PRV_MODES = (
+    'nsys2prv+CUDA',
+)
+
 HOST_GPU_MODES = (
     'Detailed+CUDA',
     'Detailed+HIP',
-)
+) + NSYS2PRV_MODES
 
 
 def is_host_gpu_mode(mode):
     """Return True for GPU programming models without MPI."""
     return mode in HOST_GPU_MODES
+
+
+def is_nsys2prv_mode(mode):
+    """Return True for traces generated with nsys2prv."""
+    return mode in NSYS2PRV_MODES
+
+
+# nsys2prv thread with the sampled GPU hardware metrics: Metrics GPU0.
+NSYS2PRV_METRICS_LABEL_RE = re.compile(r"^Metrics GPU\d+\s*$")
+
+
+def count_nsys2prv_metrics_threads(prv_file):
+    """Count the GPU hardware-metrics threads of an nsys2prv trace.
+
+    They are not execution units: they only hold sampled GPU metrics.
+    """
+    return sum(
+        1 for line in _iter_thread_section_lines(prv_file)
+        if NSYS2PRV_METRICS_LABEL_RE.match(line.strip())
+    )
 
 
 # --------------------------------------------------------------
@@ -1007,6 +1024,31 @@ def _detect_mode_from_trace_streaming(prv_file, base_mode, chunk_size=8 * 1024 *
     return mode_trace
 
 
+# Event labels written by nsys2prv and never by Extrae (Extrae labels
+# 63000001 as "CUDA memory transfer" and has no NCCL event).
+NSYS2PRV_PCF_LABELS = (
+    b'CUDA memcpy kernel',
+    b'NCCL kernel',
+)
+
+
+def is_nsys2prv_pcf(file_pcf):
+    """Return True if the .pcf file was generated by nsys2prv.
+
+    nsys2prv traces have no state records, so their .pcf has no STATES
+    section (Extrae always writes one), and they use event labels that
+    Extrae does not use.
+    """
+    with open(file_pcf, 'rb') as pcf:
+        content = pcf.read()
+
+    has_states = re.search(rb'^STATES\s*$', content, re.MULTILINE) is not None
+    if has_states:
+        return False
+
+    return any(label in content for label in NSYS2PRV_PCF_LABELS)
+
+
 def get_trace_mode(prv_file, cmdl_args, trace_mode):
     """
     Gets the trace mode by detecting:
@@ -1020,6 +1062,10 @@ def get_trace_mode(prv_file, cmdl_args, trace_mode):
         file_pcf = prv_file[:-7] + '.pcf'
     else:
         raise ValueError(f"Unsupported trace format: {prv_file}")
+
+    if os.path.exists(file_pcf) and is_nsys2prv_pcf(file_pcf):
+        trace_mode[prv_file] = 'nsys2prv+CUDA'
+        return
 
     base_mode = _detect_burst_mode(prv_file)
 

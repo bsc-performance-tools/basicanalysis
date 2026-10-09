@@ -1230,6 +1230,8 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
             mode_string = trace_mode[trace]
         elif trace_mode[trace] == "Sampling":
             mode_string = trace_mode[trace]
+        elif trace_mode[trace].startswith("nsys2prv"):
+            mode_string = trace_mode[trace]
         line_trace_mode += mode_string.rjust(value_to_adjust)
         label_trace_mode.append(mode_string)
 

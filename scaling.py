@@ -146,7 +146,7 @@ def _compute_scaling_detection(
                 / float(trace_processes[reference_trace])
             )
         except Exception:
-            proc_ratio = "NaN"
+            proc_ratio = float("nan")
 
         try:
             runtime_ratio = (
@@ -154,7 +154,7 @@ def _compute_scaling_detection(
                 / float(raw_data["runtime"][reference_trace])
             )
         except Exception:
-            runtime_ratio = "NaN"
+            runtime_ratio = float("nan")
 
         try:
             useful_avg_ratio = (
@@ -162,7 +162,9 @@ def _compute_scaling_detection(
                 / float(raw_data["useful_avg"][reference_trace])
             )
         except Exception:
-            useful_avg_ratio = "NaN"
+            # Not available (e.g. nsys2prv traces have no useful host
+            # time): the indicator is NaN and does not vote.
+            useful_avg_ratio = float("nan")
 
         normalized_inst_ratio += (
             inst_ratio / proc_ratio
