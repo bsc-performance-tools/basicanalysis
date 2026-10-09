@@ -22,11 +22,12 @@ The main output of BasicAnalysis is the interactive performance report:
 
 The report provides a guided view of the performance analysis through the
 Execution Overview, Parallel Runtime Model, Runtime-Specific Analysis,
-Execution Domains, I/O Analysis, and Scaling views, as applicable to the
+Host/Device Model (TALP), I/O Analysis, and Scaling views, as applicable to the
 analyzed execution.
 
 The available views depend on the programming model and performance data. For
-example, Execution Domains are available for accelerator applications, while
+example, the Host/Device Model (TALP) view is available for accelerator
+applications, while
 I/O Analysis reports the File I/O metrics derived from MPI-I/O and POSIX/ANSI C
 File I/O activity detected in the traces. When multiple execution
 configurations are analyzed, the report also provides scaling information and

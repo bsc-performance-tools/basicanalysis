@@ -23,7 +23,7 @@ The methodology is organized around the following perspectives:
   the active parallel runtimes.
 * **Runtime-Specific Analysis**, which provides additional metrics describing
   the behavior of individual parallel runtimes.
-* **Execution Domains**, which provides a complementary Host/Device analysis
+* **Host/Device Model (TALP)**, which provides a complementary Host/Device analysis
   for accelerator applications.
 * **I/O Analysis**, which provides complementary metrics characterizing the
   contribution and distribution of File I/O activity.
@@ -594,8 +594,8 @@ be represented as:
 .. graphviz:: graphs/05_openmp_efficiency_hierarchy.dot
    :align: center
 
-Execution Domains
-=================
+Host/Device Model (TALP)
+========================
 
 Accelerator applications involve execution across two distinct but interacting
 domains: the **Host**, where the CPU-side execution takes place and work is
@@ -614,7 +614,7 @@ mechanisms used to supply work to the accelerator, while other losses may
 manifest on the Device through insufficient available work, data movement,
 workload imbalance, or computation scalability.
 
-The **Execution Domains** analysis separates these two perspectives in order
+The **Host/Device Model (TALP)** analysis separates these two perspectives in order
 to identify where accelerator-related inefficiencies manifest:
 
 * **Host**, characterizing CPU-side execution and the interaction with the
@@ -841,7 +841,7 @@ accelerator.
    Host Global Efficiency and Device Global Efficiency must not be multiplied
    to obtain application Global Efficiency.
 
-The Execution Domains analysis should therefore be interpreted as a
+The Host/Device Model (TALP) analysis should therefore be interpreted as a
 localization view: it helps determine **where** accelerator-related
 inefficiency manifests. The Parallel Runtime Model provides a different,
 complementary perspective by attributing efficiency losses to the participating
@@ -1116,7 +1116,7 @@ A useful way to interpret them is:
    Which behavior within the identified runtime helps explain the observed
    inefficiency?
 
-**Execution Domains**
+**Host/Device Model (TALP)**
 
    For accelerator applications, where does the inefficiency manifest: Host,
    offload path, or Device?

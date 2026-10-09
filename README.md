@@ -199,8 +199,8 @@ The report includes:
   Parallel Efficiency.
 * **Runtime-Specific Analysis** – presents efficiency metrics that characterize
   the behavior of individual parallel runtimes.
-* **Execution Domains** – presents Host and Device efficiency metrics for
-  accelerator applications.
+* **Host/Device Model (TALP)** – presents Device and Host efficiency metrics
+  for accelerator applications.
 * **I/O Analysis** – characterizes the weight and distribution of File I/O
   activity through complementary MPI-I/O and POSIX/ANSI C File I/O metrics.
 * **Scaling** – shows the detected scaling model and how performance indicators,
@@ -212,7 +212,7 @@ The report includes:
 
 The report also allows complementary views to be displayed together, helping
 users relate different perspectives of the efficiency results, and supports
-export of report content. Some views, such as Execution Domains and I/O
+export of report content. Some views, such as Host/Device Model (TALP) and I/O
 Analysis, provide complementary diagnostic perspectives and are not additional
 multiplicative components of the application-level performance model.
 
