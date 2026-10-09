@@ -46,6 +46,20 @@
 - Fixed the automatic scaling detection when some indicators are not
   available (e.g. useful time or instructions), which stopped the analysis
   of several traces. Unavailable indicators no longer vote.
+- Fixed two Paraver configurations of the OpenMP Runtime-Specific metrics
+  whose analyzer ranges had been saved for a specific trace, so that values
+  outside the range were silently ignored: the MPI time of MPI+OpenMP
+  executions ignored `MPI_Send`, `MPI_Recv` and MPI calls with identifiers
+  above 33, and the useful time outside OpenMP parallel regions ignored bursts
+  longer than 0.13 s. Only the OpenMP Runtime-Specific metrics are affected
+  (OpenMP Parallel, Serial, Load Balance and Scheduling Efficiency), mainly
+  the OpenMP Serial Efficiency, which was overestimated (e.g. 98.61% instead
+  of 89.58% in a Laplace MPI+OpenMP execution). The application-level
+  metrics, the Parallel Runtime Model, and the Host/Device metrics do not
+  change.
+- Fixed the analyzer range of the bytes read and written by I/O calls, which
+  ignored calls larger than 420,000 bytes or smaller than 8 bytes. These
+  values are not used by the current metrics or report views.
 - Fixed the detection of GPU memory transfers for traces generated with
   Extrae versions that record transfers with a different event code. Device
   memory transfers are now identified by the *Memory transfer* state on the
