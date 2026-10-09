@@ -92,6 +92,86 @@ correctly, cannot be fully characterized by the Device execution-domain
 metrics.
 
 
+GPU Trace Sources: Extrae and nsys2prv
+--------------------------------------
+
+BasicAnalysis computes the Host and Device metrics for GPU traces generated
+with Extrae and with *nsys2prv*. Both sources provide the metrics, but they
+record different information, so some quantities are obtained under
+different assumptions. The definitions are described in :doc:`06_metrics`.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 38 38
+
+   * - Quantity
+     - Extrae
+     - nsys2prv
+   * - Useful Device time
+     - *Running* state of the GPU streams (kernel execution)
+     - Kernel events (``63000006``) of the GPU streams
+   * - Device communication
+     - *Memory transfer* state of the GPU streams
+     - Memory copies and ``memset`` (``63000001``) and NCCL kernels
+       (``63000007``)
+   * - ``memset`` on the device
+     - Not recorded on the GPU streams: not counted as useful time or
+       communication; it appears as idle device time
+     - Counted as a memory operation (communication)
+   * - ``memset`` on the host
+     - Time in the call: Device Offload loss
+     - Time in the call: Device Offload loss
+   * - Useful Host time
+     - *Running* state of the host threads
+     - Elapsed time minus the time in CUDA calls
+   * - Host hardware counters (IPC, instructions, frequency)
+     - Available when recorded
+     - Not available
+   * - *Dimemas* simulation
+     - Available for MPI+CUDA
+     - Not available
+
+**Assumptions for nsys2prv traces**
+
+* **Useful Host time.** Without state records, the useful Host time is the
+  elapsed time minus the time inside CUDA runtime and driver calls. It
+  includes any Host time outside those calls, such as interpreter, waiting,
+  or I/O time in Python applications. Device Offload Efficiency is therefore
+  an upper bound of the efficiency that would be obtained with state records.
+* **Processes without GPU streams.** Only the processes with GPU streams are
+  analyzed as Host. Processes that do not offload work to the accelerator are
+  reported in the standard output and are not included in the metrics.
+* **Memory operations.** Following the TALP device model, ``memset`` and all
+  memory copies count as communication. *nsys2prv* does not distinguish
+  Device-to-Device copies within a GPU from copies between GPUs, so both are
+  counted as communication.
+* **Region of interest.** The metrics are computed over the whole trace. When
+  the trace includes initialization (for example, loading model weights),
+  that phase is part of the metrics; the trace should be cut to the region of
+  interest, as with Extrae traces. Metrics per NVTX phase are not yet
+  available.
+* **Programming models and validation.** Only CUDA is supported; the
+  configurations use the CUDA event types of *nsys2prv*. The metrics have
+  been validated with single-GPU traces; several GPUs per process, shared
+  GPUs, and NCCL collectives are covered by the implementation but have not
+  yet been validated with real traces.
+* **Trace metadata.** The ``.row`` file is required to identify the GPU
+  streams, the GPU metrics threads, and the host threads.
+
+**Limitations for Extrae traces**
+
+* The device-side execution of ``cudaMemset`` and ``cudaMemsetAsync`` is not
+  recorded on the GPU streams; only the host-side call is recorded. Its
+  device time therefore lowers Device Orchestration Efficiency instead of
+  Device Communication Efficiency.
+* Extrae does not record the direction of memory copies, so Device-to-Device
+  copies within a GPU are counted as communication, as in *nsys2prv* traces.
+
+The differences between the two sources are small in the traces analyzed so
+far, but they should be considered when comparing Extrae and *nsys2prv*
+traces of the same application.
+
+
 I/O Analysis
 ------------
 

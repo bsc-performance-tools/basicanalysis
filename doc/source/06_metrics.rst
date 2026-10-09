@@ -2261,6 +2261,132 @@ execution-domain metrics, remain available when their required trace
 information is present.
 
 
+GPU Traces Generated with nsys2prv
+==================================
+
+BasicAnalysis also analyzes Paraver traces generated with *nsys2prv* from
+NVIDIA Nsight Systems reports of CUDA applications. These traces differ from
+Extrae traces in their content: they contain **no state records**, only
+events, and some event types reuse Extrae numbers with a different meaning.
+BasicAnalysis therefore detects them automatically and computes their metrics
+with their own Paraver configurations, without changing the analysis of
+Extrae traces.
+
+A trace is identified as an *nsys2prv* trace when its ``.pcf`` file has no
+``STATES`` section and contains event labels that Extrae does not use
+(``CUDA memcpy kernel`` or ``NCCL kernel``). Its trace mode is reported as
+``nsys2prv`` with the ``CUDA`` programming model.
+
+The metrics use the same formulas as for GPU applications without MPI in
+Extrae traces. Only the definition of useful time and communication changes,
+because it must be obtained from events instead of states. The assumptions
+of these definitions are summarized in :doc:`09_limitations`.
+
+
+Execution units
+---------------
+
+BasicAnalysis classifies the threads of the trace from the ``.row`` file:
+
+* **GPU streams**: threads labelled ``CUDA-D<device>.S<stream>``. The node of
+  each stream is taken from the node of its process in the trace header.
+* **GPU metrics threads**: threads labelled ``Metrics GPU<n>``, which contain
+  sampled GPU hardware metrics. They are not execution units.
+* **Host threads**: the remaining threads of the processes that have GPU
+  streams. Processes without GPU streams do not offload work to the
+  accelerator; they are reported in the standard output and are not
+  analyzed.
+
+The configuration label uses the same format as MPI+GPU traces:
+``units (processes x streams per process) [devices]``, where the units are
+the host threads and GPU streams of the processes with GPU streams, for
+example ``5 (1x4) [1D]``.
+
+
+Device metrics
+--------------
+
+Following the TALP device model, in which a device executes kernel
+computation, performs memory operations, or is idle, the device activity is
+classified from the events of the GPU streams:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 25 45
+
+   * - Activity
+     - Event
+     - Classification
+   * - CUDA kernels
+     - ``63000006``
+     - Useful computation
+   * - Memory copies (Host-to-Device, Device-to-Host, Device-to-Device)
+     - ``63000001`` = 3, 4, 5
+     - Memory operation (communication)
+   * - ``memset``
+     - ``63000001`` = 6
+     - Memory operation (communication)
+   * - NCCL kernels
+     - ``63000007``
+     - Communication
+
+Useful computation and communication are then aggregated per physical device
+as for Extrae traces (see `Stream-to-device activity aggregation`_):
+the intervals of all the streams of a device are flattened, and only
+communication that does not overlap useful computation on the same device
+contributes additional device active time. Device Parallel Efficiency, Load
+Balance, Communication Efficiency, Orchestration Efficiency, and Computation
+Scalability are computed with the same formulas.
+
+The timelines are exported in nanoseconds, so that the sum of many short
+kernels is not affected by rounding.
+
+
+Host metrics
+------------
+
+Without state records, the useful Host computation of each host thread
+:math:`h` is estimated from the CUDA runtime and driver calls (event
+``63000000``) recorded on that thread:
+
+.. math::
+
+   UsefulHost_h = T - W_h
+
+where :math:`T` is the elapsed time and :math:`W_h` the time of thread
+:math:`h` inside CUDA calls, including the time waiting for the accelerator
+in synchronization calls.
+
+With :math:`H` host threads, BasicAnalysis computes:
+
+.. math::
+
+   DeviceOffload\_Eff =
+   \frac{
+      \sum_h UsefulHost_h
+   }{
+      H \cdot T
+   }
+
+There is no MPI level, so Host Parallel Efficiency equals Device Offload
+Efficiency. Host Computation Scalability and Host Global Efficiency are
+computed from :math:`UsefulHost` as for Extrae traces. IPC, Instruction, and
+Frequency Scalability are not available, because *nsys2prv* traces contain no
+Host hardware counters.
+
+
+Parallel Runtime Model
+----------------------
+
+The Parallel Runtime Model is the single-runtime model (CUDA Parallel Runtime
+Model) over all execution units, as for GPU applications without MPI in
+Extrae traces. The useful time of a host thread is :math:`UsefulHost_h`, and
+the useful time of a GPU stream is the time of its own kernels (the *Running*
+state of each stream in Extrae traces). Parallel Efficiency, Load Balance, and
+Communication Efficiency are computed with the Simple Metrics formulas.
+Serialization and Transfer Efficiency do not apply without MPI.
+
+
 OpenMP Runtime-Specific Metrics
 ===============================
 
