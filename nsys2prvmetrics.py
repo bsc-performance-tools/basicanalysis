@@ -26,8 +26,13 @@ model (kernel computation, memory operations, idle):
                        counted only when not overlapped with useful work on
                        the same device.
 
-Host metrics are not available: without state records the useful host time
-cannot be measured.
+Host: the host threads are the non-stream threads of the processes with GPU
+streams. Processes without GPU streams do not offload work and are not
+considered. Without state records, the useful host time of each host thread
+is estimated as the elapsed time minus its time inside CUDA runtime and
+driver calls (63000000), which includes the time waiting for the GPU in
+synchronization calls. In interpreted applications (e.g. Python), this
+useful time also includes interpreter, waiting and I/O time.
 """
 
 from __future__ import print_function, division
@@ -70,6 +75,7 @@ def init_nsys2prv_cfgs(root_dir):
         'kernels_streams': os.path.join(nsys_dir, 'kernels_streams.cfg'),
         'memcpy_streams': os.path.join(nsys_dir, 'memcpy_streams.cfg'),
         'nccl_streams': os.path.join(nsys_dir, 'nccl_streams.cfg'),
+        'cuda_calls_host': os.path.join(nsys_dir, 'cuda_calls_host.cfg'),
     }
 
 
@@ -104,6 +110,9 @@ def classify_nsys2prv_threads(prv_file, row_path):
         'metrics':  [thread_obj, ...],
         'host':     [thread_obj, ...],
         'gpu_tasks': set of task ids with GPU streams,
+        'gpu_host': [thread_obj, ...] host threads of the gpu_tasks,
+        'streams_per_task': {task_id: number of streams},
+        'labels':   [(thread_obj, .row label), ...] in thread order,
       }
     where thread_obj is 'THREAD appl.task.thread' and device_key is
     '<node>:<device>'.
@@ -130,21 +139,115 @@ def classify_nsys2prv_threads(prv_file, row_path):
         'metrics': [],
         'host': [],
         'gpu_tasks': set(),
+        'gpu_host': [],
+        'streams_per_task': defaultdict(int),
+        'labels': [],
     }
 
     for thread_obj, node, label in zip(thread_objects, thread_nodes, thread_labels):
+        result['labels'].append((thread_obj, label))
         match = NSYS2PRV_STREAM_LABEL_RE.match(label)
         if match:
             device = match.group(1)
             stream_node = match.group(3) or node
             result['streams'][thread_obj] = '{}:{}'.format(stream_node, device)
-            result['gpu_tasks'].add(int(thread_obj.split()[1].split('.')[1]))
+            task_id = _task_of(thread_obj)
+            result['gpu_tasks'].add(task_id)
+            result['streams_per_task'][task_id] += 1
         elif NSYS2PRV_METRICS_LABEL_RE.match(label):
             result['metrics'].append(thread_obj)
         else:
             result['host'].append(thread_obj)
 
+    result['gpu_host'] = [
+        thread_obj for thread_obj in result['host']
+        if _task_of(thread_obj) in result['gpu_tasks']
+    ]
+    result['streams_per_task'] = dict(result['streams_per_task'])
+
     return result
+
+
+def _task_of(thread_obj):
+    """Return the task id of 'THREAD appl.task.thread'."""
+    return int(thread_obj.split()[1].split('.')[1])
+
+
+def streams_per_task_value(threads):
+    """Streams per process with GPU streams: a number, or -1 if non-uniform."""
+    values = set(threads['streams_per_task'].values())
+    if not values:
+        return 0
+    return values.pop() if len(values) == 1 else -1
+
+
+def get_nsys2prv_resources(prv_file):
+    """Execution units of an nsys2prv trace, as used in the configuration
+    labels: (units, tasks, threads per task).
+
+      units:  host threads of the processes with GPU streams + GPU streams
+      tasks:  processes with GPU streams
+      threads per task: maximum host threads + streams of those processes
+
+    Returns None if the .row file is not available.
+    """
+    if prv_file.endswith('.prv.gz'):
+        row_path = prv_file[:-7] + '.row'
+    else:
+        row_path = prv_file[:-4] + '.row'
+
+    if not os.path.exists(row_path):
+        return None
+
+    threads = classify_nsys2prv_threads(prv_file, row_path)
+    units_per_task = defaultdict(int)
+    for thread_obj in list(threads['gpu_host']) + list(threads['streams']):
+        units_per_task[_task_of(thread_obj)] += 1
+
+    if not units_per_task:
+        return None
+
+    return (
+        sum(units_per_task.values()),
+        len(units_per_task),
+        max(units_per_task.values()),
+    )
+
+
+def parse_nsys2prv_host_calls(path, threads):
+    """Time inside CUDA calls per thread (microseconds) from the analyzer of
+    cuda_calls_host.cfg (exported in nanoseconds).
+
+    The rows are labelled with the .row labels, in thread order.
+    Returns {thread_obj: time}.
+    """
+    values = {}
+    if not path or not os.path.exists(path):
+        return values
+
+    rows = []
+    with open(path) as stats_file:
+        next(stats_file, None)  # column header
+        for raw_line in stats_file:
+            parts = raw_line.rstrip('\n').split('\t')
+            if not parts[0].strip():
+                break
+            try:
+                rows.append((parts[0].strip(), float(parts[1])))
+            except (IndexError, ValueError):
+                break
+
+    labels = threads['labels']
+    if len(rows) == len(labels):
+        for (thread_obj, _label), (_row, value) in zip(labels, rows):
+            values[thread_obj] = value / NS_PER_US
+    else:
+        # Fall back to the default thread labels (THREAD a.t.h).
+        for row_label, value in rows:
+            if row_label.startswith('THREAD '):
+                values[row_label] = value / NS_PER_US
+
+    return values
 
 
 def aggregate_nsys2prv_device_metrics(kernel_rows, memcpy_rows, nccl_rows,
@@ -293,6 +396,7 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
                 'runtime_dim', 'hybrid_runtime_dim', 'useful_dim',
                 'hybrid_useful_dim', 'outsidempi_dim', 'hybrid_outsidempi_dim',
                 'useful_host', 'useful_host_max'):
+        # useful_host is replaced below when the .row file is available.
         trace_raw_data[key] = 'Non-Avail'
     for key in ('outsidempi_avg', 'outsidempi_max', 'outsidempi_tot',
                 'mpicomm_tot', 'outsidempi_tot_diff'):
@@ -306,22 +410,34 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     else:
         print('==WARNING== {} not found: the GPU streams cannot be '
               'identified.'.format(row_path))
-        threads = {'streams': {}, 'metrics': [], 'host': [], 'gpu_tasks': set()}
+        threads = {'streams': {}, 'metrics': [], 'host': [], 'gpu_tasks': set(),
+                   'gpu_host': [], 'streams_per_task': {}, 'labels': []}
 
     stream_to_device = threads['streams']
     devices = sorted(set(stream_to_device.values()))
 
+    host_threads = threads['gpu_host']
+    streams_per_task = streams_per_task_value(threads)
+
     trace_raw_data['count_devices'] = len(devices)
     trace_raw_data['count_gpu_streams'] = len(stream_to_device)
-    trace_raw_data['count_host_threads'] = len(threads['host'])
-    trace_raw_data['gpu_streams_per_rank'] = 0
+    trace_raw_data['count_host_threads'] = len(host_threads)
+    trace_raw_data['gpu_streams_per_rank'] = streams_per_task
 
-    print("==> nsys2prv trace: Device metrics from kernel and memory copy events.")
+    other_tasks = sorted({_task_of(t) for t in threads['host']} - threads['gpu_tasks'])
+
+    print("==> nsys2prv trace: Device metrics from kernel and memory operation events,")
+    print("    Host metrics from the time outside CUDA calls.")
     print("==> Count of devices: ", len(devices))
     print("==> Count of GPU streams: ", len(stream_to_device))
-    print("==> Host threads: ", len(threads['host']),
-          "(processes with GPU streams: {})".format(
-              ', '.join(str(t) for t in sorted(threads['gpu_tasks'])) or 'none'))
+    if streams_per_task == -1:
+        print("==> GPU streams per process: non-uniform")
+    else:
+        print("==> GPU streams per process: ", streams_per_task)
+    print("==> Count of host threads: ", len(host_threads))
+    if other_tasks:
+        print("==> Processes without GPU streams (not analyzed): " +
+              ', '.join(str(t) for t in other_tasks))
 
     # ------------------------------------------------------------
     # 2) Run paramedir
@@ -331,10 +447,12 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         'kernels_streams': trace_name + '.kernels_streams.stats.csv',
         'memcpy_streams': trace_name + '.memcpy_streams.stats.csv',
         'nccl_streams': trace_name + '.nccl_streams.stats.csv',
+        'cuda_calls_host': trace_name + '.cuda_calls_host.stats.csv',
     }
 
     cmd = ['paramedir', trace]
-    for key in ('runtime', 'kernels_streams', 'memcpy_streams', 'nccl_streams'):
+    for key in ('runtime', 'kernels_streams', 'memcpy_streams', 'nccl_streams',
+                'cuda_calls_host'):
         cmd.extend([nsys_cfgs[key], stats[key]])
 
     time_pmd = time.time()
@@ -355,6 +473,23 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         trace_raw_data['runtime'] = runtime_avg
     else:
         trace_raw_data['runtime'] = 'NaN'
+
+    # Host useful time: elapsed time minus time inside CUDA calls.
+    host_calls = parse_nsys2prv_host_calls(stats['cuda_calls_host'], threads)
+    if host_threads and trace_raw_data['runtime'] != 'NaN' and host_calls:
+        runtime = float(trace_raw_data['runtime'])
+        useful_host = [
+            max(runtime - host_calls.get(thread_obj, 0.0), 0.0)
+            for thread_obj in host_threads
+        ]
+        trace_raw_data['useful_host'] = sum(useful_host)
+        trace_raw_data['useful_host_max'] = max(useful_host)
+
+        if cmdl_args.debug:
+            for thread_obj in host_threads:
+                print('==DEBUG== {}: CUDA calls={:.2f}, useful={:.2f}'.format(
+                    thread_obj, host_calls.get(thread_obj, 0.0),
+                    runtime - host_calls.get(thread_obj, 0.0)))
 
     time_agg = time.time()
     gpu_agg = aggregate_nsys2prv_device_metrics(

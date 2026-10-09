@@ -2,13 +2,16 @@ import os
 import tempfile
 import unittest
 
+from configuration import format_configuration_label
 from nsys2prvmetrics import (
     aggregate_nsys2prv_device_metrics,
     classify_nsys2prv_threads,
+    get_nsys2prv_resources,
+    parse_nsys2prv_host_calls,
     parse_nsys2prv_timeline,
+    streams_per_task_value,
 )
 from tracemetadata import (
-    count_nsys2prv_metrics_threads,
     is_host_gpu_mode,
     is_nsys2prv_mode,
     is_nsys2prv_pcf,
@@ -143,10 +146,16 @@ class Nsys2prvDetectionTests(unittest.TestCase):
         self.assertTrue(is_host_gpu_mode("nsys2prv+CUDA"))
         self.assertFalse(is_nsys2prv_mode("Detailed+CUDA"))
 
-    def test_metrics_threads_are_counted(self):
+    def test_resources_of_the_processes_with_streams(self):
+        # Process 2: 1 host thread + 4 streams (Metrics GPU0 excluded);
+        # process 1 has no streams and is not considered.
         prv = self._write("t.prv", NSYS2PRV_HEADER)
         self._write("t.row", NSYS2PRV_ROW)
-        self.assertEqual(count_nsys2prv_metrics_threads(prv), 1)
+        self.assertEqual(get_nsys2prv_resources(prv), (5, 1, 5))
+
+    def test_resources_without_row_file(self):
+        prv = self._write("norow.prv", NSYS2PRV_HEADER)
+        self.assertIsNone(get_nsys2prv_resources(prv))
 
 
 class Nsys2prvThreadsTests(unittest.TestCase):
@@ -178,6 +187,47 @@ class Nsys2prvThreadsTests(unittest.TestCase):
             },
         )
         self.assertEqual(threads["gpu_tasks"], {2})
+        self.assertEqual(threads["gpu_host"], ["THREAD 1.2.1"])
+        self.assertEqual(threads["streams_per_task"], {2: 4})
+        self.assertEqual(streams_per_task_value(threads), 4)
+
+    def test_host_calls_by_thread_order(self):
+        # Analyzer rows use the .row labels, in thread order (ns).
+        threads = classify_nsys2prv_threads(self.prv, self.row)
+        path = os.path.join(self._tmpdir.name, "calls.csv")
+        with open(path, "w") as f:
+            f.write("\t1\t\n")
+            f.write("THREAD 1.1.1\t194665240.00\t\n")
+            f.write("THREAD 1.2.1\t9841791235.00\t\n")
+            for label in ("CUDA-D0.S7", "CUDA-D0.S13", "CUDA-D0.S21",
+                          "CUDA-D0.S25", "Metrics GPU0"):
+                f.write(label + "\t0.00\t\n")
+            f.write("\nTotal\t10036456475.00\t\n")
+
+        calls = parse_nsys2prv_host_calls(path, threads)
+
+        self.assertAlmostEqual(calls["THREAD 1.2.1"], 9841791.235)
+        self.assertAlmostEqual(calls["THREAD 1.1.1"], 194665.24)
+        self.assertEqual(calls["THREAD 1.2.2"], 0.0)
+
+    def test_streams_per_task_non_uniform(self):
+        threads = {"streams_per_task": {1: 2, 2: 4}}
+        self.assertEqual(streams_per_task_value(threads), -1)
+
+
+class Nsys2prvLabelTests(unittest.TestCase):
+
+    def test_label_follows_the_mpi_gpu_format(self):
+        label = format_configuration_label(
+            model_key="tasks_gpu", processes=5, mpi_ranks=1,
+            streams_per_rank=4, devices=1)
+        self.assertEqual(label, "5 (1x4) [1D]")
+
+    def test_label_with_non_uniform_streams(self):
+        label = format_configuration_label(
+            model_key="tasks_gpu", processes=9, mpi_ranks=2,
+            streams_per_rank=-1, devices=2)
+        self.assertEqual(label, "9 (2xvar) [2D]")
 
 
 class Nsys2prvAggregationTests(unittest.TestCase):

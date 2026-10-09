@@ -135,9 +135,15 @@ def get_traces_from_args(cmdl_args):
     for trace in trace_list:
         trace_task_per_node[trace] = get_task_per_node(trace)
 
-        # nsys2prv: the GPU hardware-metrics threads are not execution units.
+        # nsys2prv: the execution units are the host threads and GPU streams
+        # of the processes with GPU streams (the GPU hardware-metrics threads
+        # and the processes without streams are not considered).
         if is_nsys2prv_mode(trace_mode[trace]):
-            trace_processes[trace] -= count_nsys2prv_metrics_threads(trace)
+            from nsys2prvmetrics import get_nsys2prv_resources
+            resources = get_nsys2prv_resources(trace)
+            if resources is not None:
+                (trace_processes[trace], trace_tasks[trace],
+                 trace_threads[trace]) = resources
            
     print("Starting Analysis for the following sorted traces list:")
     print_overview(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, trace_task_per_node)
@@ -713,17 +719,6 @@ def is_nsys2prv_mode(mode):
 
 # nsys2prv thread with the sampled GPU hardware metrics: Metrics GPU0.
 NSYS2PRV_METRICS_LABEL_RE = re.compile(r"^Metrics GPU\d+\s*$")
-
-
-def count_nsys2prv_metrics_threads(prv_file):
-    """Count the GPU hardware-metrics threads of an nsys2prv trace.
-
-    They are not execution units: they only hold sampled GPU metrics.
-    """
-    return sum(
-        1 for line in _iter_thread_section_lines(prv_file)
-        if NSYS2PRV_METRICS_LABEL_RE.match(line.strip())
-    )
 
 
 # --------------------------------------------------------------

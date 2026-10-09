@@ -9,8 +9,15 @@
   analyzed with their own configurations, without changing the analysis of
   Extrae traces. Following the TALP device model, useful Device time is
   taken from the kernel events, and Device communication from the memory
-  operations (copies and `memset`) and NCCL kernel events. Host metrics are reported as `Non-Avail`, since nsys2prv traces
-  have no state records.
+  operations (copies and `memset`) and NCCL kernel events.
+- Add Host metrics for nsys2prv traces: Device Offload efficiency, Host
+  Parallel efficiency and Host Computation scalability. Since these traces
+  have no state records, the useful host time is the elapsed time minus the
+  time in CUDA calls. Only the processes with GPU streams are analyzed.
+- Show the configuration of nsys2prv traces with the same format as
+  MPI+GPU traces, `units (processes x streams per process) [devices]`
+  (e.g. `5 (1x4) [1D]`), and report the devices, GPU streams, streams per
+  process and host threads in the standard output.
 
 ### Improvements
 

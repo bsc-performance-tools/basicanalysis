@@ -128,6 +128,26 @@ def format_configuration_label(
             )
 
     # --------------------------------------------------
+    # Processes + GPU without MPI (nsys2prv traces)
+    #
+    # Same format as MPI+GPU, e.g. 5 (1x4) [1D]: execution units
+    # (processes x streams per process) [devices]. The units are given,
+    # since a process may have several host threads.
+    # --------------------------------------------------
+
+    elif model_key == "tasks_gpu":
+        if streams_per_rank == -1 or streams_per_rank == "var":
+            streams_per_rank = "var"
+
+        label = "{} ({}{}{}) [{}D]".format(
+            processes,
+            mpi_ranks,
+            separator,
+            streams_per_rank,
+            devices,
+        )
+
+    # --------------------------------------------------
     # Fallback
     # --------------------------------------------------
 

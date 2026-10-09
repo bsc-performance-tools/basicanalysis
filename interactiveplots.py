@@ -2068,13 +2068,32 @@ def _report_trace_label(
     else:
         trace_id = None
 
-    _, programming_model = _split_trace_mode(
+    collection_mode, programming_model = _split_trace_mode(
         trace_info.get("mode", "unknown")
     )
 
     model_key = _programming_model_key(
         programming_model
     )
+
+    # --------------------------------------------------
+    # GPU traces generated with nsys2prv
+    # --------------------------------------------------
+
+    if collection_mode == "nsys2prv":
+        return format_configuration_label(
+            model_key="tasks_gpu",
+            processes=trace_info.get("processes"),
+            mpi_ranks=trace_info.get("tasks"),
+            streams_per_rank=trace_info.get(
+                "gpu_streams_per_rank"
+            ),
+            devices=trace_info.get(
+                "devices"
+            ),
+            trace_id=trace_id,
+            separator='×',
+        )
 
     # --------------------------------------------------
     # MPI

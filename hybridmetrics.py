@@ -9,7 +9,7 @@ import math
 from rawdata import *
 from collections import OrderedDict
 from scaling import get_scaling_info
-from tracemetadata import is_host_gpu_mode
+from tracemetadata import is_host_gpu_mode, is_nsys2prv_mode
 from comparison import (
     NOT_APPLICABLE,
     build_comparison_device_rows,
@@ -408,6 +408,19 @@ def _build_hybrid_xaxis_label(
     return 'Parallel units'
 
 
+def _nsys2prv_configuration_label(trace, trace_processes, trace_tasks,
+                                  raw_data, separator='x'):
+    """Configuration label of an nsys2prv trace, e.g. 5 (1x4) [1D]."""
+    return format_configuration_label(
+        model_key="tasks_gpu",
+        processes=trace_processes[trace],
+        mpi_ranks=trace_tasks[trace],
+        streams_per_rank=int(raw_data['gpu_streams_per_rank'][trace]),
+        devices=int(raw_data['count_devices'][trace]),
+        separator=separator,
+    )
+
+
 def _build_hybrid_configuration_labels(
         trace_list,
         trace_processes,
@@ -461,6 +474,14 @@ def _build_hybrid_configuration_labels(
                 devices=devices,
                 separator=separator,
             )
+
+        # --------------------------------------------------
+        # GPU traces generated with nsys2prv
+        # --------------------------------------------------
+
+        elif is_nsys2prv_mode(trace_mode[trace]):
+            label = _nsys2prv_configuration_label(
+                trace, trace_processes, trace_tasks, raw_data, separator)
 
         # --------------------------------------------------
         # MPI + other runtime

@@ -5,6 +5,7 @@
 from __future__ import print_function, division
 import os
 from collections import OrderedDict
+from tracemetadata import is_nsys2prv_mode
 
 from configuration import (
     format_configuration_label,
@@ -178,6 +179,18 @@ def _build_hybrid_plot_axis(
                 gpu_streams=total_gpu_streams,
                 streams_per_rank=streams_per_rank,
                 devices=devices,
+                separator='x',
+            )
+
+        # GPU traces generated with nsys2prv
+        elif is_nsys2prv_mode(trace_mode[trace]):
+
+            label = format_configuration_label(
+                model_key='tasks_gpu',
+                processes=trace_processes[trace],
+                mpi_ranks=trace_tasks[trace],
+                streams_per_rank=int(raw_data['gpu_streams_per_rank'][trace]),
+                devices=int(raw_data['count_devices'][trace]),
                 separator='x',
             )
 
