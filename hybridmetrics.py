@@ -1383,6 +1383,9 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 hybrid_factors['serial_eff'][trace] = 'Non-Avail'
                 if trace_mode[trace] == "Detailed+MPI":
                     mod_factors['serial_eff'][trace] = 'Non-Avail'
+                elif is_host_gpu:
+                    # GPU without MPI: no MPI communication to simulate.
+                    mod_factors['serial_eff'][trace] = 'N/A'
             elif trace_mode[trace] == "Detailed+MPI+OpenMP" and cmdl_args.hyb_mpiomp:
                 mod_factors['serial_eff'][trace] = float(raw_data['hybrid_useful_dim'][trace]) \
                                                    / float(raw_data['hybrid_runtime_dim'][trace]) * 100.0
@@ -1420,6 +1423,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 hybrid_factors['transfer_eff'][trace] = 'Non-Avail'
                 if trace_mode[trace] == "Detailed+MPI":
                     mod_factors['transfer_eff'][trace] = 'Non-Avail'
+                elif is_host_gpu:
+                    mod_factors['transfer_eff'][trace] = 'N/A'
             elif hybrid_factors['serial_eff'][trace] == 'Warning!':
                 hybrid_factors['transfer_eff'][trace] = 'Warning!'            
             else:

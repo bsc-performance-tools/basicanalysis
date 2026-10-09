@@ -214,6 +214,46 @@ def get_nsys2prv_resources(prv_file):
     )
 
 
+def _execution_mapping_from_streams(stream_to_device):
+    """Execution mapping of the GPU streams (same keys as
+    tracemetadata.get_execution_mapping). -1 means non-uniform."""
+    devices_by_node = defaultdict(int)
+    streams_by_node = defaultdict(int)
+    streams_by_device = defaultdict(int)
+    for device_key in stream_to_device.values():
+        streams_by_device[device_key] += 1
+    for device_key, count in streams_by_device.items():
+        node = device_key.split(':', 1)[0]
+        devices_by_node[node] += 1
+        streams_by_node[node] += count
+
+    def uniform(values):
+        values = set(values)
+        if not values:
+            return None
+        return values.pop() if len(values) == 1 else -1
+
+    return {
+        "nodes": len(devices_by_node) or None,
+        "mpi_ranks_per_node": None,
+        "threads_per_rank": None,
+        "threads_per_node": None,
+        "gpus_per_node": uniform(devices_by_node.values()),
+        "gpu_streams_per_node": uniform(streams_by_node.values()),
+        "streams_per_gpu": uniform(streams_by_device.values()),
+    }
+
+
+def get_nsys2prv_execution_mapping(prv_file):
+    """Execution mapping of an nsys2prv trace from its .row file."""
+    row_path = (prv_file[:-7] if prv_file.endswith('.prv.gz')
+                else prv_file[:-4]) + '.row'
+    if not os.path.exists(row_path):
+        return _execution_mapping_from_streams({})
+    threads = classify_nsys2prv_threads(prv_file, row_path)
+    return _execution_mapping_from_streams(threads['streams'])
+
+
 def parse_nsys2prv_host_calls(path, threads):
     """Time inside CUDA calls per thread (microseconds) from the analyzer of
     cuda_calls_host.cfg (exported in nanoseconds).
@@ -260,16 +300,22 @@ def aggregate_nsys2prv_device_metrics(kernel_rows, memcpy_rows, nccl_rows,
     Per device:
       useful        = | union(kernels) |
       communication = | union(copies, memset, NCCL) minus useful |
+
+    Per stream (for the Parallel Runtime Model, as the Running state of each
+    stream in Extrae traces):
+      useful        = | union(kernels of the stream) |
     """
     from rawdata import merge_intervals, subtract_intervals, sum_intervals
 
     useful_by_device = defaultdict(list)
+    useful_by_stream = defaultdict(list)
     comm_by_device = defaultdict(list)
 
     for thread_obj, start, end, value in kernel_rows:
         device_key = stream_to_device.get(thread_obj)
         if device_key is not None and value > 0.0:
             useful_by_device[device_key].append((start, end))
+            useful_by_stream[thread_obj].append((start, end))
 
     for thread_obj, start, end, value in memcpy_rows:
         device_key = stream_to_device.get(thread_obj)
@@ -287,6 +333,10 @@ def aggregate_nsys2prv_device_metrics(kernel_rows, memcpy_rows, nccl_rows,
         'useful_memtransf_device_total': 0.0,
         'useful_memtransf_device_max': 0.0,
         'per_device': {},
+        'useful_by_stream': {
+            thread_obj: sum_intervals(merge_intervals(useful_by_stream.get(thread_obj, [])))
+            for thread_obj in stream_to_device
+        },
     }
 
     for device_key in sorted(set(stream_to_device.values())):
@@ -510,6 +560,15 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
                 f'communication_only={vals["memtransfer_only_total"]:.2f}, '
                 f'useful_plus_communication={vals["useful_memtransf_total"]:.2f}')
 
+    # Parallel Runtime Model (flattened host threads + GPU streams, as for
+    # GPU applications without MPI in Extrae traces): useful time of each
+    # execution unit.
+    if trace_raw_data['useful_host'] != 'Non-Avail':
+        unit_useful = list(useful_host) + list(gpu_agg['useful_by_stream'].values())
+        trace_raw_data['useful_tot'] = sum(unit_useful)
+        trace_raw_data['useful_avg'] = sum(unit_useful) / len(unit_useful)
+        trace_raw_data['useful_max'] = max(unit_useful)
+
     trace_raw_data['useful_device'] = gpu_agg['useful_device_total']
     trace_raw_data['useful_device_max'] = gpu_agg['useful_device_max']
     trace_raw_data['useful_memtransf_device'] = gpu_agg['useful_memtransf_device_total']
@@ -519,31 +578,7 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         move_files(path, local_path_dest, cmdl_args)
         move_files(path[:-4] + '.legend.csv', local_path_dest, cmdl_args)
 
-    devices_by_node = defaultdict(int)
-    streams_by_node = defaultdict(int)
-    streams_by_device = defaultdict(int)
-    for device_key in stream_to_device.values():
-        streams_by_device[device_key] += 1
-    for device_key, count in streams_by_device.items():
-        node = device_key.split(':', 1)[0]
-        devices_by_node[node] += 1
-        streams_by_node[node] += count
-
-    def uniform(values):
-        values = set(values)
-        if not values:
-            return None
-        return values.pop() if len(values) == 1 else -1
-
-    execution_mapping = {
-        "nodes": len(devices_by_node) or None,
-        "mpi_ranks_per_node": None,
-        "threads_per_rank": None,
-        "threads_per_node": None,
-        "gpus_per_node": uniform(devices_by_node.values()),
-        "gpu_streams_per_node": uniform(streams_by_node.values()),
-        "streams_per_gpu": uniform(streams_by_device.values()),
-    }
+    execution_mapping = _execution_mapping_from_streams(stream_to_device)
 
     time_tot = time.time() - time_tot
     print('Finished successfully in {0:.1f} seconds.'.format(time_tot))

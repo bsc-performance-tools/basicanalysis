@@ -74,6 +74,19 @@ def _programming_model_key(programming_model: str) -> str:
     return "generic"
 
 
+def _overview_model_key(collection_mode: str, programming_model: str) -> str:
+    """Return the model key of the overview tables.
+
+    GPU traces generated with nsys2prv have processes without MPI and use
+    the MPI+GPU layout (processes x streams per process).
+    """
+
+    if collection_mode == "nsys2prv":
+        return "tasks_gpu"
+
+    return _programming_model_key(programming_model)
+
+
 def _trace_resource_columns(
     model_key: str,
 ) -> Tuple[Tuple[str, str], ...]:
@@ -113,6 +126,14 @@ def _trace_resource_columns(
             ("gpu_streams", "GPU streams"),
             ("devices", "Devices"),
         ),
+        "tasks_gpu": (
+            ("processes", "Parallel units"),
+            ("tasks", "Processes"),
+            ("gpu_streams_per_rank", "Streams/process"),
+            ("gpu_streams", "GPU streams"),
+            ("devices", "Devices"),
+        ),
+
         "generic": (
             ("processes", "Parallel units"),
         ),
@@ -171,6 +192,13 @@ def _execution_mapping_columns(
         "mpi_gpu": (
             ("nodes", "Nodes"),
             ("mpi_ranks_per_node", "MPI ranks/node"),
+            ("gpus_per_node", "GPUs/node"),
+            ("gpu_streams_per_node", "GPU streams/node"),
+            ("streams_per_gpu", "Streams/GPU"),
+        ),
+
+        "tasks_gpu": (
+            ("nodes", "Nodes"),
             ("gpus_per_node", "GPUs/node"),
             ("gpu_streams_per_node", "GPU streams/node"),
             ("streams_per_gpu", "Streams/GPU"),
@@ -298,12 +326,13 @@ def render_trace_configuration(
 
     first_trace = traces[0]
 
-    _, first_programming_model = _split_trace_mode(
+    first_collection_mode, first_programming_model = _split_trace_mode(
         first_trace.mode
     )
 
-    model_key = _programming_model_key(
-        first_programming_model
+    model_key = _overview_model_key(
+        first_collection_mode,
+        first_programming_model,
     )
 
     resource_columns = _trace_resource_columns(
@@ -407,12 +436,13 @@ def render_execution_mapping(
     # by the Trace Configuration table.
     first_trace = traces[0]
 
-    _, first_programming_model = _split_trace_mode(
+    first_collection_mode, first_programming_model = _split_trace_mode(
         first_trace.mode
     )
 
-    model_key = _programming_model_key(
-        first_programming_model
+    model_key = _overview_model_key(
+        first_collection_mode,
+        first_programming_model,
     )
 
     mapping_columns = _execution_mapping_columns(

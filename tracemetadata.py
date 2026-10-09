@@ -533,6 +533,10 @@ def get_execution_mapping(prv_file, trace_mode):
     # Check .row availability
     # --------------------------------------------------
 
+    if is_nsys2prv_mode(trace_mode):
+        from nsys2prvmetrics import get_nsys2prv_execution_mapping
+        return get_nsys2prv_execution_mapping(prv_file)
+
     if prv_file.endswith(".prv"):
         row_file = prv_file[:-4] + ".row"
 

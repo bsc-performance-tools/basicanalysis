@@ -2251,13 +2251,20 @@ def _build_trace_column_description(report):
     if not traces:
         return ""
 
-    _, programming_model = _split_trace_mode(
+    collection_mode, programming_model = _split_trace_mode(
         traces[0].get("mode", "unknown")
     )
 
     model_key = _programming_model_key(
         programming_model
     )
+
+    # GPU traces generated with nsys2prv use the MPI+GPU label format.
+    if collection_mode == "nsys2prv":
+        return (
+            "Parallel units (processes × streams/process) "
+            "[nD = devices]"
+        )
 
     descriptions = {
         "mpi": (
@@ -2374,6 +2381,14 @@ def _trace_resource_columns(model_key):
             ("devices", "Devices"),
         ],
 
+        "tasks_gpu": [
+            ("processes", "Parallel units"),
+            ("tasks", "Processes"),
+            ("gpu_streams_per_rank", "Streams/process"),
+            ("gpu_streams", "GPU streams"),
+            ("devices", "Devices"),
+        ],
+
         "generic": [
             ("processes", "Parallel units"),
         ],
@@ -2392,9 +2407,13 @@ def _build_trace_config_table_html(report):
 
     first_mode = traces[0].get("mode", "unknown")
 
-    _, programming_model = _split_trace_mode(first_mode)
+    collection_mode, programming_model = _split_trace_mode(first_mode)
 
     model_key = _programming_model_key(programming_model)
+
+    # GPU traces generated with nsys2prv: MPI+GPU layout with processes.
+    if collection_mode == "nsys2prv":
+        model_key = "tasks_gpu"
 
     resource_columns = _trace_resource_columns(model_key)
 
@@ -2892,6 +2911,10 @@ def _report_execution_model(trace_mode, trace_list, metrics_result):
 
     return {
         "is_hybrid": is_hybrid,
+        # The composed MPI+X Parallel Runtime Model needs an MPI level. GPU
+        # applications without MPI (e.g. CUDA with a serial host) use the
+        # single-runtime model over host threads and GPU streams.
+        "runtime_model_hybrid": is_hybrid and has_mpi,
         "has_mpi": has_mpi,
         "has_omp": has_omp,
         "has_cuda": has_cuda,
@@ -3656,7 +3679,7 @@ def _build_printable_scaling_section(
     device_parallel_trend_html = ""
 
 
-    if model["is_hybrid"]:
+    if model["runtime_model_hybrid"]:
 
         parallel_runtime_keys = [
             "hybrid_eff",
@@ -4617,7 +4640,7 @@ def _build_parallel_runtime_model_guidance_html(
         inner_model):
     """Explain how to interpret the Parallel Runtime Model."""
 
-    if model["is_hybrid"]:
+    if model["runtime_model_hybrid"]:
         model_note = """
         <p>
             For hybrid executions, the model is multiplicative.
@@ -4730,7 +4753,7 @@ def _build_parallel_runtime_model_views(
 
     # Simple traces expose the general POP Parallel Efficiency subtree.
     # Hybrid traces expose the complete derived MPI+X multiplicative model.
-    if not model["is_hybrid"]:
+    if not model["runtime_model_hybrid"]:
         simple_runtime_keys = [
             "parallel_eff",
             "load_balance",
@@ -4862,7 +4885,7 @@ def _build_component_views(model, inner_model, mpi_html,
             "html": openmp_html,
         })
 
-    if model["is_hybrid"] and model["has_gpu"] and accelerator_html:
+    if model["runtime_model_hybrid"] and model["has_gpu"] and accelerator_html:
         analysis_views.append({
             "id": "analysis-runtime-accelerator",
             "label": inner_model,

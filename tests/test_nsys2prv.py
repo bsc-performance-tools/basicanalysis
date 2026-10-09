@@ -6,6 +6,7 @@ from configuration import format_configuration_label
 from nsys2prvmetrics import (
     aggregate_nsys2prv_device_metrics,
     classify_nsys2prv_threads,
+    get_nsys2prv_execution_mapping,
     get_nsys2prv_resources,
     parse_nsys2prv_host_calls,
     parse_nsys2prv_timeline,
@@ -153,6 +154,15 @@ class Nsys2prvDetectionTests(unittest.TestCase):
         self._write("t.row", NSYS2PRV_ROW)
         self.assertEqual(get_nsys2prv_resources(prv), (5, 1, 5))
 
+    def test_execution_mapping(self):
+        prv = self._write("m.prv", NSYS2PRV_HEADER)
+        self._write("m.row", NSYS2PRV_ROW)
+        mapping = get_nsys2prv_execution_mapping(prv)
+        self.assertEqual(mapping["nodes"], 1)
+        self.assertEqual(mapping["gpus_per_node"], 1)
+        self.assertEqual(mapping["gpu_streams_per_node"], 4)
+        self.assertEqual(mapping["streams_per_gpu"], 4)
+
     def test_resources_without_row_file(self):
         prv = self._write("norow.prv", NSYS2PRV_HEADER)
         self.assertIsNone(get_nsys2prv_resources(prv))
@@ -276,6 +286,14 @@ class Nsys2prvAggregationTests(unittest.TestCase):
         self.assertAlmostEqual(result["useful_device_max"], 150.0)
         self.assertAlmostEqual(result["useful_memtransf_device_total"], 300.0)
         self.assertAlmostEqual(result["useful_memtransf_device_max"], 210.0)
+
+        # Per stream, for the Parallel Runtime Model: kernels of each
+        # stream only (memset and copies are not useful time).
+        self.assertEqual(
+            result["useful_by_stream"],
+            {"THREAD 1.2.2": 100.0, "THREAD 1.2.3": 100.0,
+             "THREAD 1.2.4": 40.0},
+        )
 
     def test_timeline_in_nanoseconds(self):
         with tempfile.TemporaryDirectory() as tmpdir:

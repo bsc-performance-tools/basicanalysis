@@ -18,6 +18,10 @@
   MPI+GPU traces, `units (processes x streams per process) [devices]`
   (e.g. `5 (1x4) [1D]`), and report the devices, GPU streams, streams per
   process and host threads in the standard output.
+- Compute the Parallel Runtime Model of nsys2prv traces over host threads
+  and GPU streams, as for GPU applications without MPI in Extrae traces, and
+  show their processes, streams per process and execution mapping in the
+  Execution Overview of the interactive report.
 
 ### Improvements
 
@@ -29,6 +33,11 @@
 
 ### Fixes
 
+- Fixed the Parallel Runtime Model of the interactive report for GPU
+  applications without MPI: it showed an empty *MPI + X* model instead of
+  the CUDA (or HIP) Parallel Runtime Model. Serialization and Transfer
+  efficiency are now reported as not applicable (`N/A`) for these
+  applications instead of 0.
 - Fixed the reading of trace headers without CPU information, such as those
   written by nsys2prv (0 nodes), which stopped the analysis.
 - Fixed the automatic scaling detection when some indicators are not
