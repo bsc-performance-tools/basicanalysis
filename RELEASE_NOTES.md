@@ -25,6 +25,9 @@
 
 ### Improvements
 
+- Interactive report: rename the *Execution Domains* view to *Host/Device
+  Model (TALP)*, show the Device metrics before the Host metrics, and
+  collapse the *How to read this view* notes by default (click to expand).
 - Identify useful Device computation by the *Running* state on the GPU
   streams, which corresponds to kernel execution, for CUDA and HIP. A single
   configuration now serves both runtimes and does not depend on the kernel

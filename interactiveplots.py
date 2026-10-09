@@ -1833,7 +1833,7 @@ def _build_hybrid_metric_info(inner_model):
             "parallel inefficiency to the complete MPI+{} execution."
         ).format(inner_model, inner_model)
         metric_info["omp_parallel_eff"]["action"] = (
-            "Continue the diagnosis in the Execution Domain section. Compare "
+            "Continue the diagnosis in the Host/Device Model (TALP) view. Compare "
             "Host Global Efficiency, Device Offload Efficiency, and Device "
             "Global Efficiency to determine whether the dominant loss "
             "originates in the host-side accelerator execution path, "
@@ -2686,7 +2686,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         <h3>Analysis focus</h3>
 
         <p>
-            The Execution Domains view identifies where
+            The Host/Device Model (TALP) view identifies where
             accelerator-related inefficiencies manifest across host
             execution, the accelerator offload path, and device execution.
         </p>
@@ -2702,7 +2702,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
     return """
     <section
         class="execution-domains-analysis"
-        aria-label="Execution Domains"
+        aria-label="Host/Device Model (TALP)"
     >
         <script>
         window["metricInfo_execution-domains"] = {info_json};
@@ -2713,27 +2713,6 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         {trace_header_note}
 
         {metric_interaction_hint_html}
-
-        <section
-            class="execution-domain-block execution-domain-host"
-            aria-label="Host execution domain"
-        >
-            <div class="execution-domain-title">
-                HOST
-            </div>
-
-            <div
-                class="metric-table-card"
-                data-efficiency-export
-                data-export-name="execution-domains-host"
-                data-export-group="execution-domains"
-                data-export-domain="host"
-                data-export-columns="{trace_column_description}"
-            >
-            {host_table_html}
-            </div>
-
-        </section>
 
         <section
             class="execution-domain-block execution-domain-device"
@@ -2752,6 +2731,27 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
                 data-export-columns="{trace_column_description}"
             >
                 {device_table_html}
+            </div>
+
+        </section>
+
+        <section
+            class="execution-domain-block execution-domain-host"
+            aria-label="Host execution domain"
+        >
+            <div class="execution-domain-title">
+                HOST
+            </div>
+
+            <div
+                class="metric-table-card"
+                data-efficiency-export
+                data-export-name="execution-domains-host"
+                data-export-group="execution-domains"
+                data-export-domain="host"
+                data-export-columns="{trace_column_description}"
+            >
+            {host_table_html}
             </div>
 
         </section>
@@ -3243,19 +3243,19 @@ def _build_printable_execution_domains_guidance_html():
         </p>
 
         <p>
-            In the <strong>Host</strong> domain, follow Host Global Efficiency
-            toward Host Parallel Efficiency and Host Computation Scalability.
-            Host Parallel Efficiency distinguishes losses associated with
-            host-side parallel execution from losses in supplying work to the
-            accelerator through Device Offload Efficiency.
-        </p>
-
-        <p>
             In the <strong>Device</strong> domain, follow Device Global
             Efficiency toward Device Parallel Efficiency and Device
             Computation Scalability. Device Parallel Efficiency separates
             workload imbalance, device communication, and orchestration
             effects.
+        </p>
+
+        <p>
+            In the <strong>Host</strong> domain, follow Host Global Efficiency
+            toward Host Parallel Efficiency and Host Computation Scalability.
+            Host Parallel Efficiency distinguishes losses associated with
+            host-side parallel execution from losses in supplying work to the
+            accelerator through Device Offload Efficiency.
         </p>
     </div>
     """
@@ -3327,13 +3327,13 @@ def _build_printable_execution_domains_section(
     >
         <header class="print-section-header">
 
-            <h2>{section_number} Execution Domains</h2>
+            <h2>{section_number} Host/Device Model (TALP)</h2>
         </header>
         
         {guidance_html}
         
         <div class="print-execution-domain-label">
-            HOST
+            DEVICE
         </div>
 
         <p class="trace-header-note">
@@ -3342,15 +3342,15 @@ def _build_printable_execution_domains_section(
         </p>
 
         <div class="print-metric-results metric-table-card">
-            {host_table_html}
+            {device_table_html}
         </div>
 
         <div class="print-execution-domain-label">
-            DEVICE
+            HOST
         </div>
 
         <div class="print-metric-results metric-table-card">
-            {device_table_html}
+            {host_table_html}
         </div>
 
     </section>
@@ -4111,9 +4111,9 @@ def _build_printable_scaling_section(
 
         {openmp_runtime_trend_html}
 
-        {host_execution_domain_html}
-
         {device_execution_domain_html}
+
+        {host_execution_domain_html}
 
     </section>
     """.format(
@@ -4447,7 +4447,7 @@ def _build_execution_overview_guidance_html(
 
     if has_execution_domains:
         workflow_parts.append(
-            "<strong>Execution Domains</strong> to obtain a complementary "
+            "<strong>Host/Device Model (TALP)</strong> to obtain a complementary "
             "Host/Device perspective and identify where accelerator-related "
             "inefficiencies manifest"
         )
@@ -4510,11 +4510,11 @@ def _build_scaling_guidance_html():
     """Explain how to interpret the Scaling analysis."""
 
     return """
-    <section
+    <details
         class="analysis-guide-note"
         aria-label="How to read the Scaling view"
     >
-        <h3>How to read this view</h3>
+        <summary>How to read this view</summary>
 
         <p>
             Use this view to understand <strong>how performance and
@@ -4548,7 +4548,7 @@ def _build_scaling_guidance_html():
             while Host and Device trends show where accelerator-related
             scalability effects manifest.
         </p>
-    </section>
+    </details>
     """
 
 
@@ -4556,11 +4556,11 @@ def _build_io_metrics_guidance_html():
     """Explain how to interpret the complementary File I/O metrics."""
 
     return """
-    <section
+    <details
         class="analysis-guide-note"
         aria-label="How to read the I/O Metrics view"
     >
-        <h3>How to read this view</h3>
+        <summary>How to read this view</summary>
 
         <p>
             Use this view to characterize the contribution and distribution
@@ -4585,7 +4585,7 @@ def _build_io_metrics_guidance_html():
             Scalability and should therefore be interpreted independently
             rather than as part of the multiplicative efficiency hierarchy.
         </p>
-    </section>
+    </details>
     """
 
 
@@ -4593,11 +4593,11 @@ def _build_execution_domains_guidance_html():
     """Explain how to interpret the Host and Device execution domains."""
 
     return """
-    <section
+    <details
         class="analysis-guide-note"
-        aria-label="How to read the Execution Domains view"
+        aria-label="How to read the Host/Device Model (TALP) view"
     >
-        <h3>How to read this view</h3>
+        <summary>How to read this view</summary>
 
         <p>
             Use this view to identify <strong>where accelerator-related
@@ -4617,21 +4617,21 @@ def _build_execution_domains_guidance_html():
         </p>
 
         <p>
-            In the <strong>Host</strong> domain, follow Host Global Efficiency
-            toward Host Parallel Efficiency and Host Computation Scalability.
-            Host Parallel Efficiency distinguishes losses associated with 
-            host-side parallel execution from losses in supplying work to the accelerator
-            through Device Offload Efficiency.
-        </p>
-
-        <p>
             In the <strong>Device</strong> domain, follow Device Global
             Efficiency toward Device Parallel Efficiency and Device
             Computation Scalability. Device Parallel Efficiency separates
             workload imbalance, device communication, and orchestration
             effects.
         </p>
-    </section>
+
+        <p>
+            In the <strong>Host</strong> domain, follow Host Global Efficiency
+            toward Host Parallel Efficiency and Host Computation Scalability.
+            Host Parallel Efficiency distinguishes losses associated with 
+            host-side parallel execution from losses in supplying work to the accelerator
+            through Device Offload Efficiency.
+        </p>
+    </details>
     """
 
 
@@ -4680,11 +4680,11 @@ def _build_parallel_runtime_model_guidance_html(
         """
 
     return """
-    <section
+    <details
         class="analysis-guide-note"
         aria-label="How to read the Parallel Runtime Model"
     >
-        <h3>How to read this view</h3>
+        <summary>How to read this view</summary>
 
         <p>
             Start with <strong>Application Efficiency</strong>.
@@ -4696,7 +4696,7 @@ def _build_parallel_runtime_model_guidance_html(
         </p>
 
         {model_note}
-    </section>
+    </details>
     """.format(
         model_note=model_note,
     )
@@ -4897,20 +4897,20 @@ def _build_component_views(model, inner_model, mpi_html,
 
         analysis_views.extend([
             {
-                "id": "analysis-domain-host",
-                "label": "Host",
-                "description": "CPU side",
-                "title": "Host Execution Domain",
-                "group": "domain",
-                "html": host_html,
-            },
-            {
                 "id": "analysis-domain-device",
                 "label": "Device",
                 "description": "Accelerator side",
                 "title": "Device Execution Domain",
                 "group": "domain",
                 "html": device_html,
+            },
+            {
+                "id": "analysis-domain-host",
+                "label": "Host",
+                "description": "CPU side",
+                "title": "Host Execution Domain",
+                "group": "domain",
+                "html": host_html,
             },
         ])
 
@@ -6166,6 +6166,23 @@ def _build_interactive_report_document(workspace_html,
 
             color: var(--primary);
             font-size: 17px;
+        }
+
+        /* "How to read this view" notes are collapsed by default. */
+        details.analysis-guide-note {
+            padding: 10px 18px;
+        }
+
+        details.analysis-guide-note > summary {
+            cursor: pointer;
+
+            color: var(--primary);
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        details.analysis-guide-note[open] > summary {
+            margin-bottom: 8px;
         }
 
         .analysis-guide-note p {
@@ -10902,15 +10919,15 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             # --------------------------------------------------
 
             execution_domain_analysis_content = (
-                host_global_trend_html
-                + host_parallel_trend_html
-                + device_global_trend_html
+                device_global_trend_html
                 + device_parallel_trend_html
+                + host_global_trend_html
+                + host_parallel_trend_html
             )
 
             execution_domain_analysis_html = (
                 _build_scaling_analysis_group(
-                    title="Execution Domain Analysis",
+                    title="Host/Device Model (TALP) Analysis",
                     description=(
                         "Examine accelerator-related scalability from complementary "
                         "Host and Device execution-domain perspectives."
@@ -11299,7 +11316,7 @@ def _build_printable_report_guidance_html(
 
     if has_execution_domains:
         workflow_parts.append(
-            "<strong>Execution Domains</strong> to obtain a complementary "
+            "<strong>Host/Device Model (TALP)</strong> to obtain a complementary "
             "Host/Device perspective and identify where accelerator-related "
             "inefficiencies manifest"
         )

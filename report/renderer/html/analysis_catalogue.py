@@ -133,8 +133,8 @@ def _build_execution_domains_html(
     return "\n".join(
         html_body
         for html_body in (
-            host_html,
             device_html,
+            host_html,
         )
         if html_body
     )
@@ -160,7 +160,7 @@ def build_analysis_catalogue(
             Starts from application-level efficiency and attributes
             parallel-efficiency losses to the active parallel runtimes.
 
-        Execution Domains
+        Host/Device Model (TALP)
             For accelerator executions, identifies where inefficiencies
             manifest across host execution, the offload path, and
             device execution.
@@ -242,8 +242,8 @@ def build_analysis_catalogue(
         views.append(
             AnalysisCatalogueView(
                 view_id="execution-domains",
-                label="Execution Domains",
-                title="Execution Domains",
+                label="Host/Device Model (TALP)",
+                title="Host/Device Model (TALP)",
                 group="primary",
                 description=(
                     "Analyze where accelerator-related inefficiencies "
@@ -328,23 +328,13 @@ def build_analysis_catalogue(
 
     # Keep Host and Device as separate secondary views.
     #
-    # The primary Execution Domains view presents both together, while
+    # The primary Host/Device Model (TALP) view presents both together
+    # (Device first), while
     # these entries remain useful for future detailed inspection,
     # correlation, and export functionality.
     if resource_data is not None:
         views.extend(
             (
-                AnalysisCatalogueView(
-                    view_id="host-analysis",
-                    label="Host",
-                    title=resource_data.host.title,
-                    group="domain",
-                    description=resource_data.host.description,
-                    body_html=rendered_html.get(
-                        "host-analysis",
-                        "",
-                    ),
-                ),
                 AnalysisCatalogueView(
                     view_id="device-analysis",
                     label="Device",
@@ -353,6 +343,17 @@ def build_analysis_catalogue(
                     description=resource_data.device.description,
                     body_html=rendered_html.get(
                         "device-analysis",
+                        "",
+                    ),
+                ),
+                AnalysisCatalogueView(
+                    view_id="host-analysis",
+                    label="Host",
+                    title=resource_data.host.title,
+                    group="domain",
+                    description=resource_data.host.description,
+                    body_html=rendered_html.get(
+                        "host-analysis",
                         "",
                     ),
                 ),
