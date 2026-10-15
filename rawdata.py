@@ -277,7 +277,13 @@ def parse_host_useful_stats(path):
     )
 
 
-def compute_host_outside_runtime(useful_host_path, gpu_calls_path):
+# Relative tolerance for host times exceeding the runtime (trace
+# boundary effects and rounding).
+HOST_OUTSIDE_RUNTIME_TOLERANCE = 0.01
+
+
+def compute_host_outside_runtime(useful_host_path, gpu_calls_path,
+                                 runtime=None):
     """
     Time spent by each host thread outside the host parallel runtime.
 
@@ -287,6 +293,12 @@ def compute_host_outside_runtime(useful_host_path, gpu_calls_path):
     data, waiting for the device):
 
         outside_i = useful_i + gpu_calls_i
+
+    This assumes that a host thread is never in the useful state while
+    it is inside a GPU runtime call. Otherwise that time is counted twice
+    and outside_i may exceed the runtime: a warning is printed when it
+    does (by more than HOST_OUTSIDE_RUNTIME_TOLERANCE), since the Host
+    runtime and Device Offload efficiencies are then not reliable.
 
     Returns:
         (total, average, maximum) over host threads, or None when the
@@ -309,6 +321,28 @@ def compute_host_outside_runtime(useful_host_path, gpu_calls_path):
         useful.get(thread, 0.0) + gpu_calls.get(thread, 0.0)
         for thread in threads
     ]
+
+    try:
+        limit = float(runtime) * (1 + HOST_OUTSIDE_RUNTIME_TOLERANCE)
+    except (TypeError, ValueError):
+        limit = None
+
+    if limit is not None:
+        exceeding = [
+            thread
+            for thread, value in zip(threads, outside)
+            if value > limit
+        ]
+
+        if exceeding:
+            print(
+                "==WARNING== Useful + GPU call time exceeds the runtime "
+                "in {} host thread(s) ({}): part of the GPU calls may be "
+                "counted as useful time. The Host runtime and Device "
+                "Offload efficiencies are not reliable.".format(
+                    len(exceeding), ', '.join(exceeding)
+                )
+            )
 
     return (
         sum(outside),
@@ -3208,6 +3242,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         host_outside = compute_host_outside_runtime(
             trace_name + '.useful_host.stats.csv',
             trace_name + '.gpu_calls_host.stats.csv',
+            runtime=trace_raw_data['runtime'],
         )
 
     if host_outside is not None:

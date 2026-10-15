@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import tempfile
 import unittest
@@ -69,6 +71,39 @@ class HostOutsideRuntimeTests(unittest.TestCase):
         self.assertEqual(total, 120.0)
         self.assertEqual(average, 60.0)
         self.assertEqual(maximum, 90.0)
+
+    def _outside_output(self, runtime):
+        useful = self._write("useful.csv", [
+            ("THREAD 1.1.1", 60.0),
+            ("THREAD 1.1.2", 20.0),
+        ])
+        gpu_calls = self._write("calls.csv", [
+            ("THREAD 1.1.1", 50.0),
+            ("THREAD 1.1.2", 10.0),
+        ])
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = compute_host_outside_runtime(
+                useful, gpu_calls, runtime=runtime
+            )
+
+        # The values are reported unchanged, with or without a warning.
+        self.assertEqual(result, (140.0, 70.0, 110.0))
+        return output.getvalue()
+
+    def test_warns_when_exceeding_runtime(self):
+        output = self._outside_output(runtime=100.0)
+
+        self.assertIn("==WARNING==", output)
+        self.assertIn("THREAD 1.1.1", output)
+        self.assertNotIn("THREAD 1.1.2", output)
+
+    def test_no_warning_within_tolerance(self):
+        self.assertEqual(self._outside_output(runtime=109.0), "")
+
+    def test_no_warning_without_runtime(self):
+        self.assertEqual(self._outside_output(runtime='NaN'), "")
 
     def test_missing_stats(self):
         self.assertIsNone(compute_host_outside_runtime(
