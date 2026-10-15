@@ -302,6 +302,28 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
                 trace_mode,
                 raw_data,
             )
+
+            # GPU hardware counters (nsys2prv traces with GPU metrics).
+            device_hwc_factors = metrics_result.get("device_hwc_factors")
+            if hybridmetrics.has_device_hwc_metrics(device_hwc_factors, trace_list):
+                hybridmetrics.print_device_hwc_table(
+                    device_hwc_factors,
+                    trace_list,
+                    trace_processes,
+                    trace_tasks,
+                    trace_threads,
+                    trace_mode,
+                    raw_data,
+                )
+                hybridmetrics.print_device_hwc_metrics_csv(
+                    device_hwc_factors,
+                    trace_list,
+                    trace_processes,
+                    trace_tasks,
+                    trace_threads,
+                    trace_mode,
+                    raw_data,
+                )
         else:
             hybridmetrics.print_mod_factors_table(
                 mod_factors, other_metrics, mod_factors_scale_plus_io,
@@ -437,6 +459,13 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
             hybridmetrics.plots_talp_efficiency_table_matplot(
                 trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data, cmdl_args
             )
+
+            device_hwc_factors = metrics_result.get("device_hwc_factors")
+            if hybridmetrics.has_device_hwc_metrics(device_hwc_factors, trace_list):
+                hybridmetrics.plots_device_hwc_table_matplot(
+                    device_hwc_factors, trace_list, trace_processes, trace_tasks,
+                    trace_threads, trace_mode, raw_data
+                )
         else:
             hybridmetrics.plots_efficiency_table_matplot(
                 trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args

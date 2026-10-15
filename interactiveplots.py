@@ -396,6 +396,44 @@ def _build_io_metric_info():
 IO_METRIC_INFO = _build_io_metric_info()
 
 
+def _build_device_hwc_metric_info():
+    """Device hardware counter metrics (nsys2prv GPU metrics)."""
+
+    presentation = {
+        "dev_hwc_sm_utilization": {"label": "SM Utilization", "short_label": "SM Util"},
+        "dev_hwc_sm_coverage": {"label": "   -- SM Coverage", "short_label": "SM Coverage"},
+        "dev_hwc_sm_issue_eff": {"label": "   -- SM Issue Efficiency", "short_label": "SM Issue"},
+        "dev_hwc_gpu_active": {"label": "GPU Active (HW counters)", "short_label": "GPU Active"},
+        "dev_hwc_warp_occupancy": {"label": "Warp Occupancy", "short_label": "Occupancy"},
+        "dev_hwc_tensor_activity": {"label": "Tensor Core Activity", "short_label": "Tensor"},
+        "dev_hwc_dram_read": {"label": "DRAM Read Bandwidth", "short_label": "DRAM Read"},
+        "dev_hwc_dram_write": {"label": "DRAM Write Bandwidth", "short_label": "DRAM Write"},
+        "dev_hwc_gpc_clock": {"label": "GPC Clock", "short_label": "GPC Clock"},
+    }
+
+    return METRIC_PROVIDER.build(presentation)
+
+
+DEVICE_HWC_METRIC_INFO = _build_device_hwc_metric_info()
+
+# Multiplicative SM chain: efficiencies, shown with the efficiency colours.
+DEVICE_HWC_CHAIN_ORDER = [
+    "dev_hwc_sm_utilization",
+    "dev_hwc_sm_coverage",
+    "dev_hwc_sm_issue_eff",
+]
+
+# Indicators: higher is not always better, shown without colours.
+DEVICE_HWC_INDICATOR_ORDER = [
+    "dev_hwc_gpu_active",
+    "dev_hwc_warp_occupancy",
+    "dev_hwc_tensor_activity",
+    "dev_hwc_dram_read",
+    "dev_hwc_dram_write",
+    "dev_hwc_gpc_clock",
+]
+
+
 HYBRID_ORDER = [
     "hybrid_eff",
     "mpi_parallel_eff",
@@ -588,6 +626,13 @@ OPENMP_TREE = [
     ])
 ]
 
+DEVICE_HWC_TREE = [
+    _tree_node("dev_hwc_sm_utilization", [
+        _tree_node("dev_hwc_sm_coverage"),
+        _tree_node("dev_hwc_sm_issue_eff"),
+    ])
+]
+
 
 GLOBAL_GPU_TREE = [
     _tree_node("global_eff", [
@@ -770,6 +815,306 @@ def _has_io_metrics(other_metrics, trace_list):
             return True
 
     return False
+
+
+def _has_device_hwc_metrics(metrics_result, trace_list):
+    """Return whether any execution has GPU hardware counter metrics."""
+
+    device_hwc_factors = metrics_result.get("device_hwc_factors") or {}
+
+    return any(
+        _clean_value(_read_metric(device_hwc_factors, key, trace)) is not None
+        for key in DEVICE_HWC_CHAIN_ORDER + DEVICE_HWC_INDICATOR_ORDER
+        for trace in trace_list
+    )
+
+
+def _format_device_hwc_indicator(metric_key, value):
+    """Text of a hardware counter indicator: % or MHz for the clock."""
+
+    if value is None:
+        return "Non-Avail"
+    if metric_key == "dev_hwc_gpc_clock":
+        return "{:.0f} MHz".format(value)
+    return "{:.2f}%".format(value)
+
+
+def _build_device_hwc_indicator_table_html(device_hwc_factors, trace_list,
+                                           trace_labels):
+    """Table of the hardware counter indicators (no efficiency colours)."""
+
+    lines = [
+        "<div class='efficiency-table-wrapper'>",
+        "<table class='metric-table device-hwc-indicators'>",
+        "<thead><tr><th class='metric-column-header'>Indicator</th>",
+    ]
+
+    for label in trace_labels:
+        lines.append("<th>{}</th>".format(html.escape(label)))
+    lines.append("</tr></thead><tbody>")
+
+    for metric_key in DEVICE_HWC_INDICATOR_ORDER:
+        info = DEVICE_HWC_METRIC_INFO.get(metric_key, {})
+        label = _clean_metric_label(info.get("label", metric_key))
+        meaning = info.get("meaning", "")
+
+        lines.append("<tr>")
+        lines.append(
+            "<td class='metric-name' title='{}'>{}</td>".format(
+                html.escape(meaning, quote=True),
+                html.escape(label),
+            )
+        )
+        for trace in trace_list:
+            raw_value = _read_metric(device_hwc_factors, metric_key, trace)
+            value = _clean_value(raw_value)
+            text = (
+                _format_device_hwc_indicator(metric_key, value)
+                if value is not None
+                else _format_unavailable_metric_value(raw_value)
+            )
+            lines.append("<td>{}</td>".format(text))
+        lines.append("</tr>")
+
+    lines.append("</tbody></table></div>")
+
+    return "\n".join(lines)
+
+
+def _build_device_hwc_scope_note_html():
+    """Scope and assumptions of the GPU hardware counter metrics."""
+
+    return """
+    <div class="analysis-scope-note">
+        <h3>Analysis focus</h3>
+
+        <p>
+            The Device Parallel Efficiency of the Host/Device Model (TALP)
+            measures <strong>when</strong> the GPU computes. These metrics
+            describe <strong>how well</strong> it computes while it is
+            active. They are complementary and are not part of the
+            multiplicative efficiency model.
+        </p>
+
+        <p>
+            The GPU metrics are sampled by Nsight Systems for the whole GPU
+            (every 100&nbsp;&micro;s by default). The values are averages
+            over the whole execution weighted by the GPU activity
+            (GR Active), so idle periods do not contribute and the samples
+            do not need to be attributed to kernels. They are therefore not
+            valid per kernel. With several GPUs, the counters of all devices
+            are added (not yet validated with multi-GPU traces).
+        </p>
+    </div>
+    """
+
+
+def _build_device_hwc_guidance_html():
+    """Explain how to read the GPU Hardware Counters view."""
+
+    return """
+    <details
+        class="analysis-guide-note"
+        aria-label="How to read the GPU Hardware Counters view"
+    >
+        <summary>How to read this view</summary>
+
+        <p>
+            Start with <strong>SM Utilization</strong>, the fraction of the
+            instruction-issue capacity used while the GPU is active. It is
+            the product of <strong>SM Coverage</strong> (do the kernels give
+            work to all the SMs?) and <strong>SM Issue Efficiency</strong>
+            (do the active SMs issue instructions or are they stalled?).
+        </p>
+
+        <p>
+            Use the indicators to explain the chain:
+            <strong>Warp Occupancy</strong> (warps available to hide
+            latencies), <strong>Tensor Core Activity</strong>,
+            <strong>DRAM bandwidth</strong> (memory-bound kernels) and the
+            <strong>GPC Clock</strong> (throttling). Higher indicator values
+            are not necessarily better. <strong>GPU Active</strong> should
+            be close to the fraction of time with kernels running and checks
+            the consistency of the counters with the trace events.
+        </p>
+    </details>
+    """
+
+
+def _build_device_hwc_section(metrics_result, trace_list, trace_labels,
+                              trace_header_note,
+                              trace_column_description=""):
+    """Build the complementary GPU Hardware Counters view."""
+
+    device_hwc_factors = metrics_result.get("device_hwc_factors") or {}
+
+    metric_keys = list(DEVICE_HWC_CHAIN_ORDER)
+    metric_sources = {key: device_hwc_factors for key in metric_keys}
+
+    metric_knowledge = _build_metric_knowledge(
+        metric_keys=metric_keys,
+    )
+
+    table_html = _build_efficiency_table_html(
+        metric_keys=metric_keys,
+        metric_info=DEVICE_HWC_METRIC_INFO,
+        metric_sources=metric_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        section_id="device-hwc",
+        tree=DEVICE_HWC_TREE,
+        metric_knowledge=metric_knowledge,
+    )
+
+    info_json = _metric_info_json(
+        metric_keys,
+        DEVICE_HWC_METRIC_INFO,
+        metric_knowledge,
+    )
+
+    indicator_table_html = _build_device_hwc_indicator_table_html(
+        device_hwc_factors,
+        trace_list,
+        trace_labels,
+    )
+
+    trend_html = ""
+
+    if len(trace_list) > 1:
+        trend_html = _build_metric_trend_plot_html(
+            metric_keys=metric_keys,
+            metric_info=DEVICE_HWC_METRIC_INFO,
+            metric_sources=metric_sources,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            title="SM Utilization Trends",
+            description=(
+                "Compare how SM Utilization and its factors evolve across "
+                "the analyzed execution configurations."
+            ),
+            x_axis_title=trace_column_description,
+            y_axis_title="Efficiency (%)",
+            bounded_percentage=True,
+        )
+
+    return """
+    <section
+        class="device-hwc-analysis"
+        aria-label="GPU Hardware Counters"
+    >
+        <script>
+        window["metricInfo_device-hwc"] = {info_json};
+        </script>
+
+        {guidance_html}
+
+        {trace_header_note}
+
+        {metric_interaction_hint_html}
+
+        <div
+            class="metric-table-card"
+            data-efficiency-export
+            data-export-name="device-hwc"
+            data-export-columns="{trace_column_description}"
+        >
+            {table_html}
+        </div>
+
+        <h3>Indicators</h3>
+
+        <div class="metric-table-card">
+            {indicator_table_html}
+        </div>
+
+        {trend_html}
+
+        {efficiency_scale_html}
+
+        {scope_note_html}
+    </section>
+    """.format(
+        info_json=info_json,
+        guidance_html=_build_device_hwc_guidance_html(),
+        trace_header_note=trace_header_note,
+        metric_interaction_hint_html=_build_metric_interaction_hint_html(),
+        trace_column_description=html.escape(
+            trace_column_description,
+            quote=True,
+        ),
+        table_html=table_html,
+        indicator_table_html=indicator_table_html,
+        trend_html=trend_html,
+        efficiency_scale_html=_build_efficiency_scale_html(),
+        scope_note_html=_build_device_hwc_scope_note_html(),
+    )
+
+
+def _build_printable_device_hwc_section(metrics_result, trace_list,
+                                        trace_labels,
+                                        trace_column_description,
+                                        section_number):
+    """Build the printable GPU Hardware Counters analysis."""
+
+    device_hwc_factors = metrics_result.get("device_hwc_factors") or {}
+
+    metric_keys = list(DEVICE_HWC_CHAIN_ORDER)
+    metric_sources = {key: device_hwc_factors for key in metric_keys}
+
+    table_html = _build_efficiency_table_html(
+        metric_keys=metric_keys,
+        metric_info=DEVICE_HWC_METRIC_INFO,
+        metric_sources=metric_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        section_id="print-device-hwc",
+        tree=DEVICE_HWC_TREE,
+        printable=True,
+    )
+
+    indicator_table_html = _build_device_hwc_indicator_table_html(
+        device_hwc_factors,
+        trace_list,
+        trace_labels,
+    )
+
+    return """
+    <section
+        class="print-metric-section
+               print-page-section
+               print-device-hwc-analysis"
+    >
+        <header class="print-section-header">
+            <h2>{section_number} GPU Hardware Counter Analysis</h2>
+
+            <p class="print-section-description">
+                Complementary metrics of how well the GPU computes while it
+                is active, from the GPU metrics sampled by Nsight Systems.
+            </p>
+        </header>
+
+        {scope_note_html}
+
+        <p class="trace-header-note">
+            <b>Trace columns:</b>
+            <code>{trace_column_description}</code>
+        </p>
+
+        <div class="print-metric-results metric-table-card">
+            {table_html}
+        </div>
+
+        <div class="print-metric-results metric-table-card">
+            {indicator_table_html}
+        </div>
+    </section>
+    """.format(
+        section_number=section_number,
+        scope_note_html=_build_device_hwc_scope_note_html(),
+        trace_column_description=html.escape(trace_column_description),
+        table_html=table_html,
+        indicator_table_html=indicator_table_html,
+    )
 
 
 def _build_io_metrics_section(
@@ -9997,6 +10342,17 @@ def build_basicanalysis_interactive_report_html(metrics_result,
         )
     )
 
+    device_hwc_html = ""
+
+    if _has_device_hwc_metrics(metrics_result, trace_list):
+        device_hwc_html = _build_device_hwc_section(
+            metrics_result=metrics_result,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            trace_header_note=trace_header_note,
+            trace_column_description=trace_column_description,
+        )
+
     io_metrics_html = ""
 
     if _has_io_metrics(
@@ -11138,6 +11494,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
         "host-analysis": host_html,
         "device-analysis": device_html,
         "io-metrics": io_metrics_html,
+        "device-hwc": device_hwc_html,
     }
 
     analysis_catalogue = build_analysis_catalogue(
@@ -12071,6 +12428,31 @@ def _build_basicanalysis_printable_report_html(
 
 
     # --------------------------------------------------
+    # 6b. GPU hardware counter analysis
+    # --------------------------------------------------
+
+    device_hwc_print_html = ""
+
+    if _has_device_hwc_metrics(metrics_result, trace_list):
+
+        device_hwc_section_number = next_section_number
+        next_section_number += 1
+
+        _collect_metric_reference(
+            metric_reference,
+            DEVICE_HWC_CHAIN_ORDER + DEVICE_HWC_INDICATOR_ORDER,
+            DEVICE_HWC_METRIC_INFO,
+        )
+
+        device_hwc_print_html = _build_printable_device_hwc_section(
+            metrics_result=metrics_result,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            trace_column_description=trace_column_description,
+            section_number=device_hwc_section_number,
+        )
+
+    # --------------------------------------------------
     # 7. Scaling analysis
     # --------------------------------------------------
 
@@ -12161,6 +12543,7 @@ def _build_basicanalysis_printable_report_html(
         {runtime_specific_html}
         {execution_domains_html}
         {io_html}
+        {device_hwc_print_html}
         {scaling_html}
         {appendix_html}
     """.format(
@@ -12174,6 +12557,7 @@ def _build_basicanalysis_printable_report_html(
         runtime_specific_html=runtime_specific_html,
         execution_domains_html=execution_domains_html,
         io_html=io_html,
+        device_hwc_print_html=device_hwc_print_html,
         scaling_html=scaling_html,
         appendix_html=appendix_html,
     )

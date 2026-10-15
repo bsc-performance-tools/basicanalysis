@@ -99,8 +99,8 @@ hwc_raw_data_doc = OrderedDict(
 mod_device_hwc_factors_doc = OrderedDict([
     ('dev_hwc_gpu_active', 'GPU Active (HW counters)'),
     ('dev_hwc_sm_utilization', 'SM Utilization'),
-    ('dev_hwc_sm_coverage', '   -- SM Coverage'),
-    ('dev_hwc_sm_issue_eff', '   -- SM Issue Efficiency'),
+    ('dev_hwc_sm_coverage', '-- SM Coverage'),
+    ('dev_hwc_sm_issue_eff', '-- SM Issue Efficiency'),
     ('dev_hwc_warp_occupancy', 'Warp Occupancy'),
     ('dev_hwc_tensor_activity', 'Tensor Core Activity'),
     ('dev_hwc_dram_read', 'DRAM Read Bandwidth'),

@@ -10,6 +10,7 @@ from rawdata import *
 from collections import OrderedDict
 from scaling import get_scaling_info
 from tracemetadata import is_host_gpu_mode, is_nsys2prv_mode
+from nsys2prvmetrics import mod_device_hwc_factors_doc
 from comparison import (
     NOT_APPLICABLE,
     build_comparison_device_rows,
@@ -4232,6 +4233,153 @@ def plots_talp_efficiency_table_matplot(
         'efficiency_table_talp_matplot',
         separator_row=host_rows
     )
+
+
+# --------------------------------------------------------------
+# Device hardware counter metrics (nsys2prv GPU metrics)
+#
+# Complementary view of the Device: how well the GPU computes while
+# it is active. These metrics are not part of the multiplicative
+# Host/Device model.
+# --------------------------------------------------------------
+
+# Rows of the efficiency heatmap: the multiplicative SM chain. The other
+# metrics are indicators (higher is not always better) and are only
+# reported in the table and the CSV file.
+DEVICE_HWC_HEATMAP_KEYS = (
+    'dev_hwc_sm_utilization',
+    'dev_hwc_sm_coverage',
+    'dev_hwc_sm_issue_eff',
+)
+
+
+def has_device_hwc_metrics(device_hwc_factors, trace_list):
+    """True if any trace has GPU hardware counter metrics."""
+    if not device_hwc_factors:
+        return False
+    return any(
+        device_hwc_factors[key].get(trace, 'Non-Avail') != 'Non-Avail'
+        for key in device_hwc_factors
+        for trace in trace_list
+    )
+
+
+def format_device_hwc_value(mod_key, value):
+    """Text of a hardware counter metric: % or MHz for the clock."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return '{}'.format(value)
+    if math.isnan(number):
+        return 'NaN'
+    if mod_key == 'dev_hwc_gpc_clock':
+        return '{0:.0f}'.format(number)
+    return '{0:.2f}%'.format(number)
+
+
+def print_device_hwc_table(device_hwc_factors, trace_list, trace_processes,
+                           trace_tasks, trace_threads, trace_mode, raw_data):
+    """Print the Device hardware counter metrics on stdout."""
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
+
+    longest_name = max(len(label) for label in mod_device_hwc_factors_doc.values())
+    longest_name = max(longest_name, len('Configuration'))
+    value_to_adjust = max(14, max(len(label) for label in configuration_labels) + 1)
+
+    line = 'Configuration'.rjust(longest_name)
+    for label in configuration_labels:
+        line += ' | ' + label.rjust(value_to_adjust)
+
+    print('\n Overview of the Device hardware counter metrics (GPU metrics sampled '
+          'by Nsight Systems,')
+    print(' averages weighted by the GPU activity; not part of the Host/Device model):')
+    print(''.ljust(len(line), '='))
+    print(line)
+    print(''.ljust(len(line), '='))
+
+    for mod_key, label in mod_device_hwc_factors_doc.items():
+        row = label.ljust(longest_name)
+        for trace in trace_list:
+            row += ' | ' + format_device_hwc_value(
+                mod_key, device_hwc_factors[mod_key][trace]
+            ).rjust(value_to_adjust)
+        print(row)
+        if mod_key == 'dev_hwc_gpu_active':
+            print(''.ljust(len(line), '-'))
+
+    print(''.ljust(len(line), '='))
+    print('')
+
+
+def print_device_hwc_metrics_csv(device_hwc_factors, trace_list, trace_processes,
+                                 trace_tasks, trace_threads, trace_mode, raw_data):
+    """Write the Device hardware counter metrics to device_hwc_metrics.csv.
+
+    The clock is written in MHz; the other metrics in %.
+    """
+    delimiter = ','
+    file_path = os.path.join(os.getcwd(), 'device_hwc_metrics.csv')
+
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
+
+    with open(file_path, 'w') as output:
+        output.write('"Metric"' + ''.join(
+            delimiter + label for label in configuration_labels) + '\n')
+
+        for mod_key, label in mod_device_hwc_factors_doc.items():
+            line = '"' + label + '"'
+            for trace in trace_list:
+                value = device_hwc_factors[mod_key][trace]
+                line += delimiter
+                try:
+                    line += '{0:.6f}'.format(value)
+                except (TypeError, ValueError):
+                    line += '{}'.format(value)
+            output.write(line + '\n')
+
+    print('======== Output File: Device Hardware Counter Metrics ========')
+    print('Device hardware counter metrics written to ' + file_path)
+    print('')
+
+
+def plots_device_hwc_table_matplot(device_hwc_factors, trace_list, trace_processes,
+                                   trace_tasks, trace_threads, trace_mode, raw_data):
+    """Heatmap of the SM efficiency chain (efficiency_table_device_hwc_matplot)."""
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
+
+    data = [
+        [safe_float_for_plot(device_hwc_factors[key][trace]) for trace in trace_list]
+        for key in DEVICE_HWC_HEATMAP_KEYS
+    ]
+
+    df_plot = pd.DataFrame(
+        np.array(data, dtype=float),
+        index=[mod_device_hwc_factors_doc[key] for key in DEVICE_HWC_HEATMAP_KEYS],
+        columns=configuration_labels,
+    )
+
+    _plot_efficiency_heatmap(df_plot, 'efficiency_table_device_hwc_matplot')
 
 
 def print_omp_talp_metrics_csv(omp_talp_factors, trace_list, trace_processes,

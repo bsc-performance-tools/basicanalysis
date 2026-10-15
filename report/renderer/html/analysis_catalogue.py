@@ -278,6 +278,27 @@ def build_analysis_catalogue(
         )
 
 
+    device_hwc_html = rendered_html.get(
+        "device-hwc",
+        "",
+    )
+
+    if device_hwc_html:
+        views.append(
+            AnalysisCatalogueView(
+                view_id="device-hwc",
+                label="GPU Hardware Counters",
+                title="GPU Hardware Counters",
+                group="primary",
+                description=(
+                    "Examine how well the GPU computes while it is active, "
+                    "from the GPU metrics sampled by Nsight Systems."
+                ),
+                body_html=device_hwc_html,
+            )
+        )
+
+
     if scalability_section is not None:
         _validate_section(
             section=scalability_section,

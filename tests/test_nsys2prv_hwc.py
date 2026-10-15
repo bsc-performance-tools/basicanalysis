@@ -193,5 +193,40 @@ class HwcRawDataTests(unittest.TestCase):
             self.assertEqual(raw_data[key]['t'], 'Non-Avail')
 
 
+class HwcOutputTests(unittest.TestCase):
+
+    def setUp(self):
+        raw_data = _raw_data('b1', B1_INTEGRALS)
+        for key in raw_data:
+            raw_data[key]['extrae'] = 'Non-Avail'
+        self.factors = create_device_hwc_factors(raw_data, ['b1', 'extrae'])
+
+    def test_has_metrics(self):
+        from hybridmetrics import has_device_hwc_metrics
+        self.assertTrue(has_device_hwc_metrics(self.factors, ['b1', 'extrae']))
+        self.assertFalse(has_device_hwc_metrics(self.factors, ['extrae']))
+        self.assertFalse(has_device_hwc_metrics(None, ['b1']))
+
+    def test_value_format(self):
+        from hybridmetrics import format_device_hwc_value
+        self.assertEqual(format_device_hwc_value('dev_hwc_gpc_clock', 1905.14), '1905')
+        self.assertEqual(format_device_hwc_value('dev_hwc_sm_coverage', 46.4336), '46.43%')
+        self.assertEqual(format_device_hwc_value('dev_hwc_sm_coverage', 'Non-Avail'), 'Non-Avail')
+        self.assertEqual(format_device_hwc_value('dev_hwc_sm_coverage', float('nan')), 'NaN')
+
+    def test_report_view(self):
+        from interactiveplots import _build_device_hwc_section, _has_device_hwc_metrics
+        metrics_result = {'device_hwc_factors': self.factors}
+        self.assertTrue(_has_device_hwc_metrics(metrics_result, ['b1']))
+        self.assertFalse(_has_device_hwc_metrics(metrics_result, ['extrae']))
+        self.assertFalse(_has_device_hwc_metrics({}, ['b1']))
+
+        html = _build_device_hwc_section(
+            metrics_result, ['b1'], ['T1'], trace_header_note='')
+        self.assertIn('SM Utilization', html)
+        self.assertIn('1905 MHz', html)
+        self.assertIn('46.43%', html)
+
+
 if __name__ == '__main__':
     unittest.main()
