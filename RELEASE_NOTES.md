@@ -12,6 +12,34 @@
 
 - Show the configuration of GPU applications without MPI as
   `units (host threads+streams) [devices]`, e.g. `6 (1+5) [1D]`.
+- Identify useful Device computation by the *Running* state on the GPU
+  streams, which corresponds to kernel execution, for CUDA and HIP. A single
+  configuration now serves both runtimes and does not depend on the kernel
+  event code used by the Extrae version. In cut traces, kernels already
+  running at the beginning of the trace are now also counted.
+
+### Fixes
+
+- Fixed two Paraver configurations of the OpenMP Runtime-Specific metrics
+  whose analyzer ranges had been saved for a specific trace, so that values
+  outside the range were silently ignored: the MPI time of MPI+OpenMP
+  executions ignored `MPI_Send`, `MPI_Recv` and MPI calls with identifiers
+  above 33, and the useful time outside OpenMP parallel regions ignored bursts
+  longer than 0.13 s. Only the OpenMP Runtime-Specific metrics are affected
+  (OpenMP Parallel, Serial, Load Balance and Scheduling Efficiency), mainly
+  the OpenMP Serial Efficiency, which was overestimated (e.g. 98.61% instead
+  of 89.58% in a Laplace MPI+OpenMP execution). The application-level
+  metrics, the Parallel Runtime Model, and the Host/Device metrics do not
+  change.
+- Fixed the analyzer range of the bytes read and written by I/O calls, which
+  ignored calls larger than 420,000 bytes or smaller than 8 bytes. These
+  values are not used by the current metrics or report views.
+- Fixed the detection of GPU memory transfers for traces generated with
+  Extrae versions that record transfers with a different event code. Device
+  memory transfers are now identified by the *Memory transfer* state on the
+  GPU streams, for CUDA and HIP. In affected traces, Device Communication
+  Efficiency was reported as 100% and Device Orchestration Efficiency was
+  slightly underestimated.
 
 
 ## 2026.10.05

@@ -1228,6 +1228,14 @@ For each physical device :math:`d`, BasicAnalysis collects the useful-
 computation intervals from all streams mapped to that device and computes
 their temporal union. Overlapping intervals are therefore counted only once.
 
+The useful-computation intervals of a GPU stream are the intervals in which
+the stream is in the *Running* state, which on GPU streams corresponds to
+kernel execution. This definition does not depend on the event code used by
+the tracing tool to record kernel execution, which can differ between Extrae
+versions, and applies to both CUDA and HIP. The *Running* state of host
+threads corresponds to host computation and is not considered device
+activity.
+
 The resulting useful-computation duration of device :math:`d` is:
 
 .. math::
@@ -1266,6 +1274,14 @@ Device memory-transfer activity
 
 BasicAnalysis applies the same physical-device mapping principle to
 memory-transfer activity.
+
+Memory-transfer intervals are the intervals in which a GPU stream is in the
+*Memory transfer* state. This definition does not depend on the event code
+used by the tracing tool to record the transfer, which can differ between
+Extrae versions, and applies to both CUDA and HIP. The *Memory transfer*
+state can also appear on host threads, representing the host side of a
+synchronous copy; these intervals are not device activity and are not
+considered.
 
 For each physical device, memory-transfer intervals from all associated GPU
 streams are collected and flattened. BasicAnalysis then removes any portion

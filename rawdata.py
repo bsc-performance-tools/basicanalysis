@@ -1981,15 +1981,28 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
       - overlapping useful across streams is counted once
       - transfer overlapping useful is considered computation
       - only transfer not already covered by useful adds extra duration
+
+    Useful computation is the Running state (1) of the GPU stream threads,
+    which coincides with kernel execution. Memory transfers are the state 17
+    (Memory transfer) intervals of the GPU stream threads.
+
+    Both states also appear on host threads (host computation, and the host
+    side of synchronous copies); those intervals are not device activity and
+    are ignored.
     """
     thread_to_device = build_thread_to_device_map_from_row(row_path)
+    host_threads = {
+        thread_obj
+        for thread_obj, label in parse_row_thread_labels(row_path).items()
+        if str(label).strip().startswith('THREAD ')
+    }
 
     useful_rows = parse_gpu_stream_stats(useful_stats_path, positive_only=True)
 
     useful_by_rank = defaultdict(list)
 
     if memtransfer_stats_path and os.path.exists(memtransfer_stats_path):
-        memtransfer_rows = parse_gpu_stream_stats(memtransfer_stats_path, active_values=(3.0, 7.0))
+        memtransfer_rows = parse_gpu_stream_stats(memtransfer_stats_path, positive_only=True)
     else:
         memtransfer_rows = []
 
@@ -2002,7 +2015,8 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
     for thread_obj, start, end in useful_rows:
         device_key = thread_to_device.get(thread_obj)
         if device_key is None:
-            unknown_useful_threads.add(thread_obj)
+            if thread_obj not in host_threads:
+                unknown_useful_threads.add(thread_obj)
             continue
 
         useful_by_device[device_key].append((start, end))
@@ -2015,7 +2029,8 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
     for thread_obj, start, end in memtransfer_rows:
         device_key = thread_to_device.get(thread_obj)
         if device_key is None:
-            unknown_memtransfer_threads.add(thread_obj)
+            if thread_obj not in host_threads:
+                unknown_memtransfer_threads.add(thread_obj)
             continue
         memtransfer_by_device[device_key].append((start, end))
 
@@ -2169,15 +2184,19 @@ def init_cfgs():
     # Global GPU stream extractors
     ### CUDA
     cfgs['useful_host'] = os.path.join(cfgs['root_dir'], 'useful_host.cfg')
-    cfgs['useful_streams'] = os.path.join(cfgs['root_dir'], 'useful_streams.cfg')
-    cfgs['memtransfer_streams'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams.cfg')
+    # Useful computation on the GPU streams: state 1 (Running), for CUDA and
+    # HIP. The kernel event code changes between Extrae versions.
+    cfgs['useful_streams'] = os.path.join(cfgs['root_dir'], 'useful_streams_state.cfg')
+    # Memory transfers: state 17 (Memory transfer), for CUDA and HIP. The
+    # transfer event code changes between Extrae versions.
+    cfgs['memtransfer_streams'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams_state.cfg')
 
     ### HIP
     cfgs['useful_host_hip'] = os.path.join(cfgs['root_dir'], 'useful_host_hip.cfg')
     cfgs['gpu_calls_host'] = os.path.join(cfgs['root_dir'], 'gpu_calls_host.cfg')
     cfgs['gpu_calls_host_hip'] = os.path.join(cfgs['root_dir'], 'gpu_calls_host_hip.cfg')
-    cfgs['useful_streams_hip'] = os.path.join(cfgs['root_dir'], 'useful_streams_hip.cfg')
-    cfgs['memtransfer_streams_hip'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams_hip.cfg')    
+    cfgs['useful_streams_hip'] = os.path.join(cfgs['root_dir'], 'useful_streams_state.cfg')
+    cfgs['memtransfer_streams_hip'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams_state.cfg')
 
     # OpenMP TALP-style timing extractors
     cfgs['omp_useful_regions'] = os.path.join(cfgs['root_dir'], '2d-Useful-duration-in-parallelregion.cfg')
