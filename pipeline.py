@@ -16,6 +16,7 @@ from report import build_analysis_context, build_report_model
 import html_to_pdf
 import os
 from tracemetadata import is_host_gpu_mode
+from nsys2prvmetrics import create_device_hwc_factors
 from comparison import (
     get_programming_model,
     is_comparison_mode,
@@ -158,6 +159,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
             "device_factors": device_factors,
             "host_factors": host_factors,
             "omp_talp_factors": omp_talp_factors,
+            "device_hwc_factors": create_device_hwc_factors(raw_data, trace_list),
             "scaling_info": scaling_info,
         }
 
@@ -182,6 +184,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
         "mod_factors_scale_plus_io": mod_factors_scale_plus_io,
         "other_metrics": other_metrics,
         "omp_talp_factors": omp_talp_factors,
+        "device_hwc_factors": create_device_hwc_factors(raw_data, trace_list),
         "scaling_info": scaling_info,
     }
 

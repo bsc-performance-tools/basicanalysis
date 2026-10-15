@@ -40,7 +40,7 @@ from __future__ import print_function, division
 import os
 import re
 import time
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 
 from tracemetadata import parse_trace_header, NSYS2PRV_METRICS_LABEL_RE
 from utils import run_command, move_files
@@ -65,18 +65,68 @@ NSYS2PRV_STREAM_LABEL_RE = re.compile(
     r"^(?:CUDA|HIP)-(D\d+)\.S(\d+)(?:-(\S+))?\s*$"
 )
 
+# GPU hardware counters sampled by Nsight Systems (--gpu-metrics-devices)
+# on the Metrics GPU<n> thread of each device, every 100 us by default.
+# Each cfg (cfgs/nsys2prv/hwc_<key>.cfg) integrates one counter over the
+# whole trace (value x ns). The SM, warp and tensor counters are nested in
+# GR Active and are integrated as they are; the DRAM and clock counters are
+# integrated multiplied by GR Active, to obtain averages weighted by the
+# GPU activity.
+HWC_COUNTERS = (
+    # key, event, nsys2prv label
+    ('gr_active', 9402, 'GR Active [Throughput %]'),
+    ('sms_active', 9403, 'SMs Active [Throughput %]'),
+    ('sm_issue', 9404, 'SM Issue [Throughput %]'),
+    ('tensor_active', 9405, 'Tensor Active [Throughput %]'),
+    ('warps_in_flight', 9412, 'Compute Warps in Flight [Throughput %]'),
+    ('unallocated_warps', 9415, 'Unallocated Warps in Active SMs [Throughput %]'),
+    ('dram_read', 9418, 'DRAM Read Bandwidth [Throughput %] x GR Active'),
+    ('dram_write', 9419, 'DRAM Write Bandwidth [Throughput %] x GR Active'),
+    ('gpc_clock', 9400, 'GPC Clock Frequency x GR Active'),
+)
+
+HWC_KEYS = tuple(key for key, _event, _label in HWC_COUNTERS)
+
+# Raw data of the hardware counters. They are only printed in rawdata.csv
+# when a trace has them, so that the raw data of Extrae traces is unchanged.
+hwc_raw_data_doc = OrderedDict(
+    [('hwc_devices', 'GPUs with sampled hardware counters')]
+    + [('hwc_' + key + '_int', 'Integral of ' + label + ' (value x ns)')
+       for key, _event, label in HWC_COUNTERS]
+)
+
+# Device hardware counter metrics (computed from hwc_raw_data_doc).
+mod_device_hwc_factors_doc = OrderedDict([
+    ('dev_hwc_gpu_active', 'GPU Active (HW counters)'),
+    ('dev_hwc_sm_utilization', 'SM Utilization'),
+    ('dev_hwc_sm_coverage', '   -- SM Coverage'),
+    ('dev_hwc_sm_issue_eff', '   -- SM Issue Efficiency'),
+    ('dev_hwc_warp_occupancy', 'Warp Occupancy'),
+    ('dev_hwc_tensor_activity', 'Tensor Core Activity'),
+    ('dev_hwc_dram_read', 'DRAM Read Bandwidth'),
+    ('dev_hwc_dram_write', 'DRAM Write Bandwidth'),
+    ('dev_hwc_gpc_clock', 'GPC Clock (MHz)'),
+])
+
+# nsys2prv records the GPC clock (9400) in Hz although its label says MHz.
+# Averages above this value are taken as Hz.
+HWC_CLOCK_HZ_THRESHOLD = 1.0e5
+
 
 
 def init_nsys2prv_cfgs(root_dir):
     """Return the paths of the configurations used for nsys2prv traces."""
     nsys_dir = os.path.join(root_dir, 'nsys2prv')
-    return {
+    cfgs = {
         'runtime': os.path.join(root_dir, 'runtime_app.cfg'),
         'kernels_streams': os.path.join(nsys_dir, 'kernels_streams.cfg'),
         'memcpy_streams': os.path.join(nsys_dir, 'memcpy_streams.cfg'),
         'nccl_streams': os.path.join(nsys_dir, 'nccl_streams.cfg'),
         'cuda_calls_host': os.path.join(nsys_dir, 'cuda_calls_host.cfg'),
     }
+    for key in HWC_KEYS:
+        cfgs['hwc_' + key] = os.path.join(nsys_dir, 'hwc_' + key + '.cfg')
+    return cfgs
 
 
 def _read_row_sections(row_path):
@@ -290,6 +340,112 @@ def parse_nsys2prv_host_calls(path, threads):
     return values
 
 
+def parse_nsys2prv_hwc_integral(path):
+    """Integral of a hardware counter from the analyzer of an hwc_<key>.cfg.
+
+    The rows are labelled with the .row labels; only the Metrics GPU<n>
+    rows have values. The integrals of all devices are added.
+
+    Returns (integral, number of devices), or None if the file is missing
+    or has no Metrics GPU<n> row.
+    """
+    if not path or not os.path.exists(path):
+        return None
+
+    total = 0.0
+    devices = 0
+    with open(path) as stats_file:
+        next(stats_file, None)  # column header
+        for raw_line in stats_file:
+            parts = raw_line.rstrip('\n').split('\t')
+            if not parts[0].strip():
+                break
+            if not NSYS2PRV_METRICS_LABEL_RE.match(parts[0].strip()):
+                continue
+            try:
+                total += float(parts[1])
+            except (IndexError, ValueError):
+                continue
+            devices += 1
+
+    if devices == 0:
+        return None
+
+    return total, devices
+
+
+def compute_device_hwc_factors(raw_data, trace):
+    """Device hardware counter metrics of one trace.
+
+    With the integrals I_x of the counters over the whole trace (added
+    over devices), T the runtime and N the number of devices:
+
+      GPU Active            = I_GR / (N T)
+      SM Utilization        = I_SMIssue / I_GR
+        SM Coverage         = I_SMsActive / I_GR
+        SM Issue Efficiency = I_SMIssue / I_SMsActive
+      Warp Occupancy        = I_WarpsInFlight / I_SMsActive
+      Tensor Core Activity  = I_Tensor / I_GR
+      DRAM Read/Write       = I_(DRAM x GR) / I_GR
+      GPC Clock             = I_(Clock x GR) / I_GR
+
+    SM Utilization = SM Coverage x SM Issue Efficiency. The GR-weighted
+    ratios do not need to attribute the samples to kernels: GR Active is
+    about 0 while the GPU is idle.
+
+    Returns {metric key: value}, with 'Non-Avail' when the trace has no
+    hardware counters and 'NaN' when a ratio cannot be computed.
+    """
+    factors = OrderedDict((key, 'Non-Avail') for key in mod_device_hwc_factors_doc)
+
+    def raw(key):
+        return raw_data.get(key, {}).get(trace, 'Non-Avail')
+
+    integrals = {key: raw('hwc_' + key + '_int') for key in HWC_KEYS}
+    if any(value in ('Non-Avail', 'NaN', None) for value in integrals.values()):
+        return factors
+
+    def ratio(numerator, denominator, scale=100.0):
+        try:
+            return scale * float(numerator) / float(denominator)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return 'NaN'
+
+    gr = integrals['gr_active']
+
+    try:
+        elapsed_ns = float(raw('runtime')) * NS_PER_US * float(raw('hwc_devices'))
+    except (TypeError, ValueError):
+        elapsed_ns = 0.0
+    factors['dev_hwc_gpu_active'] = ratio(gr, elapsed_ns, scale=1.0)
+
+    factors['dev_hwc_sm_utilization'] = ratio(integrals['sm_issue'], gr)
+    factors['dev_hwc_sm_coverage'] = ratio(integrals['sms_active'], gr)
+    factors['dev_hwc_sm_issue_eff'] = ratio(integrals['sm_issue'], integrals['sms_active'])
+    factors['dev_hwc_warp_occupancy'] = ratio(integrals['warps_in_flight'], integrals['sms_active'])
+    factors['dev_hwc_tensor_activity'] = ratio(integrals['tensor_active'], gr)
+    factors['dev_hwc_dram_read'] = ratio(integrals['dram_read'], gr, scale=1.0)
+    factors['dev_hwc_dram_write'] = ratio(integrals['dram_write'], gr, scale=1.0)
+
+    clock = ratio(integrals['gpc_clock'], gr, scale=1.0)
+    if clock != 'NaN' and clock > HWC_CLOCK_HZ_THRESHOLD:
+        clock /= 1.0e6
+    factors['dev_hwc_gpc_clock'] = clock
+
+    return factors
+
+
+def create_device_hwc_factors(raw_data, trace_list):
+    """Device hardware counter metrics: {metric key: {trace: value}}."""
+    device_hwc_factors = OrderedDict(
+        (key, {}) for key in mod_device_hwc_factors_doc
+    )
+    for trace in trace_list:
+        for key, value in compute_device_hwc_factors(raw_data, trace).items():
+            device_hwc_factors[key][trace] = value
+    return device_hwc_factors
+
+
 def aggregate_nsys2prv_device_metrics(kernel_rows, memcpy_rows, nccl_rows,
                                       stream_to_device):
     """Aggregate the Device activity per device.
@@ -500,9 +656,16 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         'cuda_calls_host': trace_name + '.cuda_calls_host.stats.csv',
     }
 
+    # GPU hardware counters, only when the trace has Metrics GPU<n> threads.
+    hwc_stats = {}
+    if threads['metrics']:
+        for key in HWC_KEYS:
+            hwc_stats['hwc_' + key] = trace_name + '.hwc_' + key + '.stats.csv'
+    stats.update(hwc_stats)
+
     cmd = ['paramedir', trace]
     for key in ('runtime', 'kernels_streams', 'memcpy_streams', 'nccl_streams',
-                'cuda_calls_host'):
+                'cuda_calls_host') + tuple(hwc_stats):
         cmd.extend([nsys_cfgs[key], stats[key]])
 
     time_pmd = time.time()
@@ -568,6 +731,23 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         trace_raw_data['useful_tot'] = sum(unit_useful)
         trace_raw_data['useful_avg'] = sum(unit_useful) / len(unit_useful)
         trace_raw_data['useful_max'] = max(unit_useful)
+
+    # GPU hardware counters: integrals added over the Metrics GPU<n> threads.
+    # The devices of all counters must match; otherwise they are not used.
+    hwc_values = {
+        key: parse_nsys2prv_hwc_integral(hwc_stats.get('hwc_' + key))
+        for key in HWC_KEYS
+    }
+    hwc_devices = {value[1] for value in hwc_values.values() if value}
+    if all(hwc_values.values()) and len(hwc_devices) == 1:
+        trace_raw_data['hwc_devices'] = hwc_devices.pop()
+        for key, (integral, _devices) in hwc_values.items():
+            trace_raw_data['hwc_' + key + '_int'] = integral
+        print("==> GPU hardware counters: {} device(s) with sampled metrics".format(
+            trace_raw_data['hwc_devices']))
+    elif threads['metrics']:
+        print('==WARNING== The GPU hardware counters of the Metrics GPU threads '
+              'could not be computed.')
 
     trace_raw_data['useful_device'] = gpu_agg['useful_device_total']
     trace_raw_data['useful_device_max'] = gpu_agg['useful_device_max']

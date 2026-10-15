@@ -21,6 +21,9 @@ sources:
   basicanalysis_io_metrics:
     title: BasicAnalysis File I/O Metrics
     kind: internal  
+  basicanalysis_gpu_hwc:
+    title: BasicAnalysis Device Hardware Counter Metrics (nsys2prv GPU metrics)
+    kind: internal
 metrics:
   global_eff:
     name: Global Efficiency
@@ -1679,3 +1682,244 @@ metrics:
 
     sources:
       - basicanalysis_io_metrics
+
+  dev_hwc_gpu_active:
+    name: GPU Active (HW counters)
+    short_name: GPU Active
+    family: gpu_hwc
+    analysis_level: hardware_counters
+    metric_type: performance_indicator
+    definition: >
+      Fraction of the execution time in which the graphics/compute engine of
+      the GPUs is active, measured with the sampled GR Active counter. It is
+      a consistency check of the hardware counters: it should be close to
+      the fraction of time with kernels running obtained from the kernel
+      events of the trace.
+    formula:
+      text: GPU_Active = sum_d integral(GR_Active_d) / (N × T)
+      latex: GPU\_Active = \frac{\sum_d \int GR^{Active}_d\,dt}{N \cdot T}
+      variables:
+        GR_Active_d: GR Active counter of device d (% of the sample period)
+        N: Number of devices with sampled hardware counters
+        T: Runtime
+    interpretation:
+      low: The GPUs are idle most of the execution.
+      high: The GPUs are busy most of the execution.
+    children: []
+    availability: >
+      Only for nsys2prv traces with sampled GPU metrics (Metrics GPU<n>
+      threads); Non-Avail otherwise.
+    sources:
+      - basicanalysis_gpu_hwc
+
+  dev_hwc_sm_utilization:
+    name: SM Utilization
+    short_name: SM Util
+    family: gpu_hwc
+    analysis_level: hardware_counters
+    metric_type: compound_efficiency
+    definition: >
+      Fraction of the instruction-issue capacity of the GPU used while the
+      GPU is active. It combines how many SMs receive work (SM Coverage) and
+      how often the active SMs issue instructions (SM Issue Efficiency). It
+      complements the Device Parallel Efficiency, which measures when the
+      GPU computes, by measuring how well it computes. It is not part of the
+      multiplicative Host/Device model.
+    formula:
+      text: SM_Util = SM_Coverage × SM_Issue_Eff = integral(SM_Issue) / integral(GR_Active)
+      latex: SM\_Util = SM\_Coverage \times SM\_Issue = \frac{\int SM^{Issue}\,dt}{\int GR^{Active}\,dt}
+      variables:
+        SM_Issue: Ratio of cycles in which the SM sub-partitions issue an instruction
+        GR_Active: Ratio of cycles in which the graphics/compute engine is active
+    interpretation:
+      low: The active GPU uses a small part of its issue capacity.
+      high: The active GPU keeps most SMs issuing instructions.
+      above_100: Values above 100% are not expected and should be checked.
+    typical_causes:
+      - Kernels with too few blocks to occupy all SMs
+      - Memory-bound kernels waiting for DRAM
+      - Low occupancy that cannot hide latencies
+    next_steps:
+      - Inspect SM Coverage and SM Issue Efficiency.
+      - Inspect Warp Occupancy, DRAM bandwidth and Tensor Core Activity.
+    children:
+      - dev_hwc_sm_coverage
+      - dev_hwc_sm_issue_eff
+    availability: >
+      Only for nsys2prv traces with sampled GPU metrics; Non-Avail otherwise.
+    sources:
+      - basicanalysis_gpu_hwc
+
+  dev_hwc_sm_coverage:
+    name: SM Coverage
+    short_name: SM Coverage
+    family: gpu_hwc
+    analysis_level: hardware_counters
+    metric_type: efficiency
+    definition: >
+      Average fraction of SMs with at least one warp in flight while the GPU
+      is active.
+    formula:
+      text: SM_Coverage = integral(SMs_Active) / integral(GR_Active)
+      latex: SM\_Coverage = \frac{\int SMs^{Active}\,dt}{\int GR^{Active}\,dt}
+      variables:
+        SMs_Active: Ratio of SM cycles with at least one warp in flight
+        GR_Active: Ratio of cycles in which the graphics/compute engine is active
+    interpretation:
+      low: Many SMs are idle while kernels run.
+      high: The kernels distribute work over all the SMs.
+      above_100: Values above 100% are not expected and should be checked.
+    typical_causes:
+      - Small grids (fewer blocks than SMs)
+      - Short kernels and tails of kernels
+    next_steps:
+      - Inspect the grid size of the kernels (Kernel GrdX/Y/Z events).
+    children: []
+    sources:
+      - basicanalysis_gpu_hwc
+
+  dev_hwc_sm_issue_eff:
+    name: SM Issue Efficiency
+    short_name: SM Issue
+    family: gpu_hwc
+    analysis_level: hardware_counters
+    metric_type: efficiency
+    definition: >
+      Fraction of the cycles of the active SMs in which an instruction is
+      issued. It plays the role of the IPC for the GPU.
+    formula:
+      text: SM_Issue_Eff = integral(SM_Issue) / integral(SMs_Active)
+      latex: SM\_Issue = \frac{\int SM^{Issue}\,dt}{\int SMs^{Active}\,dt}
+      variables:
+        SM_Issue: Ratio of cycles in which the SM sub-partitions issue an instruction
+        SMs_Active: Ratio of SM cycles with at least one warp in flight
+    interpretation:
+      low: The active SMs are mostly stalled.
+      high: The active SMs issue instructions most of the cycles.
+      above_100: Values above 100% are not expected and should be checked.
+    typical_causes:
+      - Memory latency or bandwidth limits
+      - Low occupancy
+      - Dependencies and synchronization inside the kernels
+    next_steps:
+      - Inspect Warp Occupancy and DRAM bandwidth.
+    children: []
+    sources:
+      - basicanalysis_gpu_hwc
+
+  dev_hwc_warp_occupancy:
+    name: Warp Occupancy
+    short_name: Occupancy
+    family: gpu_hwc
+    analysis_level: hardware_counters
+    metric_type: performance_indicator
+    definition: >
+      Average fraction of the warp slots of the active SMs that hold a warp.
+      The remaining slots are unallocated (Compute Warps in Flight +
+      Unallocated Warps = SMs Active).
+    formula:
+      text: Occupancy = integral(Warps_in_Flight) / integral(SMs_Active)
+      latex: Occupancy = \frac{\int Warps^{Flight}\,dt}{\int SMs^{Active}\,dt}
+      variables:
+        Warps_in_Flight: Compute warps in flight (% of the maximum warps)
+        SMs_Active: Ratio of SM cycles with at least one warp in flight
+    interpretation:
+      low: Few warps to hide latencies.
+      high: Many warps available to hide latencies.
+    typical_causes:
+      - Registers or shared memory per block limiting the resident blocks
+      - Small blocks or grids
+    next_steps:
+      - Inspect registers per thread and shared memory of the kernels.
+    children: []
+    sources:
+      - basicanalysis_gpu_hwc
+
+  dev_hwc_tensor_activity:
+    name: Tensor Core Activity
+    short_name: Tensor
+    family: gpu_hwc
+    analysis_level: hardware_counters
+    metric_type: performance_indicator
+    definition: >
+      Average fraction of cycles with the tensor pipes active while the GPU
+      is active.
+    formula:
+      text: Tensor = integral(Tensor_Active) / integral(GR_Active)
+      latex: Tensor = \frac{\int Tensor^{Active}\,dt}{\int GR^{Active}\,dt}
+      variables:
+        Tensor_Active: Ratio of cycles with the tensor pipes active
+        GR_Active: Ratio of cycles in which the graphics/compute engine is active
+    interpretation:
+      low: The tensor cores are little used (expected for non-matrix workloads).
+      high: The workload is dominated by tensor-core matrix operations.
+    children: []
+    sources:
+      - basicanalysis_gpu_hwc
+
+  dev_hwc_dram_read:
+    name: DRAM Read Bandwidth
+    short_name: DRAM Read
+    family: gpu_hwc
+    analysis_level: hardware_counters
+    metric_type: performance_indicator
+    definition: >
+      Average DRAM read bandwidth, as a percentage of the peak bandwidth,
+      weighted by the GPU activity.
+    formula:
+      text: DRAM_Read = integral(DRAM_Read_BW × GR_Active) / integral(GR_Active)
+      latex: DRAM\_Read = \frac{\int DRAM^{Read} \cdot GR^{Active}\,dt}{\int GR^{Active}\,dt}
+      variables:
+        DRAM_Read_BW: DRAM read bandwidth (% of peak)
+        GR_Active: Ratio of cycles in which the graphics/compute engine is active
+    interpretation:
+      low: The active GPU makes little use of the memory bandwidth.
+      high: The kernels are likely limited by memory bandwidth.
+    children: []
+    sources:
+      - basicanalysis_gpu_hwc
+
+  dev_hwc_dram_write:
+    name: DRAM Write Bandwidth
+    short_name: DRAM Write
+    family: gpu_hwc
+    analysis_level: hardware_counters
+    metric_type: performance_indicator
+    definition: >
+      Average DRAM write bandwidth, as a percentage of the peak bandwidth,
+      weighted by the GPU activity.
+    formula:
+      text: DRAM_Write = integral(DRAM_Write_BW × GR_Active) / integral(GR_Active)
+      latex: DRAM\_Write = \frac{\int DRAM^{Write} \cdot GR^{Active}\,dt}{\int GR^{Active}\,dt}
+      variables:
+        DRAM_Write_BW: DRAM write bandwidth (% of peak)
+        GR_Active: Ratio of cycles in which the graphics/compute engine is active
+    interpretation:
+      low: The active GPU writes little to memory.
+      high: The kernels write intensively to memory.
+    children: []
+    sources:
+      - basicanalysis_gpu_hwc
+
+  dev_hwc_gpc_clock:
+    name: GPC Clock
+    short_name: GPC Clock
+    family: gpu_hwc
+    analysis_level: hardware_counters
+    metric_type: performance_indicator
+    definition: >
+      Average GPC (graphics processing cluster) clock frequency in MHz,
+      weighted by the GPU activity. Lower values for the same GPU indicate
+      power or thermal throttling.
+    formula:
+      text: Clock = integral(GPC_Clock × GR_Active) / integral(GR_Active)
+      latex: Clock = \frac{\int f_{GPC} \cdot GR^{Active}\,dt}{\int GR^{Active}\,dt}
+      variables:
+        GPC_Clock: GPC clock frequency (recorded in Hz by nsys2prv)
+        GR_Active: Ratio of cycles in which the graphics/compute engine is active
+    interpretation:
+      low: The GPU runs at a reduced clock while it computes.
+      high: The GPU runs close to its boost clock while it computes.
+    children: []
+    sources:
+      - basicanalysis_gpu_hwc
