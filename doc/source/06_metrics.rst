@@ -2291,7 +2291,8 @@ BasicAnalysis classifies the threads of the trace from the ``.row`` file:
 * **GPU streams**: threads labelled ``CUDA-D<device>.S<stream>``. The node of
   each stream is taken from the node of its process in the trace header.
 * **GPU metrics threads**: threads labelled ``Metrics GPU<n>``, which contain
-  sampled GPU hardware metrics. They are not execution units.
+  sampled GPU hardware metrics. They are not execution units; their counters
+  are used in `GPU Hardware Counter Metrics`_.
 * **Host threads**: the remaining threads of the processes that have GPU
   streams. Processes without GPU streams do not offload work to the
   accelerator; they are reported in the standard output and are not
@@ -2385,6 +2386,98 @@ the useful time of a GPU stream is the time of its own kernels (the *Running*
 state of each stream in Extrae traces). Parallel Efficiency, Load Balance, and
 Communication Efficiency are computed with the Simple Metrics formulas.
 Serialization and Transfer Efficiency do not apply without MPI.
+
+
+.. _gpu-hardware-counter-metrics:
+
+GPU Hardware Counter Metrics
+----------------------------
+
+When the Nsight Systems report includes GPU metrics (``nsys profile
+--gpu-metrics-devices``), each GPU has a ``Metrics GPU<n>`` thread with
+hardware counters sampled for the whole GPU, every 100 µs by default
+(event types ``94xx``). BasicAnalysis uses them to report how well the GPU
+computes while it is active. Device Parallel Efficiency measures **when** the
+GPU computes; these metrics describe **how well** it computes. They are
+complementary and are **not** part of the multiplicative Host/Device model.
+
+BasicAnalysis integrates each counter :math:`x` over the whole trace,
+:math:`I_x = \int x(t)\,dt`, with the configurations
+``cfgs/nsys2prv/hwc_<counter>.cfg`` (Paraver *Integral* statistic, one row
+per ``Metrics GPU<n>`` thread). The integrals of all devices are added. The
+metrics are ratios of these integrals:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 40 34
+
+   * - Metric
+     - Formula
+     - Meaning
+   * - SM Utilization
+     - :math:`I_{SM\,Issue} / I_{GR\,Active}`
+     - Fraction of the instruction-issue capacity used while the GPU is active
+   * - -- SM Coverage
+     - :math:`I_{SMs\,Active} / I_{GR\,Active}`
+     - Fraction of SMs with at least one warp
+   * - -- SM Issue Efficiency
+     - :math:`I_{SM\,Issue} / I_{SMs\,Active}`
+     - Fraction of the cycles of the active SMs that issue an instruction
+       (the role of IPC for the GPU)
+   * - GPU Active (HW counters)
+     - :math:`I_{GR\,Active} / (N \cdot T)`
+     - Fraction of time with the GPU active
+   * - Warp Occupancy
+     - :math:`I_{Warps\,in\,Flight} / I_{SMs\,Active}`
+     - Fraction of the warp slots of the active SMs that hold a warp
+   * - Tensor Core Activity
+     - :math:`I_{Tensor\,Active} / I_{GR\,Active}`
+     - Use of the tensor cores
+   * - DRAM Read / Write Bandwidth
+     - :math:`I_{DRAM \times GR} / I_{GR\,Active}`
+     - DRAM bandwidth (% of peak) while the GPU is active
+   * - GPC Clock (MHz)
+     - :math:`I_{Clock \times GR} / I_{GR\,Active}`
+     - Clock frequency while the GPU is active
+
+where :math:`N` is the number of devices with sampled counters and
+:math:`T` the runtime. The counters used are GR Active (``9402``), SMs Active
+(``9403``), SM Issue (``9404``), Tensor Active (``9405``), Compute Warps in
+Flight (``9412``), DRAM Read and Write Bandwidth (``9418``, ``9419``), and
+GPC Clock Frequency (``9400``).
+
+The SM counters are nested in each sample: SM Issue :math:`\le` SMs Active
+:math:`\le` GR Active, and Compute Warps in Flight + Unallocated Warps in
+Active SMs = SMs Active. Therefore:
+
+.. math::
+
+   SM\ Utilization = SM\ Coverage \times SM\ Issue\ Efficiency
+
+Dividing by the integral of GR Active weights the averages by the GPU
+activity. Idle periods (GR Active close to 0) do not contribute, and the
+samples do not need to be attributed to kernels, which are often much
+shorter than the sampling period. For the counters that are not nested in
+GR Active (DRAM bandwidth and clock), the integral of the counter multiplied
+by GR Active is used.
+
+**GPU Active (HW counters)** is a consistency check: it should be close to
+the fraction of time with kernels running obtained from the kernel events
+(for example, 15.10% and 12.55% in a single-GPU vLLM trace, 55.72% and
+54.56% in another one).
+
+Only **SM Utilization** and its two factors are efficiencies and are shown in
+the efficiency table and heatmap. The other metrics are indicators: a higher
+value is not necessarily better (for example, a high DRAM bandwidth
+indicates memory-bound kernels). They explain the SM Utilization chain:
+
+* low **SM Coverage**: kernels with fewer blocks than SMs, short kernels;
+* low **SM Issue Efficiency**: stalled SMs, memory-bound kernels (high DRAM
+  bandwidth) or few warps to hide latencies (low Warp Occupancy);
+* low **GPC Clock** for the same GPU: power or thermal throttling.
+
+These metrics are global for the whole execution and are **not valid per
+kernel**. Their assumptions are summarized in :doc:`09_limitations`.
 
 
 OpenMP Runtime-Specific Metrics

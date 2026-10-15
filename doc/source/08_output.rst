@@ -79,7 +79,10 @@ The main files include:
 Additional model-specific CSV files may also be generated. For example,
 OpenMP analyses can generate ``omp_talp_metrics.csv``, while MPI+GPU analyses
 using the Host/Device execution-domain model can generate
-``talp_metrics.csv``.
+``talp_metrics.csv``. For *nsys2prv* traces with GPU metrics, BasicAnalysis
+also writes ``device_hwc_metrics.csv`` with the GPU hardware counter metrics
+(percentages, and the GPC clock in MHz) and adds the integrals of the
+counters to ``rawdata.csv``.
 
 When the analyzed traces use different programming models, BasicAnalysis
 also writes:
@@ -112,7 +115,9 @@ performance model, the output includes files such as:
    efficiency_table-matplot.pdf
 
 or the corresponding global, hybrid, runtime-specific, or Host/Device
-variants.
+variants. For *nsys2prv* traces with GPU metrics,
+``efficiency_table_device_hwc_matplot`` shows SM Utilization and its
+factors.
 
 When multiple execution configurations are analyzed, BasicAnalysis also
 generates plots showing the evolution of performance metrics across the

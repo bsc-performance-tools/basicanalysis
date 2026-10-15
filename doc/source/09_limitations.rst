@@ -127,6 +127,10 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
    * - Host hardware counters (IPC, instructions, frequency)
      - Available when recorded
      - Not available
+   * - GPU hardware counters
+     - Not available
+     - Available when the report includes GPU metrics (``Metrics GPU<n>``
+       threads)
    * - *Dimemas* simulation
      - Available for MPI+CUDA
      - Not available
@@ -157,6 +161,24 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
   yet been validated with real traces.
 * **Trace metadata.** The ``.row`` file is required to identify the GPU
   streams, the GPU metrics threads, and the host threads.
+* **GPU hardware counters.** The GPU metrics are sampled for the whole GPU
+  (every 100 µs by default), so they cannot be attributed reliably to
+  individual kernels, which are often shorter than the sampling period or
+  run concurrently on several streams. BasicAnalysis reports them as
+  averages over the whole execution weighted by the GPU activity (GR
+  Active), which do not need that attribution; they are not valid per
+  kernel. Additional assumptions:
+
+  * The sampled values are integers, so low percentages (for example, SM
+    Issue) lose precision.
+  * The GPC clock is recorded in Hz although its label says MHz;
+    BasicAnalysis converts averages above 10\ :sup:`5` to MHz.
+  * The control window of the configurations assumes that the GPC clock is
+    sampled during the whole execution.
+  * With several GPUs, the counters of all ``Metrics GPU<n>`` threads are
+    added. This has not yet been validated with multi-GPU traces.
+  * The *Avg* variants of the warp counters are not used: values that
+    underflow (for example, 4294967293) have been observed.
 
 **Limitations for Extrae traces**
 

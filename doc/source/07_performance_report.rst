@@ -11,7 +11,9 @@ the Execution Overview to verify the analyzed configurations, then use the
 Parallel Runtime Model to identify the main sources of efficiency loss.
 Runtime-Specific Analysis provides a more detailed view of the active parallel
 runtimes, while the Host/Device Model (TALP) identifies where accelerator-related
-inefficiencies manifest. I/O Analysis provides a complementary view of the
+inefficiencies manifest. For *nsys2prv* traces with GPU metrics, GPU Hardware
+Counters shows how well the GPU computes while it is active. I/O Analysis
+provides a complementary view of the
 weight and distribution of File I/O activity. Finally, the Scaling view shows
 how performance and efficiency factors evolve across the analyzed
 configurations.
@@ -30,12 +32,13 @@ analysis.
 Report Interface
 ----------------
 
-The BasicAnalysis performance report is organized around five primary analysis
-views:
+The BasicAnalysis performance report is organized around the following primary
+analysis views, shown when they apply to the analyzed traces:
 
 * **Execution Overview**
 * **Parallel Runtime Model**
 * **Host/Device Model (TALP)**
+* **GPU Hardware Counters** (*nsys2prv* traces with GPU metrics)
 * **I/O Analysis**
 * **Scaling**
 
@@ -217,6 +220,42 @@ accelerator-related inefficiencies manifest**.
 A low execution-domain metric identifies where a performance loss becomes
 visible. Detailed runtime or trace analysis may still be required to determine
 the underlying cause.
+
+
+GPU Hardware Counters
+---------------------
+
+For *nsys2prv* traces whose Nsight Systems report includes GPU metrics, the
+**GPU Hardware Counters** view describes **how well** the GPU computes while
+it is active, complementing the Device metrics of the Host/Device Model
+(TALP), which describe **when** it computes.
+
+.. _fig-report-gpu-hardware-counters:
+
+.. figure:: images/report-gpu-hardware-counters.png
+   :width: 90%
+   :align: center
+   :alt: BasicAnalysis GPU Hardware Counters view
+
+   GPU Hardware Counters.
+
+The view, shown in :numref:`fig-report-gpu-hardware-counters`, includes:
+
+* **SM Utilization**, the fraction of the instruction-issue capacity used
+  while the GPU is active, and its factors **SM Coverage** (are all SMs given
+  work?) and **SM Issue Efficiency** (do the active SMs issue instructions?).
+  They use the same efficiency colour scale as the other views.
+* **Indicators** that explain the SM Utilization chain: GPU Active (a
+  consistency check with the kernel events), Warp Occupancy, Tensor Core
+  Activity, DRAM Read and Write Bandwidth, and GPC Clock. A higher indicator
+  value is not necessarily better, so they are shown without colours.
+* A trend plot of SM Utilization and its factors when several executions are
+  analyzed.
+
+The metrics are averages over the whole execution weighted by the GPU
+activity. They are not part of the multiplicative efficiency model and are
+not valid per kernel. See :ref:`gpu-hardware-counter-metrics` for their
+definitions.
 
 
 I/O Analysis
