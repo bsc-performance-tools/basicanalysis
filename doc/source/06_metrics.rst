@@ -2505,17 +2505,55 @@ occupancy of a launch configuration, and it should not be compared directly
 with the per-kernel achieved occupancy reported by Nsight Compute unless one
 kernel dominates the execution.
 
-The combinations of metrics point to the likely cause:
+**Diagnostic path.** The counters are nested: the GPU is active (GR
+Active), some SMs hold warps (SM Coverage), those warps fill part of the
+warp slots (Achieved Occupancy), and some of them issue instructions (SM
+Issue Efficiency). The diagnosis follows the same order:
 
-* low **SM Issue Efficiency** + high **DRAM bandwidth**: memory-bound
-  kernels (e.g. a vLLM decoding trace with batch size 1: DRAM Read 54%, SM
-  Issue Efficiency 5.5%);
-* low **SM Issue Efficiency** + low **DRAM bandwidth** + low **Achieved
-  Occupancy**: latency-bound kernels, with too few warps to hide latencies;
-* low **SM Coverage**: grids with fewer blocks than SMs or very short
-  kernels (46% in the same trace);
-* lower **GPC Clock** under higher load on the same GPU model: power or
-  thermal throttling.
+#. **Low SM Coverage**: the work is not distributed over the GPU (grids with
+   fewer blocks than SMs, short kernels).
+#. **High SM Coverage + low Achieved Occupancy**: the SMs are active but hold
+   few warps. Check the registers per thread and the shared memory per block
+   of the kernels.
+#. **High SM Coverage + high Achieved Occupancy + low SM Issue Efficiency**:
+   there are many warps, but they often do not issue (stalls). The other
+   indicators identify the stall: high **DRAM bandwidth** indicates
+   memory-bound kernels; low DRAM bandwidth, latency, dependencies, or
+   synchronization inside the kernels; high **Tensor Core Activity**, that
+   the tensor pipes may be the limit.
+#. In all cases, a lower **GPC Clock** under higher load on the same GPU
+   model indicates power or thermal throttling.
+
+*Low* and *high* are relative: there are no fixed thresholds (for example,
+an occupancy of 20–30% can be normal for kernels that use many registers).
+Since the values are averages over all the kernels, the path indicates where
+to look, and the cause should be confirmed for the dominant kernels with
+Nsight Compute.
+
+For example, in the vLLM traces with batch sizes 1 and 256:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 35 35
+
+   * - Step
+     - Batch size 1
+     - Batch size 256
+   * - 1. SM Coverage
+     - **46.43%, low**: the work is not distributed over the GPU
+     - 94.42%, high
+   * - 2. Achieved Occupancy
+     - 14.97%
+     - **19.51%, low**: active SMs with few warps
+   * - 3. SM Issue Efficiency
+     - 5.51%
+     - 11.44%
+   * - DRAM Read Bandwidth
+     - 54.12%
+     - 71.56%: the warps mostly wait for memory
+   * - GPC Clock
+     - 1905 MHz
+     - 1734 MHz: lower clock under higher load
 
 These metrics are global for the whole execution and are **not valid per
 kernel**. Their assumptions are summarized in :doc:`09_limitations`.

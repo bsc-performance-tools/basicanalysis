@@ -252,12 +252,12 @@ The view, shown in :numref:`fig-report-gpu-hardware-counters`, includes:
   better, so they are shown in a single neutral colour, and
   their Metric Details explain how to read each indicator and what low and
   high values mean, instead of giving an efficiency verdict.
-* **Diagnostic patterns**, the combinations of metrics that point to a
-  likely cause: low SM Issue Efficiency with high DRAM bandwidth
-  (memory-bound kernels), low SM Issue Efficiency with low DRAM bandwidth and
-  low Achieved Occupancy (latency-bound kernels), low SM Coverage (grids too
-  small for the GPU or very short kernels), and a lower GPC Clock under
-  higher load on the same GPU model (throttling).
+* A **Diagnostic path** that follows the nesting of the counters: low SM
+  Coverage (work not distributed over the GPU), then high Coverage with low
+  Achieved Occupancy (active SMs with few warps), then high Coverage and
+  Occupancy with low SM Issue Efficiency (stalls, identified with the DRAM
+  bandwidth and the Tensor Core Activity), and a lower GPC Clock under higher
+  load (throttling). See :ref:`gpu-hardware-counter-metrics` for an example.
 * A trend plot of SM Utilization and its factors when several executions are
   analyzed.
 

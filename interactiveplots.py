@@ -936,38 +936,64 @@ def _build_device_hwc_scope_note_html():
 
 
 def _build_device_hwc_patterns_html():
-    """Combinations of GPU hardware counter metrics that suggest a cause."""
+    """Top-down diagnostic path through the GPU hardware counter metrics.
+
+    The steps follow the nesting of the counters: GR Active > SMs Active
+    (SM Coverage) > warps in flight (Achieved Occupancy) > issuing warps
+    (SM Issue Efficiency).
+    """
 
     return """
     <div class="analysis-scope-note device-hwc-patterns">
-        <h3>Diagnostic patterns</h3>
+        <h3>Diagnostic path</h3>
 
         <p>
-            The indicators are not good or bad on their own; combinations
-            with the SM Utilization chain point to the likely cause:
+            The counters are nested: the GPU is active, some SMs hold warps,
+            those warps fill part of the warp slots, and some of them issue
+            instructions. Follow the same order:
         </p>
 
-        <ul>
+        <ol>
             <li>
-                <strong>Low SM Issue Efficiency + high DRAM
-                bandwidth</strong>: memory-bound kernels. Improve data
-                reuse or batching.
+                <strong>Low SM Coverage</strong>: the work is not distributed
+                over the GPU (grids with fewer blocks than SMs, short
+                kernels).
             </li>
             <li>
-                <strong>Low SM Issue Efficiency + low DRAM bandwidth + low
-                Achieved Occupancy</strong>: latency-bound kernels, with too few
-                warps to hide latencies.
+                <strong>High SM Coverage + low Achieved Occupancy</strong>:
+                the SMs are active but hold few warps. Check the registers
+                per thread and the shared memory per block of the kernels.
             </li>
             <li>
-                <strong>Low SM Coverage</strong>: the grids are too small for
-                the GPU (fewer blocks than SMs) or the kernels are very
-                short.
+                <strong>High SM Coverage + high Achieved Occupancy + low SM
+                Issue Efficiency</strong>: there are many warps, but they
+                often do not issue (stalls). Use the other indicators to
+                identify the stall:
+                <ul>
+                    <li>high <strong>DRAM bandwidth</strong>: memory-bound
+                    kernels;</li>
+                    <li>low <strong>DRAM bandwidth</strong>: latency,
+                    dependencies, or synchronization inside the kernels;</li>
+                    <li>high <strong>Tensor Core Activity</strong>: the
+                    tensor pipes may be the limit (expected for matrix-heavy
+                    kernels).</li>
+                </ul>
             </li>
             <li>
-                <strong>Lower GPC Clock under higher load</strong> (same GPU
-                model): power or thermal throttling.
+                In all cases, a <strong>lower GPC Clock under higher
+                load</strong> on the same GPU model indicates power or
+                thermal throttling.
             </li>
-        </ul>
+        </ol>
+
+        <p>
+            <strong>Low</strong> and <strong>high</strong> are relative:
+            there are no fixed thresholds (for example, an occupancy of
+            20&ndash;30% can be normal for kernels that use many registers).
+            The values are averages over all the kernels of the execution,
+            so the path indicates where to look; confirm the cause for the
+            dominant kernels with Nsight Compute.
+        </p>
     </div>
     """
 
@@ -991,14 +1017,16 @@ def _build_device_hwc_guidance_html():
         </p>
 
         <p>
-            Use the indicators to explain the chain:
-            <strong>Achieved Occupancy</strong> (warps available to hide
-            latencies), <strong>Tensor Core Activity</strong>,
-            <strong>DRAM bandwidth</strong> (memory-bound kernels) and the
-            <strong>GPC Clock</strong> (throttling). Higher indicator values
-            are not necessarily better. <strong>GPU Active</strong> should
-            be close to the fraction of time with kernels running and checks
-            the consistency of the counters with the trace events.
+            Then follow the <strong>Diagnostic path</strong> below the
+            indicators: SM Coverage, then <strong>Achieved
+            Occupancy</strong> (how full the active SMs are), then SM Issue
+            Efficiency, using <strong>DRAM bandwidth</strong> and
+            <strong>Tensor Core Activity</strong> to identify the kind of
+            stall and the <strong>GPC Clock</strong> to detect throttling.
+            Higher indicator values are not necessarily better.
+            <strong>GPU Active</strong> should be close to the fraction of
+            time with kernels running and checks the consistency of the
+            counters with the trace events.
         </p>
     </details>
     """

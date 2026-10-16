@@ -246,8 +246,11 @@ class HwcOutputTests(unittest.TestCase):
         self.assertEqual(info['dev_hwc_dram_read']['unit'], '%')
         self.assertTrue(info['dev_hwc_dram_read']['action'])
         self.assertIn('SM Issue Efficiency', info['dev_hwc_dram_read']['reading'])
-        self.assertIn('Diagnostic patterns', html)
+        self.assertIn('Diagnostic path', html)
         self.assertIn('memory-bound', html)
+        # The path follows the nesting of the counters.
+        self.assertLess(html.index('Low SM Coverage</strong>'),
+                        html.index('High SM Coverage + low Achieved Occupancy'))
         # The SM chain keeps the efficiency interpretation.
         self.assertNotIn('indicator', info['dev_hwc_sm_utilization'])
 
