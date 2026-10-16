@@ -932,6 +932,14 @@ def _build_device_hwc_scope_note_html():
             valid per kernel. With several GPUs, the counters of all devices
             are added (not yet validated with multi-GPU traces).
         </p>
+
+        <p>
+            <strong>GR Active</strong> (Graphics/Compute Engine Active) is the
+            percentage of time during which the GPU graphics/compute engine is
+            active. For compute workloads, it indicates the periods in which
+            the GPU is executing compute work; memory copies performed by the
+            copy engines are not included.
+        </p>
     </div>
     """
 

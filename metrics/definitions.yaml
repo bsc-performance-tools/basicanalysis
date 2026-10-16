@@ -1691,15 +1691,17 @@ metrics:
     metric_type: performance_indicator
     definition: >
       Fraction of the execution time in which the graphics/compute engine of
-      the GPUs is active, measured with the sampled GR Active counter. It is
-      a consistency check of the hardware counters: it should be close to
-      the fraction of time with kernels running obtained from the kernel
-      events of the trace.
+      the GPUs is active, measured with the sampled GR Active (Graphics/Compute
+      Engine Active) counter. For compute workloads, it indicates the periods
+      in which the GPU is executing compute work; memory copies performed by
+      the copy engines are not included. It is a consistency check of the
+      hardware counters: it should be close to the fraction of time with
+      kernels running obtained from the kernel events of the trace.
     formula:
       text: GPU_Active = sum_d integral(GR_Active_d) / (N × T)
       latex: GPU\_Active = \frac{\sum_d \int GR^{Active}_d\,dt}{N \cdot T}
       variables:
-        GR_Active_d: GR Active counter of device d (% of the sample period)
+        GR_Active_d: "GR Active (Graphics/Compute Engine Active) of device d: percentage of the cycles in which the graphics/compute engine is active"
         N: Number of devices with sampled hardware counters
         T: Runtime
     interpretation:
@@ -1735,7 +1737,7 @@ metrics:
       latex: SM\_Util = SM\_Coverage \times SM\_Issue = \frac{\int SM^{Issue}\,dt}{\int GR^{Active}\,dt}
       variables:
         SM_Issue: Ratio of cycles in which the SM sub-partitions issue an instruction
-        GR_Active: Ratio of cycles in which the graphics/compute engine is active
+        GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
     interpretation:
       low: The active GPU uses a small part of its issue capacity.
       high: The active GPU keeps most SMs issuing instructions.
@@ -1769,7 +1771,7 @@ metrics:
       latex: SM\_Coverage = \frac{\int SMs^{Active}\,dt}{\int GR^{Active}\,dt}
       variables:
         SMs_Active: Ratio of SM cycles with at least one warp in flight
-        GR_Active: Ratio of cycles in which the graphics/compute engine is active
+        GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
     interpretation:
       low: Many SMs are idle while kernels run.
       high: The kernels distribute work over all the SMs.
@@ -1861,7 +1863,7 @@ metrics:
       latex: Tensor = \frac{\int Tensor^{Active}\,dt}{\int GR^{Active}\,dt}
       variables:
         Tensor_Active: Ratio of cycles with the tensor pipes active
-        GR_Active: Ratio of cycles in which the graphics/compute engine is active
+        GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
     interpretation:
       reading: "Depends on the workload. Low values are expected for codes without matrix operations; for matrix-heavy codes (e.g. deep learning), low values indicate a missed opportunity."
       low: The tensor cores are little used (expected for non-matrix workloads).
@@ -1886,7 +1888,7 @@ metrics:
       latex: DRAM\_Read = \frac{\int DRAM^{Read} \cdot GR^{Active}\,dt}{\int GR^{Active}\,dt}
       variables:
         DRAM_Read_BW: DRAM read bandwidth (% of peak)
-        GR_Active: Ratio of cycles in which the graphics/compute engine is active
+        GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
     interpretation:
       reading: "Ambiguous on its own: read it together with SM Issue Efficiency. High bandwidth with low SM Issue Efficiency indicates memory-bound kernels, while near-peak bandwidth can also mean that kernels that must stream data use the memory well."
       low: The active GPU makes little use of the memory bandwidth.
@@ -1912,7 +1914,7 @@ metrics:
       latex: DRAM\_Write = \frac{\int DRAM^{Write} \cdot GR^{Active}\,dt}{\int GR^{Active}\,dt}
       variables:
         DRAM_Write_BW: DRAM write bandwidth (% of peak)
-        GR_Active: Ratio of cycles in which the graphics/compute engine is active
+        GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
     interpretation:
       reading: "Read it together with DRAM Read Bandwidth and SM Issue Efficiency: like the read bandwidth, a high value is not good or bad on its own."
       low: The active GPU writes little to memory.
@@ -1939,7 +1941,7 @@ metrics:
       latex: Clock = \frac{\int f_{GPC} \cdot GR^{Active}\,dt}{\int GR^{Active}\,dt}
       variables:
         GPC_Clock: GPC clock frequency (recorded in Hz by nsys2prv)
-        GR_Active: Ratio of cycles in which the graphics/compute engine is active
+        GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
     interpretation:
       reading: "Higher is better only when comparing executions on the same GPU model; the absolute value differs between GPU models."
       low: The GPU runs at a reduced clock while it computes.

@@ -2448,6 +2448,12 @@ where :math:`N` is the number of devices with sampled counters and
 Flight (``9412``), DRAM Read and Write Bandwidth (``9418``, ``9419``), and
 GPC Clock Frequency (``9400``).
 
+**GR Active** (Graphics/Compute Engine Active) is the percentage of the
+cycles of the sample period in which the GPU graphics/compute engine is
+active. For compute workloads, it indicates the periods in which the GPU is
+executing compute work. Memory copies are performed by separate copy engines
+and are not included.
+
 The SM counters are nested in each sample: SM Issue :math:`\le` SMs Active
 :math:`\le` GR Active, and Compute Warps in Flight + Unallocated Warps in
 Active SMs (*Active SM Unused Warp Slots* in the Nsight Systems
