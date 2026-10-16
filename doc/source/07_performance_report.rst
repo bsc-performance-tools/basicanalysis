@@ -12,7 +12,8 @@ Parallel Runtime Model to identify the main sources of efficiency loss.
 Runtime-Specific Analysis provides a more detailed view of the active parallel
 runtimes, while the Host/Device Model (TALP) identifies where accelerator-related
 inefficiencies manifest. For *nsys2prv* traces with GPU metrics, GPU Hardware
-Counters shows how well the GPU computes while it is active. I/O Analysis
+Counters shows how the GPU resources are exercised while the device is
+active. I/O Analysis
 provides a complementary view of the
 weight and distribution of File I/O activity. Finally, the Scaling view shows
 how performance and efficiency factors evolve across the analyzed
@@ -226,9 +227,10 @@ GPU Hardware Counters
 ---------------------
 
 For *nsys2prv* traces whose Nsight Systems report includes GPU metrics, the
-**GPU Hardware Counters** view describes **how well** the GPU computes while
-it is active, complementing the Device metrics of the Host/Device Model
-(TALP), which describe **when** it computes.
+**GPU Hardware Counters** view characterizes how the GPU resources are
+exercised while the device is active. It complements the Device metrics of
+the Host/Device Model (TALP), which characterize how effectively the
+accelerator is kept supplied with useful work over the execution.
 
 .. _fig-report-gpu-hardware-counters:
 

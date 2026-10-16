@@ -2396,10 +2396,11 @@ GPU Hardware Counter Metrics
 When the Nsight Systems report includes GPU metrics (``nsys profile
 --gpu-metrics-devices``), each GPU has a ``Metrics GPU<n>`` thread with
 hardware counters sampled for the whole GPU, every 100 µs by default
-(event types ``94xx``). BasicAnalysis uses them to report how well the GPU
-computes while it is active. Device Parallel Efficiency measures **when** the
-GPU computes; these metrics describe **how well** it computes. They are
-complementary and are **not** part of the multiplicative Host/Device model.
+(event types ``94xx``). The Device metrics characterize how effectively the
+accelerator is kept supplied with useful work over the execution, whereas the
+GPU hardware-counter metrics characterize how the GPU resources are exercised
+while the device is active. They are complementary and are **not** part of
+the multiplicative Host/Device model.
 
 BasicAnalysis integrates each counter :math:`x` over the whole trace,
 :math:`I_x = \int x(t)\,dt`, with the configurations

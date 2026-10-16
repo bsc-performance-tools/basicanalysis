@@ -291,8 +291,9 @@ def build_analysis_catalogue(
                 title="GPU Hardware Counters",
                 group="primary",
                 description=(
-                    "Examine how well the GPU computes while it is active, "
-                    "from the GPU metrics sampled by Nsight Systems."
+                    "Examine how the GPU resources are exercised while the "
+                    "device is active, from the GPU metrics sampled by "
+                    "Nsight Systems."
                 ),
                 body_html=device_hwc_html,
             )

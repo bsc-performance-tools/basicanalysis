@@ -4238,9 +4238,9 @@ def plots_talp_efficiency_table_matplot(
 # --------------------------------------------------------------
 # Device hardware counter metrics (nsys2prv GPU metrics)
 #
-# Complementary view of the Device: how well the GPU computes while
-# it is active. These metrics are not part of the multiplicative
-# Host/Device model.
+# Complementary view of the Device: how the GPU resources are exercised
+# while the device is active. These metrics are not part of the
+# multiplicative Host/Device model.
 # --------------------------------------------------------------
 
 # Rows of the efficiency heatmap: the multiplicative SM chain. The other

@@ -1726,9 +1726,10 @@ metrics:
       Fraction of the instruction-issue capacity of the GPU used while the
       GPU is active. It combines how many SMs receive work (SM Coverage) and
       how often the active SMs issue instructions (SM Issue Efficiency). It
-      complements the Device Parallel Efficiency, which measures when the
-      GPU computes, by measuring how well it computes. It is not part of the
-      multiplicative Host/Device model.
+      complements the Device metrics, which characterize how effectively the
+      accelerator is kept supplied with useful work over the execution, by
+      characterizing how the GPU resources are exercised while the device is
+      active. It is not part of the multiplicative Host/Device model.
     formula:
       text: SM_Util = SM_Coverage × SM_Issue_Eff = integral(SM_Issue) / integral(GR_Active)
       latex: SM\_Util = SM\_Coverage \times SM\_Issue = \frac{\int SM^{Issue}\,dt}{\int GR^{Active}\,dt}

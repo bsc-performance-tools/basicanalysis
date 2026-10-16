@@ -915,11 +915,12 @@ def _build_device_hwc_scope_note_html():
         <h3>Analysis focus</h3>
 
         <p>
-            The Device Parallel Efficiency of the Host/Device Model (TALP)
-            measures <strong>when</strong> the GPU computes. These metrics
-            describe <strong>how well</strong> it computes while it is
-            active. They are complementary and are not part of the
-            multiplicative efficiency model.
+            The Device metrics of the Host/Device Model (TALP)
+            characterize how effectively the accelerator is kept supplied
+            with useful work over the execution, whereas these metrics
+            characterize how the GPU resources are exercised while the
+            device is active. They are complementary and are not part of
+            the multiplicative efficiency model.
         </p>
 
         <p>
@@ -1241,8 +1242,9 @@ def _build_printable_device_hwc_section(metrics_result, trace_list,
             <h2>{section_number} GPU Hardware Counter Analysis</h2>
 
             <p class="print-section-description">
-                Complementary metrics of how well the GPU computes while it
-                is active, from the GPU metrics sampled by Nsight Systems.
+                Complementary metrics of how the GPU resources are exercised
+                while the device is active, from the GPU metrics sampled by
+                Nsight Systems.
             </p>
         </header>
 
