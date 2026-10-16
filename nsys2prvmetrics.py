@@ -101,7 +101,7 @@ mod_device_hwc_factors_doc = OrderedDict([
     ('dev_hwc_sm_utilization', 'SM Utilization'),
     ('dev_hwc_sm_coverage', '-- SM Coverage'),
     ('dev_hwc_sm_issue_eff', '-- SM Issue Efficiency'),
-    ('dev_hwc_warp_occupancy', 'Warp Occupancy'),
+    ('dev_hwc_achieved_occupancy', 'Achieved Occupancy (run average)'),
     ('dev_hwc_tensor_activity', 'Tensor Core Activity'),
     ('dev_hwc_dram_read', 'DRAM Read Bandwidth'),
     ('dev_hwc_dram_write', 'DRAM Write Bandwidth'),
@@ -384,7 +384,7 @@ def compute_device_hwc_factors(raw_data, trace):
       SM Utilization        = I_SMIssue / I_GR
         SM Coverage         = I_SMsActive / I_GR
         SM Issue Efficiency = I_SMIssue / I_SMsActive
-      Warp Occupancy        = I_WarpsInFlight / I_SMsActive
+      Achieved Occupancy    = I_WarpsInFlight / I_SMsActive
       Tensor Core Activity  = I_Tensor / I_GR
       DRAM Read/Write       = I_(DRAM x GR) / I_GR
       GPC Clock             = I_(Clock x GR) / I_GR
@@ -422,7 +422,7 @@ def compute_device_hwc_factors(raw_data, trace):
     factors['dev_hwc_sm_utilization'] = ratio(integrals['sm_issue'], gr)
     factors['dev_hwc_sm_coverage'] = ratio(integrals['sms_active'], gr)
     factors['dev_hwc_sm_issue_eff'] = ratio(integrals['sm_issue'], integrals['sms_active'])
-    factors['dev_hwc_warp_occupancy'] = ratio(integrals['warps_in_flight'], integrals['sms_active'])
+    factors['dev_hwc_achieved_occupancy'] = ratio(integrals['warps_in_flight'], integrals['sms_active'])
     factors['dev_hwc_tensor_activity'] = ratio(integrals['tensor_active'], gr)
     factors['dev_hwc_dram_read'] = ratio(integrals['dram_read'], gr, scale=1.0)
     factors['dev_hwc_dram_write'] = ratio(integrals['dram_write'], gr, scale=1.0)

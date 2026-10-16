@@ -98,7 +98,7 @@ class HwcFactorsTests(unittest.TestCase):
             'dev_hwc_sm_utilization': 2.56,
             'dev_hwc_sm_coverage': 46.43,
             'dev_hwc_sm_issue_eff': 5.51,
-            'dev_hwc_warp_occupancy': 14.97,
+            'dev_hwc_achieved_occupancy': 14.97,
             'dev_hwc_tensor_activity': 2.30,
             'dev_hwc_dram_read': 54.12,
             'dev_hwc_dram_write': 1.55,

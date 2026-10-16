@@ -24,8 +24,8 @@
   Execution Overview of the interactive report.
 - Add GPU hardware counter metrics for nsys2prv traces whose Nsight Systems
   report includes GPU metrics: SM Utilization and its factors SM Coverage
-  and SM Issue Efficiency, and the indicators GPU Active, Warp Occupancy,
-  Tensor Core Activity, DRAM Read and Write Bandwidth and GPC Clock. They
+  and SM Issue Efficiency, and the indicators GPU Active, Achieved Occupancy
+  (run average over all kernels), Tensor Core Activity, DRAM Read and Write Bandwidth and GPC Clock. They
   are averages over the whole execution weighted by the GPU activity, are
   complementary to the Host/Device model (not part of it), and are shown in
   the standard output, in `device_hwc_metrics.csv`, in the

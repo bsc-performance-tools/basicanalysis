@@ -404,7 +404,7 @@ def _build_device_hwc_metric_info():
         "dev_hwc_sm_coverage": {"label": "   -- SM Coverage", "short_label": "SM Coverage"},
         "dev_hwc_sm_issue_eff": {"label": "   -- SM Issue Efficiency", "short_label": "SM Issue"},
         "dev_hwc_gpu_active": {"label": "GPU Active (HW counters)", "short_label": "GPU Active"},
-        "dev_hwc_warp_occupancy": {"label": "Warp Occupancy", "short_label": "Occupancy"},
+        "dev_hwc_achieved_occupancy": {"label": "Achieved Occupancy (run average)", "short_label": "Achieved Occ."},
         "dev_hwc_tensor_activity": {"label": "Tensor Core Activity", "short_label": "Tensor"},
         "dev_hwc_dram_read": {"label": "DRAM Read Bandwidth", "short_label": "DRAM Read"},
         "dev_hwc_dram_write": {"label": "DRAM Write Bandwidth", "short_label": "DRAM Write"},
@@ -426,7 +426,7 @@ DEVICE_HWC_CHAIN_ORDER = [
 # Indicators: higher is not always better, shown without colours.
 DEVICE_HWC_INDICATOR_ORDER = [
     "dev_hwc_gpu_active",
-    "dev_hwc_warp_occupancy",
+    "dev_hwc_achieved_occupancy",
     "dev_hwc_tensor_activity",
     "dev_hwc_dram_read",
     "dev_hwc_dram_write",
@@ -955,7 +955,7 @@ def _build_device_hwc_patterns_html():
             </li>
             <li>
                 <strong>Low SM Issue Efficiency + low DRAM bandwidth + low
-                Warp Occupancy</strong>: latency-bound kernels, with too few
+                Achieved Occupancy</strong>: latency-bound kernels, with too few
                 warps to hide latencies.
             </li>
             <li>
@@ -992,7 +992,7 @@ def _build_device_hwc_guidance_html():
 
         <p>
             Use the indicators to explain the chain:
-            <strong>Warp Occupancy</strong> (warps available to hide
+            <strong>Achieved Occupancy</strong> (warps available to hide
             latencies), <strong>Tensor Core Activity</strong>,
             <strong>DRAM bandwidth</strong> (memory-bound kernels) and the
             <strong>GPC Clock</strong> (throttling). Higher indicator values

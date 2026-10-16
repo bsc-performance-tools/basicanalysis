@@ -1745,7 +1745,7 @@ metrics:
       - Low occupancy that cannot hide latencies
     next_steps:
       - Inspect SM Coverage and SM Issue Efficiency.
-      - Inspect Warp Occupancy, DRAM bandwidth and Tensor Core Activity.
+      - Inspect Achieved Occupancy, DRAM bandwidth and Tensor Core Activity.
     children:
       - dev_hwc_sm_coverage
       - dev_hwc_sm_issue_eff
@@ -1806,36 +1806,42 @@ metrics:
       - Low occupancy
       - Dependencies and synchronization inside the kernels
     next_steps:
-      - Inspect Warp Occupancy and DRAM bandwidth.
+      - Inspect Achieved Occupancy and DRAM bandwidth.
     children: []
     sources:
       - basicanalysis_gpu_hwc
 
-  dev_hwc_warp_occupancy:
-    name: Warp Occupancy
-    short_name: Occupancy
+  dev_hwc_achieved_occupancy:
+    name: Achieved Occupancy (run average)
+    short_name: Achieved Occ.
     family: gpu_hwc
     analysis_level: hardware_counters
     metric_type: performance_indicator
     definition: >
-      Average fraction of the warp slots of the active SMs that hold a warp.
-      The remaining slots are unallocated (Compute Warps in Flight +
-      Unallocated Warps = SMs Active).
+      Resident warps relative to the maximum number of warps per SM, during
+      the cycles in which the SMs are active (CUDA achieved occupancy),
+      averaged over all kernels and the whole execution. The remaining warp
+      slots of the active SMs are unused (Compute Warps in Flight + Active SM
+      Unused Warp Slots = SMs Active). It is not the theoretical occupancy
+      of a launch configuration and not a per-kernel value: with several
+      kernels it mixes kernels with different occupancies. Use Nsight
+      Compute for the occupancy of each kernel.
     formula:
-      text: Occupancy = integral(Warps_in_Flight) / integral(SMs_Active)
-      latex: Occupancy = \frac{\int Warps^{Flight}\,dt}{\int SMs^{Active}\,dt}
+      text: AchievedOcc = integral(Warps_in_Flight) / integral(SMs_Active)
+      latex: AchievedOcc = \frac{\int Warps^{Flight}\,dt}{\int SMs^{Active}\,dt}
       variables:
-        Warps_in_Flight: Compute warps in flight (% of the maximum warps)
+        Warps_in_Flight: Active compute warps resident on the SMs relative to the maximum warps per SM, averaged over all SMs (Compute Warps in Flight)
         SMs_Active: Ratio of SM cycles with at least one warp in flight
     interpretation:
-      reading: "Higher is not necessarily better. Low occupancy matters when SM Issue Efficiency is also low; kernels with much work per thread can perform well at low occupancy."
+      reading: "Higher is not necessarily better. Low occupancy matters when SM Issue Efficiency is also low; kernels with much work per thread can perform well at low occupancy. Run average over all kernels: do not compare it directly with the per-kernel achieved occupancy of Nsight Compute unless one kernel dominates."
       low: Few warps to hide latencies.
       high: Many warps available to hide latencies.
     typical_causes:
       - Registers or shared memory per block limiting the resident blocks
       - Small blocks or grids
     next_steps:
-      - Inspect registers per thread and shared memory of the kernels.
+      - Inspect registers per thread and shared memory of the kernels (Kernel Registers/Thread and Shared Memory events).
+      - Profile the dominant kernels with Nsight Compute for their theoretical and achieved occupancy.
     children: []
     sources:
       - basicanalysis_gpu_hwc

@@ -2427,9 +2427,10 @@ metrics are ratios of these integrals:
    * - GPU Active (HW counters)
      - :math:`I_{GR\,Active} / (N \cdot T)`
      - Fraction of time with the GPU active
-   * - Warp Occupancy
+   * - Achieved Occupancy (run average)
      - :math:`I_{Warps\,in\,Flight} / I_{SMs\,Active}`
-     - Fraction of the warp slots of the active SMs that hold a warp
+     - Resident warps relative to the maximum warps per SM, while the SMs
+       are active (CUDA achieved occupancy), averaged over all kernels
    * - Tensor Core Activity
      - :math:`I_{Tensor\,Active} / I_{GR\,Active}`
      - Use of the tensor cores
@@ -2448,7 +2449,8 @@ GPC Clock Frequency (``9400``).
 
 The SM counters are nested in each sample: SM Issue :math:`\le` SMs Active
 :math:`\le` GR Active, and Compute Warps in Flight + Unallocated Warps in
-Active SMs = SMs Active. Therefore:
+Active SMs (*Active SM Unused Warp Slots* in the Nsight Systems
+documentation) = SMs Active. Therefore:
 
 .. math::
 
@@ -2480,7 +2482,7 @@ with the SM Utilization chain:
    * - GPU Active
      - Consistency check rather than a quality measure. The idle time of the
        GPU is assessed by the Device Parallel Efficiency.
-   * - Warp Occupancy
+   * - Achieved Occupancy
      - Higher is not necessarily better. Low occupancy matters when SM Issue
        Efficiency is also low; kernels with much work per thread can perform
        well at low occupancy.
@@ -2495,12 +2497,20 @@ with the SM Utilization chain:
    * - GPC Clock
      - Higher is better only when comparing executions on the same GPU model.
 
+**Achieved Occupancy** follows the definition of CUDA achieved occupancy
+(resident warps relative to the maximum warps per SM, during the cycles in
+which the SMs are active), but it is an average over all the kernels of the
+execution, obtained from sampled counters. It is not the theoretical
+occupancy of a launch configuration, and it should not be compared directly
+with the per-kernel achieved occupancy reported by Nsight Compute unless one
+kernel dominates the execution.
+
 The combinations of metrics point to the likely cause:
 
 * low **SM Issue Efficiency** + high **DRAM bandwidth**: memory-bound
   kernels (e.g. a vLLM decoding trace with batch size 1: DRAM Read 54%, SM
   Issue Efficiency 5.5%);
-* low **SM Issue Efficiency** + low **DRAM bandwidth** + low **Warp
+* low **SM Issue Efficiency** + low **DRAM bandwidth** + low **Achieved
   Occupancy**: latency-bound kernels, with too few warps to hide latencies;
 * low **SM Coverage**: grids with fewer blocks than SMs or very short
   kernels (46% in the same trace);
