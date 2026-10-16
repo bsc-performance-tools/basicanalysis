@@ -106,6 +106,10 @@ class MetricKnowledge:
 
     thresholds: MetricThresholds
 
+    # How to read the metric when low and high values cannot be judged as
+    # good or bad on their own (e.g. indicators). Optional.
+    interpretation_reading: str = ""
+
     @property
     def label(self) -> str:
         """Return the full user-facing label."""
@@ -561,6 +565,9 @@ class PerformanceKnowledgeProvider:
                 )
             ),
             thresholds=thresholds,
+            interpretation_reading=_optional_string(
+                interpretation.get("reading")
+            ),
         )
 
     def _resolve_thresholds(self, value: Any) -> MetricThresholds:

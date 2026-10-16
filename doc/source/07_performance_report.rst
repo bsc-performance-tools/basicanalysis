@@ -248,9 +248,19 @@ The view, shown in :numref:`fig-report-gpu-hardware-counters`, includes:
 * **Indicators** that explain the SM Utilization chain: GPU Active (a
   consistency check with the kernel events), Warp Occupancy, Tensor Core
   Activity, DRAM Read and Write Bandwidth, and GPC Clock. A higher indicator
-  value is not necessarily better, so they are shown without colours.
+  value is not necessarily better, so they are shown without colours, and
+  their Metric Details explain how to read each indicator and what low and
+  high values mean, instead of giving an efficiency verdict.
+* **Diagnostic patterns**, the combinations of metrics that point to a
+  likely cause: low SM Issue Efficiency with high DRAM bandwidth
+  (memory-bound kernels), low SM Issue Efficiency with low DRAM bandwidth and
+  low Warp Occupancy (latency-bound kernels), low SM Coverage (grids too
+  small for the GPU or very short kernels), and a lower GPC Clock under
+  higher load on the same GPU model (throttling).
 * A trend plot of SM Utilization and its factors when several executions are
   analyzed.
+
+As in the other views, click any value to open its Metric Details.
 
 The metrics are averages over the whole execution weighted by the GPU
 activity. They are not part of the multiplicative efficiency model and are

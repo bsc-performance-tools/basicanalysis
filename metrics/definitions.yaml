@@ -1703,8 +1703,12 @@ metrics:
         N: Number of devices with sampled hardware counters
         T: Runtime
     interpretation:
+      reading: "Consistency check rather than a quality measure: compare it with the fraction of time with kernels running. The idle time of the GPU is assessed by the Device Parallel Efficiency."
       low: The GPUs are idle most of the execution.
       high: The GPUs are busy most of the execution.
+    next_steps:
+      - "Compare it with the fraction of time with kernels running (Device useful time / runtime); a large difference indicates a problem with the sampled counters."
+      - "Use the Device metrics of the Host/Device Model (TALP) to analyze the idle periods of the GPU."
     children: []
     availability: >
       Only for nsys2prv traces with sampled GPU metrics (Metrics GPU<n>
@@ -1824,6 +1828,7 @@ metrics:
         Warps_in_Flight: Compute warps in flight (% of the maximum warps)
         SMs_Active: Ratio of SM cycles with at least one warp in flight
     interpretation:
+      reading: "Higher is not necessarily better. Low occupancy matters when SM Issue Efficiency is also low; kernels with much work per thread can perform well at low occupancy."
       low: Few warps to hide latencies.
       high: Many warps available to hide latencies.
     typical_causes:
@@ -1851,8 +1856,11 @@ metrics:
         Tensor_Active: Ratio of cycles with the tensor pipes active
         GR_Active: Ratio of cycles in which the graphics/compute engine is active
     interpretation:
+      reading: "Depends on the workload. Low values are expected for codes without matrix operations; for matrix-heavy codes (e.g. deep learning), low values indicate a missed opportunity."
       low: The tensor cores are little used (expected for non-matrix workloads).
       high: The workload is dominated by tensor-core matrix operations.
+    next_steps:
+      - "For matrix-heavy workloads with low activity, check that the kernels use tensor-core data types and libraries (e.g. cuBLAS, cuDNN with FP16/BF16/TF32)."
     children: []
     sources:
       - basicanalysis_gpu_hwc
@@ -1873,8 +1881,12 @@ metrics:
         DRAM_Read_BW: DRAM read bandwidth (% of peak)
         GR_Active: Ratio of cycles in which the graphics/compute engine is active
     interpretation:
+      reading: "Ambiguous on its own: read it together with SM Issue Efficiency. High bandwidth with low SM Issue Efficiency indicates memory-bound kernels, while near-peak bandwidth can also mean that kernels that must stream data use the memory well."
       low: The active GPU makes little use of the memory bandwidth.
       high: The kernels are likely limited by memory bandwidth.
+    next_steps:
+      - "With high DRAM bandwidth and low SM Issue Efficiency, the kernels are likely memory-bound: improve data reuse, caching, or batching."
+      - "Profile the dominant kernels with Nsight Compute for the memory hierarchy details."
     children: []
     sources:
       - basicanalysis_gpu_hwc
@@ -1895,8 +1907,12 @@ metrics:
         DRAM_Write_BW: DRAM write bandwidth (% of peak)
         GR_Active: Ratio of cycles in which the graphics/compute engine is active
     interpretation:
+      reading: "Read it together with DRAM Read Bandwidth and SM Issue Efficiency: like the read bandwidth, a high value is not good or bad on its own."
       low: The active GPU writes little to memory.
       high: The kernels write intensively to memory.
+    next_steps:
+      - "Compare with DRAM Read Bandwidth to characterize the memory traffic of the kernels."
+      - "Profile the dominant kernels with Nsight Compute for the memory hierarchy details."
     children: []
     sources:
       - basicanalysis_gpu_hwc
@@ -1918,8 +1934,12 @@ metrics:
         GPC_Clock: GPC clock frequency (recorded in Hz by nsys2prv)
         GR_Active: Ratio of cycles in which the graphics/compute engine is active
     interpretation:
+      reading: "Higher is better only when comparing executions on the same GPU model; the absolute value differs between GPU models."
       low: The GPU runs at a reduced clock while it computes.
       high: The GPU runs close to its boost clock while it computes.
+    next_steps:
+      - "Compare executions on the same GPU model: a lower clock under higher load indicates power or thermal throttling."
+      - "Check the power and clock settings of the GPU (e.g. with nvidia-smi)."
     children: []
     sources:
       - basicanalysis_gpu_hwc

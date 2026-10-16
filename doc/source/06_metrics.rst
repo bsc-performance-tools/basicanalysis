@@ -2467,14 +2467,45 @@ the fraction of time with kernels running obtained from the kernel events
 54.56% in another one).
 
 Only **SM Utilization** and its two factors are efficiencies and are shown in
-the efficiency table and heatmap. The other metrics are indicators: a higher
-value is not necessarily better (for example, a high DRAM bandwidth
-indicates memory-bound kernels). They explain the SM Utilization chain:
+the efficiency table and heatmap. The other metrics are indicators: their low
+and high values are not good or bad on their own and must be read together
+with the SM Utilization chain:
 
-* low **SM Coverage**: kernels with fewer blocks than SMs, short kernels;
-* low **SM Issue Efficiency**: stalled SMs, memory-bound kernels (high DRAM
-  bandwidth) or few warps to hide latencies (low Warp Occupancy);
-* low **GPC Clock** for the same GPU: power or thermal throttling.
+.. list-table::
+   :header-rows: 1
+   :widths: 26 74
+
+   * - Indicator
+     - How to read it
+   * - GPU Active
+     - Consistency check rather than a quality measure. The idle time of the
+       GPU is assessed by the Device Parallel Efficiency.
+   * - Warp Occupancy
+     - Higher is not necessarily better. Low occupancy matters when SM Issue
+       Efficiency is also low; kernels with much work per thread can perform
+       well at low occupancy.
+   * - Tensor Core Activity
+     - Depends on the workload: low values are expected for codes without
+       matrix operations, and indicate a missed opportunity for matrix-heavy
+       codes (e.g. deep learning).
+   * - DRAM Read / Write Bandwidth
+     - Ambiguous on its own: high bandwidth with low SM Issue Efficiency
+       indicates memory-bound kernels, while near-peak bandwidth can also mean
+       that kernels that must stream data use the memory well.
+   * - GPC Clock
+     - Higher is better only when comparing executions on the same GPU model.
+
+The combinations of metrics point to the likely cause:
+
+* low **SM Issue Efficiency** + high **DRAM bandwidth**: memory-bound
+  kernels (e.g. a vLLM decoding trace with batch size 1: DRAM Read 54%, SM
+  Issue Efficiency 5.5%);
+* low **SM Issue Efficiency** + low **DRAM bandwidth** + low **Warp
+  Occupancy**: latency-bound kernels, with too few warps to hide latencies;
+* low **SM Coverage**: grids with fewer blocks than SMs or very short
+  kernels (46% in the same trace);
+* lower **GPC Clock** under higher load on the same GPU model: power or
+  thermal throttling.
 
 These metrics are global for the whole execution and are **not valid per
 kernel**. Their assumptions are summarized in :doc:`09_limitations`.

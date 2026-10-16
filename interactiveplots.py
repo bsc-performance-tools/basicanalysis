@@ -839,9 +839,18 @@ def _format_device_hwc_indicator(metric_key, value):
     return "{:.2f}%".format(value)
 
 
+DEVICE_HWC_INDICATOR_UNITS = {
+    key: ("MHz" if key == "dev_hwc_gpc_clock" else "%")
+    for key in DEVICE_HWC_INDICATOR_ORDER
+}
+
+
 def _build_device_hwc_indicator_table_html(device_hwc_factors, trace_list,
-                                           trace_labels):
-    """Table of the hardware counter indicators (no efficiency colours)."""
+                                           trace_labels, section_id=None):
+    """Table of the hardware counter indicators (no efficiency colours).
+
+    With a section_id, the values open the Metric Details of the section.
+    """
 
     lines = [
         "<div class='efficiency-table-wrapper'>",
@@ -865,7 +874,7 @@ def _build_device_hwc_indicator_table_html(device_hwc_factors, trace_list,
                 html.escape(label),
             )
         )
-        for trace in trace_list:
+        for index, trace in enumerate(trace_list):
             raw_value = _read_metric(device_hwc_factors, metric_key, trace)
             value = _clean_value(raw_value)
             text = (
@@ -873,7 +882,24 @@ def _build_device_hwc_indicator_table_html(device_hwc_factors, trace_list,
                 if value is not None
                 else _format_unavailable_metric_value(raw_value)
             )
-            lines.append("<td>{}</td>".format(text))
+            if section_id is None:
+                lines.append("<td>{}</td>".format(text))
+                continue
+            lines.append(
+                "<td><button type='button' class='device-hwc-indicator-value' "
+                "onclick=\"selectMetricCell(this, '{section_id}', "
+                "'{metric_key}', '{metric_label}', '{trace_label}', "
+                "{value})\">{text}</button></td>".format(
+                    section_id=html.escape(section_id, quote=True),
+                    metric_key=html.escape(metric_key, quote=True),
+                    metric_label=html.escape(label, quote=True),
+                    trace_label=html.escape(trace_labels[index], quote=True),
+                    value=(
+                        "{:.10f}".format(value) if value is not None else "null"
+                    ),
+                    text=text,
+                )
+            )
         lines.append("</tr>")
 
     lines.append("</tbody></table></div>")
@@ -905,6 +931,43 @@ def _build_device_hwc_scope_note_html():
             valid per kernel. With several GPUs, the counters of all devices
             are added (not yet validated with multi-GPU traces).
         </p>
+    </div>
+    """
+
+
+def _build_device_hwc_patterns_html():
+    """Combinations of GPU hardware counter metrics that suggest a cause."""
+
+    return """
+    <div class="analysis-scope-note device-hwc-patterns">
+        <h3>Diagnostic patterns</h3>
+
+        <p>
+            The indicators are not good or bad on their own; combinations
+            with the SM Utilization chain point to the likely cause:
+        </p>
+
+        <ul>
+            <li>
+                <strong>Low SM Issue Efficiency + high DRAM
+                bandwidth</strong>: memory-bound kernels. Improve data
+                reuse or batching.
+            </li>
+            <li>
+                <strong>Low SM Issue Efficiency + low DRAM bandwidth + low
+                Warp Occupancy</strong>: latency-bound kernels, with too few
+                warps to hide latencies.
+            </li>
+            <li>
+                <strong>Low SM Coverage</strong>: the grids are too small for
+                the GPU (fewer blocks than SMs) or the kernels are very
+                short.
+            </li>
+            <li>
+                <strong>Lower GPC Clock under higher load</strong> (same GPU
+                model): power or thermal throttling.
+            </li>
+        </ul>
     </div>
     """
 
@@ -951,8 +1014,10 @@ def _build_device_hwc_section(metrics_result, trace_list, trace_labels,
     metric_keys = list(DEVICE_HWC_CHAIN_ORDER)
     metric_sources = {key: device_hwc_factors for key in metric_keys}
 
+    all_keys = metric_keys + DEVICE_HWC_INDICATOR_ORDER
+
     metric_knowledge = _build_metric_knowledge(
-        metric_keys=metric_keys,
+        metric_keys=all_keys,
     )
 
     table_html = _build_efficiency_table_html(
@@ -967,15 +1032,17 @@ def _build_device_hwc_section(metrics_result, trace_list, trace_labels,
     )
 
     info_json = _metric_info_json(
-        metric_keys,
+        all_keys,
         DEVICE_HWC_METRIC_INFO,
         metric_knowledge,
+        indicator_units=DEVICE_HWC_INDICATOR_UNITS,
     )
 
     indicator_table_html = _build_device_hwc_indicator_table_html(
         device_hwc_factors,
         trace_list,
         trace_labels,
+        section_id="device-hwc",
     )
 
     trend_html = ""
@@ -1021,11 +1088,36 @@ def _build_device_hwc_section(metrics_result, trace_list, trace_labels,
             {table_html}
         </div>
 
+        <style>
+        .device-hwc-indicator-value {{
+            border: 1px solid transparent;
+            border-radius: 3px;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            padding: 2px 6px;
+            cursor: pointer;
+        }}
+        .device-hwc-indicator-value:hover,
+        .device-hwc-indicator-value:focus {{
+            border-color: rgba(30, 50, 70, 0.25);
+            background: #eef3f9;
+        }}
+        </style>
+
         <h3>Indicators</h3>
+
+        <p class="trace-header-note">
+            Click any indicator value to view its definition and
+            interpretation. Indicators are not efficiencies: a higher value
+            is not necessarily better.
+        </p>
 
         <div class="metric-table-card">
             {indicator_table_html}
         </div>
+
+        {patterns_html}
 
         {trend_html}
 
@@ -1044,6 +1136,7 @@ def _build_device_hwc_section(metrics_result, trace_list, trace_labels,
         ),
         table_html=table_html,
         indicator_table_html=indicator_table_html,
+        patterns_html=_build_device_hwc_patterns_html(),
         trend_html=trend_html,
         efficiency_scale_html=_build_efficiency_scale_html(),
         scope_note_html=_build_device_hwc_scope_note_html(),
@@ -1107,9 +1200,12 @@ def _build_printable_device_hwc_section(metrics_result, trace_list,
         <div class="print-metric-results metric-table-card">
             {indicator_table_html}
         </div>
+
+        {patterns_html}
     </section>
     """.format(
         section_number=section_number,
+        patterns_html=_build_device_hwc_patterns_html(),
         scope_note_html=_build_device_hwc_scope_note_html(),
         trace_column_description=html.escape(trace_column_description),
         table_html=table_html,
@@ -2849,7 +2945,8 @@ def _clean_metric_label(label):
 def _metric_info_json(
         metric_keys,
         metric_info,
-        metric_knowledge):
+        metric_knowledge,
+        indicator_units=None):
     """Serialize metric presentation and semantic knowledge for JavaScript.
 
     Presentation-specific fields, such as the report label and metric type,
@@ -2922,6 +3019,15 @@ def _metric_info_json(
             "above100": interpretation_above_reference,
             "action": " ".join(recommendations),
         }
+
+        # Indicators (e.g. GPU hardware counters) are not efficiencies:
+        # their details show the unit and the low/high interpretation
+        # instead of the efficiency thresholds.
+        if indicator_units and metric_key in indicator_units:
+            data[metric_key]["indicator"] = True
+            data[metric_key]["unit"] = indicator_units[metric_key]
+            data[metric_key]["high"] = interpretation_high
+            data[metric_key]["reading"] = knowledge.interpretation_reading
 
     return json.dumps(data)
 
@@ -10062,10 +10168,19 @@ def _build_interactive_report_document(workspace_html,
             const info = infoDict[metricKey];
             const thresholds = info.thresholds;
 
-            const valueText =
+            let valueText =
                 value === null || value === undefined
                     ? "Non-Avail"
                     : value.toFixed(2) + "%";
+
+            if (
+                info.indicator
+                && value !== null
+                && value !== undefined
+                && info.unit !== "%"
+            ) {
+                valueText = value.toFixed(0) + " " + info.unit;
+            }
 
             let interpretation = "";
 
@@ -10075,6 +10190,16 @@ def _build_interactive_report_document(workspace_html,
             ) {
                 interpretation =
                     "Metric is not available for this trace or configuration.";
+            } else if (info.indicator) {
+                // Indicators have no efficiency thresholds: higher is
+                // not necessarily better.
+                interpretation =
+                    "Indicator (not an efficiency). "
+                    + (info.reading ? info.reading + " " : "")
+                    + "Low values: "
+                    + info.low
+                    + " High values: "
+                    + info.high;
             } else if (
                 value > thresholds.reference
             ) {

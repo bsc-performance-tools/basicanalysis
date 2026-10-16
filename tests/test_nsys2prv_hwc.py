@@ -227,6 +227,30 @@ class HwcOutputTests(unittest.TestCase):
         self.assertIn('1905 MHz', html)
         self.assertIn('46.43%', html)
 
+    def test_report_indicator_details(self):
+        import json
+        import re
+        from interactiveplots import _build_device_hwc_section
+        html = _build_device_hwc_section(
+            {'device_hwc_factors': self.factors}, ['b1'], ['T1'],
+            trace_header_note='')
+
+        # Indicator values open the Metric Details of the view.
+        self.assertIn(
+            "selectMetricCell(this, 'device-hwc', 'dev_hwc_gpc_clock'", html)
+
+        info = json.loads(re.search(
+            r'window\["metricInfo_device-hwc"\] = (\{.*?\});\n', html).group(1))
+        self.assertTrue(info['dev_hwc_gpc_clock']['indicator'])
+        self.assertEqual(info['dev_hwc_gpc_clock']['unit'], 'MHz')
+        self.assertEqual(info['dev_hwc_dram_read']['unit'], '%')
+        self.assertTrue(info['dev_hwc_dram_read']['action'])
+        self.assertIn('SM Issue Efficiency', info['dev_hwc_dram_read']['reading'])
+        self.assertIn('Diagnostic patterns', html)
+        self.assertIn('memory-bound', html)
+        # The SM chain keeps the efficiency interpretation.
+        self.assertNotIn('indicator', info['dev_hwc_sm_utilization'])
+
 
 if __name__ == '__main__':
     unittest.main()
