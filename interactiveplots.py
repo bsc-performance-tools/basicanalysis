@@ -1089,19 +1089,51 @@ def _build_device_hwc_section(metrics_result, trace_list, trace_labels,
         </div>
 
         <style>
+        /* Indicator values: same chip as the efficiency values, with a
+           single neutral colour (indicators are not good or bad on their
+           own), so that they are recognisable as clickable. */
         .device-hwc-indicator-value {{
-            border: 1px solid transparent;
+            display: inline-flex;
+            width: 104px;
+            min-width: 104px;
+            height: 34px;
+            padding: 0 8px;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #b9cbe0;
             border-radius: 3px;
-            background: transparent;
-            color: inherit;
-            font: inherit;
-            padding: 2px 6px;
+            background: #e7f0fb;
+            color: #245887;
             cursor: pointer;
+            font-family: inherit;
+            font-size: clamp(14px, 0.85vw, 17px);
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            transition:
+                transform 0.15s ease,
+                box-shadow 0.15s ease;
         }}
-        .device-hwc-indicator-value:hover,
+        .device-hwc-indicator-value:hover {{
+            transform: translateY(-1px);
+            box-shadow: 0 3px 9px rgba(20, 38, 63, 0.16);
+        }}
         .device-hwc-indicator-value:focus {{
-            border-color: rgba(30, 50, 70, 0.25);
-            background: #eef3f9;
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }}
+        /* Compact table, as the efficiency table above. */
+        .device-hwc-analysis .device-hwc-indicators {{
+            width: auto;
+        }}
+        .device-hwc-analysis .device-hwc-indicators th,
+        .device-hwc-analysis .device-hwc-indicators td {{
+            text-align: center;
+            padding: 6px 8px;
+        }}
+        .device-hwc-analysis .device-hwc-indicators th:first-child,
+        .device-hwc-analysis .device-hwc-indicators td:first-child {{
+            text-align: left;
+            padding-right: 24px;
         }}
         </style>
 
