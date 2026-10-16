@@ -243,8 +243,9 @@ accelerator is kept supplied with useful work over the execution.
 
 The view, shown in :numref:`fig-report-gpu-hardware-counters`, includes:
 
-* **SM Utilization**, the fraction of the instruction-issue capacity used
-  while the GPU is active, and its factors **SM Coverage** (are all SMs given
+* **SM Utilization**, the degree to which the SMs issue instructions while
+  the GPU is active (not a fraction of the peak instruction throughput), and
+  its factors **SM Coverage** (are all SMs given
   work?) and **SM Issue Efficiency** (do the active SMs issue instructions?).
   They use the same efficiency colour scale as the other views.
 * **Indicators** that explain the SM Utilization chain: GPU Active (a

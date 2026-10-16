@@ -1725,8 +1725,10 @@ metrics:
     analysis_level: hardware_counters
     metric_type: compound_efficiency
     definition: >
-      Fraction of the instruction-issue capacity of the GPU used while the
-      GPU is active. It combines how many SMs receive work (SM Coverage) and
+      Degree to which the SMs issue instructions while the GPU is active,
+      that is, the fraction of GPU-active time represented by
+      instruction-issuing SM activity. It is not a fraction of the peak
+      instruction throughput of the architecture. It combines how many SMs receive work (SM Coverage) and
       how often the active SMs issue instructions (SM Issue Efficiency). It
       complements the Device metrics, which characterize how effectively the
       accelerator is kept supplied with useful work over the execution, by
@@ -1739,7 +1741,7 @@ metrics:
         SM_Issue: Ratio of cycles in which the SM sub-partitions issue an instruction
         GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
     interpretation:
-      low: The active GPU uses a small part of its issue capacity.
+      low: The SMs issue instructions during a small fraction of the GPU-active time.
       high: The active GPU keeps most SMs issuing instructions.
       above_100: Values above 100% are not expected and should be checked.
     typical_causes:

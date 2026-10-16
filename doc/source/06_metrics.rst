@@ -2417,7 +2417,7 @@ metrics are ratios of these integrals:
      - Meaning
    * - SM Utilization
      - :math:`I_{SM\,Issue} / I_{GR\,Active}`
-     - Fraction of the instruction-issue capacity used while the GPU is active
+     - Degree to which the SMs issue instructions while the GPU is active
    * - -- SM Coverage
      - :math:`I_{SMs\,Active} / I_{GR\,Active}`
      - Fraction of SMs with at least one warp

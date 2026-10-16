@@ -1018,8 +1018,9 @@ def _build_device_hwc_guidance_html():
         <summary>How to read this view</summary>
 
         <p>
-            Start with <strong>SM Utilization</strong>, the fraction of the
-            instruction-issue capacity used while the GPU is active. It is
+            Start with <strong>SM Utilization</strong>, the degree to which
+            the SMs issue instructions while the GPU is active (not a
+            fraction of the peak instruction throughput). It is
             the product of <strong>SM Coverage</strong> (do the kernels give
             work to all the SMs?) and <strong>SM Issue Efficiency</strong>
             (do the active SMs issue instructions or are they stalled?).
