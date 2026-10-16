@@ -1022,7 +1022,7 @@ def _build_device_hwc_guidance_html():
             the SMs issue instructions while the GPU is active (not a
             fraction of the peak instruction throughput). It is
             the product of <strong>SM Coverage</strong> (do the kernels give
-            work to all the SMs?) and <strong>SM Issue Efficiency</strong>
+            work to the available SMs?) and <strong>SM Issue Efficiency</strong>
             (do the active SMs issue instructions or are they stalled?).
         </p>
 

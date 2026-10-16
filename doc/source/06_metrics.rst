@@ -2420,7 +2420,7 @@ metrics are ratios of these integrals:
      - Degree to which the SMs issue instructions while the GPU is active
    * - -- SM Coverage
      - :math:`I_{SMs\,Active} / I_{GR\,Active}`
-     - Fraction of SMs with at least one warp
+     - Fraction of the GPU's SM capacity that is active while the GPU is active
    * - -- SM Issue Efficiency
      - :math:`I_{SM\,Issue} / I_{SMs\,Active}`
      - Fraction of the cycles of the active SMs that issue an instruction
