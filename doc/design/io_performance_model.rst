@@ -1,0 +1,1526 @@
+I/O Performance Model and Diagnostic Metrics
+============================================
+
+Purpose and Scope
+-----------------
+
+This document captures the current design of the BasicAnalysis I/O performance
+model before implementation. The objective is to define a small set of
+time-based performance factors that identify whether POSIX I/O contributes
+significantly to execution cost, and then provide diagnostic metrics and
+characteristics that guide a deeper I/O analysis.
+
+The central design principle is:
+
+* Performance factors are based on **time**, because BasicAnalysis observes the
+  cost paid by the application on a specific I/O system.
+* Quantities expressed in other units, such as bytes, operation counts, request
+  sizes, files, and offsets, are primarily **diagnostic characteristics** used
+  to explain the observed I/O time.
+* A low I/O efficiency indicates that I/O deserves investigation. It does not
+  automatically imply that the application's I/O implementation is poor. An
+  application may legitimately spend substantial time moving a large amount of
+  required data.
+
+The intended analysis workflow is therefore::
+
+    Detect significant I/O cost
+              |
+              v
+    Identify the I/O component responsible
+              |
+              v
+    Locate where the I/O time is spent
+              |
+              v
+    Characterize the I/O workload/pattern
+              |
+              v
+    Guide deeper analysis with Paraver when required
+
+Conceptual View of I/O
+----------------------
+
+For the purposes of this model, POSIX I/O is divided into two components:
+
+``Data Access``
+    Operations that transfer application data between the application and the
+    I/O system. Initially, these are ``read`` and ``write``.
+
+``File Management``
+    Additional operations required to establish and manage data access.
+    Initially, these are ``open``, ``close``, and ``lseek``.
+
+The physical motivation for this ordering is that an application performs I/O
+because it needs to read data required by its computation or save data produced
+by its computation. File-management activity is additional overhead associated
+with managing those accesses.
+
+This is a conceptual decomposition of I/O cost. It does **not** imply that all
+data-access operations occur temporally before all file-management operations.
+
+Classification of the traced calls
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Extrae records all the instrumented I/O calls with the event ``40000004``
+(``I/O calls``). Besides ``read``, ``write``, ``open``, ``close``, and
+``lseek``, traces available at BSC also contain ``fread``, ``fwrite``,
+``writev``, ``fopen``, and ``fclose``, and Extrae can record other variants
+(for example ``pread``/``pwrite``, ``readv``, or ``fseek``). The components
+are therefore defined by function family rather than by the five POSIX
+names:
+
+``Data Access``
+    ``read``, ``write``, ``fread``, ``fwrite``, ``pread``, ``pwrite``,
+    ``readv``, ``writev``, ``preadv``, ``pwritev``.
+
+``File Management``
+    ``open``, ``fopen``, ``close``, ``fclose``, ``lseek``, ``fseek``, and
+    their 64-bit variants.
+
+``Other I/O``
+    Any traced I/O call not recognized as Data Access or File Management
+    (for example ``fsync``, ``ioctl``, or ``stat`` when instrumented).
+
+The ``Other I/O`` remainder guarantees that the components add up to the
+total I/O time measured in the trace, also when a new Extrae version
+instruments additional calls. Whether ``fsync``/``fdatasync`` belong to Data
+Access (they force data to storage) is a design decision.
+
+The model covers **POSIX and ANSI C** File I/O, consistently with the
+current BasicAnalysis documentation.
+
+.. note::
+
+   The current implementation (``IO_OPERATIONS`` in ``rawdata.py``) keeps
+   only ``read``, ``write``, ``open``, ``close``, and ``lseek`` in the
+   per-operation data, while the total POSIX I/O time (``io_tot``) includes
+   all the calls. In traces with ``fread``/``fwrite`` or ``fopen``/``fclose``,
+   these calls are silently missing from the per-operation data.
+
+Descriptor type
+~~~~~~~~~~~~~~~
+
+Extrae also records the ``I/O descriptor type`` (event ``40000013``: regular
+file, socket, FIFO/pipe, terminal). A ``write`` to the standard output or to a
+socket is currently counted as File I/O. The model should state whether it
+covers regular files only, and the time of the other descriptor types should
+be measured before deciding.
+
+Terminology note
+~~~~~~~~~~~~~~~~
+
+``File Management`` is preferred over ``Metadata Management`` for the current
+model. ``open`` and ``close`` may involve filesystem metadata, but ``lseek`` is
+not necessarily metadata activity. Conversely, higher-level library metadata
+may itself generate POSIX ``read`` and ``write`` calls. The current trace
+information therefore does not permit all filesystem or library metadata
+activity to be isolated as a separate category.
+
+Formal Time Quantities
+----------------------
+
+For ``P`` parallel execution units, define:
+
+.. math::
+
+   U_i = \text{useful computation time of execution unit } i
+
+.. math::
+
+   R_i = \text{time spent in POSIX read operations}
+
+.. math::
+
+   W_i = \text{time spent in POSIX write operations}
+
+.. math::
+
+   O_i = \text{time spent in POSIX open operations}
+
+.. math::
+
+   C_i = \text{time spent in POSIX close operations}
+
+.. math::
+
+   S_i = \text{time spent in POSIX lseek operations}
+
+Data Access time is:
+
+.. math::
+
+   DA_i = R_i + W_i
+
+File Management time is:
+
+.. math::
+
+   FM_i = O_i + C_i + S_i
+
+With the classification by function family, :math:`R_i`, :math:`W_i`,
+:math:`O_i`, :math:`C_i`, and :math:`S_i` include all the calls of the
+corresponding family (for example, :math:`W_i` includes ``write``,
+``fwrite``, ``pwrite``, and ``writev``). The time of the remaining calls is:
+
+.. math::
+
+   OT_i = \text{time spent in Other I/O calls}
+
+Total modeled POSIX I/O time is:
+
+.. math::
+
+   IO_i = DA_i + FM_i + OT_i
+
+so that :math:`IO_i` equals the total POSIX and ANSI C I/O time measured for
+execution unit :math:`i`. When no Other I/O calls are traced,
+:math:`OT_i = 0` and :math:`IO_i = DA_i + FM_i`.
+
+The execution units are the Host execution units of the current
+BasicAnalysis I/O metrics: threads in MPI+OpenMP executions, not only MPI
+ranks.
+
+For any per-execution-unit quantity ``X``:
+
+.. math::
+
+   X_{avg} = \frac{1}{P}\sum_{i=1}^{P} X_i
+
+I/O Performance Model
+---------------------
+
+I/O Efficiency
+~~~~~~~~~~~~~~
+
+.. math::
+
+   IOEff =
+   \frac{U_{avg}}
+        {U_{avg} + DA_{avg} + FM_{avg}}
+
+Equivalently:
+
+.. math::
+
+   IOEff =
+   \frac{U_{avg}}
+        {U_{avg} + IO_{avg}}
+
+**Interpretation.** I/O Efficiency measures the useful-computation contribution
+relative to useful computation plus the measured POSIX I/O cost. A value close
+to 100% means that POSIX I/O contributes little time relative to useful
+computation. A decreasing value indicates that POSIX I/O represents an
+increasing fraction of the useful-computation-plus-I/O domain.
+
+A low value is a trigger for deeper I/O analysis, not by itself proof of
+inefficient I/O behavior.
+
+Working diagnostic threshold
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For the BasicAnalysis report, an I/O Efficiency below approximately 85% is a
+candidate trigger for investigation. In practical I/O analysis, an I/O
+contribution above roughly 10% of execution time can already be significant.
+These values are analysis policy and should not be treated as universal
+properties of all HPC applications or I/O systems.
+
+The two criteria do not measure the same quantity. I/O Efficiency compares
+I/O time with **useful** time, not with the execution time:
+
+.. math::
+
+   IOEff = 0.85 \Leftrightarrow IO_{avg} = 0.176\,U_{avg}
+
+which corresponds to 16% of the execution time when
+:math:`U_{avg} = 0.9\,T`, but only 9% when :math:`U_{avg} = 0.5\,T`. The
+"10% of execution time" criterion should therefore be evaluated with the
+I/O time fractions defined below, and the 85% threshold presented only as a
+policy on I/O Efficiency.
+
+I/O time fractions
+~~~~~~~~~~~~~~~~~~
+
+Two time-domain diagnostics complement I/O Efficiency:
+
+.. math::
+
+   IOFraction_{avg} = \frac{IO_{avg}}{T}
+
+.. math::
+
+   IOFraction_{max} = \frac{\max_i IO_i}{T}
+
+where :math:`T` is the execution time. :math:`IOFraction_{avg}` is the
+fraction of the execution time spent in I/O on average (it is
+:math:`1 - POSIX\_IO\_Eff` of the current implementation).
+:math:`IOFraction_{max}` is the I/O fraction of the execution unit with the
+most I/O time.
+
+Averages hide I/O that is concentrated in a few execution units. For
+example, with 128 ranks where rank 0 writes during 50% of the execution while
+the others wait:
+
+* :math:`IO_{avg} \approx 0.004\,T`, so :math:`IOEff \approx 99\%`;
+* the participant-aware Data Access Load Balance has a single participant
+  and equals 100%;
+* participation is 1/128, which may be an intentional delegation strategy.
+
+No factor flags the problem, although the I/O is on the critical path (its
+cost appears as MPI waiting in the main model). :math:`IOFraction_{max} =
+50\%` does. A large difference between :math:`IOFraction_{max}` and
+:math:`IOFraction_{avg}`, together with Participation, identifies delegated
+or serialized I/O.
+
+These fractions are diagnostics, not efficiencies, and do not receive
+efficiency colouring.
+
+Data Access Efficiency
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. math::
+
+   DAEff =
+   \frac{U_{avg}}
+        {U_{avg} + DA_{avg}}
+
+where:
+
+.. math::
+
+   DA_{avg} = R_{avg} + W_{avg}
+
+Data Access Efficiency measures the efficiency retained after accounting for
+the cost of accessing application data through POSIX ``read`` and ``write``
+operations. A low value means that read/write activity consumes substantial
+time relative to useful computation.
+
+It does **not** identify why data access takes time. Possible explanations
+include a legitimately large amount of data, imbalance in data-access time, a
+large number of requests, small request granularity, access patterns that
+interact poorly with the I/O system, misalignment, contention/system effects,
+or transformations introduced by intermediate I/O libraries.
+
+File Management Efficiency
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. math::
+
+   FMEff =
+   \frac{U_{avg} + DA_{avg}}
+        {U_{avg} + DA_{avg} + FM_{avg}}
+
+File Management Efficiency measures the additional efficiency retained after
+accounting for the file-management overhead required to manage data access. A
+low value indicates that operations such as ``open``, ``close``, and ``lseek``
+add substantial cost after the data-access cost has already been accounted for.
+
+Because :math:`DA_{avg}` appears in its denominator, File Management
+Efficiency depends on the data-access time: with the same file-management
+cost, FMEff increases when :math:`DA_{avg}` increases. The ordering (Data
+Access first) is a modelling choice; applying File Management first would
+give different factor values with the same product. This property is shared
+with other multiplicative models (e.g. TALP), but it must be documented,
+because a comparison between executions can show FMEff improving although
+the file-management cost has not changed. The additive shares
+
+.. math::
+
+   \frac{DA_{avg}}{U_{avg} + IO_{avg}}, \quad
+   \frac{FM_{avg}}{U_{avg} + IO_{avg}}
+
+are order-independent and can be shown as diagnostics next to the factors.
+
+Other I/O Efficiency
+~~~~~~~~~~~~~~~~~~~~
+
+When Other I/O calls are traced, a third factor keeps the product equal to
+I/O Efficiency:
+
+.. math::
+
+   OTEff =
+   \frac{U_{avg} + DA_{avg} + FM_{avg}}
+        {U_{avg} + DA_{avg} + FM_{avg} + OT_{avg}}
+
+It equals 100% when no Other I/O calls are traced, and can be hidden from
+the report in that case.
+
+Multiplicative Relationship
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The first level of the model is multiplicative:
+
+.. math::
+
+   IOEff = DAEff \times FMEff \quad (\times\ OTEff \text{ when Other I/O is traced})
+
+because:
+
+.. math::
+
+   \frac{U_{avg}}{U_{avg} + DA_{avg}}
+   \times
+   \frac{U_{avg} + DA_{avg}}{U_{avg} + DA_{avg} + FM_{avg}}
+   =
+   \frac{U_{avg}}{U_{avg} + DA_{avg} + FM_{avg}}
+
+Conceptually::
+
+    Useful Computation
+            |
+            |  Data-access cost
+            v
+    Useful + Data Access
+            |
+            |  File-management overhead
+            v
+    Useful + Data Access + File Management
+
+Performance Factors versus Diagnostic Metrics
+---------------------------------------------
+
+``Performance factors``
+    Quantify the contribution of I/O cost to application performance:
+    I/O Efficiency, Data Access Efficiency, and File Management Efficiency.
+
+``Time-domain diagnostic metrics``
+    Identify where the measured I/O time is spent or whether it is balanced.
+    Examples include read/write time contribution and Data Access Load Balance.
+
+``I/O characteristics``
+    Describe the workload presented to the I/O system and help explain the
+    observed time. Examples include bytes, operation counts, request sizes,
+    files, offsets, and access patterns.
+
+The diagnostic reasoning is::
+
+    Efficiency -> Time source -> Workload/pattern explanation
+
+Data Access Diagnostic Model
+----------------------------
+
+A low Data Access Efficiency raises the question:
+
+    Why is read/write data-access time significant?
+
+The current diagnostic dimensions are:
+
+* Data Access time composition;
+* mean duration per operation;
+* Data Access Load Balance (per operation);
+* Data volume;
+* request granularity;
+* access pattern;
+* alignment;
+* file sharing/access behavior;
+* I/O participation.
+
+These dimensions are not necessarily independent. For example, small requests
+may be more problematic when combined with an irregular access pattern than
+when neighboring requests can be aggregated by the I/O stack.
+
+Read and Write Time Contribution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. math::
+
+   ReadContribution = \frac{R_{avg}}{R_{avg} + W_{avg}}
+
+.. math::
+
+   WriteContribution = \frac{W_{avg}}{R_{avg} + W_{avg}}
+
+Therefore:
+
+.. math::
+
+   ReadContribution + WriteContribution = 1
+
+These are contribution metrics, not efficiencies. A high Read Contribution
+does not mean reads are inefficient; it means reads account for most of the
+measured Data Access time and should receive priority in the next diagnostic
+step.
+
+Mean Duration per Operation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For each operation :math:`op` (read, write, open, close, lseek):
+
+.. math::
+
+   MeanDuration_{op} = \frac{\sum_i T_{op,i}}{N_{op}}
+
+where :math:`T_{op,i}` is the time of execution unit :math:`i` in calls of
+:math:`op` and :math:`N_{op}` the total number of calls. It costs nothing
+(time divided by count) and distinguishes the two explanations of a high
+operation time: **many operations** (same mean duration, higher count) or
+**more expensive operations** (same count, higher mean duration). The latter
+points to the interaction with the I/O system rather than to the application
+I/O pattern.
+
+In the VTKHDF validation (see `Validation with the VTKHDF Case (POP3 Ticket
+668)`_), the execution with 1M chunks performs the same number of opens as
+the others (347 per rank), but each open takes 1,416 µs instead of about
+500 µs, which lowers File Management Efficiency to 74.6%. The mean duration
+identifies this immediately; time and count alone do not.
+
+The mean duration should be presented as a characteristic, not as an
+efficiency.
+
+Data Access Load Balance
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The primary balance diagnostics are **per operation**:
+
+.. math::
+
+   ReadLB = \frac{R_{avg}}{\max_i R_i}, \quad
+   WriteLB = \frac{W_{avg}}{\max_i W_i}
+
+Applications often read and write in different phases separated by
+synchronization. An imbalance in the write phase then costs time on its
+own, and summing :math:`R_i + W_i` per execution unit dilutes it (or can even
+cancel it, when the slowest writer is a fast reader). In the VTKHDF
+validation, the execution with 2M chunks has Read LB = 0.89 and
+Write LB = 0.21, but the combined DALB is 0.49; the write imbalance is the
+cause of the longer MPI waiting time of that execution.
+
+The combined Data Access Load Balance remains useful as a summary. A
+candidate time-based definition is:
+
+.. math::
+
+   DALB = \frac{DA_{avg,IO}}{DA_{max,IO}}
+
+The intention is to answer: among the execution units performing data access,
+how evenly is data-access time distributed?
+
+Not all application ranks necessarily perform I/O. Including deliberately
+non-I/O ranks as zero-time participants could make a valid I/O delegation
+strategy appear severely imbalanced.
+
+Define the set of Data Access participants:
+
+.. math::
+
+   P_{DA} = \{i : DA_i > 0\}
+
+and conceptually:
+
+.. math::
+
+   DA_{avg,IO} = \frac{1}{|P_{DA}|}\sum_{i \in P_{DA}} DA_i
+
+.. math::
+
+   DA_{max,IO} = \max_{i \in P_{DA}} DA_i
+
+This participant-aware definition remains a design item to validate against the
+available Paraver raw data before implementation.
+
+The raw data is already available: the Paraver analysis of the I/O call
+time (``io_calls_time.stats.csv``) contains one row per execution unit and
+one column per operation, so :math:`DA_i` and :math:`FM_i` can be computed
+exactly per row. The current parser keeps only the Total, Average, and
+Maximum rows. Using :math:`\max_i R_i + \max_i W_i` instead of
+:math:`\max_i (R_i + W_i)` overestimates the maximum: by 8% in the VTKHDF
+execution with 4M chunks (649 ms instead of 600 ms).
+
+Two details of the definition remain open:
+
+* **Participant criterion.** With :math:`DA_i > 0`, an execution unit that
+  only reads a small configuration file becomes a participant and lowers
+  the average. Options: report the balance over all execution units and
+  over participants, or use a minimum activity threshold (itself a policy
+  choice).
+* **Execution unit.** Threads or MPI ranks in MPI+OpenMP executions (the
+  current I/O metrics use Host threads).
+
+A low Data Access Load Balance identifies uneven read/write time; it does not
+establish its cause. The next analysis should compare bytes transferred,
+operation counts, request sizes, read/write composition, and files accessed.
+
+Data Volume
+~~~~~~~~~~~
+
+Report:
+
+.. math::
+
+   B_R = \text{total bytes read}
+
+.. math::
+
+   B_W = \text{total bytes written}
+
+and:
+
+.. math::
+
+   B_{DA} = B_R + B_W
+
+Volume is essential when interpreting low Data Access Efficiency. A long Data
+Access time may simply reflect the movement of a very large amount of data
+required by the application.
+
+Request Count
+~~~~~~~~~~~~~
+
+Report the number of POSIX read and write operations:
+
+.. math::
+
+   N_R, \quad N_W
+
+For the same data volume, a workload issuing a very large number of requests
+can interact differently with the I/O stack from one issuing fewer, larger
+requests.
+
+Mean Request Size
+~~~~~~~~~~~~~~~~~
+
+.. math::
+
+   MeanReadSize = \frac{B_R}{N_R}
+
+.. math::
+
+   MeanWriteSize = \frac{B_W}{N_W}
+
+The mean should not be used alone because different request-size distributions
+can produce the same mean.
+
+Request-Size Distribution
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+BasicAnalysis already obtains request-size histograms from Paraver. The
+histogram intervals are determined from the request-size values present in the
+trace. This gives an adaptive characterization instead of imposing a universal
+rule such as ``request < 1 MB = small``.
+
+Represent the distribution as:
+
+.. math::
+
+   H = \{(I_1,N_1), (I_2,N_2), \ldots, (I_k,N_k)\}
+
+where ``I_j`` is a request-size interval and ``N_j`` is the number of
+operations in it.
+
+For each interval:
+
+.. math::
+
+   RequestShare_j = \frac{N_j}{\sum_k N_k}
+
+This supports factual observations such as: a large fraction of the POSIX read
+requests is concentrated in the lowest request-size intervals observed in this
+execution. It should not automatically imply that those requests are
+inefficiently small.
+
+Time per request-size interval
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The count does not show which requests cost the time. The time share of
+each interval should be reported next to the count share:
+
+.. math::
+
+   TimeShare_j = \frac{T_j}{\sum_k T_k}
+
+where :math:`T_j` is the time of the operations in interval :math:`j`. This
+is the "I/O operation time per size" view used in the VTKHDF analysis.
+
+Interval boundaries
+^^^^^^^^^^^^^^^^^^^
+
+The current Paraver histograms use **linear** intervals whose width is
+determined by the largest request. When a few requests are large, all the
+small requests fall in the first interval. In the VTKHDF execution with 4M
+chunks, the first read interval is [8 B, 47 KB) and contains **99.8%** of
+all the reads, so the distinction made in the analysis slides (8 B--42 KB
+versus 62--65 KB) is not visible.
+
+Recommended alternative: **power-of-two intervals** (for example < 4 KB,
+4--64 KB, 64 KB--1 MB, 1--16 MB, ...):
+
+* they are not "small/large" thresholds: each interval is only a scale;
+* they resolve small requests even when large ones exist;
+* they are identical in every trace, which makes cross-execution comparison
+  direct (see `Cross-execution comparison`_);
+* they relate directly to file-system sizes (in the VTKHDF case, GPFS data
+  blocks of 16 MB and sub-blocks of 16 KB).
+
+Histogram Coverage
+^^^^^^^^^^^^^^^^^^
+
+.. math::
+
+   Coverage = \frac{\sum_j N_j}{N_{read/write}}
+
+Coverage is a quality/representativeness indicator.
+
+Cross-execution comparison
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Because Paraver histogram intervals depend on each trace, bin boundaries can
+differ between executions. The histogram is therefore immediately useful for
+single-execution characterization, while cross-execution comparison should
+initially use exact quantities such as volume, operation count, and mean
+request size. Common re-binning could be considered later; power-of-two
+intervals (see `Interval boundaries`_) provide it directly.
+
+Access Pattern
+~~~~~~~~~~~~~~
+
+Fine-grained analysis should eventually classify access behavior such as:
+
+* contiguous/sequential;
+* strided;
+* irregular/non-contiguous;
+* backward access.
+
+A useful per-operation representation is:
+
+.. math::
+
+   (rank, file, operation, offset, size, time)
+
+For consecutive operations by the same rank on the same file, contiguous
+access can be detected when:
+
+.. math::
+
+   offset_{i+1} = offset_i + size_i
+
+Regular non-zero gaps can indicate a strided pattern; varying gaps can indicate
+irregular/non-contiguous behavior. ``Random`` should be used only when
+randomness is actually established.
+
+This information is not yet available in the current BasicAnalysis raw-data
+model and is therefore a future extension.
+
+The traces, however, already contain it: Extrae records the ``I/O offset``
+(event ``40000075``) and the ``I/O descriptor`` (event ``40000010``) of each
+call, together with the request size. The open question is the cost of
+extracting them per call (466,000 reads in a single VTKHDF execution of
+112 ranks), not their availability.
+
+Alignment
+~~~~~~~~~
+
+Request alignment is separate from request granularity. A request can be large
+but interact poorly with the filesystem because its offset or size does not
+align with relevant storage boundaries.
+
+Declaring an access misaligned may require system-specific information such as
+filesystem block or stripe configuration. Alignment should initially be a
+diagnostic characteristic rather than a universal efficiency metric.
+
+Intermediate I/O Libraries
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The POSIX trace describes the access pattern ultimately presented to the POSIX
+layer. A higher-level library such as HDF5, NetCDF, MPI-IO, or ADIOS may
+transform the application's intended pattern.
+
+BasicAnalysis can report the resulting POSIX behavior but should not attribute
+the transformation to a particular library without higher-level evidence.
+
+I/O Participation
+~~~~~~~~~~~~~~~~~
+
+.. math::
+
+   Participation_{DA} = \frac{|P_{DA}|}{P}
+
+This is a useful characteristic, not an efficiency. A low participation ratio
+may represent an intentional and effective I/O delegation strategy.
+
+File Sharing and Overlap
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Future analysis could characterize private versus shared files, ranks per file,
+and overlapping versus non-overlapping file regions. A shared file is not
+automatically a performance problem; impact depends on the actual access
+pattern, overlap, filesystem striping, locking, and system characteristics.
+
+Ranks per file and files per rank can already be obtained in the first
+version: the Paraver analysis of the opens per filename
+(``io_filename_count.stats.csv``) contains the execution unit × file matrix.
+The number of non-zero cells per file column gives the ranks that open the
+file, and per row the files opened by each rank. This allows the
+classification used in the VTKHDF analysis: opens of the rank's own file,
+of other ranks' files, and of a common file. In the execution with 4M
+chunks, rank 0 opens its own part file 10 times, the common file 5 times,
+and each other part file 4 times. Overlapping regions still require
+offsets.
+
+Data Access Diagnostic Questions
+--------------------------------
+
+When Data Access Efficiency is low, guide the analyst through questions such as:
+
+#. Is Data Access time dominated by reads or writes?
+#. Are read time and write time each balanced among ranks that actually
+   perform I/O?
+#. Is the I/O concentrated in a few execution units (maximum versus average
+   I/O time fraction, participation)?
+#. How much data is being transferred?
+#. How many read/write operations are issued?
+#. Has the mean duration per operation changed, or only the number of
+   operations?
+#. How is the transferred volume divided into requests?
+#. What does the adaptive request-size distribution look like?
+#. Are many requests concentrated in the smaller observed request-size ranges?
+#. Is the access pattern contiguous, strided, or irregular?
+#. Are accesses aligned appropriately for the underlying I/O system?
+#. Are files private or shared?
+#. Do multiple ranks access overlapping file regions?
+#. Could a higher-level I/O library be transforming the application's intended
+   pattern before it reaches POSIX?
+#. If workload characteristics are similar across ranks but access times differ,
+   should storage-system interaction be investigated further?
+
+File Management Diagnostic Model
+--------------------------------
+
+A low File Management Efficiency raises the question:
+
+    Why are file-management operations adding significant time to data access?
+
+File-Management Time Contributions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. math::
+
+   OpenContribution = \frac{O_{avg}}{FM_{avg}}
+
+.. math::
+
+   CloseContribution = \frac{C_{avg}}{FM_{avg}}
+
+.. math::
+
+   SeekContribution = \frac{S_{avg}}{FM_{avg}}
+
+where:
+
+.. math::
+
+   FM_{avg} = O_{avg} + C_{avg} + S_{avg}
+
+Therefore:
+
+.. math::
+
+   OpenContribution + CloseContribution + SeekContribution = 1
+
+These are time-contribution metrics rather than efficiencies.
+
+File Management Load Balance
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A candidate time-based metric is:
+
+.. math::
+
+   FMLB = \frac{FM_{avg,IO}}{FM_{max,IO}}
+
+As with Data Access Load Balance, the participating population must be defined
+carefully. A low value identifies uneven file-management time but does not
+determine its cause. The per-operation balance (in particular Open LB) is
+more informative than the combined value, for the same reason as for Data
+Access, and the exact :math:`FM_i` is available from the per-row raw data.
+
+File-Management Operation Counts
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Report the number of ``open``, ``close``, and ``lseek`` operations. Counts help
+distinguish high total time accompanied by many operations from high total time
+despite relatively few operations. The mean duration per operation (see
+`Mean Duration per Operation`_) makes this distinction explicit.
+
+File-Level Open Characteristics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The current raw data supports:
+
+* distinct filenames observed;
+* per-file open count;
+* per-file open time;
+* total open count represented by filename data;
+* total open time represented by filename data;
+* filename count coverage;
+* filename time coverage.
+
+Useful report views include total distinct files, total opens, average opens per
+file, top files by open count, top files by open time, and percentage of open
+time associated with high-cost files.
+
+Filename Coverage
+~~~~~~~~~~~~~~~~~
+
+.. math::
+
+   FilenameCountCoverage =
+   \frac{\sum_f OpenCount_f}{OpenCount_{total}}
+
+.. math::
+
+   FilenameTimeCoverage =
+   \frac{\sum_f OpenTime_f}{OpenTime_{total}}
+
+These are data-quality/representativeness measures rather than performance
+efficiencies.
+
+File Management Diagnostic Questions
+------------------------------------
+
+#. Which operation dominates File Management time: open, close, or lseek?
+#. Is File Management time balanced among relevant I/O participants?
+#. Is the dominant time associated with a large number of operations, or
+   with a higher mean duration per operation?
+#. Are files being opened repeatedly?
+#. Does each rank open only its own files, files of other ranks, or a
+   common file?
+#. Is the cost concentrated in a small subset of files?
+#. How many distinct files are involved?
+#. Is filename-level information sufficiently complete according to coverage?
+#. Does the observed time appear explainable by application file-management
+   activity, or is deeper filesystem/system analysis required?
+
+Suggested I/O Report
+--------------------
+
+::
+
+    I/O PERFORMANCE
+    |
+    +-- I/O Efficiency
+    |   +-- Data Access Efficiency
+    |   +-- File Management Efficiency
+    |   `-- Other I/O Efficiency (only when Other I/O is traced)
+    |
+    +-- I/O TIME
+    |   +-- I/O time fraction (average)
+    |   +-- I/O time fraction (maximum)
+    |   `-- I/O participation
+    |
+    +-- DATA ACCESS
+    |   +-- Read / Write Time Contribution
+    |   +-- Data Access Load Balance (summary)
+    |   |
+    |   +-- Read
+    |   |   +-- Time
+    |   |   +-- Load Balance
+    |   |   +-- Volume
+    |   |   +-- Operations
+    |   |   +-- Mean Duration
+    |   |   +-- Mean Request Size
+    |   |   `-- Request-Size Distribution (count and time)
+    |   |
+    |   `-- Write
+    |       +-- Time
+    |       +-- Load Balance
+    |       +-- Volume
+    |       +-- Operations
+    |       +-- Mean Duration
+    |       +-- Mean Request Size
+    |       `-- Request-Size Distribution (count and time)
+    |
+    `-- FILE MANAGEMENT
+        +-- File Management Load Balance (summary)
+        +-- Open
+        |   +-- Time contribution
+        |   +-- Load Balance
+        |   +-- Operations
+        |   `-- Mean Duration
+        +-- Close
+        |   +-- Time contribution
+        |   +-- Operations
+        |   `-- Mean Duration
+        +-- Lseek
+        |   +-- Time contribution
+        |   +-- Operations
+        |   `-- Mean Duration
+        |
+        `-- File Access
+            +-- Distinct files
+            +-- Opens per file
+            +-- Ranks per file / files per rank
+            +-- Top files by open count
+            `-- Top files by open time
+
+Suggested Data-Access Summary Table
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
++----------------------+----------------------+----------------------+
+| Data Access          | Read                 | Write                |
++======================+======================+======================+
+| Time                 | measured value       | measured value       |
++----------------------+----------------------+----------------------+
+| Time contribution    | percentage           | percentage           |
++----------------------+----------------------+----------------------+
+| Load balance         | percentage           | percentage           |
++----------------------+----------------------+----------------------+
+| Volume               | bytes                | bytes                |
++----------------------+----------------------+----------------------+
+| Operations           | count                | count                |
++----------------------+----------------------+----------------------+
+| Mean duration        | time / operation     | time / operation     |
++----------------------+----------------------+----------------------+
+| Mean request size    | bytes / operation    | bytes / operation    |
++----------------------+----------------------+----------------------+
+| Histogram coverage   | percentage           | percentage           |
++----------------------+----------------------+----------------------+
+
+Suggested File-Management Summary Table
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
++-----------------+-------------------+------------+------------------+
+| File Management | Time contribution | Operations | Mean duration    |
++=================+===================+============+==================+
+| Open            | percentage        | count      | time / operation |
++-----------------+-------------------+------------+------------------+
+| Close           | percentage        | count      | time / operation |
++-----------------+-------------------+------------+------------------+
+| Lseek           | percentage        | count      | time / operation |
++-----------------+-------------------+------------+------------------+
+
+Report Interpretation Policy
+----------------------------
+
+Efficiency Coloring
+~~~~~~~~~~~~~~~~~~~
+
+Efficiency-style threshold coloring should initially be reserved for:
+
+* I/O Efficiency;
+* Data Access Efficiency;
+* File Management Efficiency.
+
+Load-balance metrics can use a high-is-good percentage interpretation once
+their participant-aware definitions are finalized.
+
+Time contribution, I/O time fractions, bytes, operation counts, mean
+duration, mean request size, request-size histogram bins, number of files,
+and opens per file should **not** receive generic green/red efficiency
+coloring because they require context.
+
+Conditional Diagnostic Emphasis
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The performance factors should determine which diagnostic information the
+report emphasizes::
+
+    Low I/O Efficiency
+        |
+        +-- Low Data Access Efficiency
+        |      -> emphasize Data Access diagnostics
+        |
+        `-- Low File Management Efficiency
+               -> emphasize File Management diagnostics
+
+Interpretation Examples
+-----------------------
+
+Low Data Access Efficiency with Small-Request Pattern
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If BasicAnalysis observes low I/O Efficiency, File Management Efficiency close
+to 100%, low Data Access Efficiency, balanced Data Access time, and a very
+large number of read operations concentrated in the lower observed request-size
+intervals, a suitable interpretation is:
+
+    The I/O efficiency loss is primarily associated with Data Access rather
+    than File Management. Data Access time is relatively balanced across I/O
+    participants, while the observed POSIX read pattern contains a high number
+    of requests concentrated in the lower request-size ranges. The read request
+    granularity and access pattern should be investigated further.
+
+The report should not automatically conclude that the requests are inefficient
+or that the filesystem is the root cause.
+
+Low Data Access Efficiency with Large Data Volume
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If Data Access Efficiency is low but Data Access Load Balance is good, the
+transferred volume is very large, requests are relatively large, and no obvious
+granularity problem appears, a suitable interpretation is:
+
+    The execution spends significant time performing Data Access, but the
+    available characteristics do not identify an obvious imbalance or
+    small-request pattern. The observed cost may be associated with the amount
+    of data that the application needs to transfer. Achieved I/O performance
+    and interaction with the underlying storage system should be examined
+    before classifying the behavior as inefficient.
+
+Low Data Access Load Balance
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When Data Access Load Balance is low, compare workload characteristics across
+I/O participants. If ranks with greater Data Access time also perform more I/O
+work, workload distribution may contribute to the imbalance. If ranks perform
+similar amounts and types of I/O work but access times differ significantly,
+recommend deeper investigation of storage-system interaction rather than
+attributing the imbalance to application work distribution.
+
+Low File Management Efficiency
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If File Management Efficiency is low and ``open`` accounts for most of File
+Management time, inspect the number of opens and file-level information. Many
+opens plus high open time may indicate significant repeated file-management
+activity. Few opens plus high total open time motivates investigation of the
+cost of those operations and underlying filesystem behavior.
+
+Current Raw-Data Coverage
+-------------------------
+
++------------------------------------+------------------------------+
+| Diagnostic information             | Current status               |
++====================================+==============================+
+| Read/write time                    | Available (five POSIX calls  |
+|                                    | only; ANSI C and vector      |
+|                                    | variants are dropped)        |
++------------------------------------+------------------------------+
+| Open/close/lseek time              | Available (same limitation)  |
++------------------------------------+------------------------------+
+| Operation counts                   | Available                    |
++------------------------------------+------------------------------+
+| Mean duration per operation        | Derivable from time/count    |
++------------------------------------+------------------------------+
+| Per-unit time per operation        | In the CSV (one row per      |
+| (exact DA_i, FM_i, per-op LB)      | unit); not parsed yet        |
++------------------------------------+------------------------------+
+| Maximum I/O time per unit          | Available (``io_max``)       |
++------------------------------------+------------------------------+
+| Read/write total bytes             | Available                    |
++------------------------------------+------------------------------+
+| Read/write average/max bytes       | Available                    |
++------------------------------------+------------------------------+
+| Mean request size                  | Derivable from bytes/count   |
++------------------------------------+------------------------------+
+| Request-size distribution          | Available (linear intervals; |
+|                                    | power-of-two intervals and   |
+|                                    | time per interval needed)    |
++------------------------------------+------------------------------+
+| Request-size histogram coverage    | Available                    |
++------------------------------------+------------------------------+
+| Per-file open count/time           | Available                    |
++------------------------------------+------------------------------+
+| Ranks per file / files per rank    | In the CSV (unit × file      |
+|                                    | matrix); not parsed yet      |
++------------------------------------+------------------------------+
+| Filename count/time coverage       | Available                    |
++------------------------------------+------------------------------+
+| I/O participant information        | In the CSV (non-zero rows);  |
+|                                    | criterion to be decided      |
++------------------------------------+------------------------------+
+| Per-rank detailed workload         | Counts per unit in the CSV;  |
+|                                    | bytes per unit to be checked |
++------------------------------------+------------------------------+
+| Offset-based access pattern        | In the trace (event          |
+|                                    | 40000075); not extracted     |
++------------------------------------+------------------------------+
+| Alignment analysis                 | Offsets in the trace;        |
+|                                    | needs file-system context    |
++------------------------------------+------------------------------+
+| Descriptor type (file, socket,     | In the trace (event          |
+| pipe, terminal)                    | 40000013); not used          |
++------------------------------------+------------------------------+
+| Shared/overlapping region analysis | Not yet available            |
++------------------------------------+------------------------------+
+
+Measurement Scope and Limitations
+---------------------------------
+
+The following aspects limit what the model can measure and should be stated
+in the documentation of the metrics:
+
+* **I/O library computation is useful time.** The CPU work of the I/O
+  libraries (for example HDF5 compression, chunk management, or metadata
+  handling) is not distinguished from the application computation and is
+  counted in :math:`U`. A library that spends more CPU time therefore
+  *increases* I/O Efficiency. In the VTKHDF validation with compression level
+  1, the useful time grows from 1.16 s to 1.45 s per rank with 4M chunks,
+  while I/O Efficiency stays around 70% and the execution time increases.
+  Separating library computation requires call-stack information; comparing
+  executions with and without compression measures the effect.
+
+* **Phases are aggregated.** The metrics describe the whole execution.
+  When an application has distinct I/O phases (for example a write phase and
+  a read phase separated by barriers), the file-management time of the
+  phases is added together, and a balance computed over the whole execution
+  can dilute the imbalance of one phase. Per-phase metrics, with phases
+  delimited by synchronization or user events, are a later extension. In
+  the meantime, per-operation balance (read and write separately) captures
+  part of the phase structure.
+
+* **I/O not visible in the trace.** Memory-mapped I/O (``mmap``),
+  asynchronous I/O (``aio_*``), and I/O performed by threads that are not
+  instrumented are not measured. An I/O Efficiency close to 100% means that
+  little *traced* I/O time was observed.
+
+* **Descriptor types.** Calls on non-file descriptors (standard output,
+  sockets, pipes) are currently counted as File I/O (see `Descriptor
+  type`_).
+
+* **Nested MPI-IO calls.** See the open question on MPI-IO and nested POSIX
+  calls.
+
+
+Relation with the Existing BasicAnalysis I/O Metrics
+----------------------------------------------------
+
+BasicAnalysis already reports the following I/O metrics:
+
++----------------------------+--------------------------------------------+
+| Metric                     | Current formula                            |
++============================+============================================+
+| I/O Efficiency             | U / (U + MPIIO + POSIXIO)                  |
++----------------------------+--------------------------------------------+
+| MPI I/O Efficiency         | 1 - MPIIO / (P T)                          |
++----------------------------+--------------------------------------------+
+| MPI I/O Load Balance       | avg / max over all execution units         |
++----------------------------+--------------------------------------------+
+| POSIX I/O Efficiency       | 1 - POSIXIO / (P T)                        |
++----------------------------+--------------------------------------------+
+| POSIX I/O Load Balance     | avg / max over all execution units         |
++----------------------------+--------------------------------------------+
+
+The proposed I/O Efficiency covers POSIX and ANSI C only, while the current
+one also includes MPI-IO. Reusing the name for the new definition would
+change the current outputs; adding it next to the existing metrics would
+give three POSIX-related "efficiencies" with different denominators
+(useful time, useful plus I/O time, execution capacity).
+
+Proposed relation:
+
+* The new factors (Data Access, File Management, and Other I/O Efficiency)
+  become the **POSIX and ANSI C branch** of the I/O analysis.
+* **I/O Efficiency** remains the parent that combines MPI-IO and POSIX, once
+  the nesting of POSIX calls inside MPI-IO calls has been checked.
+* The current **POSIX I/O Efficiency** (:math:`1 - POSIXIO/(P T)`) becomes
+  the diagnostic :math:`IOFraction_{avg}` (as a fraction, not an
+  efficiency).
+* The current **POSIX I/O Load Balance** is the combined I/O balance over
+  all execution units; it is kept as a summary next to the per-operation
+  balances.
+
+Any change of definition or name of an existing metric changes the
+BasicAnalysis outputs of existing traces and must be listed in the release
+notes.
+
+
+Validation with the VTKHDF Case (POP3 Ticket 668)
+-------------------------------------------------
+
+The proposed metrics were computed on 2026-10-18 with the current
+BasicAnalysis raw data (branch ``feature/io-metrics``) for the eight
+UnstructuredGrid traces of the chunk-size study:
+
+* Application: ``vtkhdf_benchmark_parallel`` (VTKHDF, HDF5 1.14), 112 MPI
+  ranks on one MareNostrum 5 GPP node, GPFS scratch, compression level 1.
+* Traces: ``Ticket-668/analysis-chunking-exp/extrae_traces/
+  res8k_edge500_diff_chunk_comp1-gpfs-scratch/*.uGrid.prv``.
+* Reference analysis: ``Ticket-668/slide/POP3_VTKHDF-SAM_v4/v5``.
+
+These traces contain only ``read``, ``write``, ``open``, ``close``, and
+``lseek``; the sum of the per-operation times equals the total POSIX I/O
+time for all eight traces.
+
+Performance factors and time diagnostics (percentages):
+
++-------+------+-------+-------+-------+------+--------+-------+-------+
+| Chunk | T(s) | IOEff | DAEff | FMEff | IO/T | IOmx/T | Read  | Open  |
+|       |      |       |       |       |      |        | share | share |
++=======+======+=======+=======+=======+======+========+=======+=======+
+| 50k   | 2.18 | 67.3  | 76.3  | 88.2  | 25.8 | 31.4   | 60.4  | 89.4  |
++-------+------+-------+-------+-------+------+--------+-------+-------+
+| 100k  | 2.06 | 68.3  | 78.1  | 87.4  | 25.6 | 31.6   | 61.6  | 90.6  |
++-------+------+-------+-------+-------+------+--------+-------+-------+
+| 150k  | 2.07 | 68.7  | 79.0  | 87.1  | 25.9 | 31.4   | 62.6  | 88.2  |
++-------+------+-------+-------+-------+------+--------+-------+-------+
+| 250k  | 2.10 | 69.5  | 79.4  | 87.5  | 24.0 | 28.9   | 66.6  | 89.5  |
++-------+------+-------+-------+-------+------+--------+-------+-------+
+| 500k  | 2.11 | 70.6  | 79.9  | 88.4  | 23.3 | 30.3   | 69.9  | 89.8  |
++-------+------+-------+-------+-------+------+--------+-------+-------+
+| 1M    | 2.53 | 60.2  | 80.7  | 74.6  | 31.2 | 34.4   | 74.1  | 97.8  |
++-------+------+-------+-------+-------+------+--------+-------+-------+
+| 2M    | 2.75 | 65.2  | 73.1  | 89.2  | 23.4 | 39.7   | 72.7  | 94.8  |
++-------+------+-------+-------+-------+------+--------+-------+-------+
+| 4M    | 2.67 | 69.9  | 76.3  | 91.6  | 23.3 | 29.1   | 73.6  | 94.1  |
++-------+------+-------+-------+-------+------+--------+-------+-------+
+
+*Read share* is the Read Time Contribution and *Open share* the Open
+Contribution to File Management time.
+
+Characteristics:
+
++-------+-------+-------+-------+-------+--------+--------+--------+--------+
+| Chunk | Reads | Opens | Mean  | Mean  | Open   | Read   | Write  | U avg  |
+|       | /rank | /rank | read  | write | µs per | LB     | LB     | (s)    |
+|       |       |       | size  | size  | call   |        |        |        |
++=======+=======+=======+=======+=======+========+========+========+========+
+| 50k   | 4457  | 347   | 6.9KB | 0.09MB| 522    | 0.84   | 0.57   | 1.16   |
++-------+-------+-------+-------+-------+--------+--------+--------+--------+
+| 100k  | 4310  | 348   | 7.2KB | 0.17MB| 546    | 0.86   | 0.61   | 1.13   |
++-------+-------+-------+-------+-------+--------+--------+--------+--------+
+| 150k  | 4258  | 348   | 7.3KB | 0.24MB| 564    | 0.85   | 0.70   | 1.18   |
++-------+-------+-------+-------+-------+--------+--------+--------+--------+
+| 250k  | 4219  | 347   | 7.4KB | 0.35MB| 530    | 0.82   | 0.63   | 1.15   |
++-------+-------+-------+-------+-------+--------+--------+--------+--------+
+| 500k  | 4191  | 347   | 8.0KB | 0.57MB| 502    | 0.87   | 0.46   | 1.18   |
++-------+-------+-------+-------+-------+--------+--------+--------+--------+
+| 1M    | 4177  | 347   | 9.0KB | 0.87MB| 1416   | 0.88   | 0.56   | 1.19   |
++-------+-------+-------+-------+-------+--------+--------+--------+--------+
+| 2M    | 4168  | 347   | 7.3KB | 1.12MB| 545    | 0.89   | 0.21   | 1.21   |
++-------+-------+-------+-------+-------+--------+--------+--------+--------+
+| 4M    | 4166  | 347   | 7.4KB | 1.73MB| 469    | 0.88   | 0.44   | 1.45   |
++-------+-------+-------+-------+-------+--------+--------+--------+--------+
+
+Observations:
+
+#. **The model reaches the conclusions of the manual analysis.** I/O
+   Efficiency (60--71%) triggers the investigation in all executions, and
+   the decomposition points to Data Access (DAEff 73--81%). The diagnostics
+   then show the findings of the slides: about 4,200 reads per rank with a
+   mean size of 7--9 KB for every chunk size (small requests, likely HDF5
+   metadata), and 347 opens per rank, with open accounting for about 90% of
+   File Management time.
+
+#. **Mean duration per operation explains the 1M execution.** The number
+   of opens is the same as in the other executions, but each open takes
+   1,416 µs instead of about 500 µs. File Management Efficiency drops to
+   74.6% and I/O Efficiency to 60.2%. This points to the interaction with
+   the file system during that run rather than to a change in the
+   application pattern.
+
+#. **Per-operation balance explains the 2M execution.** Its execution time
+   increases mainly because of MPI waiting (0.72 s per rank, against
+   0.30--0.47 s in the others), while I/O Efficiency (65.2%) is similar to
+   the other executions. Write LB is 0.21, Read LB 0.89, and the combined
+   DALB 0.49. :math:`IOFraction_{max}` (39.7%) is also clearly higher than
+   :math:`IOFraction_{avg}` (23.4%). The slowest writer is not rank 0 (the
+   writer of the common file), which suggests a run-to-run file-system
+   effect rather than the application decomposition.
+
+#. **The mean write size follows the chunk size, but the reads do not.**
+   The write size grows from 0.09 MB to 1.73 MB with the chunk size, while
+   the number and size of the reads hardly change. Chunk tuning therefore
+   affects the writes, but not the small-read pattern that dominates Data
+   Access time.
+
+#. **Useful time includes library computation.** With 4M chunks, the useful
+   time per rank grows to 1.45 s (about 1.15 s for the other chunk sizes),
+   possibly because of the compression of larger chunks, and the execution
+   time increases while I/O Efficiency remains at 69.9%.
+
+#. **The linear histogram does not resolve the small reads.** With 4M
+   chunks, 99.8% of the reads fall in the first interval [8 B, 47 KB).
+
+#. **The exact maximum needs the per-unit data.** With 4M chunks,
+   :math:`\max_i R_i + \max_i W_i` = 649 ms while
+   :math:`\max_i (R_i + W_i)` = 600 ms.
+
+
+Open Formal and Design Questions
+--------------------------------
+
+#. **I/O participant definition**
+
+   Which execution units should participate in Data Access and File Management
+   Load Balance calculations? The model should distinguish intentional non-I/O
+   ranks from actual imbalance among I/O participants.
+
+#. **Data Access Load Balance raw data**
+
+   Do the current Paraver analyses provide the per-rank combined ``read +
+   write`` time required to compute ``DA_max`` correctly?
+
+   In general:
+
+   .. math::
+
+      \max_i(R_i + W_i) \ne \max_i(R_i) + \max_i(W_i)
+
+   *Answer:* yes. ``io_calls_time.stats.csv`` has one row per execution unit;
+   only the parser has to change (see `Data Access Load Balance`_).
+
+#. **File Management Load Balance raw data**
+
+   The same issue applies to ``FM_i = O_i + C_i + S_i``. A correct ``FM_max``
+   requires the combined per-rank quantity or an equivalent Paraver analysis.
+
+   *Answer:* same as above; the per-row data gives the exact ``FM_i``.
+
+#. **Request-size comparison across traces**
+
+   Paraver adaptive histograms are appropriate for single-execution
+   characterization, but cross-trace comparison may require common re-binning
+   or higher-level scalar statistics.
+
+   *Proposal:* power-of-two intervals, identical in every trace (see
+   `Interval boundaries`_). They also solve the lack of resolution of the
+   linear intervals for small requests.
+
+#. **Request granularity scalar**
+
+   Should BasicAnalysis define an additional scalar metric describing how
+   fragmented transferred volume is into requests, or are operation count,
+   mean request size, and the adaptive histogram sufficient? Any such metric
+   should avoid arbitrary universal request-size thresholds.
+
+#. **Access-pattern extraction**
+
+   Can BasicAnalysis efficiently obtain ``rank, file, offset, size,
+   operation`` information from Paraver without making trace processing
+   prohibitively expensive?
+
+#. **Alignment context**
+
+   Which filesystem parameters are required before BasicAnalysis can move from
+   reporting alignment-relevant characteristics to diagnosing misalignment?
+
+#. **Higher-level I/O libraries**
+
+   How much can BasicAnalysis infer from POSIX behavior alone, and when should
+   it explicitly recommend inspection of MPI-IO, HDF5, NetCDF, ADIOS, or other
+   intermediate layers?
+
+#. **Bandwidth / transfer rate**
+
+   What denominator should be used for a meaningful data-transfer performance
+   metric? ``bytes / sum(POSIX call durations)`` should not automatically be
+   called application or filesystem bandwidth. A phase-based elapsed-time
+   definition may be preferable when phase boundaries can be established.
+
+   In addition, the calls of concurrent execution units overlap in time, so
+   the sum of call durations is not an elapsed time. The per-call transfer
+   rate (size / duration of each call), used as a histogram in the VTKHDF
+   analysis, is a well-defined characteristic of individual requests and
+   could be offered later under that name rather than as "bandwidth".
+
+#. **Efficiency thresholds**
+
+   The threshold used to trigger deeper I/O analysis should be treated
+   separately from workload-specific diagnostic thresholds. Fixed rules such
+   as ``request < 1 MB = small`` should be avoided unless justified by the
+   particular I/O system and workload.
+
+#. **Classification of additional calls**
+
+   Should ``fsync``/``fdatasync`` be Data Access or Other I/O? Which calls,
+   if any, should be excluded (for example ``ioctl``)?
+
+#. **Descriptor type**
+
+   Should the model cover regular files only? How much time do non-file
+   descriptors (standard output, sockets, pipes) take in typical traces?
+
+#. **Relation with the existing I/O metrics**
+
+   How should the new factors relate to the current I/O Efficiency (which
+   includes MPI-IO) and to POSIX I/O Efficiency and Load Balance? See
+   `Relation with the Existing BasicAnalysis I/O Metrics`_.
+
+#. **MPI-IO and nested POSIX calls**
+
+   MPI-IO implementations perform POSIX calls internally. If Extrae records
+   both levels, the current I/O Efficiency counts the same time twice. This
+   must be checked with an MPI-IO trace before defining a parent metric that
+   combines MPI-IO and POSIX.
+
+#. **Phases**
+
+   Should the I/O metrics be computed per phase (delimited by
+   synchronization or user events)? See `Measurement Scope and
+   Limitations`_.
+
+Design Principles to Preserve
+-----------------------------
+
+#. **Start from time.** The model detects performance loss from the time
+   actually paid by the application on the measured system.
+
+#. **Use other units to explain time.** Bytes, requests, sizes, files, offsets,
+   and similar characteristics explain observed I/O time; they are not
+   automatically efficiency factors.
+
+#. **Separate detection from causality.** BasicAnalysis should identify
+   suspicious behavior and guide deeper analysis, but should not claim a
+   filesystem, library, or application root cause without sufficient evidence.
+
+#. **Avoid universal I/O-pattern thresholds.** Request size and similar
+   properties must be interpreted in the context of the access pattern and I/O
+   system.
+
+#. **Combine diagnostic evidence.** Small requests, shared files, or a low
+   balance value should not be interpreted in isolation.
+
+#. **Respect the I/O software stack.** The POSIX pattern is the behavior
+   presented to the POSIX layer and may have been transformed by higher-level
+   libraries.
+
+#. **Do not confuse necessary I/O with inefficient I/O.** A data-intensive
+   application may have low Data Access Efficiency because it must move a large
+   volume of data.
+
+#. **Keep BasicAnalysis and Paraver complementary.** BasicAnalysis should
+   screen, quantify, characterize, and recommend where to investigate. Paraver
+   remains the tool for detailed temporal and causal inspection.
+
+#. **Keep extraction isolated and presentation integrated.** I/O raw data can
+   remain hierarchically isolated in extraction/storage while the resulting
+   performance factors and diagnostics are integrated into the standard and
+   interactive BasicAnalysis reports.
+
+Proposed First-Version Scope
+----------------------------
+
+#. Classification of the traced calls by function family, with an Other I/O
+   remainder.
+#. I/O Efficiency.
+#. Data Access Efficiency.
+#. File Management Efficiency (and Other I/O Efficiency when needed).
+#. I/O time fractions (average and maximum) and I/O participation.
+#. Read and Write time contributions.
+#. Read and Write Load Balance, and Data Access Load Balance as a summary,
+   computed from the per-unit rows.
+#. Read/write time, volume, operation count, mean duration, and mean request
+   size.
+#. Read/write request-size distributions (count and time per interval,
+   power-of-two intervals) and coverage.
+#. File Management operation-time contributions, counts, and mean
+   durations.
+#. File Management Load Balance (in particular Open LB), computed from the
+   per-unit rows.
+#. Distinct files, per-file open count/time views, and ranks per file /
+   files per rank.
+#. Filename coverage.
+
+Offset-based access pattern, alignment, overlapping access analysis,
+per-call transfer rate, per-phase metrics, and the separation of I/O library
+computation should be treated as later extensions rather than prerequisites
+for the first I/O report.
+
+
+Review Log
+----------
+
+*2026-10-18* -- Review of the design against the current implementation
+(branch ``feature/io-metrics``) and the VTKHDF case (POP3 Ticket 668).
+Added: classification of the traced calls and Other I/O; descriptor type;
+note on the threshold versus the execution-time fraction; I/O time fractions
+(average and maximum) and the delegated-I/O example; order dependence of
+File Management Efficiency; mean duration per operation; per-operation load
+balance and availability of the per-unit raw data; time per request-size
+interval and power-of-two intervals; availability of offsets in the trace;
+ranks per file from the existing raw data; measurement scope and
+limitations; relation with the existing BasicAnalysis I/O metrics;
+validation with the VTKHDF traces; answers to open questions 2--4 and new
+open questions; updated report tree, summary tables, raw-data coverage, and
+first-version scope.
