@@ -242,6 +242,9 @@ factors:
   calls.
 
 The lower factor identifies the I/O component to investigate. The I/O
+efficiencies use stricter thresholds than the other efficiencies (Critical
+below 90%, Attention 90%--95%, Good from 95%); the efficiency scale of the
+view shows them. The I/O
 diagnostics (time fractions, participation, contributions, load balance,
 operation counts, and mean durations) are printed in the standard output and
 written to ``io_metrics.csv``; see :ref:`I/O diagnostics <io-diagnostics>`.

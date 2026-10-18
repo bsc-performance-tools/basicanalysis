@@ -19,6 +19,13 @@
   diagnostics in the standard output and the new `io_metrics.csv`. The time
   and number of MPI-IO calls are obtained with two new Paraver
   configurations (`mpiio-calls-time.cfg`, `mpiio-calls-count.cfg`).
+- The I/O efficiencies (I/O, Data Access, and File Management Efficiency)
+  are classified with stricter thresholds than the other efficiencies:
+  Critical below 90% (I/O takes 10% or more of the useful plus I/O time),
+  Attention 90%-95%, Good from 95%. The cell colors and the efficiency scale
+  of the report follow the thresholds of each metric, so the colors of the
+  other metrics do not change. Thresholds can be set per metric in
+  `metrics/definitions.yaml`.
 
 ### Changes
 

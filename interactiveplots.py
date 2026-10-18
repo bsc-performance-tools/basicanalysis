@@ -804,8 +804,12 @@ def _build_io_metrics_section(
         _build_io_metrics_guidance_html()
     )
 
+    # The I/O efficiencies use stricter thresholds than the other
+    # efficiencies (definitions.yaml).
     efficiency_scale_html = (
-        _build_efficiency_scale_html()
+        _build_efficiency_scale_html(
+            metric_knowledge["io_eff"].thresholds
+        )
     )
 
     scope_note_html = """
@@ -914,10 +918,12 @@ def _read_metric(metrics_dict, metric_key, trace):
         return "Non-Avail"
 
 
-def _cell_text_color(value):
+def _cell_text_color(value, thresholds=None):
     """Use white text on dark cells, black text on light cells."""
     if value is None:
         return "black"
+
+    value = _efficiency_scale_position(value, thresholds)
 
     # Low red cells and very high green cells are dark.
     if value < 25.0 or value >= 95.0:
@@ -1929,9 +1935,14 @@ def _build_efficiency_scale_html(thresholds=None):
     attention = float(thresholds.attention)
     reference = float(thresholds.reference)
 
-    critical_width = critical
-    attention_width = attention - critical
-    acceptable_width = reference - attention
+    # The cell colors map the thresholds of each metric to the positions
+    # of the default thresholds, so the segments of the color bar keep the
+    # default proportions.
+    default = _default_metric_thresholds()
+
+    critical_width = float(default.critical)
+    attention_width = float(default.attention) - float(default.critical)
+    acceptable_width = float(default.reference) - float(default.attention)
 
     return """
     <div class="efficiency-scale-panel">
@@ -2533,12 +2544,48 @@ def _metric_info_json(
 
 
 
-def _metric_value_color(value):
+def _efficiency_scale_position(value, thresholds=None):
+    """Map a value of a metric to the position of the common color scale.
+
+    Metrics with their own thresholds (e.g. the I/O efficiencies) are
+    mapped piecewise linearly so that their critical and attention
+    thresholds fall on the positions of the default thresholds. With the
+    default thresholds the value is returned unchanged.
+    """
+    value = float(value)
+
+    if thresholds is None:
+        return value
+
+    default = _default_metric_thresholds()
+
+    critical = float(thresholds.critical)
+    attention = float(thresholds.attention)
+    reference = float(thresholds.reference)
+
+    if value < critical:
+        return value / critical * float(default.critical)
+
+    if value < attention:
+        return float(default.critical) + (
+            (value - critical) / (attention - critical)
+            * (float(default.attention) - float(default.critical))
+        )
+
+    return float(default.attention) + (
+        (value - attention) / (reference - attention)
+        * (float(default.reference) - float(default.attention))
+    )
+
+
+def _metric_value_color(value, thresholds=None):
     """Return interpolated color from the efficiency scale."""
     if value is None:
         return "#f0f2f5"
 
-    normalized = max(0.0, min(float(value), 100.0)) / 100.0
+    position = _efficiency_scale_position(value, thresholds)
+
+    normalized = max(0.0, min(position, 100.0)) / 100.0
 
     for index in range(len(EFFICIENCY_COLOR_SCALE) - 1):
         lower_position, lower_color = EFFICIENCY_COLOR_SCALE[index]
@@ -3386,6 +3433,10 @@ def _build_printable_io_section(
         trace_labels=trace_labels,
         section_id="print-io-metrics",
         tree=IO_TREE,
+        # Stricter I/O thresholds (definitions.yaml) for the cell colors.
+        metric_knowledge=_build_metric_knowledge(
+            metric_keys=filtered_keys,
+        ),
         printable=True,
     )
 
@@ -4260,8 +4311,8 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
                 thresholds,
             )
 
-            background_color = _metric_value_color(value)
-            text_color = _cell_text_color(value)
+            background_color = _metric_value_color(value, thresholds)
+            text_color = _cell_text_color(value, thresholds)
 
             if printable:
                 lines.append(

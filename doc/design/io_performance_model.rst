@@ -256,6 +256,13 @@ contribution above roughly 10% of execution time can already be significant.
 These values are analysis policy and should not be treated as universal
 properties of all HPC applications or I/O systems.
 
+*Decision (2026-10-19):* the I/O efficiencies (I/O, Data Access, and File
+Management Efficiency) use stricter thresholds than the other efficiencies:
+**Critical below 90%** (I/O takes 10% or more of the useful plus I/O time),
+**Attention 90--95%**, **Good from 95%**. The report colors follow the
+thresholds of each metric (the I/O thresholds are mapped to the positions of
+the default ones on the color scale).
+
 The two criteria do not measure the same quantity. I/O Efficiency compares
 I/O time with **useful** time, not with the execution time:
 
@@ -1536,6 +1543,10 @@ for the first I/O report.
 
 Review Log
 ----------
+
+*2026-10-19* -- Stricter thresholds for the I/O efficiencies (Critical
+< 90%, Attention 90--95%, Good >= 95%), defined per metric in
+``metrics/definitions.yaml``; the report colors follow per-metric thresholds.
 
 *2026-10-19* -- Implementation step 1 (branch ``feature/io-metrics``):
 call classification, Data Access and File Management Efficiency, I/O time

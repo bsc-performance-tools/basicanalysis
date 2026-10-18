@@ -2799,6 +2799,31 @@ I/O Efficiency compares I/O time with useful time, not with the execution
 time. The fraction of the execution time spent in I/O is given by the I/O
 time fractions below.
 
+The I/O efficiencies are classified with **stricter thresholds** than the
+other efficiencies, because I/O that takes 10% of the time is already a
+significant cost:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 35 40
+
+   * - Classification
+     - I/O efficiencies
+     - I/O share of the useful plus I/O time
+   * - Good
+     - :math:`\geq 95\%`
+     - less than 5%
+   * - Attention
+     - 90% -- 95%
+     - 5% -- 10%
+   * - Critical
+     - :math:`< 90\%`
+     - 10% or more
+
+The other efficiencies keep the default thresholds (Critical below 60%,
+Good from 85%). The thresholds are defined per metric in
+``metrics/definitions.yaml``.
+
 The metrics are reported as ``Non-Avail`` when no File I/O is detected.
 
 

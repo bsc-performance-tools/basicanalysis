@@ -1389,6 +1389,12 @@ metrics:
     analysis_level: io
     metric_type: efficiency
 
+    # Stricter than the default efficiency thresholds: I/O that takes 10%
+    # of the useful plus I/O time is already a significant cost.
+    thresholds:
+      critical: 90.0
+      attention: 95.0
+
     definition: >
       Fraction of the useful computation plus File I/O time that is useful
       computation. File I/O includes the POSIX, ANSI C, and MPI-IO calls
@@ -1453,6 +1459,12 @@ metrics:
     analysis_level: io
     metric_type: efficiency
 
+    # Stricter than the default efficiency thresholds: I/O that takes 10%
+    # of the useful plus I/O time is already a significant cost.
+    thresholds:
+      critical: 90.0
+      attention: 95.0
+
     definition: >
       Fraction of the useful computation plus Data Access time that is
       useful computation. Data Access comprises the calls that move or
@@ -1510,6 +1522,12 @@ metrics:
     family: io
     analysis_level: io
     metric_type: efficiency
+
+    # Stricter than the default efficiency thresholds: I/O that takes 10%
+    # of the useful plus I/O time is already a significant cost.
+    thresholds:
+      critical: 90.0
+      attention: 95.0
 
     definition: >
       Fraction of the useful computation plus Data Access plus File
