@@ -240,6 +240,26 @@ class HwcOutputTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
+    def test_talp_domain_plots(self):
+        from hybridmetrics import plots_talp_efficiency_table_matplot
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.chdir(tmpdir)
+            try:
+                with open('talp_metrics.csv', 'w') as f:
+                    f.write('"Metric",A,B\n'
+                            '"HOST Global efficiency",81.66,42.06\n'
+                            '"-- Host Parallel efficiency",81.66,52.87\n'
+                            '"DEVICE Global efficiency",12.55,6.46\n'
+                            '"-- Device Parallel efficiency",12.55,54.56\n')
+                plots_talp_efficiency_table_matplot(
+                    ['a', 'b'], {}, {}, {}, {}, {}, None)
+                for name in ('talp', 'talp_host', 'talp_device'):
+                    self.assertTrue(os.path.exists(
+                        'efficiency_table_{}_matplot.png'.format(name)), name)
+            finally:
+                os.chdir(cwd)
+
     def test_report_view(self):
         from interactiveplots import _build_device_hwc_section, _has_device_hwc_metrics
         metrics_result = {'device_hwc_factors': self.factors}

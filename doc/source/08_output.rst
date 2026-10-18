@@ -115,7 +115,12 @@ performance model, the output includes files such as:
    efficiency_table-matplot.pdf
 
 or the corresponding global, hybrid, runtime-specific, or Host/Device
-variants. For *nsys2prv* traces with GPU metrics,
+variants. For the Host/Device model, ``efficiency_table_talp_matplot``
+shows the Host and Device metrics together, and
+``efficiency_table_talp_host_matplot`` and
+``efficiency_table_talp_device_matplot`` show each execution domain on its
+own, for example for presentations that focus on the host or on the device.
+For *nsys2prv* traces with GPU metrics,
 ``efficiency_table_device_hwc_matplot`` shows SM Utilization and its
 factors, and ``table_device_hwc_indicators_matplot`` shows the indicators
 (GPU Active, Achieved Occupancy, Tensor Core Activity, DRAM Read and Write

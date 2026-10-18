@@ -4234,6 +4234,18 @@ def plots_talp_efficiency_table_matplot(
         separator_row=host_rows
     )
 
+    # Host-only and Device-only tables, e.g. for presentations that
+    # focus on one execution domain.
+    if 0 < host_rows < len(df_plot):
+        _plot_efficiency_heatmap(
+            df_plot.iloc[host_rows:],
+            'efficiency_table_talp_device_matplot'
+        )
+        _plot_efficiency_heatmap(
+            df_plot.iloc[:host_rows],
+            'efficiency_table_talp_host_matplot'
+        )
+
 
 # --------------------------------------------------------------
 # Device hardware counter metrics (nsys2prv GPU metrics)

@@ -37,6 +37,11 @@
 
 ### Improvements
 
+- Add Host-only and Device-only efficiency tables of the Host/Device model
+  (`efficiency_table_talp_host_matplot` and
+  `efficiency_table_talp_device_matplot`), in addition to the combined
+  `efficiency_table_talp_matplot`, e.g. for presentations that focus on one
+  execution domain.
 - Interactive report: rename the *Execution Domains* view to *Host/Device
   Model (TALP)*, show the Device metrics before the Host metrics, and
   collapse the *How to read this view* notes by default (click to expand).
