@@ -1572,7 +1572,6 @@ metrics:
     family: io
     analysis_level: io
     metric_type: efficiency
-
     definition: >
       Complementary efficiency metric that characterizes the fraction of
       aggregate execution capacity not spent in POSIX and ANSI C File I/O
@@ -1580,7 +1579,6 @@ metrics:
       smaller File I/O contribution to the measured execution. The metric is
       reported independently from the hierarchical performance-efficiency
       model.
-
     formula:
       text: >
         POSIX_IO_Eff = 1 - POSIX_IO / (P × T)
@@ -1588,12 +1586,10 @@ metrics:
       latex: >
         POSIX\_IO\_Eff =
         1 - \frac{POSIXIO}{P \cdot T}
-
       variables:
         POSIXIO: Total POSIX and ANSI C File I/O duration accumulated across the execution units represented in the measurement
         P: Number of parallel execution units considered by the metric
         T: Application execution time
-
     interpretation:
       low: >
         Low values indicate that POSIX and ANSI C File I/O activity consumes
@@ -1604,27 +1600,21 @@ metrics:
       above_100: >
         Values above 100% are not expected for POSIX I/O Efficiency and should
         be checked.
-
     typical_causes:
       - Frequent POSIX or ANSI C read/write operations
       - Large File I/O data volumes
       - Serialized File I/O
       - I/O phases with significant duration
-
     next_steps:
       - Inspect POSIX and ANSI C File I/O activity in the trace.
       - Examine the frequency and duration of File I/O operations.
       - Compare File I/O behavior across execution configurations.
-
     children: []
-
     availability: >
       Reported as Non-Avail when no POSIX or ANSI C File I/O activity is
       detected in the analyzed execution.
-
     sources:
       - basicanalysis_io_metrics
-
 
   posix_io_load_balance:
     name: POSIX I/O Load Balance
@@ -1632,25 +1622,20 @@ metrics:
     family: io
     analysis_level: io
     metric_type: efficiency
-
     definition: >
       Complementary I/O metric that characterizes how evenly POSIX and ANSI C
       File I/O activity is distributed across the execution units represented
       in the I/O measurement. It compares the average POSIX/ANSI C I/O duration
       with the maximum POSIX/ANSI C I/O duration.
-
     formula:
       text: >
         POSIX_IO_LB = average POSIX/ANSI C I/O time / maximum POSIX/ANSI C I/O time
-
       latex: >
         POSIX\_IO\_LB =
         \frac{\overline{POSIXIO}}
         {\max(POSIXIO)}
-
       variables:
         POSIXIO: POSIX and ANSI C File I/O duration measured for the execution units represented in the analysis
-
     interpretation:
       low: >
         Low values indicate that POSIX and ANSI C File I/O activity is unevenly
@@ -1663,60 +1648,21 @@ metrics:
       above_100: >
         Values above 100% are not expected for POSIX I/O Load Balance and
         should be checked.
-
     typical_causes:
       - Uneven distribution of File I/O operations
       - Different I/O volumes across execution units
       - Serialized or rank-specific File I/O activity
-
     next_steps:
       - Inspect POSIX and ANSI C File I/O duration per execution unit.
       - Identify execution units responsible for the largest File I/O time.
       - Inspect the distribution of File I/O operations in the trace.
-
     children: []
-
     availability: >
       Reported as Non-Avail when no POSIX or ANSI C File I/O activity is
       detected in the analyzed execution.
-
     sources:
       - basicanalysis_io_metrics
 
-  dev_hwc_gpu_active:
-    name: GPU Active (HW counters)
-    short_name: GPU Active
-    family: gpu_hwc
-    analysis_level: hardware_counters
-    metric_type: performance_indicator
-    definition: >
-      Fraction of the execution time in which the graphics/compute engine of
-      the GPUs is active, measured with the sampled GR Active (Graphics/Compute
-      Engine Active) counter. For compute workloads, it indicates the periods
-      in which the GPU is executing compute work; memory copies performed by
-      the copy engines are not included. It is a consistency check of the
-      hardware counters: it should be close to the fraction of time with
-      kernels running obtained from the kernel events of the trace.
-    formula:
-      text: GPU_Active = sum_d integral(GR_Active_d) / (N × T)
-      latex: GPU\_Active = \frac{\sum_d \int GR^{Active}_d\,dt}{N \cdot T}
-      variables:
-        GR_Active_d: "GR Active (Graphics/Compute Engine Active) of device d: percentage of the cycles in which the graphics/compute engine is active"
-        N: Number of devices with sampled hardware counters
-        T: Runtime
-    interpretation:
-      reading: "Consistency check rather than a quality measure: compare it with the fraction of time with kernels running. The idle time of the GPU is assessed by the Device Parallel Efficiency."
-      low: The GPUs are idle most of the execution.
-      high: The GPUs are busy most of the execution.
-    next_steps:
-      - "Compare it with the fraction of time with kernels running (Device useful time / runtime); a large difference indicates a problem with the sampled counters."
-      - "Use the Device metrics of the Host/Device Model (TALP) to analyze the idle periods of the GPU."
-    children: []
-    availability: >
-      Only for nsys2prv traces with sampled GPU metrics (Metrics GPU<n>
-      threads); Non-Avail otherwise.
-    sources:
-      - basicanalysis_gpu_hwc
 
   dev_hwc_sm_utilization:
     name: SM Utilization
@@ -1725,32 +1671,42 @@ metrics:
     analysis_level: hardware_counters
     metric_type: compound_efficiency
     definition: >
-      Degree to which the SMs issue instructions while the GPU is active,
-      that is, the fraction of GPU-active time represented by
-      instruction-issuing SM activity. It is not a fraction of the peak
-      instruction throughput of the architecture. It combines how many SMs receive work (SM Coverage) and
-      how often the active SMs issue instructions (SM Issue Efficiency). It
-      complements the Device metrics, which characterize how effectively the
-      accelerator is kept supplied with useful work over the execution, by
-      characterizing how the GPU resources are exercised while the device is
-      active. It is not part of the multiplicative Host/Device model.
+      Fraction of GPU-active time during which the SMs are issuing
+      instructions. It combines how broadly work is distributed across the
+      SMs (SM Coverage) with how effectively active SMs issue instructions
+      (SM Issue Efficiency).
     formula:
       text: SM_Util = SM_Coverage × SM_Issue_Eff = integral(SM_Issue) / integral(GR_Active)
       latex: SM\_Util = SM\_Coverage \times SM\_Issue = \frac{\int SM^{Issue}\,dt}{\int GR^{Active}\,dt}
       variables:
-        SM_Issue: Ratio of cycles in which the SM sub-partitions issue an instruction
-        GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
+        SM_Issue: >
+          Percentage of cycles in which the SM sub-partitions issue an
+          instruction.
+        GR_Active: >
+          Percentage of cycles in which the GPU Graphics/Compute Engine
+          is active.
     interpretation:
-      low: The SMs issue instructions during a small fraction of the GPU-active time.
-      high: The active GPU keeps most SMs issuing instructions.
-      above_100: Values above 100% are not expected and should be checked.
+      low: >
+        The GPU has low SM instruction-issue activity while it is active.
+        This can result from limited SM Coverage, low SM Issue Efficiency,
+        or both.
+      high: >
+        The GPU has high SM instruction-issue activity while it is active,
+        indicating both broad use of the available SMs and effective
+        instruction issue within the active SMs.
+      above_100: >
+        Values above 100% are not expected and should be checked.
     typical_causes:
-      - Kernels with too few blocks to occupy all SMs
-      - Memory-bound kernels waiting for DRAM
-      - Low occupancy that cannot hide latencies
+      - Insufficient parallelism or too few thread blocks to keep all SMs active
+      - Low occupancy, reducing the number of warps available to hide latency
+      - Memory stalls that prevent active warps from issuing instructions
+      - Instruction or execution dependencies that limit instruction issue
     next_steps:
-      - Inspect SM Coverage and SM Issue Efficiency.
-      - Inspect Achieved Occupancy, DRAM bandwidth and Tensor Core Activity.
+      - Inspect SM Coverage and SM Issue Efficiency to determine which component limits SM Utilization.
+      - If SM Coverage is low, check kernel parallelism, grid size, and the number of active blocks across the SMs.
+      - If SM Issue Efficiency is low, inspect occupancy, memory behavior, and sources of instruction stalls.
+      - Inspect DRAM Bandwidth when memory stalls are suspected.
+      - Inspect Tensor Core Activity only for kernels expected to use Tensor Cores.
     children:
       - dev_hwc_sm_coverage
       - dev_hwc_sm_issue_eff
@@ -1766,25 +1722,37 @@ metrics:
     analysis_level: hardware_counters
     metric_type: efficiency
     definition: >
-      Fraction of the GPU's SM capacity that is active while the GPU is
-      active: are the available SMs being given work? An SM is active when
-      it has at least one warp in flight; the sampled percentage of active
-      SMs is integrated over the GPU-active time.
+      Fraction of the available SM capacity that is active while the GPU
+      is active. An SM is considered active when it has at least one warp
+      in flight.
     formula:
       text: SM_Coverage = integral(SMs_Active) / integral(GR_Active)
       latex: SM\_Coverage = \frac{\int SMs^{Active}\,dt}{\int GR^{Active}\,dt}
       variables:
-        SMs_Active: Ratio of SM cycles with at least one warp in flight
-        GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
+        SMs_Active: >
+          Percentage of SM cycles in which the SMs have at least one
+          warp in flight.
+        GR_Active: >
+          Percentage of cycles in which the GPU Graphics/Compute Engine
+          is active.
     interpretation:
-      low: Many SMs are idle while kernels run.
-      high: The kernels give work to most of the available SMs.
-      above_100: Values above 100% are not expected and should be checked.
+      low: >
+        A significant fraction of the available SM capacity is inactive
+        while the GPU is active, indicating that the workload does not
+        expose enough parallelism to use all SMs effectively.
+      high: >
+        Most of the available SM capacity is active while the GPU is
+        active, indicating that work is broadly distributed across the SMs.
+      above_100: >
+        Values above 100% are not expected and should be checked.
     typical_causes:
-      - Small grids (fewer blocks than SMs)
-      - Short kernels and tails of kernels
+      - Small grids with insufficient thread blocks to distribute work across all SMs
+      - Kernel tail effects, where only a few thread blocks remain active near kernel completion
+      - Work decomposition that exposes insufficient parallelism to the GPU
     next_steps:
-      - Inspect the grid size of the kernels (Kernel GrdX/Y/Z events).
+      - Inspect kernel grid dimensions (Kernel GrdX/Y/Z events) and compute the total number of thread blocks (GrdX × GrdY × GrdZ).
+      - Compare the number of thread blocks with the number of SMs to identify kernels with insufficient parallelism.
+      - Check for kernel tail effects where only a small number of blocks remain active.
     children: []
     sources:
       - basicanalysis_gpu_hwc
@@ -1796,27 +1764,90 @@ metrics:
     analysis_level: hardware_counters
     metric_type: efficiency
     definition: >
-      Fraction of the cycles of the active SMs in which an instruction is
-      issued. It plays the role of the IPC for the GPU.
+      Fraction of active-SM activity during which the SM sub-partitions
+      issue instructions. SM activity is measured over SM cycles with at
+      least one warp in flight.
     formula:
       text: SM_Issue_Eff = integral(SM_Issue) / integral(SMs_Active)
-      latex: SM\_Issue = \frac{\int SM^{Issue}\,dt}{\int SMs^{Active}\,dt}
+      latex: SM\_Issue\_Eff = \frac{\int SM^{Issue}\,dt}{\int SMs^{Active}\,dt}
       variables:
-        SM_Issue: Ratio of cycles in which the SM sub-partitions issue an instruction
-        SMs_Active: Ratio of SM cycles with at least one warp in flight
+        SM_Issue: >
+          Percentage of cycles in which the SM sub-partitions issue an
+          instruction.
+        SMs_Active: >
+          Percentage of SM cycles in which the SMs have at least one
+          warp in flight.
     interpretation:
-      low: The active SMs are mostly stalled.
-      high: The active SMs issue instructions most of the cycles.
-      above_100: Values above 100% are not expected and should be checked.
+      low: >
+        Active SMs spend a significant fraction of their activity without
+        issuing instructions, indicating limited instruction-issue efficiency.
+      high: >
+        Active SMs issue instructions during most of their activity,
+        indicating effective use of the SM instruction-issue capability.
+      above_100: >
+        Values above 100% are not expected and should be checked.
     typical_causes:
-      - Memory latency or bandwidth limits
-      - Low occupancy
-      - Dependencies and synchronization inside the kernels
+      - Memory latency that leaves active warps waiting for data
+      - Insufficient active warps to hide instruction or memory latency
+      - Data or instruction dependencies that prevent ready warps from issuing
+      - Synchronization or control-flow effects that reduce the number of ready warps
     next_steps:
-      - Inspect Achieved Occupancy and DRAM bandwidth.
+      - Inspect Achieved Occupancy to determine whether enough warps are available to hide latency.
+      - Inspect DRAM Bandwidth and memory behavior to identify possible memory-related limitations.
+      - Inspect warp stall reasons, when available, to identify why active warps are not issuing instructions.
     children: []
     sources:
       - basicanalysis_gpu_hwc
+
+  dev_hwc_gpu_active:
+    name: GPU Active (HW counters)
+    short_name: GPU Active
+    family: gpu_hwc
+    analysis_level: hardware_counters
+    metric_type: performance_indicator
+    definition: >
+      Average fraction of the execution time during which the GPU
+      graphics/compute engine is active across the devices with sampled
+      hardware counters. For compute workloads, this indicates periods in
+      which the compute engine is processing work. Activity of the
+      independent GPU copy engines is not included.
+    formula:
+      text: GPU_Active = sum_d integral(GR_Active_d) / (N × T)
+      latex: GPU\_Active = \frac{\sum_d \int GR^{Active}_d\,dt}{N \cdot T}
+      variables:
+        GR_Active_d: >
+          Percentage of cycles in which the Graphics/Compute Engine of
+          device d is active.
+        N: Number of devices with sampled hardware counters
+        T: Execution runtime
+    interpretation:
+      reading: >
+        This is an activity indicator rather than a measure of GPU
+        efficiency. Compare it with the fraction of execution time covered
+        by GPU kernels as a consistency check. GPU idle periods and their
+        impact on application performance are assessed with the Device
+        metrics of the Host/Device Model.
+      low: >
+        The GPU graphics/compute engines are active during a relatively
+        small fraction of the execution.
+      high: >
+        The GPU graphics/compute engines are active during a relatively
+        large fraction of the execution.
+    next_steps:
+      - >
+        Compare GPU Active with the fraction of execution time covered by
+        GPU kernels; a large discrepancy may indicate sampling,
+        trace-conversion, or counter-interpretation issues.
+      - >
+        Use the Device metrics of the Host/Device Model (TALP) to assess
+        GPU idle periods and their impact on application performance.
+    children: []
+    availability: >
+      Only for nsys2prv traces with sampled GPU metrics (Metrics GPU<n>
+      threads); Non-Avail otherwise.
+    sources:
+      - basicanalysis_gpu_hwc
+
 
   dev_hwc_achieved_occupancy:
     name: Achieved Occupancy (run average)
@@ -1825,30 +1856,46 @@ metrics:
     analysis_level: hardware_counters
     metric_type: performance_indicator
     definition: >
-      Resident warps relative to the maximum number of warps per SM, during
-      the cycles in which the SMs are active (CUDA achieved occupancy),
-      averaged over all kernels and the whole execution. The remaining warp
-      slots of the active SMs are unused (Compute Warps in Flight + Active SM
-      Unused Warp Slots = SMs Active). It is not the theoretical occupancy
-      of a launch configuration and not a per-kernel value: with several
-      kernels it mixes kernels with different occupancies. Use Nsight
-      Compute for the occupancy of each kernel.
+      Average fraction of the maximum warp capacity occupied by resident
+      compute warps while the SMs are active. It is an execution-level
+      indicator computed across all GPU activity, rather than the
+      per-kernel achieved occupancy of a specific kernel.
     formula:
       text: AchievedOcc = integral(Warps_in_Flight) / integral(SMs_Active)
       latex: AchievedOcc = \frac{\int Warps^{Flight}\,dt}{\int SMs^{Active}\,dt}
       variables:
-        Warps_in_Flight: Active compute warps resident on the SMs relative to the maximum warps per SM, averaged over all SMs (Compute Warps in Flight)
-        SMs_Active: Ratio of SM cycles with at least one warp in flight
+        Warps_in_Flight: >
+          Percentage of the maximum warp capacity occupied by resident
+          compute warps, averaged across the SMs.
+        SMs_Active: >
+          Percentage of SM cycles in which the SMs have at least one
+          warp in flight.
     interpretation:
-      reading: "Higher is not necessarily better. Low occupancy matters when SM Issue Efficiency is also low; kernels with much work per thread can perform well at low occupancy. Run average over all kernels: do not compare it directly with the per-kernel achieved occupancy of Nsight Compute unless one kernel dominates."
-      low: Few warps to hide latencies.
-      high: Many warps available to hide latencies.
+      reading: >
+        Higher is not necessarily better. Low achieved occupancy becomes
+        relevant when there are not enough resident warps to hide latency,
+        particularly when SM Issue Efficiency is also low. Kernels with
+        sufficient instruction-level parallelism or substantial work per
+        thread can perform well at lower occupancy. This is an execution-level
+        average and should not be compared directly with the per-kernel
+        achieved occupancy reported by Nsight Compute unless one kernel
+        dominates the execution.
+      low: >
+        A relatively small fraction of the available warp slots is occupied
+        by resident warps while the SMs are active.
+      high: >
+        A relatively large fraction of the available warp slots is occupied
+        by resident warps while the SMs are active.
     typical_causes:
-      - Registers or shared memory per block limiting the resident blocks
-      - Small blocks or grids
+      - High register usage per thread limiting the number of resident warps or blocks
+      - High shared-memory usage per block limiting the number of resident blocks
+      - Block size limiting the number of resident warps
+      - Small grids providing insufficient concurrent work
     next_steps:
-      - Inspect registers per thread and shared memory of the kernels (Kernel Registers/Thread and Shared Memory events).
-      - Profile the dominant kernels with Nsight Compute for their theoretical and achieved occupancy.
+      - Inspect Kernel Registers/Thread and Shared Memory events for resource limits that may restrict resident blocks or warps.
+      - Inspect kernel grid and block dimensions to determine whether enough parallel work is available.
+      - Compare Achieved Occupancy with SM Issue Efficiency; low occupancy is more relevant when instruction issue is also limited.
+      - Profile dominant kernels with Nsight Compute to analyze their theoretical and per-kernel achieved occupancy.
     children: []
     sources:
       - basicanalysis_gpu_hwc
@@ -1860,20 +1907,34 @@ metrics:
     analysis_level: hardware_counters
     metric_type: performance_indicator
     definition: >
-      Average fraction of cycles with the tensor pipes active while the GPU
-      is active.
+      Fraction of GPU-active time during which the Tensor Core pipelines
+      are active.
     formula:
       text: Tensor = integral(Tensor_Active) / integral(GR_Active)
       latex: Tensor = \frac{\int Tensor^{Active}\,dt}{\int GR^{Active}\,dt}
       variables:
-        Tensor_Active: Ratio of cycles with the tensor pipes active
-        GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
+        Tensor_Active: >
+          Percentage of cycles in which the Tensor Core pipelines are
+          active.
+        GR_Active: >
+          Percentage of cycles in which the GPU Graphics/Compute Engine
+          is active.
     interpretation:
-      reading: "Depends on the workload. Low values are expected for codes without matrix operations; for matrix-heavy codes (e.g. deep learning), low values indicate a missed opportunity."
-      low: The tensor cores are little used (expected for non-matrix workloads).
-      high: The workload is dominated by tensor-core matrix operations.
+      reading: >
+        Workload dependent. Low activity is expected for applications that
+        do not use Tensor Core operations. For workloads expected to benefit
+        from Tensor Cores, low activity may indicate that the Tensor Cores
+        are not being effectively used.
+      low: >
+        Tensor Core pipeline activity is observed during a relatively small
+        fraction of the GPU-active time.
+      high: >
+        Tensor Core pipeline activity is observed during a relatively large
+        fraction of the GPU-active time.
     next_steps:
-      - "For matrix-heavy workloads with low activity, check that the kernels use tensor-core data types and libraries (e.g. cuBLAS, cuDNN with FP16/BF16/TF32)."
+      - For workloads expected to use Tensor Cores, identify the dominant kernels and verify that they perform Tensor Core-eligible operations.
+      - Check the numerical precision and data types used by these kernels (e.g. FP16, BF16, TF32 where appropriate).
+      - For library-based matrix operations, verify that the selected library routines and configuration enable Tensor Core execution.
     children: []
     sources:
       - basicanalysis_gpu_hwc
@@ -1885,21 +1946,44 @@ metrics:
     analysis_level: hardware_counters
     metric_type: performance_indicator
     definition: >
-      Average DRAM read bandwidth, as a percentage of the peak bandwidth,
-      weighted by the GPU activity.
+      Average DRAM read bandwidth during GPU-active periods, expressed as
+      a percentage of the hardware-specific peak sustained rate reported
+      by the sampled NVIDIA GPU metric.
     formula:
       text: DRAM_Read = integral(DRAM_Read_BW × GR_Active) / integral(GR_Active)
       latex: DRAM\_Read = \frac{\int DRAM^{Read} \cdot GR^{Active}\,dt}{\int GR^{Active}\,dt}
       variables:
-        DRAM_Read_BW: DRAM read bandwidth (% of peak)
-        GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
+        DRAM_Read_BW: >
+          DRAM read throughput reported by NVIDIA as a percentage of the
+          hardware-specific peak sustained rate.
+        GR_Active: >
+          Percentage of cycles in which the GPU Graphics/Compute Engine
+          is active.
     interpretation:
-      reading: "Ambiguous on its own: read it together with SM Issue Efficiency. High bandwidth with low SM Issue Efficiency indicates memory-bound kernels, while near-peak bandwidth can also mean that kernels that must stream data use the memory well."
-      low: The active GPU makes little use of the memory bandwidth.
-      high: The kernels are likely limited by memory bandwidth.
+      reading: >
+        Workload dependent. High DRAM read bandwidth indicates intensive
+        use of the device memory system, but does not by itself indicate
+        a performance limitation. Interpret it together with SM Issue
+        Efficiency and the expected memory behavior of the workload.
+      low: >
+        DRAM reads use a relatively small fraction of the hardware-specific
+        peak sustained rate during GPU-active periods.
+      high: >
+        DRAM reads use a relatively large fraction of the hardware-specific
+        peak sustained rate during GPU-active periods.
     next_steps:
-      - "With high DRAM bandwidth and low SM Issue Efficiency, the kernels are likely memory-bound: improve data reuse, caching, or batching."
-      - "Profile the dominant kernels with Nsight Compute for the memory hierarchy details."
+      - >
+        Compare DRAM Read Bandwidth with SM Issue Efficiency. High DRAM
+        bandwidth together with low SM Issue Efficiency may indicate that
+        memory bandwidth is limiting instruction progress.
+      - >
+        Profile the dominant kernels with Nsight Compute to determine
+        whether they are memory-bandwidth limited and to inspect memory
+        hierarchy behavior.
+      - >
+        If memory bandwidth is confirmed as a limitation, investigate data
+        reuse, memory access patterns, and opportunities to reduce DRAM
+        traffic.
     children: []
     sources:
       - basicanalysis_gpu_hwc
@@ -1911,21 +1995,48 @@ metrics:
     analysis_level: hardware_counters
     metric_type: performance_indicator
     definition: >
-      Average DRAM write bandwidth, as a percentage of the peak bandwidth,
-      weighted by the GPU activity.
+      Average DRAM write bandwidth during GPU-active periods, expressed as
+      a percentage of the hardware-specific peak sustained rate reported
+      by the sampled NVIDIA GPU metric.
     formula:
       text: DRAM_Write = integral(DRAM_Write_BW × GR_Active) / integral(GR_Active)
       latex: DRAM\_Write = \frac{\int DRAM^{Write} \cdot GR^{Active}\,dt}{\int GR^{Active}\,dt}
       variables:
-        DRAM_Write_BW: DRAM write bandwidth (% of peak)
-        GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
+        DRAM_Write_BW: >
+          DRAM write throughput reported by NVIDIA as a percentage of the
+          hardware-specific peak sustained rate.
+        GR_Active: >
+          Percentage of cycles in which the GPU Graphics/Compute Engine
+          is active.
     interpretation:
-      reading: "Read it together with DRAM Read Bandwidth and SM Issue Efficiency: like the read bandwidth, a high value is not good or bad on its own."
-      low: The active GPU writes little to memory.
-      high: The kernels write intensively to memory.
+      reading: >
+        Workload dependent. High DRAM write bandwidth indicates intensive
+        use of the device memory system for writes, but does not by itself
+        indicate a performance limitation. Interpret it together with DRAM
+        Read Bandwidth, SM Issue Efficiency, and the expected memory behavior
+        of the workload.
+      low: >
+        DRAM writes use a relatively small fraction of the hardware-specific
+        peak sustained rate during GPU-active periods.
+      high: >
+        DRAM writes use a relatively large fraction of the hardware-specific
+        peak sustained rate during GPU-active periods.
     next_steps:
-      - "Compare with DRAM Read Bandwidth to characterize the memory traffic of the kernels."
-      - "Profile the dominant kernels with Nsight Compute for the memory hierarchy details."
+      - >
+        Compare DRAM Write Bandwidth with DRAM Read Bandwidth to characterize
+        the read/write behavior of the workload.
+      - >
+        Compare DRAM bandwidth with SM Issue Efficiency. High DRAM bandwidth
+        together with low SM Issue Efficiency may indicate that memory
+        bandwidth is limiting instruction progress.
+      - >
+        Profile the dominant kernels with Nsight Compute to determine
+        whether they are memory-bandwidth limited and to inspect memory
+        hierarchy behavior.
+      - >
+        If memory bandwidth is confirmed as a limitation, investigate data
+        reuse, memory access patterns, and opportunities to reduce DRAM
+        traffic.
     children: []
     sources:
       - basicanalysis_gpu_hwc
@@ -1937,22 +2048,41 @@ metrics:
     analysis_level: hardware_counters
     metric_type: performance_indicator
     definition: >
-      Average GPC (graphics processing cluster) clock frequency in MHz,
-      weighted by the GPU activity. Lower values for the same GPU indicate
-      power or thermal throttling.
+      Average GPC (Graphics Processing Cluster) clock frequency during
+      GPU-active periods.
     formula:
       text: Clock = integral(GPC_Clock × GR_Active) / integral(GR_Active)
       latex: Clock = \frac{\int f_{GPC} \cdot GR^{Active}\,dt}{\int GR^{Active}\,dt}
       variables:
-        GPC_Clock: GPC clock frequency (recorded in Hz by nsys2prv)
-        GR_Active: "GR Active (Graphics/Compute Engine Active): percentage of the cycles in which the GPU graphics/compute engine is active (compute work for compute workloads)"
+        GPC_Clock: >
+          GPC (Graphics Processing Cluster) clock frequency, recorded in
+          Hz by nsys2prv.
+        GR_Active: >
+          Percentage of cycles in which the GPU Graphics/Compute Engine
+          is active.
     interpretation:
-      reading: "Higher is better only when comparing executions on the same GPU model; the absolute value differs between GPU models."
-      low: The GPU runs at a reduced clock while it computes.
-      high: The GPU runs close to its boost clock while it computes.
+      reading: >
+        Workload- and system-dependent. The absolute clock frequency is
+        not a performance quality measure and should not be interpreted
+        as good or bad on its own. It is most useful when comparing
+        executions on the same GPU model and under comparable system
+        conditions.
+      low: >
+        A relatively low GPC clock frequency is observed during
+        GPU-active periods.
+      high: >
+        A relatively high GPC clock frequency is observed during
+        GPU-active periods.
     next_steps:
-      - "Compare executions on the same GPU model: a lower clock under higher load indicates power or thermal throttling."
-      - "Check the power and clock settings of the GPU (e.g. with nvidia-smi)."
+      - >
+        Compare GPC Clock across executions on the same GPU model and
+        under comparable system conditions; an unexpectedly lower clock
+        may help explain a performance difference.
+      - >
+        If an unexpectedly low clock is observed, inspect GPU clock,
+        power, temperature, and throttling information (e.g. with
+        nvidia-smi) to determine whether power, thermal, or clock limits
+        are involved.
     children: []
     sources:
       - basicanalysis_gpu_hwc

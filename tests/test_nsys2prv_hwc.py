@@ -3,6 +3,7 @@ import io
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from nsys2prvmetrics import (
     HWC_KEYS,
@@ -214,6 +215,31 @@ class HwcOutputTests(unittest.TestCase):
         self.assertEqual(format_device_hwc_value('dev_hwc_sm_coverage', 'Non-Avail'), 'Non-Avail')
         self.assertEqual(format_device_hwc_value('dev_hwc_sm_coverage', float('nan')), 'NaN')
 
+    def test_indicator_plot(self):
+        from hybridmetrics import (
+            DEVICE_HWC_HEATMAP_KEYS,
+            DEVICE_HWC_INDICATOR_KEYS,
+            plots_device_hwc_indicators_matplot,
+        )
+        self.assertEqual(
+            list(DEVICE_HWC_HEATMAP_KEYS) + list(DEVICE_HWC_INDICATOR_KEYS),
+            sorted(mod_device_hwc_factors_doc,
+                   key=lambda k: (k not in DEVICE_HWC_HEATMAP_KEYS,
+                                  list(mod_device_hwc_factors_doc).index(k))))
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.chdir(tmpdir)
+            try:
+                with mock.patch('hybridmetrics._build_hybrid_configuration_labels',
+                                return_value=['5 (1x4) [1D]']):
+                    plots_device_hwc_indicators_matplot(
+                        self.factors, ['b1'], {}, {}, {}, {}, {})
+                for ext in ('png', 'pdf'):
+                    self.assertTrue(os.path.exists(
+                        'table_device_hwc_indicators_matplot.' + ext))
+            finally:
+                os.chdir(cwd)
+
     def test_report_view(self):
         from interactiveplots import _build_device_hwc_section, _has_device_hwc_metrics
         metrics_result = {'device_hwc_factors': self.factors}
@@ -224,7 +250,7 @@ class HwcOutputTests(unittest.TestCase):
         html = _build_device_hwc_section(
             metrics_result, ['b1'], ['T1'], trace_header_note='')
         self.assertIn('SM Utilization', html)
-        self.assertIn('1905 MHz', html)
+        self.assertIn('1905\u00a0MHz', html)
         self.assertIn('46.43%', html)
 
     def test_report_indicator_details(self):

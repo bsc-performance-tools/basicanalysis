@@ -466,6 +466,10 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
                     device_hwc_factors, trace_list, trace_processes, trace_tasks,
                     trace_threads, trace_mode, raw_data
                 )
+                hybridmetrics.plots_device_hwc_indicators_matplot(
+                    device_hwc_factors, trace_list, trace_processes, trace_tasks,
+                    trace_threads, trace_mode, raw_data
+                )
         else:
             hybridmetrics.plots_efficiency_table_matplot(
                 trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args

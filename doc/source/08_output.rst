@@ -117,7 +117,10 @@ performance model, the output includes files such as:
 or the corresponding global, hybrid, runtime-specific, or Host/Device
 variants. For *nsys2prv* traces with GPU metrics,
 ``efficiency_table_device_hwc_matplot`` shows SM Utilization and its
-factors.
+factors, and ``table_device_hwc_indicators_matplot`` shows the indicators
+(GPU Active, Achieved Occupancy, Tensor Core Activity, DRAM Read and Write
+Bandwidth and GPC Clock) with a single neutral colour, since they are not
+efficiencies.
 
 When multiple execution configurations are analyzed, BasicAnalysis also
 generates plots showing the evolution of performance metrics across the

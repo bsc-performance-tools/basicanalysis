@@ -2390,6 +2390,7 @@ Serialization and Transfer Efficiency do not apply without MPI.
 
 .. _gpu-hardware-counter-metrics:
 
+
 GPU Hardware Counter Metrics
 ----------------------------
 
@@ -2402,11 +2403,135 @@ GPU hardware-counter metrics characterize how the GPU resources are exercised
 while the device is active. They are complementary and are **not** part of
 the multiplicative Host/Device model.
 
-BasicAnalysis integrates each counter :math:`x` over the whole trace,
-:math:`I_x = \int x(t)\,dt`, with the configurations
-``cfgs/nsys2prv/hwc_<counter>.cfg`` (Paraver *Integral* statistic, one row
-per ``Metrics GPU<n>`` thread). The integrals of all devices are added. The
-metrics are ratios of these integrals:
+
+GPU activity represented by the counters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The sampled hardware counters describe activity at different levels of the
+GPU execution hierarchy. Understanding these levels is important when
+interpreting the metrics derived from them.
+
+For CUDA compute workloads, ``GR Active`` represents activity of the GPU
+Graphics/Compute Engine. When this engine is active, the GPU is processing
+graphics or compute work. CUDA kernels execute through this engine and their
+thread blocks are scheduled on the Streaming Multiprocessors (SMs).
+
+The SM-related counters then characterize progressively more detailed aspects
+of this compute activity:
+
+* **SMs Active** characterizes how much of the available SM capacity has at
+  least one warp in flight.
+* **Compute Warps in Flight** characterizes how much of the available warp
+  capacity is occupied by resident compute warps on the active SMs.
+* **SM Issue** characterizes instruction-issue activity within the active SMs.
+
+These counters therefore provide complementary information. A GPU may have
+its Graphics/Compute Engine active while only part of its SM capacity is
+active. Similarly, an SM may contain resident warps without those warps
+issuing instructions continuously, for example while instructions are
+waiting on dependencies or memory accesses.
+
+Other sampled counters characterize particular GPU resources or operating
+conditions. **Tensor Active** represents activity of the Tensor Core
+pipelines, while the **DRAM Read** and **DRAM Write** counters characterize
+throughput through the device-memory system. **GPC Clock** reports the
+Graphics Processing Cluster clock frequency and therefore describes an
+operating condition of the GPU rather than the utilization of a resource.
+
+``GR Active`` should not be interpreted as meaning that every component of
+the GPU is idle when it is zero. In particular, GPU memory copies can be
+performed by independent copy engines and are not represented by
+``GR Active``. Consequently, the hardware-counter metrics based on
+``GR Active`` characterize Graphics/Compute Engine activity rather than all
+possible activity occurring on the device.
+
+
+Metric computation
+~~~~~~~~~~~~~~~~~~
+
+BasicAnalysis derives execution-level GPU hardware-counter metrics from the
+sampled counters recorded in the ``Metrics GPU<n>`` threads.
+
+For each sampled counter :math:`x`, BasicAnalysis integrates its value over
+the complete execution:
+
+.. math::
+
+   I_x = \int x(t)\,dt
+
+The integration is performed with the corresponding
+``cfgs/nsys2prv/hwc_<counter>.cfg`` Paraver configuration using the
+*Integral* statistic. One value is obtained for each ``Metrics GPU<n>``
+thread, and the integrals of all devices with sampled counters are added.
+
+The derived metrics are computed from these accumulated quantities rather
+than by averaging a metric independently at each sampling point. For
+example, SM Coverage is computed as:
+
+.. math::
+
+   SM\ Coverage =
+   \frac{I_{SMs\,Active}}{I_{GR\,Active}}
+
+This formulation naturally weights the result by GPU activity. Periods with
+more Graphics/Compute Engine activity contribute proportionally more to the
+execution-level metric, while periods in which ``GR Active`` is zero do not
+contribute to metrics normalized by GPU-active time.
+
+For sampled quantities that are not themselves nested within ``GR Active``,
+such as DRAM bandwidth and GPC clock frequency, BasicAnalysis first weights
+the sampled value by ``GR Active``. For example:
+
+.. math::
+
+   DRAM\ Read =
+   \frac{\int DRAM^{Read}(t)\,GR^{Active}(t)\,dt}
+        {\int GR^{Active}(t)\,dt}
+
+and:
+
+.. math::
+
+   GPC\ Clock =
+   \frac{\int f_{GPC}(t)\,GR^{Active}(t)\,dt}
+        {\int GR^{Active}(t)\,dt}
+
+These quantities therefore represent activity-weighted execution averages
+during Graphics/Compute Engine activity.
+
+This execution-level aggregation is particularly useful because the hardware
+counters are sampled periodically (every 100 µs by default), while individual
+GPU kernels may be shorter than the sampling period. BasicAnalysis therefore
+does not attribute hardware-counter samples to individual kernels. The
+resulting metrics characterize the complete analyzed execution and should not
+be interpreted as per-kernel measurements.
+
+For multi-GPU executions, summing the counter integrals before computing the
+ratios also weights the aggregate metric by the corresponding activity of
+each device. The reported value is therefore an execution-level aggregate
+across the devices with sampled counters, rather than an unweighted average
+of independently computed per-device metrics.
+
+
+GPU hardware-counter metrics in BasicAnalysis
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+From the integrated hardware counters, BasicAnalysis derives a set of
+execution-level metrics that characterize different aspects of GPU activity.
+
+The metrics serve two different purposes:
+
+* **SM Utilization**, **SM Coverage**, and **SM Issue Efficiency** are
+  efficiency metrics. They characterize how effectively the SM resources
+  are exercised while the Graphics/Compute Engine is active.
+
+* **GPU Active**, **Achieved Occupancy**, **Tensor Core Activity**,
+  **DRAM Read Bandwidth**, **DRAM Write Bandwidth**, and **GPC Clock**
+  are performance indicators. They provide complementary information for
+  interpreting the execution, but their values are not intrinsically good
+  or bad.
+
+The metrics are summarized below:
 
 .. list-table::
    :header-rows: 1
@@ -2415,155 +2540,537 @@ metrics are ratios of these integrals:
    * - Metric
      - Formula
      - Meaning
+
    * - SM Utilization
      - :math:`I_{SM\,Issue} / I_{GR\,Active}`
-     - Degree to which the SMs issue instructions while the GPU is active
+     - Fraction of GPU-active time during which the SMs are issuing
+       instructions.
+
    * - -- SM Coverage
      - :math:`I_{SMs\,Active} / I_{GR\,Active}`
-     - Fraction of the GPU's SM capacity that is active while the GPU is active
+     - Fraction of the GPU's SM capacity that is active while the
+       Graphics/Compute Engine is active.
+
    * - -- SM Issue Efficiency
      - :math:`I_{SM\,Issue} / I_{SMs\,Active}`
-     - Fraction of the cycles of the active SMs that issue an instruction
-       (the role of IPC for the GPU)
+     - Fraction of active-SM activity during which the SM sub-partitions
+       issue instructions.
+
    * - GPU Active (HW counters)
      - :math:`I_{GR\,Active} / (N \cdot T)`
-     - Fraction of time with the GPU active
+     - Average fraction of execution time during which the
+       Graphics/Compute Engine is active across the devices with sampled
+       hardware counters.
+
    * - Achieved Occupancy (run average)
      - :math:`I_{Warps\,in\,Flight} / I_{SMs\,Active}`
-     - Resident warps relative to the maximum warps per SM, while the SMs
-       are active (CUDA achieved occupancy), averaged over all kernels
+     - Average fraction of the maximum warp capacity occupied by resident
+       compute warps while the SMs are active.
+
    * - Tensor Core Activity
      - :math:`I_{Tensor\,Active} / I_{GR\,Active}`
-     - Use of the tensor cores
-   * - DRAM Read / Write Bandwidth
-     - :math:`I_{DRAM \times GR} / I_{GR\,Active}`
-     - DRAM bandwidth (% of peak) while the GPU is active
-   * - GPC Clock (MHz)
+     - Fraction of GPU-active time during which the Tensor Core pipelines
+       are active.
+
+   * - DRAM Read Bandwidth
+     - :math:`I_{DRAM\,Read \times GR} / I_{GR\,Active}`
+     - Average DRAM read bandwidth during GPU-active periods, expressed
+       relative to the hardware-specific peak sustained rate reported by
+       the NVIDIA metric.
+
+   * - DRAM Write Bandwidth
+     - :math:`I_{DRAM\,Write \times GR} / I_{GR\,Active}`
+     - Average DRAM write bandwidth during GPU-active periods, expressed
+       relative to the hardware-specific peak sustained rate reported by
+       the NVIDIA metric.
+
+   * - GPC Clock
      - :math:`I_{Clock \times GR} / I_{GR\,Active}`
-     - Clock frequency while the GPU is active
+     - Average Graphics Processing Cluster clock frequency during
+       GPU-active periods.
 
-where :math:`N` is the number of devices with sampled counters and
-:math:`T` the runtime. The counters used are GR Active (``9402``), SMs Active
-(``9403``), SM Issue (``9404``), Tensor Active (``9405``), Compute Warps in
-Flight (``9412``), DRAM Read and Write Bandwidth (``9418``, ``9419``), and
-GPC Clock Frequency (``9400``).
+where :math:`N` is the number of devices with sampled hardware counters and
+:math:`T` is the application execution time.
 
-**GR Active** (Graphics/Compute Engine Active) is the percentage of the
-cycles of the sample period in which the GPU graphics/compute engine is
-active. For compute workloads, it indicates the periods in which the GPU is
-executing compute work. Memory copies are performed by separate copy engines
-and are not included.
+The sampled counters used by these metrics are ``GR Active`` (``9402``),
+``SMs Active`` (``9403``), ``SM Issue`` (``9404``), ``Tensor Active``
+(``9405``), ``Compute Warps in Flight`` (``9412``), ``DRAM Read
+Bandwidth`` (``9418``), ``DRAM Write Bandwidth`` (``9419``), and
+``GPC Clock Frequency`` (``9400``).
 
-The SM counters are nested in each sample: SM Issue :math:`\le` SMs Active
-:math:`\le` GR Active, and Compute Warps in Flight + Unallocated Warps in
-Active SMs (*Active SM Unused Warp Slots* in the Nsight Systems
-documentation) = SMs Active. Therefore:
+The DRAM bandwidth counters are already reported by NVIDIA as percentages
+of a hardware-specific peak sustained rate. BasicAnalysis uses these
+normalized counter values when computing the execution-level indicators; it
+does not derive the percentage from a GPU peak-bandwidth specification or
+provide the corresponding peak bandwidth in GB/s.
+
+SM efficiency decomposition
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The three SM efficiency metrics form a hierarchical decomposition of the
+instruction-issue activity observed while the GPU Graphics/Compute Engine is
+active.
+
+The sampled SM counters follow the relationship:
 
 .. math::
 
-   SM\ Utilization = SM\ Coverage \times SM\ Issue\ Efficiency
+   SM\ Issue \le SMs\ Active \le GR\ Active
 
-Dividing by the integral of GR Active weights the averages by the GPU
-activity. Idle periods (GR Active close to 0) do not contribute, and the
-samples do not need to be attributed to kernels, which are often much
-shorter than the sampling period. For the counters that are not nested in
-GR Active (DRAM bandwidth and clock), the integral of the counter multiplied
-by GR Active is used.
+where ``GR Active`` represents Graphics/Compute Engine activity,
+``SMs Active`` represents SM activity with at least one warp in flight, and
+``SM Issue`` represents instruction-issue activity within the active SMs.
 
-**GPU Active (HW counters)** is a consistency check: it should be close to
-the fraction of time with kernels running obtained from the kernel events
-(for example, 15.10% and 12.55% in a single-GPU vLLM trace, 55.72% and
-54.56% in another one).
+BasicAnalysis uses these quantities to distinguish two complementary aspects
+of SM utilization:
 
-Only **SM Utilization** and its two factors are efficiencies and are shown in
-the efficiency table and heatmap. The other metrics are indicators: their low
-and high values are not good or bad on their own and must be read together
-with the SM Utilization chain:
+* **SM Coverage** characterizes how broadly the available SM capacity is
+  active while the Graphics/Compute Engine is active:
 
-.. list-table::
-   :header-rows: 1
-   :widths: 26 74
+  .. math::
 
-   * - Indicator
-     - How to read it
-   * - GPU Active
-     - Consistency check rather than a quality measure. The idle time of the
-       GPU is assessed by the Device Parallel Efficiency.
-   * - Achieved Occupancy
-     - Higher is not necessarily better. Low occupancy matters when SM Issue
-       Efficiency is also low; kernels with much work per thread can perform
-       well at low occupancy.
-   * - Tensor Core Activity
-     - Depends on the workload: low values are expected for codes without
-       matrix operations, and indicate a missed opportunity for matrix-heavy
-       codes (e.g. deep learning).
-   * - DRAM Read / Write Bandwidth
-     - Ambiguous on its own: high bandwidth with low SM Issue Efficiency
-       indicates memory-bound kernels, while near-peak bandwidth can also mean
-       that kernels that must stream data use the memory well.
-   * - GPC Clock
-     - Higher is better only when comparing executions on the same GPU model.
+     SM\ Coverage =
+     \frac{I_{SMs\,Active}}{I_{GR\,Active}}
 
-**Achieved Occupancy** follows the definition of CUDA achieved occupancy
-(resident warps relative to the maximum warps per SM, during the cycles in
-which the SMs are active), but it is an average over all the kernels of the
-execution, obtained from sampled counters. It is not the theoretical
-occupancy of a launch configuration, and it should not be compared directly
-with the per-kernel achieved occupancy reported by Nsight Compute unless one
-kernel dominates the execution.
+* **SM Issue Efficiency** characterizes how much instruction-issue activity
+  occurs within the active SM capacity:
 
-**Diagnostic path.** The counters are nested: the GPU is active (GR
-Active), some SMs hold warps (SM Coverage), those warps fill part of the
-warp slots (Achieved Occupancy), and some of them issue instructions (SM
-Issue Efficiency). The diagnosis follows the same order:
+  .. math::
 
-#. **Low SM Coverage**: the work is not distributed over the GPU (grids with
-   fewer blocks than SMs, short kernels).
-#. **High SM Coverage + low Achieved Occupancy**: the SMs are active but hold
-   few warps. Check the registers per thread and the shared memory per block
-   of the kernels.
-#. **High SM Coverage + high Achieved Occupancy + low SM Issue Efficiency**:
-   there are many warps, but they often do not issue (stalls). The other
-   indicators identify the stall: high **DRAM bandwidth** indicates
-   memory-bound kernels; low DRAM bandwidth, latency, dependencies, or
-   synchronization inside the kernels; high **Tensor Core Activity**, that
-   the tensor pipes may be the limit.
-#. In all cases, a lower **GPC Clock** under higher load on the same GPU
-   model indicates power or thermal throttling.
+     SM\ Issue\ Efficiency =
+     \frac{I_{SM\,Issue}}{I_{SMs\,Active}}
 
-*Low* and *high* are relative: there are no fixed thresholds (for example,
-an occupancy of 20–30% can be normal for kernels that use many registers).
-Since the values are averages over all the kernels, the path indicates where
-to look, and the cause should be confirmed for the dominant kernels with
+Their product gives **SM Utilization**:
+
+.. math::
+
+   \begin{aligned}
+   SM\ Utilization
+   &=
+   SM\ Coverage
+   \times
+   SM\ Issue\ Efficiency
+   \\
+   &=
+   \frac{I_{SMs\,Active}}{I_{GR\,Active}}
+   \times
+   \frac{I_{SM\,Issue}}{I_{SMs\,Active}}
+   \\
+   &=
+   \frac{I_{SM\,Issue}}{I_{GR\,Active}}
+   \end{aligned}
+
+The decomposition separates two different reasons for low SM Utilization.
+Low **SM Coverage** indicates that a significant fraction of the available
+SM capacity is inactive while the Graphics/Compute Engine is active. Low
+**SM Issue Efficiency** indicates that the active SMs spend a significant
+fraction of their activity without issuing instructions. Both effects can
+occur simultaneously.
+
+SM Utilization therefore characterizes the degree to which the SMs issue
+instructions while the Graphics/Compute Engine is active. It should not be
+interpreted as the fraction of the architecture's peak instruction
+throughput that is achieved.
+
+Similarly, SM Issue Efficiency is an instruction-issue activity ratio, not
+an instructions-per-cycle (IPC) metric. It can play a diagnostic role
+similar to CPU IPC when investigating whether active execution resources
+are making progress, but its numerical value has a different meaning:
+CPU IPC counts instructions executed per cycle, whereas SM Issue Efficiency
+represents the fraction of active-SM activity during which instructions are
+issued.
+
+
+Complementary performance indicators
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The SM efficiency decomposition identifies whether low SM Utilization is
+associated with limited SM Coverage, limited SM Issue Efficiency, or both.
+The remaining hardware-counter metrics provide complementary information
+that can help interpret the observed execution behavior.
+
+Unlike the SM efficiency metrics, these performance indicators do not have a
+universal interpretation in which higher values are necessarily better.
+Their values depend on the workload, GPU architecture, and execution
+conditions, and should therefore be interpreted together with the efficiency
+metrics and with knowledge of the application.
+
+**GPU Active**
+
+``GPU Active`` measures the average fraction of the execution during which
+the Graphics/Compute Engine is active across the devices with sampled
+hardware counters. It is an activity indicator rather than an efficiency
+metric.
+
+It can be compared with the fraction of the execution covered by GPU kernels
+as a consistency check between the sampled hardware counters and the
+kernel-based trace information. GPU idle periods and their impact on
+application performance should instead be assessed using the Device metrics
+of the Host/Device Model.
+
+Because ``GR Active`` represents Graphics/Compute Engine activity, memory
+copies executed independently by GPU copy engines are not included in this
+indicator.
+
+
+**Achieved Occupancy (run average)**
+
+``Achieved Occupancy`` measures the average fraction of the maximum warp
+capacity occupied by resident compute warps while the SMs are active.
+It complements SM Issue Efficiency by indicating how many warps are
+available on the active SMs to help hide execution and memory latency.
+
+Higher occupancy is not necessarily better. A kernel can perform efficiently
+at relatively low occupancy when the available warps provide sufficient
+latency hiding or when substantial instruction-level parallelism is
+available. Conversely, low occupancy can become relevant when there are too
+few resident warps to hide latency, particularly when SM Issue Efficiency is
+also low.
+
+The BasicAnalysis metric is an execution-level indicator computed from the
+sampled hardware counters over the analyzed execution. It is therefore not
+the theoretical occupancy determined from a kernel launch configuration, nor
+is it the per-kernel achieved occupancy reported by profiling tools such as
+Nsight Compute. Direct comparison with a per-kernel occupancy value is only
+meaningful when the execution is dominated by that kernel.
+
+
+**Tensor Core Activity**
+
+``Tensor Core Activity`` measures the fraction of GPU-active time during
+which the Tensor Core pipelines are active.
+
+Its interpretation is workload dependent. Low Tensor Core activity is
+expected for applications that do not use Tensor Core operations. For
+workloads expected to benefit from Tensor Cores, low activity may indicate
+that these resources are not being effectively used.
+
+Conversely, high Tensor Core activity indicates substantial use of the
+Tensor Core pipelines, but does not by itself establish that Tensor Core
+execution is a performance bottleneck.
+
+
+**DRAM Read and Write Bandwidth**
+
+``DRAM Read Bandwidth`` and ``DRAM Write Bandwidth`` characterize the use of
+the device DRAM memory system during GPU-active periods. They are expressed
+as percentages of the hardware-specific peak sustained rate reported by the
+corresponding NVIDIA counters.
+
+These indicators are workload dependent. High DRAM bandwidth indicates
+intensive use of the device memory system, but does not by itself demonstrate
+that execution is memory-bandwidth bound. Similarly, low DRAM bandwidth is
+not necessarily inefficient: an application may obtain most of its data from
+the GPU caches, perform little memory traffic, or be limited by another part
+of the execution.
+
+DRAM bandwidth becomes particularly useful when interpreted together with
+SM Issue Efficiency. For example, high DRAM bandwidth together with low
+SM Issue Efficiency may indicate that memory bandwidth is limiting
+instruction progress. This remains a diagnostic hypothesis and should be
+confirmed for the dominant kernels using a kernel-level profiling tool such
+as Nsight Compute.
+
+
+**GPC Clock**
+
+``GPC Clock`` reports the average Graphics Processing Cluster clock frequency
+during GPU-active periods. It describes an operating condition of the GPU
+rather than the utilization or efficiency of an execution resource.
+
+The absolute clock frequency should therefore not be interpreted as good or
+bad on its own. The metric is most useful when comparing executions on the
+same GPU model under comparable system conditions. An unexpectedly lower
+clock in one execution may help explain a performance difference, but it
+does not by itself demonstrate thermal or power throttling.
+
+When an unexpectedly low clock is observed, additional information such as
+GPU power consumption, temperature, configured clock limits, and throttling
+reasons should be inspected to determine whether power, thermal, or other
+operating limits are affecting the GPU frequency.
+
+Diagnostic workflow
+~~~~~~~~~~~~~~~~~~~
+
+The GPU hardware-counter metrics can be used as a diagnostic path to identify
+which aspect of GPU execution should be investigated further. The metrics
+describe execution-level behavior and should therefore be used to formulate
+performance hypotheses rather than to assign a root cause directly.
+
+A useful starting point is **SM Utilization**, which is decomposed into
+**SM Coverage** and **SM Issue Efficiency**:
+
+.. math::
+
+   SM\ Utilization =
+   SM\ Coverage \times SM\ Issue\ Efficiency
+
+The two factors distinguish whether low SM Utilization is associated with
+limited use of the available SM capacity, limited instruction issue within
+the active SMs, or both.
+
+
+**1. Inspect SM Coverage**
+
+If **SM Coverage is low**, a significant fraction of the available SM
+capacity is inactive while the Graphics/Compute Engine is active. This
+suggests that the workload may not expose enough parallel work to use the
+available SMs effectively.
+
+Possible causes include:
+
+* a grid containing too few thread blocks relative to the number of SMs;
+* insufficient parallelism in the work decomposition; or
+* kernel tail effects, where only a small number of thread blocks remain
+  active near the end of a kernel.
+
+Inspect the kernel grid dimensions and the number of thread blocks relative
+to the number of SMs. The temporal trace can also be used to determine
+whether low coverage is associated with short kernels or kernel tail effects.
+
+
+**2. Inspect SM Issue Efficiency**
+
+If **SM Coverage is high but SM Issue Efficiency is low**, work is broadly
+distributed across the SMs, but instruction-issue activity remains low within
+the active SM capacity.
+
+This indicates that the next step is to determine why the resident warps are
+not providing more instruction-issue activity. Possible explanations include
+insufficient resident warps to hide latency, memory latency, instruction or
+data dependencies, synchronization, or control-flow effects.
+
+**Achieved Occupancy** and the memory-system indicators provide additional
+context for this investigation.
+
+
+**3. Inspect Achieved Occupancy**
+
+When SM Issue Efficiency is low, **Achieved Occupancy** can be used to
+determine whether the active SMs contain relatively few resident warps.
+
+Low Achieved Occupancy together with low SM Issue Efficiency may indicate
+that there are not enough resident warps to hide execution or memory latency.
+In this case, inspect kernel resource requirements such as registers per
+thread, shared memory per block, and block dimensions. The grid size should
+also be checked to ensure that enough blocks are available to populate the
+SMs.
+
+Low occupancy alone, however, does not demonstrate a performance problem.
+Some kernels can execute efficiently with relatively few resident warps.
+
+
+**4. Inspect DRAM activity**
+
+If SM Issue Efficiency remains low despite sufficient resident warp
+occupancy, inspect **DRAM Read Bandwidth** and **DRAM Write Bandwidth**.
+
+High DRAM bandwidth indicates intensive use of the device-memory system.
+When high DRAM activity occurs together with low SM Issue Efficiency, memory
+bandwidth may be limiting instruction progress. This hypothesis should be
+confirmed for the dominant kernels with a kernel-level profiler such as
 Nsight Compute.
 
-For example, in the vLLM traces with batch sizes 1 and 256:
+Low or moderate DRAM bandwidth does not exclude memory-related stalls.
+Execution may instead be affected by memory latency, cache behavior, access
+patterns, dependencies, or another source of instruction stalls. Detailed
+kernel-level profiling is required to distinguish these cases.
+
+
+**5. Inspect workload-specific resources**
+
+For workloads expected to use Tensor Cores, inspect **Tensor Core Activity**.
+Low activity may indicate that the expected Tensor Core resources are not
+being effectively used. Check the dominant kernels, numerical precision and
+data types, and whether the selected library routines or kernel
+implementations enable Tensor Core execution.
+
+High Tensor Core Activity indicates that the Tensor Core pipelines are being
+used extensively, but does not by itself establish that they are the
+performance-limiting resource.
+
+
+**6. Inspect the GPU operating conditions**
+
+When comparing executions on the same GPU model, **GPC Clock** can help
+identify differences in the GPU operating frequency.
+
+If an execution shows an unexpectedly lower clock together with degraded
+performance, the frequency difference may contribute to the observed
+performance change. Additional information such as GPU power consumption,
+temperature, configured clock limits, and throttling reasons should then be
+inspected to determine why the clock frequency differs.
+
+A lower GPC Clock alone is not sufficient evidence of power or thermal
+throttling.
+
+
+The terms *low* and *high* in this workflow are relative rather than fixed
+thresholds. They should be interpreted in the context of the application,
+GPU architecture, and, when possible, comparable executions.
+
+The values reported by BasicAnalysis are execution-level aggregates over the
+sampled GPU activity. Consequently, the diagnostic workflow identifies where
+to continue the analysis rather than providing a definitive kernel-level
+root cause. When a potential limitation is identified, the dominant kernels
+should be examined with kernel-level profiling tools such as Nsight Compute
+to confirm the hypothesis.
+
+Example: combining Device metrics and GPU hardware counters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The GPU hardware-counter metrics complement the Device metrics of the
+Host/Device Model. The Device metrics first identify where efficiency is
+being lost, while the hardware counters provide additional information about
+how the GPU resources are exercised during Graphics/Compute Engine activity.
+
+The following example compares two vLLM executions on the same GPU
+configuration: T1 uses batch size 1 and T2 uses batch size 256.
+
+The Device metrics reported by BasicAnalysis are:
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 35 35
+   :widths: 46 18 18
 
-   * - Step
-     - Batch size 1
-     - Batch size 256
-   * - 1. SM Coverage
-     - **46.43%, low**: the work is not distributed over the GPU
-     - 94.42%, high
-   * - 2. Achieved Occupancy
-     - 14.97%
-     - **19.51%, low**: active SMs with few warps
-   * - 3. SM Issue Efficiency
+   * - Device metric
+     - T1
+     - T2
+
+   * - Device Global Efficiency
+     - 12.55%
+     - 6.46%
+
+   * - -- Device Parallel Efficiency
+     - 12.55%
+     - 54.56%
+
+   * - ---- Device Load Balance
+     - 100.00%
+     - 100.00%
+
+   * - ---- Device Communication Efficiency
+     - 47.16%
+     - 88.09%
+
+   * - ---- Device Orchestration Efficiency
+     - 26.62%
+     - 61.94%
+
+   * - -- Device Computation Scalability
+     - 100.00%
+     - 11.85%
+
+T1 shows very low Device Parallel Efficiency (12.55%). Device Load Balance
+is 100%, while Device Communication Efficiency is 47.16% and Device
+Orchestration Efficiency is only 26.62%. The main loss on the device side is
+therefore associated with keeping the device supplied with useful
+computation rather than with imbalance between devices.
+
+In T2, Device Parallel Efficiency improves substantially to 54.56%.
+Device Communication Efficiency increases to 88.09% and Device
+Orchestration Efficiency to 61.94%, while Device Load Balance remains at
+100%. The larger batch therefore keeps the device supplied with useful
+computation more effectively.
+
+However, Device Global Efficiency decreases from 12.55% to 6.46%. The
+reason is the strong degradation of Device Computation Scalability, which
+falls from 100% in the reference execution T1 to 11.85% in T2. The Device
+metrics therefore identify a different limitation in T2: although device
+parallel execution improves, the useful device computation does not scale
+with the reference execution.
+
+The GPU hardware counters can now be used to characterize how GPU resource
+activity changes between the two executions:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 46 18 18
+
+   * - GPU hardware-counter metric
+     - T1
+     - T2
+
+   * - SM Utilization
+     - 2.56%
+     - 10.80%
+
+   * - -- SM Coverage
+     - 46.43%
+     - 94.42%
+
+   * - -- SM Issue Efficiency
      - 5.51%
      - 11.44%
+
+   * - GPU Active (HW counters)
+     - 15.10%
+     - 55.72%
+
+   * - Achieved Occupancy (run average)
+     - 14.97%
+     - 19.51%
+
+   * - Tensor Core Activity
+     - 2.30%
+     - 34.28%
+
    * - DRAM Read Bandwidth
      - 54.12%
-     - 71.56%: the warps mostly wait for memory
+     - 71.56%
+
+   * - DRAM Write Bandwidth
+     - 1.55%
+     - 8.25%
+
    * - GPC Clock
      - 1905 MHz
-     - 1734 MHz: lower clock under higher load
+     - 1734 MHz
 
-These metrics are global for the whole execution and are **not valid per
-kernel**. Their assumptions are summarized in :doc:`09_limitations`.
+The hardware counters show that T2 exercises the GPU substantially more
+during the execution. GPU Active increases from 15.10% to 55.72%, consistent
+with the improvement observed in Device Parallel Efficiency.
+
+SM Utilization also increases, from 2.56% to 10.80%. Its decomposition shows
+that both factors improve. SM Coverage increases from 46.43% to 94.42%,
+indicating that T2 distributes work over substantially more of the available
+SM capacity while the Graphics/Compute Engine is active. SM Issue Efficiency
+also increases from 5.51% to 11.44%, indicating greater instruction-issue
+activity within the active SM capacity.
+
+Nevertheless, SM Issue Efficiency remains low. Achieved Occupancy increases
+only moderately, from 14.97% to 19.51%. These observations indicate that,
+although T2 exposes considerably more parallel work to the GPU, substantial
+active-SM activity still occurs without instruction issue.
+
+The other indicators provide additional context. Tensor Core Activity
+increases from 2.30% to 34.28%, showing a substantial change in the use of
+the Tensor Core pipelines. DRAM Read Bandwidth increases from 54.12% to
+71.56%, while DRAM Write Bandwidth increases from 1.55% to 8.25%, indicating
+more intensive use of the device-memory system during GPU-active periods.
+The average GPC Clock decreases from 1905 MHz to 1734 MHz.
+
+These observations do not individually explain the low Device Computation
+Scalability of T2. In particular, higher DRAM bandwidth does not by itself
+demonstrate that the execution is memory-bandwidth bound, and the lower GPC
+Clock does not by itself demonstrate power or thermal throttling. Instead,
+the counters identify execution behaviors that should be investigated in
+more detail.
+
+Because the nsys2prv trace contains both the GPU kernel events and the
+sampled GPU hardware counters, the next analysis step can be performed
+directly in Paraver. The analyst can inspect the dominant kernels and
+correlate their execution intervals with the sampled SM, occupancy, Tensor
+Core, DRAM, and clock activity. This can help determine which kernels or
+execution regions are associated with the behavior observed in the
+execution-level BasicAnalysis metrics.
+
+The hardware counters are sampled at device level and are not intrinsically
+associated with individual kernels. Therefore, this temporal correlation
+should be interpreted carefully, particularly for short kernels or when
+kernels overlap on different streams. The BasicAnalysis metrics should first
+be used to identify the relevant behavior, and the nsys2prv trace in Paraver
+can then be used to localize that behavior in the GPU execution.
 
 
 OpenMP Runtime-Specific Metrics

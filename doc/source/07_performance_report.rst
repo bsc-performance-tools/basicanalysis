@@ -480,7 +480,9 @@ The export control provides several ways to save analysis results.
 
 Depending on the active analysis, efficiency tables can be exported as PNG
 images. Multiple tables can also be exported together, and all available
-efficiency tables can be saved in a ZIP archive.
+efficiency tables can be saved in a ZIP archive. In the GPU Hardware
+Counters view, the exported table includes the indicators below SM
+Utilization and its factors.
 
 :numref:`fig-report-export-menu` shows the export menu for saving an efficiency
 table from the Parallel Runtime Model view as a PNG image.

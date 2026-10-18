@@ -25,13 +25,15 @@
 - Add GPU hardware counter metrics for nsys2prv traces whose Nsight Systems
   report includes GPU metrics: SM Utilization and its factors SM Coverage
   and SM Issue Efficiency, and the indicators GPU Active, Achieved Occupancy
-  (run average over all kernels), Tensor Core Activity, DRAM Read and Write Bandwidth and GPC Clock. They
-  are averages over the whole execution weighted by the GPU activity, are
-  complementary to the Host/Device model (not part of it), and are shown in
-  the standard output, in `device_hwc_metrics.csv`, in the
-  `efficiency_table_device_hwc_matplot` heatmap and in the new *GPU Hardware
-  Counters* view of the interactive report. The metrics of Extrae traces do
-  not change.
+  (run average over all kernels), Tensor Core Activity, DRAM Read and Write
+  Bandwidth and GPC Clock. They are averages over the whole execution
+  weighted by the GPU activity, are complementary to the Host/Device model
+  (not part of it), and are shown in the standard output, in
+  `device_hwc_metrics.csv`, in the `efficiency_table_device_hwc_matplot`
+  heatmap, in the `table_device_hwc_indicators_matplot` table of
+  indicators, and in the new *GPU Hardware Counters* view of the interactive
+  report, whose PNG export includes the indicators below the efficiency
+  table. The metrics of Extrae traces do not change.
 
 ### Improvements
 

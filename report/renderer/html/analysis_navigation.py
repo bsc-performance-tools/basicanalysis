@@ -1654,12 +1654,90 @@ def _render_navigation_script() -> str:
                     wrapper
                 );
 
+                appendExportCompanionRows(
+                    clonedTable,
+                    sourceCard.dataset.exportCompanion || ""
+                );
+
                 appendExportFooter(
                     exportCard,
                     sourceCard.dataset.exportColumns || ""
                 );
 
                 return exportCard;
+            }
+
+            /*
+            * Some views show a second, non-efficiency table that
+            * belongs to the same analysis (e.g. the GPU hardware
+            * counter indicators). Its rows are exported below the
+            * efficiency rows, in the same table, so that the columns
+            * stay aligned; its header row separates both parts.
+            */
+            function appendExportCompanionRows(
+                exportTable,
+                companionId
+            ) {
+                if (!companionId || !exportTable) {
+                    return;
+                }
+
+                const companionCard = root.querySelector(
+                    '[data-export-companion-id="'
+                    + companionId
+                    + '"]'
+                );
+
+                const companionTable = companionCard
+                    ? companionCard.querySelector("table")
+                    : null;
+
+                const exportBody =
+                    exportTable.querySelector("tbody");
+
+                if (!companionTable || !exportBody) {
+                    return;
+                }
+
+                const companionHeader =
+                    companionTable.querySelector("thead tr");
+
+                if (companionHeader) {
+                    const headerRow =
+                        companionHeader.cloneNode(true);
+
+                    headerRow.classList.add(
+                        "export-companion-header"
+                    );
+
+                    Array.from(headerRow.children).forEach(
+                        function (cell) {
+                            const td = document.createElement("td");
+
+                            td.className = cell.className;
+                            td.textContent = cell.textContent.replace(
+                                /\s*\[T\d+\]\s*$/,
+                                ""
+                            );
+
+                            cell.replaceWith(td);
+                        }
+                    );
+
+                    exportBody.appendChild(headerRow);
+                }
+
+                companionTable.querySelectorAll(
+                    "tbody tr"
+                ).forEach(function (row) {
+                    const clonedRow = row.cloneNode(true);
+
+                    clonedRow.classList.add(
+                        "export-companion-row"
+                    );
+
+                    exportBody.appendChild(clonedRow);
+                });
             }         
 
             async function exportTemporaryCardAsPng(exportCard) {

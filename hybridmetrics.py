@@ -4244,13 +4244,22 @@ def plots_talp_efficiency_table_matplot(
 # --------------------------------------------------------------
 
 # Rows of the efficiency heatmap: the multiplicative SM chain. The other
-# metrics are indicators (higher is not always better) and are only
-# reported in the table and the CSV file.
+# metrics are indicators (higher is not always better): they are plotted
+# in a separate table without the efficiency colour scale.
 DEVICE_HWC_HEATMAP_KEYS = (
     'dev_hwc_sm_utilization',
     'dev_hwc_sm_coverage',
     'dev_hwc_sm_issue_eff',
 )
+
+DEVICE_HWC_INDICATOR_KEYS = tuple(
+    key for key in mod_device_hwc_factors_doc
+    if key not in DEVICE_HWC_HEATMAP_KEYS
+)
+
+# Neutral colours of the indicator values, as in the interactive report.
+DEVICE_HWC_INDICATOR_FACE = '#e7f0fb'
+DEVICE_HWC_INDICATOR_TEXT = '#245887'
 
 
 def has_device_hwc_metrics(device_hwc_factors, trace_list):
@@ -4380,6 +4389,83 @@ def plots_device_hwc_table_matplot(device_hwc_factors, trace_list, trace_process
     )
 
     _plot_efficiency_heatmap(df_plot, 'efficiency_table_device_hwc_matplot')
+
+
+def plots_device_hwc_indicators_matplot(device_hwc_factors, trace_list,
+                                        trace_processes, trace_tasks,
+                                        trace_threads, trace_mode, raw_data):
+    """Table of the hardware counter indicators (table_device_hwc_indicators_matplot).
+
+    Same layout as the efficiency heatmaps, but with a single neutral
+    colour: the indicators are not good or bad on their own.
+    """
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
+
+    labels = [mod_device_hwc_factors_doc[key] for key in DEVICE_HWC_INDICATOR_KEYS]
+    nrows = len(labels)
+    ncols = len(configuration_labels)
+
+    label_width = max(3.4, max(len(label) for label in labels) * 0.12)
+    max_header_chars = max(len(label) for label in configuration_labels)
+    column_width = max(1.25, max_header_chars * 0.105)
+
+    fig = plt.figure(figsize=(label_width + ncols * column_width + 0.35,
+                              max(3.0, nrows * 0.54)))
+    grid = fig.add_gridspec(nrows=1, ncols=2,
+                            width_ratios=[label_width, ncols * column_width],
+                            wspace=0.04)
+    label_ax = fig.add_subplot(grid[0, 0])
+    ax = fig.add_subplot(grid[0, 1])
+
+    for row, key in enumerate(DEVICE_HWC_INDICATOR_KEYS):
+        for col, trace in enumerate(trace_list):
+            ax.add_patch(plt.Rectangle(
+                (col, row), 1, 1,
+                facecolor=DEVICE_HWC_INDICATOR_FACE,
+                edgecolor='white',
+                linewidth=0.6,
+            ))
+            ax.text(
+                col + 0.5, row + 0.5,
+                format_device_hwc_value(key, device_hwc_factors[key][trace]),
+                ha='center', va='center', fontsize=12,
+                color=DEVICE_HWC_INDICATOR_TEXT,
+            )
+
+    ax.set_xlim(0, ncols)
+    ax.set_ylim(nrows, 0)
+    ax.set_xticks([col + 0.5 for col in range(ncols)])
+    ax.set_xticklabels(configuration_labels)
+    ax.set_yticks([])
+    ax.xaxis.tick_top()
+    if max_header_chars > 24:
+        header_fontsize = 9
+    elif max_header_chars > 18:
+        header_fontsize = 10
+    else:
+        header_fontsize = 11
+    ax.tick_params(axis='x', labelsize=header_fontsize, rotation=0, pad=6, length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    label_ax.set_ylim(nrows, 0)
+    label_ax.set_xlim(0, 1)
+    label_ax.axis('off')
+    for row, label in enumerate(labels):
+        label_ax.text(0.01, row + 0.5, label, fontsize=12, ha='left',
+                      va='center', clip_on=False)
+
+    fig.savefig('table_device_hwc_indicators_matplot.png', dpi=400,
+                bbox_inches='tight')
+    fig.savefig('table_device_hwc_indicators_matplot.pdf', bbox_inches='tight')
+    plt.close(fig)
 
 
 def print_omp_talp_metrics_csv(omp_talp_factors, trace_list, trace_processes,

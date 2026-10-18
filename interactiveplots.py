@@ -835,7 +835,8 @@ def _format_device_hwc_indicator(metric_key, value):
     if value is None:
         return "Non-Avail"
     if metric_key == "dev_hwc_gpc_clock":
-        return "{:.0f} MHz".format(value)
+        # Non-breaking space: the PNG export drops a normal space here.
+        return "{:.0f}\u00a0MHz".format(value)
     return "{:.2f}%".format(value)
 
 
@@ -1122,6 +1123,7 @@ def _build_device_hwc_section(metrics_result, trace_list, trace_labels,
             data-efficiency-export
             data-export-name="device-hwc"
             data-export-columns="{trace_column_description}"
+            data-export-companion="device-hwc-indicators"
         >
             {table_html}
         </div>
@@ -1183,7 +1185,10 @@ def _build_device_hwc_section(metrics_result, trace_list, trace_labels,
             is not necessarily better.
         </p>
 
-        <div class="metric-table-card">
+        <div
+            class="metric-table-card"
+            data-export-companion-id="device-hwc-indicators"
+        >
             {indicator_table_html}
         </div>
 
@@ -6326,6 +6331,23 @@ def _build_interactive_report_document(workspace_html,
             width: auto !important;
             min-width: 0 !important;
             white-space: nowrap;
+        }
+
+        /* Rows of a companion table (e.g. the GPU hardware counter
+           indicators), exported below the efficiency rows of its view. */
+        .export-companion-header td {
+            padding-top: 18px !important;
+            border-top: 2px solid #66788a !important;
+            background: #eef3f9;
+            color: #2c3e50;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .export-companion-header td:first-child,
+        .export-companion-row td:first-child {
+            text-align: left;
+            padding-left: 18px;
         }
 
         .export-table-footer {
