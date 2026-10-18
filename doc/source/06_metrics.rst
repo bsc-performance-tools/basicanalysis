@@ -2290,9 +2290,11 @@ BasicAnalysis classifies the threads of the trace from the ``.row`` file:
 
 * **GPU streams**: threads labelled ``CUDA-D<device>.S<stream>``. The node of
   each stream is taken from the node of its process in the trace header.
+
 * **GPU metrics threads**: threads labelled ``Metrics GPU<n>``, which contain
-  sampled GPU hardware metrics. They are not execution units; their counters
+  sampled GPU hardware counters. They are not execution units; their counters
   are used in `GPU Hardware Counter Metrics`_.
+
 * **Host threads**: the remaining threads of the processes that have GPU
   streams. Processes without GPU streams do not offload work to the
   accelerator; they are reported in the standard output and are not
@@ -2318,15 +2320,19 @@ classified from the events of the GPU streams:
    * - Activity
      - Event
      - Classification
+
    * - CUDA kernels
      - ``63000006``
      - Useful computation
+
    * - Memory copies (Host-to-Device, Device-to-Host, Device-to-Device)
      - ``63000001`` = 3, 4, 5
      - Memory operation (communication)
+
    * - ``memset``
      - ``63000001`` = 6
      - Memory operation (communication)
+
    * - NCCL kernels
      - ``63000007``
      - Communication
@@ -2338,6 +2344,10 @@ communication that does not overlap useful computation on the same device
 contributes additional device active time. Device Parallel Efficiency, Load
 Balance, Communication Efficiency, Orchestration Efficiency, and Computation
 Scalability are computed with the same formulas.
+
+These metrics provide the first level of the device-side performance
+assessment by identifying whether efficiency is limited by device parallel
+execution or by Device Computation Scalability.
 
 The timelines are exported in nanoseconds, so that the sum of many short
 kernels is not affected by rounding.
@@ -2400,8 +2410,8 @@ hardware counters sampled for the whole GPU, every 100 µs by default
 (event types ``94xx``). The Device metrics characterize how effectively the
 accelerator is kept supplied with useful work over the execution, whereas the
 GPU hardware-counter metrics characterize how the GPU resources are exercised
-while the device is active. They are complementary and are **not** part of
-the multiplicative Host/Device model.
+while the Graphics/Compute Engine is active. They are complementary and are
+**not** part of the multiplicative Host/Device model.
 
 
 GPU activity represented by the counters
@@ -2421,8 +2431,10 @@ of this compute activity:
 
 * **SMs Active** characterizes how much of the available SM capacity has at
   least one warp in flight.
+
 * **Compute Warps in Flight** characterizes how much of the available warp
   capacity is occupied by resident compute warps on the active SMs.
+
 * **SM Issue** characterizes instruction-issue activity within the active SMs.
 
 These counters therefore provide complementary information. A GPU may have
@@ -2604,6 +2616,7 @@ normalized counter values when computing the execution-level indicators; it
 does not derive the percentage from a GPU peak-bandwidth specification or
 provide the corresponding peak bandwidth in GB/s.
 
+
 SM efficiency decomposition
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -2695,6 +2708,7 @@ Their values depend on the workload, GPU architecture, and execution
 conditions, and should therefore be interpreted together with the efficiency
 metrics and with knowledge of the application.
 
+
 **GPU Active**
 
 ``GPU Active`` measures the average fraction of the execution during which
@@ -2730,9 +2744,7 @@ also low.
 The BasicAnalysis metric is an execution-level indicator computed from the
 sampled hardware counters over the analyzed execution. It is therefore not
 the theoretical occupancy determined from a kernel launch configuration, nor
-is it the per-kernel achieved occupancy reported by profiling tools such as
-Nsight Compute. Direct comparison with a per-kernel occupancy value is only
-meaningful when the execution is dominated by that kernel.
+should it be interpreted as the achieved occupancy of an individual kernel.
 
 
 **Tensor Core Activity**
@@ -2758,7 +2770,7 @@ as percentages of the hardware-specific peak sustained rate reported by the
 corresponding NVIDIA counters.
 
 These indicators are workload dependent. High DRAM bandwidth indicates
-intensive use of the device memory system, but does not by itself demonstrate
+intensive use of the device-memory system, but does not by itself demonstrate
 that execution is memory-bandwidth bound. Similarly, low DRAM bandwidth is
 not necessarily inefficient: an application may obtain most of its data from
 the GPU caches, perform little memory traffic, or be limited by another part
@@ -2766,10 +2778,11 @@ of the execution.
 
 DRAM bandwidth becomes particularly useful when interpreted together with
 SM Issue Efficiency. For example, high DRAM bandwidth together with low
-SM Issue Efficiency may indicate that memory bandwidth is limiting
-instruction progress. This remains a diagnostic hypothesis and should be
-confirmed for the dominant kernels using a kernel-level profiling tool such
-as Nsight Compute.
+SM Issue Efficiency may indicate that device-memory activity is limiting
+instruction progress. This remains a diagnostic hypothesis. The corresponding
+intervals should be inspected in the nsys2prv trace with Paraver to determine
+which kernels or execution regions are associated with the observed memory
+activity and limited instruction issue.
 
 
 **GPC Clock**
@@ -2784,10 +2797,12 @@ same GPU model under comparable system conditions. An unexpectedly lower
 clock in one execution may help explain a performance difference, but it
 does not by itself demonstrate thermal or power throttling.
 
-When an unexpectedly low clock is observed, additional information such as
-GPU power consumption, temperature, configured clock limits, and throttling
-reasons should be inspected to determine whether power, thermal, or other
-operating limits are affecting the GPU frequency.
+When an unexpectedly low clock is observed, it should be treated as an
+operating-condition difference that may contribute to the observed
+performance. The GPC Clock value alone is not sufficient to determine why
+the operating frequency differs or to demonstrate power or thermal
+throttling.
+
 
 Diagnostic workflow
 ~~~~~~~~~~~~~~~~~~~
@@ -2825,8 +2840,9 @@ Possible causes include:
   active near the end of a kernel.
 
 Inspect the kernel grid dimensions and the number of thread blocks relative
-to the number of SMs. The temporal trace can also be used to determine
-whether low coverage is associated with short kernels or kernel tail effects.
+to the number of SMs. The nsys2prv trace can also be inspected in Paraver to
+determine whether low coverage is associated with particular kernels, short
+kernel executions, or kernel tail effects.
 
 
 **2. Inspect SM Issue Efficiency**
@@ -2851,10 +2867,10 @@ determine whether the active SMs contain relatively few resident warps.
 
 Low Achieved Occupancy together with low SM Issue Efficiency may indicate
 that there are not enough resident warps to hide execution or memory latency.
-In this case, inspect kernel resource requirements such as registers per
-thread, shared memory per block, and block dimensions. The grid size should
-also be checked to ensure that enough blocks are available to populate the
-SMs.
+The nsys2prv trace should then be used to identify the kernels or execution
+regions associated with this behavior. Kernel launch characteristics
+available in the trace, such as grid and block dimensions, can provide
+additional context.
 
 Low occupancy alone, however, does not demonstrate a performance problem.
 Some kernels can execute efficiently with relatively few resident warps.
@@ -2866,24 +2882,29 @@ If SM Issue Efficiency remains low despite sufficient resident warp
 occupancy, inspect **DRAM Read Bandwidth** and **DRAM Write Bandwidth**.
 
 High DRAM bandwidth indicates intensive use of the device-memory system.
-When high DRAM activity occurs together with low SM Issue Efficiency, memory
-bandwidth may be limiting instruction progress. This hypothesis should be
-confirmed for the dominant kernels with a kernel-level profiler such as
-Nsight Compute.
+When high DRAM activity occurs together with low SM Issue Efficiency,
+device-memory behavior becomes a relevant hypothesis for the limited
+instruction-issue activity.
 
-Low or moderate DRAM bandwidth does not exclude memory-related stalls.
+Low or moderate DRAM bandwidth does not exclude memory-related effects.
 Execution may instead be affected by memory latency, cache behavior, access
-patterns, dependencies, or another source of instruction stalls. Detailed
-kernel-level profiling is required to distinguish these cases.
+patterns, dependencies, or another source of limited instruction issue.
+
+The nsys2prv trace can then be inspected in Paraver to correlate the sampled
+DRAM and SM activity with the kernel and memory-operation events. This helps
+identify the kernels or execution regions associated with the observed
+behavior.
 
 
 **5. Inspect workload-specific resources**
 
 For workloads expected to use Tensor Cores, inspect **Tensor Core Activity**.
 Low activity may indicate that the expected Tensor Core resources are not
-being effectively used. Check the dominant kernels, numerical precision and
-data types, and whether the selected library routines or kernel
-implementations enable Tensor Core execution.
+being extensively exercised.
+
+The nsys2prv trace can be used to determine which kernel intervals coincide
+with Tensor Core activity and whether the activity is concentrated in the
+expected parts of the execution.
 
 High Tensor Core Activity indicates that the Tensor Core pipelines are being
 used extensively, but does not by itself establish that they are the
@@ -2893,16 +2914,16 @@ performance-limiting resource.
 **6. Inspect the GPU operating conditions**
 
 When comparing executions on the same GPU model, **GPC Clock** can help
-identify differences in the GPU operating frequency.
+identify differences in GPU operating frequency.
 
-If an execution shows an unexpectedly lower clock together with degraded
-performance, the frequency difference may contribute to the observed
-performance change. Additional information such as GPU power consumption,
-temperature, configured clock limits, and throttling reasons should then be
-inspected to determine why the clock frequency differs.
+If an execution shows a lower GPC Clock together with degraded performance,
+the frequency difference may contribute to the observed performance change.
+The clock timeline in the nsys2prv trace can be inspected in Paraver to
+determine whether the frequency change is persistent or associated with
+particular execution regions.
 
-A lower GPC Clock alone is not sufficient evidence of power or thermal
-throttling.
+A lower GPC Clock alone does not identify the reason for the frequency
+difference and is not sufficient evidence of power or thermal throttling.
 
 
 The terms *low* and *high* in this workflow are relative rather than fixed
@@ -2910,11 +2931,21 @@ thresholds. They should be interpreted in the context of the application,
 GPU architecture, and, when possible, comparable executions.
 
 The values reported by BasicAnalysis are execution-level aggregates over the
-sampled GPU activity. Consequently, the diagnostic workflow identifies where
-to continue the analysis rather than providing a definitive kernel-level
-root cause. When a potential limitation is identified, the dominant kernels
-should be examined with kernel-level profiling tools such as Nsight Compute
-to confirm the hypothesis.
+sampled GPU activity. Consequently, the diagnostic workflow identifies which
+behavior should be investigated further rather than assigning a definitive
+kernel-level root cause.
+
+Because the nsys2prv trace contains both GPU execution events and the sampled
+hardware-counter timelines, the next analysis step can be performed directly
+in Paraver. The analyst can correlate the behavior identified by
+BasicAnalysis with the corresponding kernel, memory-operation, and other GPU
+events to determine when it occurs and which execution regions are associated
+with it.
+
+Because the hardware counters are sampled at device level, this temporal
+correlation should be interpreted carefully for short kernels and for kernels
+that overlap on different streams.
+
 
 Example: combining Device metrics and GPU hardware counters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2927,39 +2958,17 @@ how the GPU resources are exercised during Graphics/Compute Engine activity.
 The following example compares two vLLM executions on the same GPU
 configuration: T1 uses batch size 1 and T2 uses batch size 256.
 
-The Device metrics reported by BasicAnalysis are:
+The Device metrics reported by BasicAnalysis are shown in
+:numref:`fig-device-global-efficiency`.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 46 18 18
+.. _fig-device-global-efficiency:
 
-   * - Device metric
-     - T1
-     - T2
+.. figure:: images/efficiency_table_talp_device_matplot.png
+   :width: 85%
+   :align: center
+   :alt: Device metrics reported by BasicAnalysis for two vLLM executions
 
-   * - Device Global Efficiency
-     - 12.55%
-     - 6.46%
-
-   * - -- Device Parallel Efficiency
-     - 12.55%
-     - 54.56%
-
-   * - ---- Device Load Balance
-     - 100.00%
-     - 100.00%
-
-   * - ---- Device Communication Efficiency
-     - 47.16%
-     - 88.09%
-
-   * - ---- Device Orchestration Efficiency
-     - 26.62%
-     - 61.94%
-
-   * - -- Device Computation Scalability
-     - 100.00%
-     - 11.85%
+   Device metrics of the Host/Device Model.
 
 T1 shows very low Device Parallel Efficiency (12.55%). Device Load Balance
 is 100%, while Device Communication Efficiency is 47.16% and Device
@@ -2981,67 +2990,46 @@ parallel execution improves, the useful device computation does not scale
 with the reference execution.
 
 The GPU hardware counters can now be used to characterize how GPU resource
-activity changes between the two executions:
+activity changes between the two executions.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 46 18 18
+.. _fig-gpu-hw-sms-utilization:
 
-   * - GPU hardware-counter metric
-     - T1
-     - T2
+.. figure:: images/efficiency_table_device_hwc_matplot.png
+   :width: 65%
+   :align: center
+   :alt: SM Utilization, SM Coverage, and SM Issue Efficiency for two vLLM executions
 
-   * - SM Utilization
-     - 2.56%
-     - 10.80%
+   SM Utilization and its decomposition.
 
-   * - -- SM Coverage
-     - 46.43%
-     - 94.42%
-
-   * - -- SM Issue Efficiency
-     - 5.51%
-     - 11.44%
-
-   * - GPU Active (HW counters)
-     - 15.10%
-     - 55.72%
-
-   * - Achieved Occupancy (run average)
-     - 14.97%
-     - 19.51%
-
-   * - Tensor Core Activity
-     - 2.30%
-     - 34.28%
-
-   * - DRAM Read Bandwidth
-     - 54.12%
-     - 71.56%
-
-   * - DRAM Write Bandwidth
-     - 1.55%
-     - 8.25%
-
-   * - GPC Clock
-     - 1905 MHz
-     - 1734 MHz
-
-The hardware counters show that T2 exercises the GPU substantially more
-during the execution. GPU Active increases from 15.10% to 55.72%, consistent
-with the improvement observed in Device Parallel Efficiency.
-
-SM Utilization also increases, from 2.56% to 10.80%. Its decomposition shows
-that both factors improve. SM Coverage increases from 46.43% to 94.42%,
+:numref:`fig-gpu-hw-sms-utilization` shows SM Utilization and its
+decomposition. SM Utilization increases from 2.56% to 10.80%, with both
+contributing factors improving. SM Coverage increases from 46.43% to 94.42%,
 indicating that T2 distributes work over substantially more of the available
 SM capacity while the Graphics/Compute Engine is active. SM Issue Efficiency
 also increases from 5.51% to 11.44%, indicating greater instruction-issue
 activity within the active SM capacity.
 
-Nevertheless, SM Issue Efficiency remains low. Achieved Occupancy increases
-only moderately, from 14.97% to 19.51%. These observations indicate that,
-although T2 exposes considerably more parallel work to the GPU, substantial
-active-SM activity still occurs without instruction issue.
+.. _fig-gpu-indicators:
+
+.. figure:: images/table_device_hwc_indicators_matplot.png
+   :width: 75%
+   :align: center
+   :alt: GPU hardware-counter performance indicators for two vLLM executions
+
+   Complementary GPU hardware-counter performance indicators.
+
+:numref:`fig-gpu-indicators` shows the complementary GPU performance
+indicators. T2 exhibits substantially more Graphics/Compute Engine activity
+over the execution: GPU Active increases from 15.10% to 55.72%. This is
+consistent with the direction of the improvement in Device Parallel
+Efficiency, although the two metrics characterize different aspects of the
+execution.
+
+Nevertheless, SM Issue Efficiency remains relatively low despite its
+improvement. Achieved Occupancy increases only moderately, from 14.97% to
+19.51%. These observations indicate that, although T2 exposes considerably
+more parallel work to the GPU, substantial active-SM activity still occurs
+without instruction issue.
 
 The other indicators provide additional context. Tensor Core Activity
 increases from 2.30% to 34.28%, showing a substantial change in the use of
