@@ -62,33 +62,64 @@ data-access operations occur temporally before all file-management operations.
 Classification of the traced calls
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Extrae records all the instrumented I/O calls with the event ``40000004``
-(``I/O calls``). Besides ``read``, ``write``, ``open``, ``close``, and
-``lseek``, traces available at BSC also contain ``fread``, ``fwrite``,
-``writev``, ``fopen``, and ``fclose``, and Extrae can record other variants
-(for example ``pread``/``pwrite``, ``readv``, or ``fseek``). The components
-are therefore defined by function family rather than by the five POSIX
-names:
+*Decision (2026-10-18):* a call that moves or commits application data is
+**Data Access**; a call that only manages the file (metadata, positioning,
+control) is **File Management**. The rule is the same for every API, so the
+components include POSIX, ANSI C, and MPI-IO calls.
 
-``Data Access``
-    ``read``, ``write``, ``fread``, ``fwrite``, ``pread``, ``pwrite``,
-    ``readv``, ``writev``, ``preadv``, ``pwritev``.
+Extrae 5.1.3 records the POSIX and ANSI C calls with the event ``40000004``
+(``I/O calls``, values 1--17) and the MPI-IO calls with the event
+``50000005`` (``MPI I/O``):
 
-``File Management``
-    ``open``, ``fopen``, ``close``, ``fclose``, ``lseek``, ``fseek``, and
-    their 64-bit variants.
++-----------------+--------------------------------+--------------------------+
+| API             | Data Access                    | File Management          |
++=================+================================+==========================+
+| POSIX           | ``read``, ``write``, ``pread``,| ``open``, ``close``,     |
+|                 | ``pwrite``, ``readv``,         | ``lseek``, ``ioctl``     |
+|                 | ``writev``, ``preadv``,        |                          |
+|                 | ``pwritev``                    |                          |
++-----------------+--------------------------------+--------------------------+
+| ANSI C          | ``fread``, ``fwrite``          | ``fopen``, ``fclose``,   |
+|                 |                                | ``fseek``                |
++-----------------+--------------------------------+--------------------------+
+| MPI-IO          | ``MPI_File_read*``,            | ``MPI_File_open``,       |
+|                 | ``MPI_File_write*`` (all       | ``MPI_File_close``       |
+|                 | variants, including the        |                          |
+|                 | split-collective begin/end)    |                          |
++-----------------+--------------------------------+--------------------------+
 
-``Other I/O``
-    Any traced I/O call not recognized as Data Access or File Management
-    (for example ``fsync``, ``ioctl``, or ``stat`` when instrumented).
+Extrae does not instrument ``fsync``, ``stat``, ``MPI_File_seek``,
+``MPI_File_set_view``, or ``MPI_File_sync``. If a future Extrae version
+records a call that the classification does not know, it is counted as
+File Management and BasicAnalysis prints a warning naming it, so that the
+classification table can be extended. With every call classified, no
+``Other I/O`` category is needed (it was considered in the review and
+discarded).
 
-The ``Other I/O`` remainder guarantees that the components add up to the
-total I/O time measured in the trace, also when a new Extrae version
-instruments additional calls. Whether ``fsync``/``fdatasync`` belong to Data
-Access (they force data to storage) is a design decision.
+Within Data Access, the **read** family contains ``read``, ``fread``,
+``pread``, ``readv``, ``preadv``, and ``MPI_File_read*``, and the **write**
+family the corresponding write calls.
 
-The model covers **POSIX and ANSI C** File I/O, consistently with the
-current BasicAnalysis documentation.
+*Decision (2026-10-18), structure with MPI-IO (option A):* the decomposition
+is by type of operation across the APIs:
+
+.. math::
+
+   IOEff = DAEff \times FMEff
+
+with :math:`DA` and :math:`FM` including the POSIX, ANSI C, and MPI-IO calls.
+The split by API (MPI-IO versus POSIX/ANSI C) is a diagnostic contribution,
+like the read/write contribution. The alternative (B), decomposing by API
+first and then by operation, was discarded: it doubles the number of
+factors and adds another order-dependent factor.
+
+*MPI-IO and nested POSIX calls:* by default, Extrae does not trace the POSIX
+calls performed inside MPI-IO calls, because of the overhead. The MPI-IO and
+POSIX times are therefore not counted twice. This is an assumption of the
+model and must be documented.
+
+The model covers **POSIX, ANSI C, and MPI-IO** File I/O. The names of the
+existing metrics that say "POSIX" refer to POSIX and ANSI C calls.
 
 .. note::
 
@@ -158,24 +189,24 @@ File Management time is:
 
    FM_i = O_i + C_i + S_i
 
-With the classification by function family, :math:`R_i`, :math:`W_i`,
-:math:`O_i`, :math:`C_i`, and :math:`S_i` include all the calls of the
-corresponding family (for example, :math:`W_i` includes ``write``,
-``fwrite``, ``pwrite``, and ``writev``). The time of the remaining calls is:
+With the classification of the traced calls, :math:`R_i` and :math:`W_i`
+include all the calls of the read and write families of every API (for
+example, :math:`W_i` includes ``write``, ``fwrite``, ``pwrite``,
+``writev``, and ``MPI_File_write*``), and :math:`FM_i` includes all the File
+Management calls (``open``, ``fopen``, ``MPI_File_open``, ``close``,
+``fclose``, ``MPI_File_close``, ``lseek``, ``fseek``, ``ioctl``). The terms
+:math:`O_i`, :math:`C_i`, and :math:`S_i` are the main File Management
+operations; the File Management contributions are reported per call.
+
+Total modeled I/O time is:
 
 .. math::
 
-   OT_i = \text{time spent in Other I/O calls}
+   IO_i = DA_i + FM_i
 
-Total modeled POSIX I/O time is:
-
-.. math::
-
-   IO_i = DA_i + FM_i + OT_i
-
-so that :math:`IO_i` equals the total POSIX and ANSI C I/O time measured for
-execution unit :math:`i`. When no Other I/O calls are traced,
-:math:`OT_i = 0` and :math:`IO_i = DA_i + FM_i`.
+so that :math:`IO_i` equals the total POSIX, ANSI C, and MPI-IO time
+measured for execution unit :math:`i`, and I/O Efficiency equals the
+current BasicAnalysis I/O Efficiency.
 
 The execution units are the Host execution units of the current
 BasicAnalysis I/O metrics: threads in MPI+OpenMP executions, not only MPI
@@ -331,21 +362,6 @@ the file-management cost has not changed. The additive shares
 
 are order-independent and can be shown as diagnostics next to the factors.
 
-Other I/O Efficiency
-~~~~~~~~~~~~~~~~~~~~
-
-When Other I/O calls are traced, a third factor keeps the product equal to
-I/O Efficiency:
-
-.. math::
-
-   OTEff =
-   \frac{U_{avg} + DA_{avg} + FM_{avg}}
-        {U_{avg} + DA_{avg} + FM_{avg} + OT_{avg}}
-
-It equals 100% when no Other I/O calls are traced, and can be hidden from
-the report in that case.
-
 Multiplicative Relationship
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -353,7 +369,7 @@ The first level of the model is multiplicative:
 
 .. math::
 
-   IOEff = DAEff \times FMEff \quad (\times\ OTEff \text{ when Other I/O is traced})
+   IOEff = DAEff \times FMEff
 
 because:
 
@@ -701,11 +717,17 @@ randomness is actually established.
 This information is not yet available in the current BasicAnalysis raw-data
 model and is therefore a future extension.
 
-The traces, however, already contain it: Extrae records the ``I/O offset``
-(event ``40000075``) and the ``I/O descriptor`` (event ``40000010``) of each
-call, together with the request size. The open question is the cost of
-extracting them per call (466,000 reads in a single VTKHDF execution of
-112 ranks), not their availability.
+The traces contain part of it: Extrae records the ``I/O descriptor``
+(event ``40000010``) and the request size of each call, but the ``I/O
+offset`` (event ``40000075``) only for ``lseek``/``fseek`` calls (the seek
+argument, verified in the Extrae 5.1.3 merger). The offset of a
+``read``/``write`` can be reconstructed from the last seek and the sizes of
+the following calls on the same descriptor, but the offsets of
+``pread``/``pwrite`` and of MPI-IO calls are not recorded. A complete
+access-pattern analysis therefore needs either this reconstruction or an
+extension of the instrumentation, and the cost of extracting the data per
+call (466,000 reads in a single VTKHDF execution of 112 ranks) remains an
+open question.
 
 Alignment
 ~~~~~~~~~
@@ -900,10 +922,10 @@ Suggested I/O Report
     |
     +-- I/O Efficiency
     |   +-- Data Access Efficiency
-    |   +-- File Management Efficiency
-    |   `-- Other I/O Efficiency (only when Other I/O is traced)
+    |   `-- File Management Efficiency
     |
     +-- I/O TIME
+    |   +-- API contribution (MPI-IO / POSIX and ANSI C)
     |   +-- I/O time fraction (average)
     |   +-- I/O time fraction (maximum)
     |   `-- I/O participation
@@ -1191,24 +1213,19 @@ BasicAnalysis already reports the following I/O metrics:
 | POSIX I/O Load Balance     | avg / max over all execution units         |
 +----------------------------+--------------------------------------------+
 
-The proposed I/O Efficiency covers POSIX and ANSI C only, while the current
-one also includes MPI-IO. Reusing the name for the new definition would
-change the current outputs; adding it next to the existing metrics would
-give three POSIX-related "efficiencies" with different denominators
-(useful time, useful plus I/O time, execution capacity).
+*Decision (2026-10-18):* **I/O Efficiency is preserved** (it already
+includes MPI-IO), and the other current I/O metrics (MPI I/O Efficiency, MPI
+I/O Load Balance, POSIX I/O Efficiency, and POSIX I/O Load Balance) are
+**replaced** by the new model:
 
-Proposed relation:
-
-* The new factors (Data Access, File Management, and Other I/O Efficiency)
-  become the **POSIX and ANSI C branch** of the I/O analysis.
-* **I/O Efficiency** remains the parent that combines MPI-IO and POSIX, once
-  the nesting of POSIX calls inside MPI-IO calls has been checked.
-* The current **POSIX I/O Efficiency** (:math:`1 - POSIXIO/(P T)`) becomes
-  the diagnostic :math:`IOFraction_{avg}` (as a fraction, not an
-  efficiency).
-* The current **POSIX I/O Load Balance** is the combined I/O balance over
-  all execution units; it is kept as a summary next to the per-operation
-  balances.
+* I/O Efficiency is decomposed into Data Access and File Management
+  Efficiency, both including the POSIX, ANSI C, and MPI-IO calls.
+* The API split is reported as a contribution (MPI-IO versus POSIX and
+  ANSI C).
+* The current API-specific efficiencies (:math:`1 - X/(P T)`) are
+  replaced by the I/O time fractions (average and maximum).
+* The current API-specific load balances are replaced by the per-operation
+  load balances and the Data Access and File Management summaries.
 
 Any change of definition or name of an existing metric changes the
 BasicAnalysis outputs of existing traces and must be listed in the release
@@ -1416,6 +1433,8 @@ Open Formal and Design Questions
    Should ``fsync``/``fdatasync`` be Data Access or Other I/O? Which calls,
    if any, should be excluded (for example ``ioctl``)?
 
+   *Decided:* see `Classification of the traced calls`_.
+
 #. **Descriptor type**
 
    Should the model cover regular files only? How much time do non-file
@@ -1424,8 +1443,9 @@ Open Formal and Design Questions
 #. **Relation with the existing I/O metrics**
 
    How should the new factors relate to the current I/O Efficiency (which
-   includes MPI-IO) and to POSIX I/O Efficiency and Load Balance? See
-   `Relation with the Existing BasicAnalysis I/O Metrics`_.
+   includes MPI-IO) and to POSIX I/O Efficiency and Load Balance?
+
+   *Decided:* see `Relation with the Existing BasicAnalysis I/O Metrics`_.
 
 #. **MPI-IO and nested POSIX calls**
 
@@ -1433,6 +1453,9 @@ Open Formal and Design Questions
    both levels, the current I/O Efficiency counts the same time twice. This
    must be checked with an MPI-IO trace before defining a parent metric that
    combines MPI-IO and POSIX.
+
+   *Answered:* Extrae does not trace the internal POSIX calls of MPI-IO by
+   default (overhead). The model assumes this default.
 
 #. **Phases**
 
@@ -1481,11 +1504,14 @@ Design Principles to Preserve
 Proposed First-Version Scope
 ----------------------------
 
-#. Classification of the traced calls by function family, with an Other I/O
-   remainder.
-#. I/O Efficiency.
+*Decision (2026-10-18): approved.*
+
+#. Classification of the traced calls (POSIX, ANSI C, and MPI-IO) into Data
+   Access and File Management.
+#. I/O Efficiency (preserved).
 #. Data Access Efficiency.
-#. File Management Efficiency (and Other I/O Efficiency when needed).
+#. File Management Efficiency.
+#. API contribution (MPI-IO versus POSIX and ANSI C).
 #. I/O time fractions (average and maximum) and I/O participation.
 #. Read and Write time contributions.
 #. Read and Write Load Balance, and Data Access Load Balance as a summary,
@@ -1510,6 +1536,24 @@ for the first I/O report.
 
 Review Log
 ----------
+
+*2026-10-19* -- Implementation step 1 (branch ``feature/io-metrics``):
+call classification, Data Access and File Management Efficiency, I/O time
+fractions, participation, API, read/write and File Management
+contributions, participant load balances, and per-operation time, count,
+and mean duration (``iometrics.py``, ``io_metrics.csv``, standard output,
+report tree, User Guide). The four API-specific metrics are replaced.
+Verified on the VTKHDF uGrid traces, a cfdem trace with ANSI C calls
+(Ticket 570), and an SPH-EXA trace with MPI-IO: the factors multiply to I/O
+Efficiency, and all other outputs are unchanged. Remaining steps: request
+sizes and volume (power-of-two intervals, families), report diagnostics
+view, files (ranks per file).
+
+*2026-10-18* -- Decisions: call classification by meaning across the APIs
+(no Other I/O category), structure by type of operation including MPI-IO
+(option A), I/O Efficiency preserved and the other current I/O metrics
+replaced, first-version scope approved. Corrected: the I/O offset is only
+recorded for seek calls.
 
 *2026-10-18* -- Review of the design against the current implementation
 (branch ``feature/io-metrics``) and the VTKHDF case (POP3 Ticket 668).

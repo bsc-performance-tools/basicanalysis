@@ -27,8 +27,8 @@ analyzed execution.
 
 The available views depend on the programming model and performance data. For
 example, Execution Domains are available for accelerator applications, while
-I/O Analysis reports the File I/O metrics derived from MPI-I/O and POSIX/ANSI C
-File I/O activity detected in the traces. When multiple execution
+I/O Analysis reports I/O Efficiency and its Data Access and File Management
+factors when POSIX, ANSI C, or MPI-IO calls are detected in the traces. When multiple execution
 configurations are analyzed, the report also provides scaling information and
 performance trends.
 
@@ -64,7 +64,13 @@ The main files include:
 ``other_metrics.csv``
    Contains complementary performance quantities such as elapsed time,
    Speedup, Efficiency, IPC, processor frequency, tracer flushing information,
-   and I/O-related metrics when available.
+   and I/O Efficiency with its Data Access and File Management factors.
+
+``io_metrics.csv``
+   Written when File I/O is detected. Contains I/O Efficiency, its factors,
+   and the I/O diagnostics: time fractions, participation, contributions,
+   load balance, and the time, count, and mean duration of each group of
+   I/O calls.
 
 ``modelfactors.csv``
    Contains the application-level hierarchical efficiency and scalability

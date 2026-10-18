@@ -25,4 +25,4 @@ behaviour of the released tool.
 
 | Document | Status | Branch |
 |----------|--------|--------|
-| [I/O Performance Model and Diagnostic Metrics](io_performance_model.rst) | Design under discussion | `feature/io-metrics` |
+| [I/O Performance Model and Diagnostic Metrics](io_performance_model.rst) | Implementation in progress (step 1 of 4 done: factors and time diagnostics) | `feature/io-metrics` |

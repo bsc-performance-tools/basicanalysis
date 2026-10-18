@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### New Features
+
+- New File I/O performance model. The traced POSIX, ANSI C, and MPI-IO calls
+  are classified into **Data Access** (calls that move or commit data: read
+  and write calls of every API) and **File Management** (open, close, seek,
+  and control calls), and **I/O Efficiency** is decomposed as
+  `I/O Efficiency = Data Access Efficiency x File Management Efficiency`.
+  I/O diagnostics explain where the I/O time is spent: average and maximum
+  I/O time fraction, I/O participation, MPI-IO and POSIX/ANSI C
+  contributions, Read/Write and Open/Close/Seek/Control contributions, load
+  balance among the units that perform I/O (Data Access, Read, Write, File
+  Management, and Open), and the time, number of operations, and mean
+  duration of each group of calls. The factors are shown in the standard
+  output, `other_metrics.csv`, and the I/O Analysis view of the report; the
+  diagnostics in the standard output and the new `io_metrics.csv`. The time
+  and number of MPI-IO calls are obtained with two new Paraver
+  configurations (`mpiio-calls-time.cfg`, `mpiio-calls-count.cfg`).
+
+### Changes
+
+- **I/O metrics replaced.** MPI I/O Efficiency, MPI I/O Load Balance, POSIX
+  I/O Efficiency, and POSIX I/O Load Balance are no longer reported; they
+  are replaced by Data Access and File Management Efficiency and the I/O
+  diagnostics (the API-specific efficiencies by the I/O time fractions and
+  the MPI-IO and POSIX/ANSI C contributions, the API-specific load balances
+  by the per-operation load balances). I/O Efficiency is unchanged. In
+  `other_metrics.csv`, the four rows are replaced by the two factors. The
+  other metrics do not change; in the standard output, the first column of
+  the general-indicators table is narrower because its longest label was
+  removed.
+- The I/O diagnostics include every traced I/O call, including the ANSI C
+  (`fread`, `fwrite`, `fopen`, `fclose`, `fseek`) and the vector and
+  positional POSIX calls, which the previous per-operation raw data ignored.
+
 ### Improvements
 
 - Identify useful Device computation by the *Running* state on the GPU

@@ -95,19 +95,32 @@ metrics.
 I/O Analysis
 ------------
 
-The I/O metrics characterize the time contribution and distribution of the
-File I/O activity captured in the trace.
+The I/O metrics characterize the time of the File I/O captured in the
+trace: the POSIX, ANSI C, and MPI-IO calls recorded by Extrae, classified into
+Data Access and File Management.
 
-BasicAnalysis currently distinguishes MPI-I/O and POSIX/ANSI C File I/O
-activity and reports the corresponding efficiency and load-balance metrics
-when that activity is detected.
+The following assumptions and limitations apply:
 
-These metrics do not directly characterize transferred data volume, achieved
-I/O bandwidth, storage-system utilization, filesystem contention, or the
-performance of individual I/O operations. They therefore identify whether
-File I/O activity has a significant execution-time contribution or an
-imbalanced distribution, but they do not by themselves determine the
-underlying storage-system cause.
+* **Nested calls.** Extrae does not trace, by default, the POSIX calls
+  performed inside MPI-IO calls. BasicAnalysis assumes this default; if the
+  internal POSIX calls were traced, their time would be counted twice.
+* **I/O library computation.** The CPU work of I/O libraries (for example
+  HDF5 compression or metadata handling) is not distinguished from the
+  application computation and counts as useful time. A library that spends
+  more CPU time therefore increases I/O Efficiency.
+* **Descriptor types.** Calls on non-file descriptors (standard output,
+  sockets, pipes) are counted as File I/O.
+* **I/O not visible in the trace.** Memory-mapped I/O, asynchronous I/O,
+  and I/O performed by threads that are not instrumented are not measured.
+* **Whole-execution aggregation.** The metrics describe the whole execution;
+  applications with distinct I/O phases (for example, a write phase and a
+  read phase) should be inspected per phase in Paraver.
+
+These metrics do not characterize achieved I/O bandwidth, storage-system
+utilization, or filesystem contention. They identify whether File I/O has a
+significant execution-time contribution, which component (Data Access or
+File Management) is responsible, and how it is distributed, but they do not
+by themselves determine the underlying storage-system cause.
 
 When I/O activity represents a significant performance factor, detailed trace
 analysis or specialized I/O performance-analysis tools may be required for

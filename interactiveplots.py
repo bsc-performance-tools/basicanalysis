@@ -370,21 +370,13 @@ def _build_io_metric_info():
             "label": "I/O Efficiency",
             "short_label": "I/O Eff",
         },
-        "mpi_io_eff": {
-            "label": "MPI I/O Efficiency",
-            "short_label": "MPI I/O",
+        "io_da_eff": {
+            "label": "-- Data Access Efficiency",
+            "short_label": "Data Access",
         },
-        "mpi_io_load_balance": {
-            "label": "MPI I/O Load Balance",
-            "short_label": "MPI I/O LB",
-        },
-        "posix_io_eff": {
-            "label": "POSIX I/O Efficiency",
-            "short_label": "POSIX I/O",
-        },
-        "posix_io_load_balance": {
-            "label": "POSIX I/O Load Balance",
-            "short_label": "POSIX I/O LB",
+        "io_fm_eff": {
+            "label": "-- File Management Efficiency",
+            "short_label": "File Mgmt",
         },
     }
 
@@ -433,10 +425,8 @@ OPENMP_ORDER = [
 
 IO_ORDER = [
     "io_eff",
-    "mpi_io_eff",
-    "mpi_io_load_balance",
-    "posix_io_eff",
-    "posix_io_load_balance",
+    "io_da_eff",
+    "io_fm_eff",
 ]
 
 def _tree_node(metric_key, children=None):
@@ -471,6 +461,14 @@ GLOBAL_PARALLEL_TREE = [
             _tree_node("serial_eff"),
             _tree_node("transfer_eff"),
         ]),
+    ])
+]
+
+# I/O Efficiency = Data Access Efficiency x File Management Efficiency.
+IO_TREE = [
+    _tree_node("io_eff", [
+        _tree_node("io_da_eff"),
+        _tree_node("io_fm_eff"),
     ])
 ]
 
@@ -750,23 +748,13 @@ def _has_io_metrics(other_metrics, trace_list):
     """Return whether File I/O activity was detected in any execution."""
 
     for trace in trace_list:
-        if (
-            _clean_value(
-                _read_metric(
-                    other_metrics,
-                    "mpi_io_eff",
-                    trace,
-                )
-            ) is not None
-            or
-            _clean_value(
-                _read_metric(
-                    other_metrics,
-                    "posix_io_eff",
-                    trace,
-                )
-            ) is not None
-        ):
+        if _clean_value(
+            _read_metric(
+                other_metrics,
+                "io_eff",
+                trace,
+            )
+        ) is not None:
             return True
 
     return False
@@ -798,7 +786,7 @@ def _build_io_metrics_section(
         trace_list=trace_list,
         trace_labels=trace_labels,
         section_id="io-metrics",
-        tree=[],
+        tree=IO_TREE,
         metric_knowledge=metric_knowledge,
     )
 
@@ -832,9 +820,9 @@ def _build_io_metrics_section(
 
         <p>
             These metrics are reported independently from the
-            hierarchical performance-efficiency model and should not
-            be interpreted as a multiplicative decomposition of the
-            application efficiency.
+            hierarchical performance-efficiency model: I/O Efficiency is
+            decomposed into Data Access and File Management Efficiency,
+            but it is not a factor of Global Efficiency.
         </p>
     </div>
     """
@@ -850,8 +838,9 @@ def _build_io_metrics_section(
             trace_labels=trace_labels,
             title="I/O Efficiency Trends",
             description=(
-                "Compare how File I/O efficiency and I/O load balance "
-                "evolve across the analyzed execution configurations."
+                "Compare how I/O Efficiency and its Data Access and File "
+                "Management factors evolve across the analyzed execution "
+                "configurations."
             ),
             x_axis_title=trace_column_description,
             y_axis_title="Efficiency (%)",
@@ -3396,7 +3385,7 @@ def _build_printable_io_section(
         trace_list=trace_list,
         trace_labels=trace_labels,
         section_id="print-io-metrics",
-        tree=[],
+        tree=IO_TREE,
         printable=True,
     )
 
@@ -3412,8 +3401,9 @@ def _build_printable_io_section(
 
         <p>
             These metrics are reported independently from the hierarchical
-            performance-efficiency model and should not be interpreted as
-            a multiplicative decomposition of application efficiency.
+            performance-efficiency model: I/O Efficiency is decomposed into
+            Data Access and File Management Efficiency, but it is not a
+            factor of Global Efficiency.
         </p>
     </div>
     """
@@ -3429,8 +3419,9 @@ def _build_printable_io_section(
             trace_labels=trace_labels,
             title="I/O Efficiency Trends",
             description=(
-                "Compare how File I/O efficiency and I/O load balance "
-                "evolve across the analyzed execution configurations."
+                "Compare how I/O Efficiency and its Data Access and File "
+                "Management factors evolve across the analyzed execution "
+                "configurations."
             ),
             x_axis_title=trace_column_description,
             y_axis_title="Efficiency (%)",
@@ -3448,8 +3439,8 @@ def _build_printable_io_section(
             <h2>{section_number} I/O Analysis</h2>
 
             <p class="print-section-description">
-                Complementary File I/O efficiency and load-balance metrics
-                for the analyzed execution.
+                I/O Efficiency and its Data Access and File Management
+                factors for the analyzed execution.
             </p>
         </header>
 
@@ -4521,19 +4512,24 @@ def _build_io_metrics_guidance_html():
         <h3>How to read this view</h3>
 
         <p>
-            Use this view to characterize the contribution and distribution
-            of <strong>File I/O activity</strong> observed in the execution.
-            Start with <strong>I/O Efficiency</strong> to assess the overall
-            weight of File I/O relative to useful computation.
+            Use this view to characterize the <strong>File I/O</strong>
+            (POSIX, ANSI C, and MPI-IO calls) observed in the execution.
+            Start with <strong>I/O Efficiency</strong> to assess the weight
+            of File I/O relative to useful computation. A low value
+            identifies I/O that deserves investigation; it does not by
+            itself show that the I/O is inefficient.
         </p>
 
         <p>
-            Continue with <strong>MPI I/O Efficiency</strong> and
-            <strong>POSIX I/O Efficiency</strong> to examine the execution
-            capacity consumed by activity associated with each File I/O
-            interface. Use the corresponding <strong>I/O Load Balance</strong>
-            metrics to determine how evenly that activity is distributed
-            across the execution units represented in the measurement.
+            I/O Efficiency is the product of <strong>Data Access
+            Efficiency</strong> (read and write calls) and <strong>File
+            Management Efficiency</strong> (open, close, seek, and control
+            calls). The lower factor identifies the I/O component to
+            investigate. The I/O diagnostics in the standard output and in
+            <code>io_metrics.csv</code> then show where that time is spent:
+            time fractions, read/write and per-call contributions, load
+            balance among the units that perform I/O, operation counts, and
+            mean durations.
         </p>
 
         <p>

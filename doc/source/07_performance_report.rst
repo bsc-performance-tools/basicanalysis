@@ -12,7 +12,7 @@ Parallel Runtime Model to identify the main sources of efficiency loss.
 Runtime-Specific Analysis provides a more detailed view of the active parallel
 runtimes, while Execution Domains identifies where accelerator-related
 inefficiencies manifest. I/O Analysis provides a complementary view of the
-weight and distribution of File I/O activity. Finally, the Scaling view shows
+weight of File I/O and of its Data Access and File Management components. Finally, the Scaling view shows
 how performance and efficiency factors evolve across the analyzed
 configurations.
 
@@ -222,10 +222,7 @@ I/O Analysis
 ------------
 
 The **I/O Analysis** view provides a complementary characterization of the
-File I/O activity captured in the analyzed traces.
-
-BasicAnalysis distinguishes between **MPI-I/O** and **POSIX/ANSI C File I/O**
-activity and reports the corresponding metrics when that activity is detected.
+File I/O (POSIX, ANSI C, and MPI-IO calls) captured in the analyzed traces.
 
 .. _fig-report-io-analysis:
 
@@ -237,37 +234,23 @@ activity and reports the corresponding metrics when that activity is detected.
    I/O Analysis.
 
 The **I/O Analysis** view is shown in
-:numref:`fig-report-io-analysis`. This includes:
+:numref:`fig-report-io-analysis`. It contains **I/O Efficiency** and its two
+factors:
 
-* **I/O Efficiency**, which characterizes the overall weight of File I/O
-  activity relative to useful computation;
-* **MPI I/O Efficiency**, which characterizes the fraction of aggregate
-  execution capacity not spent in MPI-I/O activity;
-* **MPI I/O Load Balance**, which characterizes how evenly MPI-I/O duration is
-  distributed across the execution units represented in the measurement;
-* **POSIX I/O Efficiency**, which characterizes the fraction of aggregate
-  execution capacity not spent in POSIX or ANSI C File I/O activity; and
-* **POSIX I/O Load Balance**, which characterizes how evenly that File I/O
-  activity is distributed across the execution units represented in the
-  measurement.
+* **Data Access Efficiency**, for the read and write calls; and
+* **File Management Efficiency**, for the open, close, seek, and control
+  calls.
 
-I/O Efficiency and the API-specific I/O efficiencies answer questions about
-the **weight of I/O activity**, whereas the Load Balance metrics characterize
-its **distribution**. These two aspects should be interpreted together.
+The lower factor identifies the I/O component to investigate. The I/O
+diagnostics (time fractions, participation, contributions, load balance,
+operation counts, and mean durations) are printed in the standard output and
+written to ``io_metrics.csv``; see :ref:`I/O diagnostics <io-diagnostics>`.
 
-For example, a high I/O Load Balance does not necessarily indicate that I/O
-overhead is small. All execution units may spend a similarly large amount of
-time performing File I/O. Conversely, File I/O may have a small overall weight
-while still being unevenly distributed.
-
-When no activity for a particular File I/O interface is detected,
-BasicAnalysis reports the corresponding API-specific Efficiency and Load
-Balance metrics as ``Non-Avail``.
-
-The I/O metrics are complementary diagnostic metrics. They are reported
-independently from the hierarchical performance-efficiency model and must not
-be interpreted as additional multiplicative components of Global Efficiency,
-Parallel Efficiency, or Computation Scalability.
+The I/O metrics are reported independently from the hierarchical
+performance-efficiency model and must not be interpreted as additional
+multiplicative components of Global Efficiency, Parallel Efficiency, or
+Computation Scalability. When no File I/O is detected, they are reported as
+``Non-Avail``.
 
 Use the I/O Analysis view when File I/O represents a relevant fraction of the
 execution or when the distribution of I/O activity requires further

@@ -9,6 +9,7 @@ import math
 from rawdata import *
 from collections import OrderedDict
 from scaling import get_scaling_info
+from iometrics import IO_FACTORS_DOC, print_io_tables
 from tracemetadata import is_host_gpu_mode
 from comparison import (
     NOT_APPLICABLE,
@@ -79,11 +80,7 @@ other_metrics_doc = OrderedDict([
 
                     # Complementary I/O efficiency metrics.
                     ('io_eff', 'I/O Efficiency (%)'),
-                    ('mpi_io_eff', 'MPI I/O Efficiency (%)'),
-                    ('mpi_io_load_balance', 'MPI I/O Load Balance (%)'),
-                    ('posix_io_eff', 'POSIX I/O Efficiency (%)'),
-                    ('posix_io_load_balance', 'POSIX I/O Load Balance (%)'),
-                ])
+                ] + list(IO_FACTORS_DOC.items()))
 
 mod_factors_doc = OrderedDict([('global_eff', 'Global efficiency'),
                                ('parallel_eff', '-- Parallel efficiency'),
@@ -272,6 +269,13 @@ def create_other_metrics(trace_list):
             trace_name: 0.0
             for trace_name in trace_list
         }
+
+    # Execution units that can perform File I/O (Host units), used by the
+    # I/O diagnostics (iometrics.add_io_metrics).
+    other_metrics['io_units'] = {
+        trace_name: 0
+        for trace_name in trace_list
+    }
 
     return other_metrics
 
@@ -979,113 +983,9 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             other_metrics['io_mpiio'][trace] = 0.0
             other_metrics['io_posix'][trace] = 0.0
 
-        # --------------------------------------------------
-        # MPI I/O Efficiency and Load Balance
-        # --------------------------------------------------
-
-        if (
-            has_mpi_io
-            and runtime > 0.0
-            and host_parallel_units > 0
-        ):
-
-            other_metrics['mpi_io_eff'][trace] = (
-                100.0
-                - other_metrics['io_mpiio'][trace]
-            )
-
-            try:
-                mpi_io_avg = float(
-                    raw_data['mpiio_avg'][trace]
-                )
-
-                mpi_io_max = float(
-                    raw_data['mpiio_max'][trace]
-                )
-
-                if mpi_io_max > 0.0:
-                    other_metrics[
-                        'mpi_io_load_balance'
-                    ][trace] = (
-                        mpi_io_avg
-                        / mpi_io_max
-                        * 100.0
-                    )
-
-                else:
-                    other_metrics[
-                        'mpi_io_load_balance'
-                    ][trace] = 'Non-Avail'
-
-            except (
-                TypeError,
-                ValueError,
-                ZeroDivisionError,
-            ):
-                other_metrics[
-                    'mpi_io_load_balance'
-                ][trace] = 'NaN'
-
-        else:
-            other_metrics['mpi_io_eff'][trace] = 'Non-Avail'
-
-            other_metrics[
-                'mpi_io_load_balance'
-            ][trace] = 'Non-Avail'
-
-        # --------------------------------------------------
-        # POSIX / ANSI C I/O Efficiency and Load Balance
-        # --------------------------------------------------
-
-        if (
-            has_posix_io
-            and runtime > 0.0
-            and host_parallel_units > 0
-        ):
-
-            other_metrics['posix_io_eff'][trace] = (
-                100.0
-                - other_metrics['io_posix'][trace]
-            )
-
-            try:
-                posix_io_avg = float(
-                    raw_data['io_avg'][trace]
-                )
-
-                posix_io_max = float(
-                    raw_data['io_max'][trace]
-                )
-
-                if posix_io_max > 0.0:
-                    other_metrics[
-                        'posix_io_load_balance'
-                    ][trace] = (
-                        posix_io_avg
-                        / posix_io_max
-                        * 100.0
-                    )
-
-                else:
-                    other_metrics[
-                        'posix_io_load_balance'
-                    ][trace] = 'Non-Avail'
-
-            except (
-                TypeError,
-                ValueError,
-                ZeroDivisionError,
-            ):
-                other_metrics[
-                    'posix_io_load_balance'
-                ][trace] = 'NaN'
-
-        else:
-            other_metrics['posix_io_eff'][trace] = 'Non-Avail'
-
-            other_metrics[
-                'posix_io_load_balance'
-            ][trace] = 'Non-Avail'
+        # Data Access and File Management Efficiency and the I/O
+        # diagnostics are computed by iometrics.add_io_metrics.
+        other_metrics['io_units'][trace] = host_parallel_units
 
         # --------------------------------------------------
         # Overall I/O Efficiency
@@ -2762,9 +2662,14 @@ def print_other_metrics_table(
 
     print('Overview of the Efficiency, Speedup, IPC and Frequency:')
 
+    # The I/O factors are printed in their own table.
     longest_name = len(
         sorted(
-            other_metrics_doc.values(),
+            [
+                label
+                for key, label in other_metrics_doc.items()
+                if key not in IO_FACTORS_DOC
+            ],
             key=len
         )[-1]
     )
@@ -2888,12 +2793,8 @@ def print_other_metrics_table(
         if other_metrics['flushing'][trace] >= 10.0:
             warning_flush.append(1)
 
-        # I/O exists when at least one API-specific
-        # efficiency metric is available.
-        if (
-            other_metrics['mpi_io_eff'][trace] != 'Non-Avail'
-            or other_metrics['posix_io_eff'][trace] != 'Non-Avail'
-        ):
+        # I/O exists when I/O Efficiency is available.
+        if other_metrics['io_eff'][trace] != 'Non-Avail':
             io_detected = True
 
         # Keep the previous 5% threshold only as an
@@ -2943,42 +2844,12 @@ def print_other_metrics_table(
 
     if io_detected:
 
-        print('Overview of File I/O Efficiency:')
-        print(''.ljust(len(line_head), '-'))
-
-        io_metric_keys = [
-            'io_eff',
-            'mpi_io_eff',
-            'mpi_io_load_balance',
-            'posix_io_eff',
-            'posix_io_load_balance',
-        ]
-
-        for metric_key in io_metric_keys:
-
-            line = other_metrics_doc[metric_key].ljust(
-                longest_name
-            )
-
-            for trace in trace_list:
-
-                line += ' | '
-
-                value = other_metrics[metric_key][trace]
-
-                try:
-                    line += (
-                        '{0:.2f}%'.format(value)
-                    ).rjust(value_to_adjust)
-
-                except (ValueError, TypeError):
-                    line += (
-                        '{}'.format(value)
-                    ).rjust(value_to_adjust)
-
-            print(line)
-
-        print(''.ljust(len(line_head), '-'))
+        print_io_tables(
+            other_metrics,
+            trace_list,
+            configuration_labels,
+            value_to_adjust,
+        )
 
     # --------------------------------------------------
     # Informational messages

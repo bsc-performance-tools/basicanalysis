@@ -1052,6 +1052,60 @@ def parse_io_operations_stats(path):
     return stats
 
 
+def parse_io_call_table(path):
+    """Parse a Paraver table with one row per execution unit and one column
+    per I/O call (POSIX/ANSI C or MPI-IO).
+
+    The per-unit rows are kept because the I/O metrics need per-unit sums
+    of several calls (e.g. the maximum of read + write time), which cannot
+    be derived from the per-call summary rows.
+
+    Returns:
+        dict: {
+            'units': ['THREAD 1.1.1', ...],
+            'calls': {'read': [value per unit, ...], ...},
+        }
+        The call names are the column labels without the trailing '()'.
+    """
+    table = {
+        'units': [],
+        'calls': {},
+    }
+
+    with open(path) as f:
+        header = f.readline().rstrip('\n').split('\t')
+
+        columns = [
+            column.strip().removesuffix('()')
+            for column in header[1:]
+        ]
+
+        rows = []
+
+        for line in f:
+            fields = line.rstrip('\n').split('\t')
+
+            if not fields or not fields[0].startswith('THREAD'):
+                continue
+
+            table['units'].append(fields[0].strip())
+            rows.append(fields[1:])
+
+    for index, call in enumerate(columns):
+        if not call:
+            continue
+
+        values = []
+
+        for row in rows:
+            value = row[index].strip() if index < len(row) else ''
+            values.append(float(value) if value else 0.0)
+
+        table['calls'][call] = values
+
+    return table
+
+
 def parse_io_request_size_histogram(path):
     """Parse a Paraver I/O request-size count histogram.
 
@@ -1328,6 +1382,19 @@ def create_io_raw_data():
             'open': {},
             'count_coverage': None,
             'time_coverage': None,
+        },
+        # Per-unit time and count of every traced I/O call, by API
+        # (see parse_io_call_table). Empty when the trace has no calls of
+        # that API.
+        'calls': {
+            'posix': {
+                'time': None,
+                'count': None,
+            },
+            'mpiio': {
+                'time': None,
+                'count': None,
+            },
         },
     }
 
@@ -2152,6 +2219,8 @@ def init_cfgs():
     # I/O cfgs
     cfgs['io_calls_time'] = os.path.join(cfgs['root_dir'], 'io-calls-time.cfg')
     cfgs['io_calls_count'] = os.path.join(cfgs['root_dir'], 'io-calls-count.cfg')
+    cfgs['mpiio_calls_time'] = os.path.join(cfgs['root_dir'], 'mpiio-calls-time.cfg')
+    cfgs['mpiio_calls_count'] = os.path.join(cfgs['root_dir'], 'mpiio-calls-count.cfg')
     cfgs['io_read_size_count'] = os.path.join(cfgs['root_dir'], 'hist-read-size-count.cfg')
     cfgs['io_write_size_count'] = os.path.join(cfgs['root_dir'], 'hist-write-size-count.cfg')
     cfgs['io_read_bytes'] = os.path.join(cfgs['root_dir'],'hist-read-bytes.cfg')
@@ -2423,6 +2492,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         cmd_base.extend([cfgs['outside_mpi'], trace_name + '.outside_mpi.stats.csv'])
         cmd_base.extend([cfgs['mpiio_cycles'], trace_name + '.mpiio-cycles.stats.csv'])
         cmd_base.extend([cfgs['mpiio_inst'], trace_name + '.mpiio-inst.stats.csv'])
+        cmd_base.extend([cfgs['mpiio_calls_time'], trace_name + '.mpiio_calls_time.stats.csv'])
+        cmd_base.extend([cfgs['mpiio_calls_count'], trace_name + '.mpiio_calls_count.stats.csv'])
 
 
     if is_burst_mpi:
@@ -2798,6 +2869,16 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
                 trace_io_data['operations'][operation]['time'].update(
                     io_time_stats[operation]
                 )
+
+    # Per-unit time and count of every traced I/O call
+    for api, stat, path in (
+        ('posix', 'time', io_time_path),
+        ('posix', 'count', io_count_path),
+        ('mpiio', 'time', trace_name + '.mpiio_calls_time.stats.csv'),
+        ('mpiio', 'count', trace_name + '.mpiio_calls_count.stats.csv'),
+    ):
+        if os.path.exists(path):
+            trace_io_data['calls'][api][stat] = parse_io_call_table(path)
 
     # POSIX I/O read request-size distribution
     if read_size_exists:
@@ -3392,6 +3473,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     # new I/O cfgs
     move_files(trace_name + '.io_calls_time.stats.csv', local_path_dest, cmdl_args)
     move_files(trace_name + '.io_calls_count.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.mpiio_calls_time.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.mpiio_calls_count.stats.csv', local_path_dest, cmdl_args)
     move_files(trace_name + '.io_read_size_count.stats.csv', local_path_dest, cmdl_args)
     move_files(trace_name + '.io_write_size_count.stats.csv', local_path_dest, cmdl_args)
     move_files(trace_name + '.io_read_bytes.stats.csv', local_path_dest, cmdl_args)
