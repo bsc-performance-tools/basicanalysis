@@ -160,6 +160,30 @@ def format_configuration_label(
     return label
 
 
+def add_plot_trace_ids(labels):
+    """Add the trace ID of the interactive report ([T1], [T2], ...) to the
+    configuration labels of the static plots.
+
+    The labels are in trace order. The numeric ID that
+    disambiguate_configuration_labels adds to duplicated labels is
+    replaced, so that every column can be referenced as in the report
+    (e.g. in a paper or in slides), even with the same parallel units.
+    """
+
+    result = []
+
+    for index, label in enumerate(labels):
+        label = str(label)
+        suffix = " [{}]".format(index + 1)
+
+        if label.endswith(suffix):
+            label = label[:-len(suffix)]
+
+        result.append("{} [T{}]".format(label, index + 1))
+
+    return result
+
+
 def disambiguate_configuration_labels(
         labels,
         trace_ids=None):

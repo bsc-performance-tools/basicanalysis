@@ -1486,12 +1486,11 @@ def _render_navigation_script() -> str:
                     "thead th:not(.metric-column-header)"
                 );
 
+                // Keep the trace IDs ([T1], [T2], ...) so that the
+                // exported tables can be referenced in papers and slides.
                 headerCells.forEach(function (cell) {
                     cell.textContent =
-                        cell.textContent.replace(
-                            /\s*\[T\d+\]\s*$/,
-                            ""
-                        );
+                        cell.textContent.trim();
                 });
             }
 
@@ -1512,8 +1511,21 @@ def _render_navigation_script() -> str:
                 footer.className =
                     "export-table-footer";
 
+                const hasTraceIds = Array.from(
+                    exportCard.querySelectorAll("thead th")
+                ).some(function (cell) {
+                    return /\[T\d+\]\s*$/.test(cell.textContent);
+                });
+
                 footer.textContent =
-                    "Columns: " + columnDescription;
+                    "Columns: "
+                    + columnDescription
+                    + (
+                        hasTraceIds
+                        && columnDescription.indexOf("[Trace ID]") < 0
+                            ? " [Trace ID]"
+                            : ""
+                    );
 
                 exportCard.appendChild(
                     footer
@@ -1715,10 +1727,7 @@ def _render_navigation_script() -> str:
                             const td = document.createElement("td");
 
                             td.className = cell.className;
-                            td.textContent = cell.textContent.replace(
-                                /\s*\[T\d+\]\s*$/,
-                                ""
-                            );
+                            td.textContent = cell.textContent.trim();
 
                             cell.replaceWith(td);
                         }

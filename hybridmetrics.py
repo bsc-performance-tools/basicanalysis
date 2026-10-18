@@ -21,6 +21,7 @@ from comparison import (
     is_comparison_mode,
 )
 from configuration import (
+    add_plot_trace_ids,
     format_configuration_label,
     disambiguate_configuration_labels,
 )
@@ -354,11 +355,21 @@ def _build_hybrid_xaxis_label(
         for index, label in enumerate(configuration_labels)
     )
 
-    trace_id_suffix = (
-        ' [Trace ID]'
-        if show_trace_id
-        else ''
+    # Static plots label every column with the trace ID of the
+    # interactive report: [T1], [T2], ...
+    show_report_trace_id = any(
+        label.endswith(
+            '[T{}]'.format(index + 1)
+        )
+        for index, label in enumerate(configuration_labels)
     )
+
+    if show_report_trace_id:
+        trace_id_suffix = ' [Tn = trace ID]'
+    elif show_trace_id:
+        trace_id_suffix = ' [Trace ID]'
+    else:
+        trace_id_suffix = ''
 
     # --------------------------------------------------
     # MPI + GPU
@@ -573,6 +584,23 @@ def _format_heatmap_metric_labels(labels, output_name):
     return formatted_labels, indent_levels
 
 
+def _drop_unavailable_rows(df, separator_row=None):
+    """Remove the metrics without a value for any trace.
+
+    E.g. IPC, Instruction and Frequency scalability without hardware
+    counters are not plotted. The HOST/DEVICE separator row is moved
+    accordingly, and dropped if one side becomes empty.
+    """
+    available = df.notna().any(axis=1).tolist()
+
+    if separator_row is not None:
+        separator_row = sum(available[:separator_row])
+        if separator_row in (0, sum(available)):
+            separator_row = None
+
+    return df[available], separator_row
+
+
 def _plot_efficiency_heatmap(df, output_name, separator_row=None):
     """
     Render an efficiency table as a publication-quality heatmap.
@@ -584,6 +612,15 @@ def _plot_efficiency_heatmap(df, output_name, separator_row=None):
     the actual text so that long metric names and configuration
     headers are not clipped or overlapped.
     """
+
+    # Columns are referenced with the trace ID of the report.
+    df = df.copy()
+    df.columns = add_plot_trace_ids(list(df.columns))
+
+    df, separator_row = _drop_unavailable_rows(df, separator_row)
+
+    if df.empty:
+        return
 
     nrows, ncols = df.shape
 
@@ -3791,14 +3828,14 @@ def plots_speedup_matplot(
     # Canonical configuration labels
     # --------------------------------------------------
 
-    configuration_labels = _build_hybrid_configuration_labels(
+    configuration_labels = add_plot_trace_ids(_build_hybrid_configuration_labels(
         trace_list,
         trace_processes,
         trace_tasks,
         trace_threads,
         trace_mode,
         raw_data,
-    )
+    ))
 
     x_axis_label = _build_hybrid_xaxis_label(
         trace_list,
@@ -4420,7 +4457,18 @@ def plots_device_hwc_indicators_matplot(device_hwc_factors, trace_list,
         raw_data,
     )
 
-    labels = [mod_device_hwc_factors_doc[key] for key in DEVICE_HWC_INDICATOR_KEYS]
+    configuration_labels = add_plot_trace_ids(configuration_labels)
+
+    # Indicators without a value for any trace are not plotted.
+    indicator_keys = [
+        key for key in DEVICE_HWC_INDICATOR_KEYS
+        if any(not np.isnan(safe_float_for_plot(device_hwc_factors[key][trace]))
+               for trace in trace_list)
+    ]
+    if not indicator_keys:
+        return
+
+    labels = [mod_device_hwc_factors_doc[key] for key in indicator_keys]
     nrows = len(labels)
     ncols = len(configuration_labels)
 
@@ -4436,7 +4484,7 @@ def plots_device_hwc_indicators_matplot(device_hwc_factors, trace_list,
     label_ax = fig.add_subplot(grid[0, 0])
     ax = fig.add_subplot(grid[0, 1])
 
-    for row, key in enumerate(DEVICE_HWC_INDICATOR_KEYS):
+    for row, key in enumerate(indicator_keys):
         for col, trace in enumerate(trace_list):
             ax.add_patch(plt.Rectangle(
                 (col, row), 1, 1,

@@ -127,6 +127,14 @@ factors, and ``table_device_hwc_indicators_matplot`` shows the indicators
 Bandwidth and GPC Clock) with a single neutral colour, since they are not
 efficiencies.
 
+Each column of the static plots is labelled with its configuration and the
+trace identifier used in the interactive report (``[T1]``, ``[T2]``, ...),
+so that the same trace can be referenced in a paper or in slides, even when
+several traces have the same configuration. Metrics without a value for
+any trace (for example IPC, Instruction and Frequency scalability when the
+traces have no hardware counters) are not shown in the static efficiency
+tables; the CSV files keep all the metrics.
+
 When multiple execution configurations are analyzed, BasicAnalysis also
 generates plots showing the evolution of performance metrics across the
 configurations. These include Speedup and Efficiency plots and, depending on

@@ -37,6 +37,15 @@
 
 ### Improvements
 
+- Label the columns of the static plots (efficiency tables, Speedup and
+  Efficiency) with the trace identifier of the interactive report (`[T1]`,
+  `[T2]`, ...), so that each trace can be referenced in papers and slides,
+  also when several traces have the same configuration. The PNG export of
+  the interactive report also keeps the trace identifiers. The CSV files
+  and the standard output do not change.
+- Static efficiency tables no longer show the metrics that have no value
+  for any trace (e.g. IPC, Instruction and Frequency scalability when the
+  traces have no hardware counters).
 - Add Host-only and Device-only efficiency tables of the Host/Device model
   (`efficiency_table_talp_host_matplot` and
   `efficiency_table_talp_device_matplot`), in addition to the combined
