@@ -920,8 +920,8 @@ def _build_device_hwc_scope_note_html():
             characterize how effectively the accelerator is kept supplied
             with useful work over the execution, whereas these metrics
             characterize how the GPU resources are exercised while the
-            device is active. They are complementary and are not part of
-            the multiplicative efficiency model.
+            Graphics/Compute Engine is active. They are complementary and
+            are not part of the multiplicative efficiency model.
         </p>
 
         <p>
@@ -946,11 +946,11 @@ def _build_device_hwc_scope_note_html():
 
 
 def _build_device_hwc_patterns_html():
-    """Top-down diagnostic path through the GPU hardware counter metrics.
+    """Diagnostic path through the GPU hardware counter metrics.
 
-    The steps follow the nesting of the counters: GR Active > SMs Active
-    (SM Coverage) > warps in flight (Achieved Occupancy) > issuing warps
-    (SM Issue Efficiency).
+    The steps follow the diagnostic workflow of the User Guide: start from
+    the factors of SM Utilization and use the indicators to formulate
+    hypotheses, not to assign a root cause.
     """
 
     return """
@@ -958,51 +958,59 @@ def _build_device_hwc_patterns_html():
         <h3>Diagnostic path</h3>
 
         <p>
-            The counters are nested: the GPU is active, some SMs hold warps,
-            those warps fill part of the warp slots, and some of them issue
-            instructions. Follow the same order:
+            Start from the factors of SM Utilization and use the indicators
+            to formulate hypotheses about the behavior to investigate:
         </p>
 
         <ol>
             <li>
-                <strong>Low SM Coverage</strong>: the work is not distributed
-                over the GPU (grids with fewer blocks than SMs, short
-                kernels).
+                <strong>Low SM Coverage</strong>: part of the SM capacity is
+                inactive while the GPU is active. Check whether the kernels
+                expose enough parallel work (grids with few blocks relative
+                to the number of SMs, kernel tail effects).
             </li>
             <li>
-                <strong>High SM Coverage + low Achieved Occupancy</strong>:
-                the SMs are active but hold few warps. Check the registers
-                per thread and the shared memory per block of the kernels.
+                <strong>High SM Coverage + low SM Issue Efficiency</strong>:
+                the work is distributed over the SMs, but the active SMs
+                often do not issue instructions. Continue with the next
+                steps to find out why.
             </li>
             <li>
-                <strong>High SM Coverage + high Achieved Occupancy + low SM
-                Issue Efficiency</strong>: there are many warps, but they
-                often do not issue (stalls). Use the other indicators to
-                identify the stall:
-                <ul>
-                    <li>high <strong>DRAM bandwidth</strong>: memory-bound
-                    kernels;</li>
-                    <li>low <strong>DRAM bandwidth</strong>: latency,
-                    dependencies, or synchronization inside the kernels;</li>
-                    <li>high <strong>Tensor Core Activity</strong>: the
-                    tensor pipes may be the limit (expected for matrix-heavy
-                    kernels).</li>
-                </ul>
+                <strong>Low Achieved Occupancy</strong> together with low SM
+                Issue Efficiency: there may not be enough resident warps to
+                hide latency. Check the grid and block dimensions, registers
+                per thread, and shared memory per block of the kernels. Low
+                occupancy alone is not a problem.
             </li>
             <li>
-                In all cases, a <strong>lower GPC Clock under higher
-                load</strong> on the same GPU model indicates power or
+                If occupancy is sufficient, check the
+                <strong>DRAM bandwidth</strong>. High DRAM bandwidth makes
+                device-memory behavior a relevant hypothesis; low bandwidth
+                does not exclude memory latency, cache, or dependency
+                effects.
+            </li>
+            <li>
+                For workloads expected to use Tensor Cores, low
+                <strong>Tensor Core Activity</strong> may indicate that they
+                are not being extensively used. High activity does not by
+                itself make them the limiting resource.
+            </li>
+            <li>
+                When comparing executions on the same GPU model, a lower
+                <strong>GPC Clock</strong> may contribute to a performance
+                difference. It is not sufficient evidence of power or
                 thermal throttling.
             </li>
         </ol>
 
         <p>
             <strong>Low</strong> and <strong>high</strong> are relative:
-            there are no fixed thresholds (for example, an occupancy of
-            20&ndash;30% can be normal for kernels that use many registers).
-            The values are averages over all the kernels of the execution,
-            so the path indicates where to look; confirm the cause for the
-            dominant kernels with Nsight Compute.
+            there are no fixed thresholds. The values are execution-level
+            aggregates, so the path indicates what to investigate, not a
+            kernel-level root cause. Correlate the behavior with the kernel
+            events in the nsys2prv trace with Paraver (keeping in mind that
+            the counters are sampled per device), and profile the dominant
+            kernels with Nsight Compute.
         </p>
     </div>
     """
@@ -1022,21 +1030,21 @@ def _build_device_hwc_guidance_html():
             Start with <strong>SM Utilization</strong>, the degree to which
             the SMs issue instructions while the GPU is active (not a
             fraction of the peak instruction throughput). It is
-            the product of <strong>SM Coverage</strong> (do the kernels give
-            work to the available SMs?) and <strong>SM Issue Efficiency</strong>
-            (do the active SMs issue instructions or are they stalled?).
+            the product of <strong>SM Coverage</strong> (are the available
+            SMs being given work?) and <strong>SM Issue Efficiency</strong>
+            (do the active SMs issue instructions?).
         </p>
 
         <p>
             Then follow the <strong>Diagnostic path</strong> below the
-            indicators: SM Coverage, then <strong>Achieved
-            Occupancy</strong> (how full the active SMs are), then SM Issue
-            Efficiency, using <strong>DRAM bandwidth</strong> and
-            <strong>Tensor Core Activity</strong> to identify the kind of
-            stall and the <strong>GPC Clock</strong> to detect throttling.
-            Higher indicator values are not necessarily better.
-            <strong>GPU Active</strong> should be close to the fraction of
-            time with kernels running and checks the consistency of the
+            indicators: SM Coverage, then SM Issue Efficiency, explained
+            with <strong>Achieved Occupancy</strong> and the
+            <strong>DRAM bandwidth</strong>, and finally
+            <strong>Tensor Core Activity</strong> and the
+            <strong>GPC Clock</strong> as context. Higher indicator values
+            are not necessarily better.
+            <strong>GPU Active</strong> can be compared with the fraction of
+            time with kernels running to check the consistency of the
             counters with the trace events.
         </p>
     </details>

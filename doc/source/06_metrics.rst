@@ -2982,15 +2982,15 @@ Orchestration Efficiency to 61.94%, while Device Load Balance remains at
 100%. The larger batch therefore keeps the device supplied with useful
 computation more effectively.
 
-However, Device Global Efficiency decreases from 12.55% to 6.46%. The
-reason is the strong degradation of Device Computation Scalability, which
-falls from 100% in the reference execution T1 to 11.85% in T2. The Device
-metrics therefore identify a different limitation in T2: although device
-parallel execution improves, the useful device computation does not scale
-with the reference execution.
-
-The GPU hardware counters can now be used to characterize how GPU resource
-activity changes between the two executions.
+However, Device Global Efficiency decreases from 12.55% to 6.46%, because
+Device Computation Scalability falls from 100% in the reference execution T1
+to 11.85% in T2: T2 spends about 8.4 times more useful device computation
+time than T1. The two executions use the same resources but different problem
+sizes, so this value compares amounts of work rather than measuring a scaling
+experiment. It does not by itself indicate a loss of efficiency; it shows
+that the device computation time grows with the batch size, and the hardware
+counters can be used to characterize how the GPU resources are exercised
+during this computation.
 
 .. _fig-gpu-hw-sms-utilization:
 
@@ -3001,14 +3001,6 @@ activity changes between the two executions.
 
    SM Utilization and its decomposition.
 
-:numref:`fig-gpu-hw-sms-utilization` shows SM Utilization and its
-decomposition. SM Utilization increases from 2.56% to 10.80%, with both
-contributing factors improving. SM Coverage increases from 46.43% to 94.42%,
-indicating that T2 distributes work over substantially more of the available
-SM capacity while the Graphics/Compute Engine is active. SM Issue Efficiency
-also increases from 5.51% to 11.44%, indicating greater instruction-issue
-activity within the active SM capacity.
-
 .. _fig-gpu-indicators:
 
 .. figure:: images/table_device_hwc_indicators_matplot.png
@@ -3018,32 +3010,52 @@ activity within the active SM capacity.
 
    Complementary GPU hardware-counter performance indicators.
 
-:numref:`fig-gpu-indicators` shows the complementary GPU performance
-indicators. T2 exhibits substantially more Graphics/Compute Engine activity
-over the execution: GPU Active increases from 15.10% to 55.72%. This is
-consistent with the direction of the improvement in Device Parallel
-Efficiency, although the two metrics characterize different aspects of the
-execution.
+:numref:`fig-gpu-hw-sms-utilization` shows SM Utilization and its
+decomposition, and :numref:`fig-gpu-indicators` the complementary
+indicators. As a consistency check, GPU Active increases from 15.10% to
+55.72%, in the same direction as Device Parallel Efficiency, although the two
+metrics characterize different aspects of the execution.
 
-Nevertheless, SM Issue Efficiency remains relatively low despite its
-improvement. Achieved Occupancy increases only moderately, from 14.97% to
-19.51%. These observations indicate that, although T2 exposes considerably
-more parallel work to the GPU, substantial active-SM activity still occurs
-without instruction issue.
+SM Utilization increases from 2.56% to 10.80%, with both factors improving.
+Following the `Diagnostic workflow`_:
 
-The other indicators provide additional context. Tensor Core Activity
-increases from 2.30% to 34.28%, showing a substantial change in the use of
-the Tensor Core pipelines. DRAM Read Bandwidth increases from 54.12% to
-71.56%, while DRAM Write Bandwidth increases from 1.55% to 8.25%, indicating
-more intensive use of the device-memory system during GPU-active periods.
-The average GPC Clock decreases from 1905 MHz to 1734 MHz.
+**1. SM Coverage.** SM Coverage increases from 46.43% to 94.42%. In T1, about
+half of the SM capacity is inactive while the Graphics/Compute Engine is
+active, which suggests that the kernels of batch size 1 do not expose enough
+parallel work for the available SMs. In T2, the work is distributed over
+almost all the SM capacity, so SM Coverage no longer limits SM Utilization.
 
-These observations do not individually explain the low Device Computation
-Scalability of T2. In particular, higher DRAM bandwidth does not by itself
-demonstrate that the execution is memory-bandwidth bound, and the lower GPC
-Clock does not by itself demonstrate power or thermal throttling. Instead,
-the counters identify execution behaviors that should be investigated in
-more detail.
+**2. SM Issue Efficiency.** SM Issue Efficiency increases from 5.51% to
+11.44%, but remains low in both executions. In T2, the work is broadly
+distributed while the active SMs spend most of their activity without
+issuing instructions, so the next steps investigate why.
+
+**3. Achieved Occupancy.** Achieved Occupancy increases only moderately,
+from 14.97% to 19.51%. Low occupancy together with low SM Issue Efficiency
+suggests that the active SMs may not contain enough resident warps to hide
+execution or memory latency. The grid and block dimensions, registers per
+thread, and shared memory per block of the dominant kernels should be
+inspected to determine what limits the number of resident warps.
+
+**4. DRAM activity.** DRAM Read Bandwidth increases from 54.12% to 71.56%,
+and DRAM Write Bandwidth from 1.55% to 8.25%. The device-memory system is
+used intensively during GPU-active periods, so device-memory behavior is also
+a relevant hypothesis for the limited instruction issue. It does not by
+itself demonstrate that the execution is memory-bandwidth bound.
+
+**5. Tensor Core Activity.** Tensor Core Activity increases from 2.30% to
+34.28%. Batch size 1 makes little use of the Tensor Core pipelines, whereas
+batch size 256 uses them substantially, which is consistent with the larger
+matrix operations of a larger batch.
+
+**6. GPC Clock.** The average GPC Clock decreases from 1905 MHz to 1734 MHz.
+The executions use the same GPU model, so the lower frequency may contribute
+to the performance of T2, but it does not by itself demonstrate power or
+thermal throttling.
+
+The workflow therefore leads to two hypotheses for T2: too few resident warps
+to hide latency, and intensive device-memory activity. Both should be
+investigated for the dominant kernels.
 
 Because the nsys2prv trace contains both the GPU kernel events and the
 sampled GPU hardware counters, the next analysis step can be performed
@@ -3058,7 +3070,9 @@ associated with individual kernels. Therefore, this temporal correlation
 should be interpreted carefully, particularly for short kernels or when
 kernels overlap on different streams. The BasicAnalysis metrics should first
 be used to identify the relevant behavior, and the nsys2prv trace in Paraver
-can then be used to localize that behavior in the GPU execution.
+can then be used to localize that behavior in the GPU execution. The
+dominant kernels can then be profiled with Nsight Compute to confirm the
+cause.
 
 
 OpenMP Runtime-Specific Metrics

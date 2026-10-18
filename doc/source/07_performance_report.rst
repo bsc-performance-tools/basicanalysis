@@ -255,12 +255,12 @@ The view, shown in :numref:`fig-report-gpu-hardware-counters`, includes:
   better, so they are shown in a single neutral colour, and
   their Metric Details explain how to read each indicator and what low and
   high values mean, instead of giving an efficiency verdict.
-* A **Diagnostic path** that follows the nesting of the counters: low SM
-  Coverage (work not distributed over the GPU), then high Coverage with low
-  Achieved Occupancy (active SMs with few warps), then high Coverage and
-  Occupancy with low SM Issue Efficiency (stalls, identified with the DRAM
-  bandwidth and the Tensor Core Activity), and a lower GPC Clock under higher
-  load (throttling). See :ref:`gpu-hardware-counter-metrics` for an example.
+* A **Diagnostic path** that summarizes the diagnostic workflow of
+  :ref:`gpu-hardware-counter-metrics`: SM Coverage, then SM Issue
+  Efficiency, explained with Achieved Occupancy and the DRAM bandwidth, and
+  finally Tensor Core Activity and the GPC Clock as context. The path helps
+  formulate hypotheses to investigate in the trace with Paraver, not assign a
+  root cause.
 * A trend plot of SM Utilization and its factors when several executions are
   analyzed.
 
