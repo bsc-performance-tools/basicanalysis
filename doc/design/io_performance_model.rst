@@ -1544,6 +1544,10 @@ for the first I/O report.
 Review Log
 ----------
 
+*2026-10-19* -- Implementation: I/O diagnostics table in the I/O Analysis
+view and in the printable report (groups I/O time, Data Access, File
+Management, Operations; no efficiency colors; unused rows omitted).
+
 *2026-10-19* -- Stricter thresholds for the I/O efficiencies (Critical
 < 90%, Attention 90--95%, Good >= 95%), defined per metric in
 ``metrics/definitions.yaml``; the report colors follow per-metric thresholds.

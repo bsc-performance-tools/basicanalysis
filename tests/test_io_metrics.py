@@ -303,3 +303,56 @@ class IoThresholdTests(unittest.TestCase):
                 _efficiency_scale_position(value, default), value)
             self.assertEqual(_metric_value_color(value, default),
                              _metric_value_color(value))
+
+
+class IoDiagnosticsReportTests(unittest.TestCase):
+
+    def _other_metrics(self):
+        other_metrics = {'io_units': {'t1': 2}, 'io_eff': {'t1': 75.0}}
+        raw_data = {
+            'useful_tot': {'t1': 1600.0},
+            'runtime': {'t1': 1000.0},
+            'io_tot': {'t1': 300.0},
+            'mpiio_tot': {'t1': 0.0},
+        }
+        io_data = {'t1': _io_data(
+            posix_time=_table(UNITS, {'read': [300.0, 0.0]}),
+            posix_count=_table(UNITS, {'read': [3000.0, 0.0]}),
+        )}
+        with redirect_stdout(io.StringIO()):
+            add_io_metrics(other_metrics, raw_data, io_data, ['t1'])
+        return other_metrics
+
+    def test_groups_without_efficiency_colors(self):
+        from interactiveplots import _build_io_diagnostics_table_html
+
+        table = _build_io_diagnostics_table_html(
+            self._other_metrics(), ['t1'], ['2 [T1]'])
+
+        self.assertIn("I/O time", table)
+        self.assertIn("Data Access", table)
+        self.assertIn("Operations", table)
+        self.assertIn("Read mean duration (µs)", table)
+        self.assertIn("<td>3,000</td>", table)
+        self.assertIn("<td>100.00%</td>", table)
+        # Diagnostics are not efficiencies.
+        self.assertNotIn("metric-good", table)
+        self.assertNotIn("metric-critical", table)
+        self.assertNotIn("background:", table)
+
+    def test_unused_calls_and_groups_are_omitted(self):
+        from interactiveplots import _build_io_diagnostics_table_html
+
+        table = _build_io_diagnostics_table_html(
+            self._other_metrics(), ['t1'], ['2 [T1]'])
+
+        self.assertNotIn("MPI-IO contribution", table)
+        self.assertNotIn("Write time", table)
+        # No File Management call has time: the whole group is omitted.
+        self.assertNotIn("File Management Load Balance", table)
+
+    def test_no_table_without_io(self):
+        from interactiveplots import _build_io_diagnostics_card_html
+
+        self.assertEqual(
+            _build_io_diagnostics_card_html({}, ['t1'], ['2 [T1]']), "")

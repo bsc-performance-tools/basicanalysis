@@ -138,6 +138,44 @@ for _operation in OPERATIONS:
 
 NON_AVAIL = 'Non-Avail'
 
+# Groups of diagnostics shown in the report.
+IO_DIAGNOSTIC_GROUPS = [
+    ('I/O time', [
+        'io_fraction_avg',
+        'io_fraction_max',
+        'io_participation',
+        'io_mpiio_contribution',
+        'io_posix_contribution',
+    ]),
+    ('Data Access', [
+        'io_read_contribution',
+        'io_write_contribution',
+        'io_da_load_balance',
+        'io_read_load_balance',
+        'io_write_load_balance',
+    ]),
+    ('File Management', [
+        'io_open_contribution',
+        'io_close_contribution',
+        'io_seek_contribution',
+        'io_control_contribution',
+        'io_other_contribution',
+        'io_fm_load_balance',
+        'io_open_load_balance',
+    ]),
+    ('Operations', [
+        'io_{}_{}'.format(operation, quantity)
+        for operation in OPERATIONS
+        for quantity in ('time', 'operations', 'mean_duration')
+    ]),
+]
+
+
+def is_unused_diagnostic(values):
+    """True when a diagnostic has no value or is zero for every trace (a call
+    or API not used by any trace)."""
+    return all(value in (NON_AVAIL, 0.0) for value in values)
+
 
 def aggregate_io_calls(trace_io_data):
     """Aggregate the per-unit call tables of a trace by operation and API.
@@ -437,7 +475,7 @@ def print_io_diagnostics_table(other_metrics, trace_list, column_labels,
         values = [other_metrics[key][trace] for trace in trace_list]
 
         # Calls or APIs not used by any trace (io_metrics.csv keeps them).
-        if all(value in (NON_AVAIL, 0.0) for value in values):
+        if is_unused_diagnostic(values):
             continue
 
         line = label.ljust(longest_name)

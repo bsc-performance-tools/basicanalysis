@@ -16,7 +16,8 @@
   Management, and Open), and the time, number of operations, and mean
   duration of each group of calls. The factors are shown in the standard
   output, `other_metrics.csv`, and the I/O Analysis view of the report; the
-  diagnostics in the standard output and the new `io_metrics.csv`. The time
+  diagnostics in a table of the I/O Analysis view (without efficiency
+  colors), the standard output, and the new `io_metrics.csv`. The time
   and number of MPI-IO calls are obtained with two new Paraver
   configurations (`mpiio-calls-time.cfg`, `mpiio-calls-count.cfg`).
 - The I/O efficiencies (I/O, Data Access, and File Management Efficiency)

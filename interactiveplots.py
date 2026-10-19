@@ -13,6 +13,12 @@ import plotly.graph_objects as go
 
 from configuration import format_configuration_label
 from tracemetadata import is_host_gpu_mode
+from iometrics import (
+    IO_DIAGNOSTICS_DOC,
+    IO_DIAGNOSTIC_GROUPS,
+    NON_AVAIL as IO_NON_AVAIL,
+    is_unused_diagnostic,
+)
 
 from report.renderer.html import (
     build_analysis_catalogue,
@@ -760,6 +766,116 @@ def _has_io_metrics(other_metrics, trace_list):
     return False
 
 
+def _format_io_diagnostic(value, unit):
+    """Format an I/O diagnostic for the report."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return html.escape(str(value))
+
+    if unit == '%':
+        return '{0:.2f}%'.format(value)
+
+    if unit == 's':
+        return '{0:.3f}'.format(value)
+
+    if unit == 'count':
+        return '{0:,.0f}'.format(value)
+
+    return '{0:,.1f}'.format(value)
+
+
+def _build_io_diagnostics_table_html(other_metrics, trace_list, trace_labels):
+    """Table of the I/O diagnostics, grouped as in IO_DIAGNOSTIC_GROUPS.
+
+    The diagnostics are not efficiencies, so they are shown without the
+    efficiency colors. Rows of calls or APIs that no trace uses are omitted.
+    Returns an empty string when no trace has I/O diagnostics.
+    """
+    rows = []
+
+    for title, keys in IO_DIAGNOSTIC_GROUPS:
+        group_rows = []
+
+        for key in keys:
+            values = [
+                other_metrics.get(key, {}).get(trace, IO_NON_AVAIL)
+                for trace in trace_list
+            ]
+
+            if is_unused_diagnostic(values):
+                continue
+
+            label, unit = IO_DIAGNOSTICS_DOC[key]
+            label = label.replace('(us)', '(\u00b5s)')
+
+            cells = ''.join(
+                '<td>{}</td>'.format(_format_io_diagnostic(value, unit))
+                for value in values
+            )
+            group_rows.append(
+                '<tr><td>{}</td>{}</tr>'.format(html.escape(label), cells))
+
+        if group_rows:
+            rows.append(
+                "<tr><td colspan='{}'>{}</td></tr>".format(
+                    len(trace_list) + 1, html.escape(title)))
+            rows.extend(group_rows)
+
+    if not rows:
+        return ""
+
+    header = ''.join(
+        '<th>{}</th>'.format(html.escape(label)) for label in trace_labels)
+
+    return (
+        "<table class='metric-table io-diagnostics-table'>"
+        "<thead><tr><th>I/O diagnostic</th>{}</tr></thead>"
+        "<tbody>{}</tbody></table>".format(header, ''.join(rows))
+    )
+
+
+def _build_io_diagnostics_card_html(other_metrics, trace_list, trace_labels,
+                                    trace_column_description="",
+                                    printable=False):
+    """Card with the I/O diagnostics table and a short reading note."""
+    table_html = _build_io_diagnostics_table_html(
+        other_metrics, trace_list, trace_labels)
+
+    if not table_html:
+        return ""
+
+    note = (
+        "Where the I/O time is spent. These values are not efficiencies: "
+        "they have no color scale and must be read in context (see "
+        "<em>How to read this view</em>)."
+    )
+
+    if printable:
+        return """
+        <h3 class="print-subsection-title">I/O diagnostics</h3>
+        <p class="print-section-description">{note}</p>
+        <div class="print-metric-results metric-table-card">
+            {table_html}
+        </div>
+        """.format(note=note, table_html=table_html)
+
+    return """
+    <div
+        class="metric-table-card io-diagnostics-card"
+        data-efficiency-export
+        data-export-name="io-diagnostics"
+        data-export-columns="{columns}"
+    >
+        <h3>I/O diagnostics</h3>
+        <p class="io-diagnostics-note">{note}</p>
+        {table_html}
+    </div>
+    """.format(
+        columns=html.escape(trace_column_description, quote=True),
+        note=note,
+        table_html=table_html,
+    )
+
+
 def _build_io_metrics_section(
         other_metrics,
         trace_list,
@@ -875,6 +991,8 @@ def _build_io_metrics_section(
             {table_html}
         </div>
 
+        {diagnostics_html}
+
         {trend_html}
         
         {efficiency_scale_html}
@@ -891,6 +1009,12 @@ def _build_io_metrics_section(
             quote=True,
         ),
         table_html=table_html,
+        diagnostics_html=_build_io_diagnostics_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+            trace_column_description,
+        ),
         trend_html=trend_html,
         efficiency_scale_html=efficiency_scale_html,
         scope_note_html=scope_note_html,
@@ -3506,6 +3630,8 @@ def _build_printable_io_section(
             {table_html}
         </div>
 
+        {diagnostics_html}
+
         {trend_html}
 
     </section>
@@ -3516,6 +3642,12 @@ def _build_printable_io_section(
             trace_column_description
         ),
         table_html=table_html,
+        diagnostics_html=_build_io_diagnostics_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+            printable=True,
+        ),
         trend_html=trend_html,
     )
 
@@ -4576,12 +4708,38 @@ def _build_io_metrics_guidance_html():
             Efficiency</strong> (read and write calls) and <strong>File
             Management Efficiency</strong> (open, close, seek, and control
             calls). The lower factor identifies the I/O component to
-            investigate. The I/O diagnostics in the standard output and in
-            <code>io_metrics.csv</code> then show where that time is spent:
-            time fractions, read/write and per-call contributions, load
-            balance among the units that perform I/O, operation counts, and
-            mean durations.
+            investigate. The <strong>I/O diagnostics</strong> table then
+            shows where that time is spent (also in
+            <code>io_metrics.csv</code>):
         </p>
+
+        <ul>
+            <li>
+                <strong>I/O time</strong>: the average and maximum fraction
+                of the execution time in I/O, and the percentage of units that
+                perform I/O. A maximum much higher than the average, with low
+                participation, indicates I/O concentrated in a few units,
+                which the other units may wait for.
+            </li>
+            <li>
+                <strong>Contributions</strong>: which API, which of read or
+                write, and which File Management call (open, close, seek)
+                account for most of the time. A high contribution shows where
+                to look first; it does not mean that those calls are
+                inefficient.
+            </li>
+            <li>
+                <strong>Load balance</strong>, among the units that perform
+                each kind of call. Read and write are given separately because
+                applications often read and write in different phases.
+            </li>
+            <li>
+                <strong>Operations</strong>: time, number, and mean duration
+                of each kind of call. A higher time with the same number of
+                operations (a higher mean duration) points to the I/O system
+                rather than to the application I/O pattern.
+            </li>
+        </ul>
 
         <p>
             These metrics are <strong>complementary to the hierarchical
@@ -5285,6 +5443,40 @@ def _build_interactive_report_document(workspace_html,
             color: var(--primary);
             font-weight: 700 !important;
             letter-spacing: 0.01em;
+        }
+
+        /* I/O diagnostics: indicators without efficiency colors. */
+        .io-diagnostics-card {
+            padding: 14px 16px;
+        }
+
+        .io-diagnostics-card h3 {
+            margin: 0 0 4px;
+            color: var(--primary);
+            font-size: 16px;
+        }
+
+        .io-diagnostics-note {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        /* Compact, like the efficiency tables: values next to labels. */
+        .metric-table.io-diagnostics-table {
+            width: auto;
+            min-width: 50%;
+        }
+
+        .io-diagnostics-table th,
+        .io-diagnostics-table td {
+            padding: 6px 14px;
+        }
+
+        .io-diagnostics-table td:not(:first-child),
+        .io-diagnostics-table th:not(:first-child) {
+            min-width: 90px;
+            font-variant-numeric: tabular-nums;
         }
 
  
@@ -6182,6 +6374,17 @@ def _build_interactive_report_document(workspace_html,
 
         .analysis-guide-note p:last-child {
             margin-bottom: 0;
+        }
+
+        .analysis-guide-note ul {
+            margin: 4px 0 7px;
+            padding-left: 22px;
+        }
+
+        .analysis-guide-note li {
+            margin: 3px 0;
+            font-size: 13px;
+            line-height: 1.55;
         }
 
         .metric-interaction-hint {

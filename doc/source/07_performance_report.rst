@@ -244,10 +244,18 @@ factors:
 The lower factor identifies the I/O component to investigate. The I/O
 efficiencies use stricter thresholds than the other efficiencies (Critical
 below 90%, Attention 90%--95%, Good from 95%); the efficiency scale of the
-view shows them. The I/O
-diagnostics (time fractions, participation, contributions, load balance,
-operation counts, and mean durations) are printed in the standard output and
-written to ``io_metrics.csv``; see :ref:`I/O diagnostics <io-diagnostics>`.
+view shows them.
+
+Below the efficiency table, the **I/O diagnostics** table shows where the I/O
+time is spent, grouped in four sections: *I/O time* (average and maximum
+time fractions, participation, and API contributions), *Data Access* (read
+and write contributions and load balance), *File Management* (open, close,
+seek, and control contributions and load balance), and *Operations* (time,
+number of operations, and mean duration of each group of calls). These values
+are not efficiencies, so they have no color scale; rows of calls or APIs that
+no execution uses are omitted. The same diagnostics are printed in the
+standard output and written to ``io_metrics.csv``; see
+:ref:`I/O diagnostics <io-diagnostics>`.
 
 The I/O metrics are reported independently from the hierarchical
 performance-efficiency model and must not be interpreted as additional

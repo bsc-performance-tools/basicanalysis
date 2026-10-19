@@ -2884,8 +2884,9 @@ distinguishes the two explanations of a high operation time: many operations
 higher mean duration). The latter points to the interaction with the I/O
 system rather than to the application I/O pattern.
 
-The I/O diagnostics are printed in the standard output (rows that are zero
-for all the executions are omitted) and written to ``io_metrics.csv``.
+The I/O diagnostics are shown in the I/O Analysis view of the report and
+printed in the standard output (in both, rows that are zero for all the
+executions are omitted), and written to ``io_metrics.csv``.
 
 These metrics quantify the time of the File I/O captured in the trace. They
 do not measure achieved bandwidth or storage-system utilization. When File
