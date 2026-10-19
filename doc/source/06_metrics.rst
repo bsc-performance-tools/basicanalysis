@@ -2758,8 +2758,9 @@ Notation
 I/O Efficiency
 --------------
 
-**I/O Efficiency** is the fraction of the useful computation plus File I/O
-time that is useful computation:
+**I/O Efficiency** measures the cost of File I/O relative to useful
+computation: the fraction of the useful computation plus File I/O time of
+the Host units that is useful computation:
 
 .. math::
 
@@ -2771,16 +2772,17 @@ It is the product of two factors:
 
    IO\_Eff = DA\_Eff \times FM\_Eff
 
-**Data Access Efficiency** is the fraction of the useful computation plus
-Data Access time that is useful computation:
+**Data Access Efficiency** measures the cost of reading and writing
+application data: the fraction of the useful computation plus Data Access
+time that is not spent in Data Access:
 
 .. math::
 
    DA\_Eff = \frac{U}{U + DA}
 
-**File Management Efficiency** is the fraction of the useful computation plus
-Data Access plus File Management time that is useful computation plus Data
-Access:
+**File Management Efficiency** measures the additional cost of managing the
+files, which moves no application data: the fraction of the useful
+computation plus I/O time that is not spent in File Management calls:
 
 .. math::
 
@@ -2836,8 +2838,9 @@ I/O Critical-Path Efficiency and I/O Load Balance
 I/O Efficiency uses the average I/O time per unit. When the units
 synchronize after their I/O (for example, in read and write phases separated
 by barriers or collectives), the time paid is that of the slowest unit, and
-the other units wait for it. **I/O Critical-Path Efficiency** estimates the
-I/O cost on the critical path:
+the other units wait for it. **I/O Critical-Path Efficiency** measures the
+cost of File I/O on the critical path of the execution, when each kind of
+I/O call costs the time of the slowest unit:
 
 .. math::
 
@@ -2856,8 +2859,9 @@ the product of I/O Efficiency and **I/O Load Balance**:
    \qquad
    IO\_LB = \frac{U_{avg} + IO_{avg}}{U_{avg} + IO_{cp}}
 
-I/O Load Balance measures the effect of an uneven distribution of the I/O
-time across the units on the critical path. A low value indicates that some
+I/O Load Balance measures the cost of the uneven distribution of the I/O
+time across the units: the useful plus I/O time of the average unit divided
+by that of the critical path. A low value indicates that some
 units spend much more time than others in some kind of I/O call (for
 example, one rank writes the output while the others wait). It complements
 the per-operation load balances of the diagnostics, which show which kind of

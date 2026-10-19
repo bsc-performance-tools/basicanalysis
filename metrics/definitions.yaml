@@ -1396,12 +1396,10 @@ metrics:
       attention: 95.0
 
     definition: >
-      Fraction of the useful computation plus critical-path I/O time that is
-      useful computation, where the critical-path I/O time is, for each kind
-      of I/O call (read, write, open, close, seek), the time of the unit
-      that spends the most time in it. It estimates the I/O cost paid when
-      the units wait for each other after their I/O. It is the product of
-      I/O Efficiency and I/O Load Balance.
+      Measures the cost of File I/O on the critical path of the execution:
+      the fraction of the useful computation plus I/O time of a unit that is
+      useful computation, when each kind of I/O call (read, write, open,
+      close, seek, control) costs the time of the slowest unit.
 
     formula:
       text: >
@@ -1414,16 +1412,17 @@ metrics:
         \quad IO_{cp} = \sum_{op} \max_i IO_{op,i}
 
       variables:
-        U_avg: Average useful computation time per unit
+        U_avg: Average useful computation time per Host unit
         IO_cp: Sum over the kinds of I/O call of the maximum time of a unit
 
     interpretation:
       low: >
-        I/O is a significant cost on the critical path of the execution,
-        because the units spend much time in I/O, or because some units
-        spend much more time in it than others and the rest wait for them.
+        File I/O lengthens the execution significantly, because the units
+        spend much time in I/O, because some units spend much more time in
+        it than others and the rest wait for them, or both.
       high: >
-        I/O adds little time to the critical path of the execution.
+        File I/O adds little time to the execution, even counting the
+        waiting for the slowest unit.
       above_100: >
         Values above 100% are not expected and should be checked.
 
@@ -1460,11 +1459,9 @@ metrics:
       attention: 95.0
 
     definition: >
-      Fraction of the useful computation plus File I/O time that is useful
-      computation. File I/O includes the POSIX, ANSI C, and MPI-IO calls
-      observed in the trace. The metric is reported independently from the
-      hierarchical performance-efficiency model. It is the product of Data
-      Access Efficiency and File Management Efficiency.
+      Measures the cost of File I/O relative to useful computation: the
+      fraction of the useful computation plus File I/O time (POSIX, ANSI C,
+      and MPI-IO calls) of the Host units that is useful computation.
 
     formula:
       text: >
@@ -1478,18 +1475,17 @@ metrics:
         = DAEff \times FMEff
 
       variables:
-        Useful: Total useful computation time
+        Useful: Total useful computation time of the Host units
         POSIX_IO: Total POSIX and ANSI C File I/O time measured in the trace
         MPI_IO: Total MPI-IO time measured in the trace
 
     interpretation:
       low: >
-        File I/O time is significant relative to useful computation. This
-        identifies I/O that deserves investigation; it does not by itself
-        show that the I/O is inefficient, because the application may need
-        to move a large amount of data.
+        The units spend significant time in File I/O relative to their
+        useful computation. Data Access and File Management Efficiency show
+        which component is responsible.
       high: >
-        File I/O time is small relative to useful computation.
+        File I/O takes little time relative to useful computation.
       above_100: >
         Values above 100% are not expected for I/O Efficiency and should be
         checked.
@@ -1530,11 +1526,10 @@ metrics:
       attention: 95.0
 
     definition: >
-      Fraction of the useful computation plus Data Access time that is
-      useful computation. Data Access comprises the calls that move or
-      commit application data: read and write calls of POSIX (read, write,
-      pread, pwrite, readv, writev, preadv, pwritev), ANSI C (fread, fwrite),
-      and MPI-IO (MPI_File_read*, MPI_File_write*).
+      Measures the cost of reading and writing application data: the
+      fraction of the useful computation plus Data Access time that is not
+      spent in Data Access. Data Access comprises the read and write calls
+      of every API (POSIX, ANSI C, and MPI-IO).
 
     formula:
       text: >
@@ -1544,17 +1539,16 @@ metrics:
         DAEff = \frac{Useful}{Useful + DA}
 
       variables:
-        Useful: Total useful computation time
+        Useful: Total useful computation time of the Host units
         DataAccess: Total time in Data Access calls (POSIX, ANSI C, and MPI-IO)
 
     interpretation:
       low: >
-        Read and write calls take significant time relative to useful
-        computation. This may reflect a large amount of required data, many
-        small requests, an imbalance in data access, or the interaction with
-        the I/O system.
+        Reading or writing data takes significant time relative to useful
+        computation: the application moves much data, issues many small
+        requests, or the I/O system serves the requests slowly.
       high: >
-        Read and write calls take little time relative to useful
+        Reading and writing data takes little time relative to useful
         computation.
       above_100: >
         Values above 100% are not expected and should be checked.
@@ -1594,12 +1588,10 @@ metrics:
       attention: 95.0
 
     definition: >
-      Fraction of the useful computation plus Data Access plus File
-      Management time that is useful computation plus Data Access. File
-      Management comprises the calls that manage the file without moving
-      application data: open, close, seek, and control calls of POSIX (open,
-      close, lseek, ioctl), ANSI C (fopen, fclose, fseek), and MPI-IO
-      (MPI_File_open, MPI_File_close).
+      Measures the additional cost of managing the files, which moves no
+      application data: the fraction of the useful computation plus I/O
+      time that is not spent in File Management calls (open, close, seek,
+      and control).
 
     formula:
       text: >
@@ -1610,16 +1602,17 @@ metrics:
         FMEff = \frac{Useful + DA}{Useful + DA + FM}
 
       variables:
-        Useful: Total useful computation time
+        Useful: Total useful computation time of the Host units
         DataAccess: Total time in Data Access calls
         FileManagement: Total time in File Management calls (POSIX, ANSI C, and MPI-IO)
 
     interpretation:
       low: >
-        Open, close, seek, or control calls add significant time after the
-        Data Access time is accounted for.
+        Opening, closing, positioning, or controlling the files takes
+        significant time in addition to reading and writing the data.
       high: >
-        File Management calls add little time to the Data Access time.
+        File Management calls add little time to the useful computation and
+        the Data Access.
       above_100: >
         Values above 100% are not expected and should be checked.
 
@@ -1654,11 +1647,10 @@ metrics:
       attention: 95.0
 
     definition: >
-      Effect of the uneven distribution of the I/O time across the units on
-      the critical path: the useful plus average I/O time divided by the
-      useful plus critical-path I/O time. It assumes that the units
-      synchronize after each kind of I/O call (for example, in read and
-      write phases), so that the others wait for the slowest unit.
+      Measures the cost of the uneven distribution of the I/O time across
+      the units: the useful plus I/O time of the average unit divided by
+      that of the critical path, where each kind of I/O call (read, write,
+      open, close, seek, control) costs the time of the slowest unit.
 
     formula:
       text: >
@@ -1668,17 +1660,18 @@ metrics:
         IO\_LB = \frac{U_{avg} + IO_{avg}}{U_{avg} + IO_{cp}}
 
       variables:
-        U_avg: Average useful computation time per unit
+        U_avg: Average useful computation time per Host unit
         IO_avg: Average I/O time per unit
         IO_cp: Sum over the kinds of I/O call of the maximum time of a unit
 
     interpretation:
       low: >
-        Some units spend much more time than others in some kind of I/O call,
-        and the other units may wait for them.
+        Some units spend much more time than others in some kind of I/O
+        call; when the units synchronize after it, the others wait for them
+        (for example, one rank writes the output while the others wait).
       high: >
-        The I/O time of each kind of call is evenly distributed across the
-        units.
+        The time of each kind of I/O call is evenly distributed across the
+        units, so they do not wait for each other because of their I/O.
       above_100: >
         Values above 100% are not expected and should be checked.
 
