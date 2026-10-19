@@ -171,6 +171,18 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
 
   * The sampled values are integers, so low percentages (for example, SM
     Issue) lose precision.
+  * An idle GPU reports GR Active = 1%, never 0%, with SMs Active and SM
+    Issue = 0. *nsys2prv* copies the values of the Nsight Systems report
+    unchanged, so this floor comes from Nsight Systems; no official Nsight
+    documentation of it has been found. These samples are included in the
+    GR Active integral, so GPU Active is slightly overestimated and the
+    metrics divided by GR Active (SM Coverage, SM Utilization, Tensor Core
+    Activity, DRAM bandwidth, and GPC Clock) are slightly underestimated. The
+    effect grows with the idle time: in the vLLM traces analyzed, the idle
+    samples are 5.1% of the GR Active integral for a mostly idle GPU (SM
+    Coverage 46.43% instead of 48.92%) and 0.8% for a busy GPU (94.42%
+    instead of 95.18%). SM Issue Efficiency and Achieved Occupancy are not
+    affected.
   * The GPC clock is recorded in Hz although its label says MHz;
     BasicAnalysis converts averages above 10\ :sup:`5` to MHz.
   * The control window of the configurations assumes that the GPC clock is
