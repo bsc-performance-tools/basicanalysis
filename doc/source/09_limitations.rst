@@ -149,11 +149,17 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
   memory copies count as communication. *nsys2prv* does not distinguish
   Device-to-Device copies within a GPU from copies between GPUs, so both are
   counted as communication.
-* **Region of interest.** The metrics are computed over the whole trace. When
-  the trace includes initialization (for example, loading model weights),
-  that phase is part of the metrics; the trace should be cut to the region of
-  interest, as with Extrae traces. Metrics per NVTX phase are not yet
-  available.
+* **Region of interest.** The metrics are computed over the whole trace,
+  which BasicAnalysis assumes is the region of interest, as for Extrae
+  traces. When the trace includes initialization (for example, loading model
+  weights), that phase is part of the metrics, and it can dominate them: in
+  a vLLM benchmark, the inference phases started at 38.6 s of a 53.7 s
+  trace. The trace should therefore be cut to the region of interest with
+  the Paraver Cutter before the analysis; the NVTX ranges recorded by
+  *nsys2prv* (event ``9600``) show where the application phases start and
+  end. BasicAnalysis reports one set of metrics for the analyzed trace and
+  does not break them down per NVTX range: comparing phases is part of the
+  detailed analysis in Paraver.
 * **Programming models and validation.** Only CUDA is supported; the
   configurations use the CUDA event types of *nsys2prv*. The metrics have
   been validated with single-GPU traces; several GPUs per process, shared
