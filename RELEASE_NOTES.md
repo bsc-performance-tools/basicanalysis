@@ -10,6 +10,13 @@
   Extrae traces. Following the TALP device model, useful Device time is
   taken from the kernel events, and Device communication from the memory
   operations (copies and `memset`) and NCCL kernel events.
+  nsys2prv does not record the node of each process: in traces merged from
+  several nodes, every process is on the same node and the device numbers
+  repeat. When the trace has more GPU metrics threads than GPUs identified by
+  node and device number, each process is assumed to use its own GPUs, so
+  GPUs of different nodes are not merged (a multi-node trace of 32 GPUs was
+  analyzed as 4 GPUs before). Without GPU metrics threads this cannot be
+  checked, and a warning is printed.
 - Add Host metrics for nsys2prv traces: Device Offload efficiency, Host
   Parallel efficiency and Host Computation scalability. Since these traces
   have no state records, the useful host time is the elapsed time minus the

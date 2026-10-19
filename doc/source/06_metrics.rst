@@ -2289,7 +2289,13 @@ Execution units
 BasicAnalysis classifies the threads of the trace from the ``.row`` file:
 
 * **GPU streams**: threads labelled ``CUDA-D<device>.S<stream>``. The node of
-  each stream is taken from the node of its process in the trace header.
+  each stream is taken from the node of its process in the trace header, and
+  the streams with the same node and device number belong to the same GPU.
+  Traces merged from several nodes may place every process on the same node.
+  Because each physical GPU is sampled by a single profiling session, a trace
+  with more ``Metrics GPU<n>`` threads than GPUs identified by node and
+  device number is missing the node information: BasicAnalysis then assumes
+  that each process uses its own GPUs, and prints a message.
 
 * **GPU metrics threads**: threads labelled ``Metrics GPU<n>``, which contain
   sampled GPU hardware counters. They are not execution units; their counters

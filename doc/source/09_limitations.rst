@@ -162,9 +162,18 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
   detailed analysis in Paraver.
 * **Programming models and validation.** Only CUDA is supported; the
   configurations use the CUDA event types of *nsys2prv*. The metrics have
-  been validated with single-GPU traces; several GPUs per process, shared
-  GPUs, and NCCL collectives are covered by the implementation but have not
-  yet been validated with real traces.
+  been validated with single-GPU traces and with a multi-node trace of 32
+  GPUs (one GPU per process, NCCL collectives); several GPUs per process and
+  shared GPUs are covered by the implementation but have not yet been
+  validated with real traces.
+* **Nodes.** *nsys2prv* does not record the node of each process: traces
+  merged from several nodes place every process on the same node, and the
+  device numbers repeat on each node. When the trace has more
+  ``Metrics GPU<n>`` threads than GPUs identified by node and device number,
+  BasicAnalysis assumes that each process uses its own GPUs (processes do not
+  share a GPU). Without GPU metrics threads this cannot be checked: processes
+  with the same device number are then analyzed as sharing the GPU, and
+  BasicAnalysis prints a warning.
 * **Trace metadata.** The ``.row`` file is required to identify the GPU
   streams, the GPU metrics threads, and the host threads.
 * **GPU hardware counters.** The GPU metrics are sampled for the whole GPU
@@ -194,7 +203,7 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
   * The control window of the configurations assumes that the GPC clock is
     sampled during the whole execution.
   * With several GPUs, the counters of all ``Metrics GPU<n>`` threads are
-    added. This has not yet been validated with multi-GPU traces.
+    added.
   * The *Avg* variants of the warp counters are not used: values that
     underflow (for example, 4294967293) have been observed.
 

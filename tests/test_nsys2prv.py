@@ -168,6 +168,80 @@ class Nsys2prvDetectionTests(unittest.TestCase):
         self.assertIsNone(get_nsys2prv_resources(prv))
 
 
+# Two processes, each with one host thread, two streams, and the metrics
+# thread of its GPU. Both are on node 1 and use device 0.
+TWO_TASKS_HEADER = "#Paraver (19/10/2026 at 17:00):10000000000_ns:0:1:2:(4:1,4:1)\n"
+
+
+def _two_tasks_row(devices=("D0", "D0"), metrics=True):
+    lines = ["LEVEL NODE SIZE 1", "node1", "", "LEVEL THREAD SIZE 8"]
+    for device in devices:
+        lines += [
+            "THREAD 1.1.1",
+            "CUDA-{}.S7".format(device),
+            "CUDA-{}.S13".format(device),
+            "Metrics GPU{}".format(device[1:]) if metrics else "THREAD 1.1.4",
+        ]
+    return "\n".join(lines) + "\n"
+
+
+class Nsys2prvGpuIdentityTests(unittest.TestCase):
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.prv = os.path.join(self._tmpdir.name, "g.prv")
+        self.row = os.path.join(self._tmpdir.name, "g.row")
+        with open(self.prv, "w") as f:
+            f.write(TWO_TASKS_HEADER)
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _classify(self, row):
+        with open(self.row, "w") as f:
+            f.write(row)
+        return classify_nsys2prv_threads(self.prv, self.row)
+
+    def test_missing_nodes_are_detected_with_the_metrics_threads(self):
+        # Two GPU metrics threads but a single node:device GPU: the
+        # processes ran on different nodes.
+        threads = self._classify(_two_tasks_row())
+
+        self.assertEqual(threads["gpu_identity"], "process")
+        self.assertEqual(threads["node_gpus"], 1)
+        self.assertEqual(
+            sorted(set(threads["streams"].values())),
+            ["node1:T1.D0", "node1:T2.D0"],
+        )
+        # The streams of a process stay on the same GPU.
+        self.assertEqual(threads["streams"]["THREAD 1.1.2"],
+                         threads["streams"]["THREAD 1.1.3"])
+
+    def test_different_devices_keep_the_node_identity(self):
+        threads = self._classify(_two_tasks_row(devices=("D0", "D1")))
+
+        self.assertEqual(threads["gpu_identity"], "node")
+        self.assertEqual(sorted(set(threads["streams"].values())),
+                         ["node1:D0", "node1:D1"])
+        self.assertFalse(threads["gpu_shared_unverified"])
+
+    def test_shared_gpu_without_metrics_cannot_be_verified(self):
+        threads = self._classify(_two_tasks_row(metrics=False))
+
+        self.assertEqual(threads["gpu_identity"], "node")
+        self.assertEqual(set(threads["streams"].values()), {"node1:D0"})
+        self.assertTrue(threads["gpu_shared_unverified"])
+
+    def test_execution_mapping_counts_the_gpus_of_each_process(self):
+        with open(self.row, "w") as f:
+            f.write(_two_tasks_row())
+        mapping = get_nsys2prv_execution_mapping(self.prv)
+
+        self.assertEqual(mapping["nodes"], 1)
+        self.assertEqual(mapping["gpus_per_node"], 2)
+        self.assertEqual(mapping["streams_per_gpu"], 2)
+
+
 class Nsys2prvThreadsTests(unittest.TestCase):
 
     def setUp(self):

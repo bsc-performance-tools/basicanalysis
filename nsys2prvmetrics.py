@@ -214,8 +214,53 @@ def classify_nsys2prv_threads(prv_file, row_path):
         if _task_of(thread_obj) in result['gpu_tasks']
     ]
     result['streams_per_task'] = dict(result['streams_per_task'])
+    _resolve_gpu_identity(result)
 
     return result
+
+
+def _resolve_gpu_identity(result):
+    """Decide how the GPU streams are grouped into physical GPUs.
+
+    By default a GPU is '<node>:<device>'. nsys2prv traces merged from
+    several nodes may place every process on the same node, so GPUs with the
+    same device number on different nodes would be merged. Each physical GPU
+    is sampled by a single profiling session (only one tool can subscribe to
+    the GPU counters), so more 'Metrics GPU<n>' threads than '<node>:<device>'
+    GPUs means that the node information is missing: each process then has
+    its own GPUs ('<node>:T<task>.<device>'), which assumes that processes do
+    not share a GPU.
+
+    Sets result['gpu_identity'] to 'node' or 'process', result['node_gpus']
+    to the number of '<node>:<device>' GPUs, and
+    result['gpu_shared_unverified'] to True when several processes use the
+    same '<node>:<device>' and the trace has no GPU metrics threads to check
+    whether they are the same GPU.
+    """
+    node_gpus = set(result['streams'].values())
+    result['node_gpus'] = len(node_gpus)
+    result['gpu_identity'] = 'node'
+    result['gpu_shared_unverified'] = False
+
+    if len(result['metrics']) > len(node_gpus):
+        result['streams'] = {
+            thread_obj: '{}:T{}.{}'.format(
+                device_key.split(':', 1)[0],
+                _task_of(thread_obj),
+                device_key.split(':', 1)[1],
+            )
+            for thread_obj, device_key in result['streams'].items()
+        }
+        result['gpu_identity'] = 'process'
+        return
+
+    tasks_per_gpu = defaultdict(set)
+    for thread_obj, device_key in result['streams'].items():
+        tasks_per_gpu[device_key].add(_task_of(thread_obj))
+
+    if not result['metrics'] and any(
+            len(tasks) > 1 for tasks in tasks_per_gpu.values()):
+        result['gpu_shared_unverified'] = True
 
 
 def _task_of(thread_obj):
@@ -635,6 +680,17 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     print("==> nsys2prv trace: Device metrics from kernel and memory operation events,")
     print("    Host metrics from the time outside CUDA calls.")
     print("==> Count of devices: ", len(devices))
+    if threads.get('gpu_identity') == 'process':
+        print("==INFO== The trace has more GPU metrics threads ({}) than GPUs "
+              "identified by node and device number ({}): the node of each "
+              "process is missing. Each process is assumed to use its own "
+              "GPUs.".format(len(threads['metrics']), threads['node_gpus']))
+    elif threads.get('gpu_shared_unverified'):
+        print("==WARNING== Several processes use GPUs with the same node and "
+              "device number, and the trace has no GPU metrics to check "
+              "whether they are the same GPU: they are analyzed as shared "
+              "GPUs. If the processes ran on different nodes, the Device "
+              "metrics are not valid.")
     print("==> Count of GPU streams: ", len(stream_to_device))
     if streams_per_task == -1:
         print("==> GPU streams per process: non-uniform")
