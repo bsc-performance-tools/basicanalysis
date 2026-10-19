@@ -372,17 +372,25 @@ def _build_io_metric_info():
     """Build complementary File I/O metric metadata."""
 
     presentation = {
+        "io_cp_eff": {
+            "label": "I/O Critical-Path Efficiency",
+            "short_label": "I/O CP Eff",
+        },
         "io_eff": {
-            "label": "I/O Efficiency",
+            "label": "-- I/O Efficiency",
             "short_label": "I/O Eff",
         },
         "io_da_eff": {
-            "label": "-- Data Access Efficiency",
+            "label": "   -- Data Access Efficiency",
             "short_label": "Data Access",
         },
         "io_fm_eff": {
-            "label": "-- File Management Efficiency",
+            "label": "   -- File Management Efficiency",
             "short_label": "File Mgmt",
+        },
+        "io_lb": {
+            "label": "-- I/O Load Balance",
+            "short_label": "I/O LB",
         },
     }
 
@@ -430,9 +438,11 @@ OPENMP_ORDER = [
 
 
 IO_ORDER = [
+    "io_cp_eff",
     "io_eff",
     "io_da_eff",
     "io_fm_eff",
+    "io_lb",
 ]
 
 def _tree_node(metric_key, children=None):
@@ -470,11 +480,15 @@ GLOBAL_PARALLEL_TREE = [
     ])
 ]
 
+# I/O Critical-Path Efficiency = I/O Efficiency x I/O Load Balance;
 # I/O Efficiency = Data Access Efficiency x File Management Efficiency.
 IO_TREE = [
-    _tree_node("io_eff", [
-        _tree_node("io_da_eff"),
-        _tree_node("io_fm_eff"),
+    _tree_node("io_cp_eff", [
+        _tree_node("io_eff", [
+            _tree_node("io_da_eff"),
+            _tree_node("io_fm_eff"),
+        ]),
+        _tree_node("io_lb"),
     ])
 ]
 
@@ -2582,8 +2596,9 @@ def _build_trace_config_table_html(report):
 
 
 def _clean_metric_label(label):
-    """Remove visual hierarchy markers from labels for the info panel."""
-    return label.replace("-", "").replace("=", "").replace("*", "").strip()
+    """Remove the leading visual hierarchy markers ('--', '==', '*') of a
+    label; hyphens inside the name (e.g. 'Critical-Path') are kept."""
+    return label.lstrip(" -=*").strip()
 
 
 

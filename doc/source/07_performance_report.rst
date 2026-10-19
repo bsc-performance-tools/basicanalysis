@@ -234,14 +234,17 @@ File I/O (POSIX, ANSI C, and MPI-IO calls) captured in the analyzed traces.
    I/O Analysis.
 
 The **I/O Analysis** view is shown in
-:numref:`fig-report-io-analysis`. It contains **I/O Efficiency** and its two
-factors:
+:numref:`fig-report-io-analysis`. Its efficiency table starts with **I/O
+Critical-Path Efficiency**, the I/O cost on the critical path of the
+execution, which is the product of:
 
-* **Data Access Efficiency**, for the read and write calls; and
-* **File Management Efficiency**, for the open, close, seek, and control
-  calls.
+* **I/O Efficiency**, the time spent in I/O, itself the product of **Data
+  Access Efficiency** (read and write calls) and **File Management
+  Efficiency** (open, close, seek, and control calls); and
+* **I/O Load Balance**, the waiting caused by an uneven distribution of the
+  I/O time across the units.
 
-The lower factor identifies the I/O component to investigate. The I/O
+The lowest factor identifies the aspect of the I/O to investigate. The I/O
 efficiencies use stricter thresholds than the other efficiencies (Critical
 below 90%, Attention 90%--95%, Good from 95%); the efficiency scale of the
 view shows them.

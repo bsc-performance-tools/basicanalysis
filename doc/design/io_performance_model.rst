@@ -1544,6 +1544,15 @@ for the first I/O report.
 Review Log
 ----------
 
+*2026-10-19* -- Decision (multiplicative structure): I/O Critical-Path
+Efficiency = I/O Efficiency x I/O Load Balance, with the critical-path I/O
+time as the sum of the per-operation maxima (units synchronized after each
+kind of call) and a single load-balance factor (not split into Data Access
+and File Management). Validated with VTKHDF 100k/2M (I/O Load Balance 88.49
+/ 76.19%; predicted extra waiting 0.38 s per rank, measured MPI time +0.44 s)
+and cfdem 4p (95.71%). Open: in MPI+GPU traces the useful time includes the
+GPU streams.
+
 *2026-10-19* -- Implementation: I/O diagnostics table in the I/O Analysis
 view and in the printable report (groups I/O time, Data Access, File
 Management, Operations; no efficiency colors; unused rows omitted).

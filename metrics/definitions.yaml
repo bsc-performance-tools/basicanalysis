@@ -1382,6 +1382,70 @@ metrics:
     sources:
       - basicanalysis_general_metrics
   
+  io_cp_eff:
+    name: I/O Critical-Path Efficiency
+    short_name: I/O CP Eff
+    family: io
+    analysis_level: io
+    metric_type: efficiency
+
+    # Stricter than the default efficiency thresholds, as the other I/O
+    # efficiencies.
+    thresholds:
+      critical: 90.0
+      attention: 95.0
+
+    definition: >
+      Fraction of the useful computation plus critical-path I/O time that is
+      useful computation, where the critical-path I/O time is, for each kind
+      of I/O call (read, write, open, close, seek), the time of the unit
+      that spends the most time in it. It estimates the I/O cost paid when
+      the units wait for each other after their I/O. It is the product of
+      I/O Efficiency and I/O Load Balance.
+
+    formula:
+      text: >
+        IO_CP_Eff = U_avg / (U_avg + IO_cp) = IO_Eff x IO_LB,
+        IO_cp = sum over the kinds of call of max over units
+
+      latex: >
+        IO\_CP\_Eff = \frac{U_{avg}}{U_{avg} + IO_{cp}}
+        = IO\_Eff \times IO\_LB,
+        \quad IO_{cp} = \sum_{op} \max_i IO_{op,i}
+
+      variables:
+        U_avg: Average useful computation time per unit
+        IO_cp: Sum over the kinds of I/O call of the maximum time of a unit
+
+    interpretation:
+      low: >
+        I/O is a significant cost on the critical path of the execution,
+        because the units spend much time in I/O, or because some units
+        spend much more time in it than others and the rest wait for them.
+      high: >
+        I/O adds little time to the critical path of the execution.
+      above_100: >
+        Values above 100% are not expected and should be checked.
+
+    typical_causes:
+      - Significant I/O time in all the units
+      - I/O concentrated in a few units while the others wait
+      - Uneven read or write time across the units
+
+    next_steps:
+      - Compare I/O Efficiency and I/O Load Balance to separate the time spent in I/O from the waiting caused by its imbalance.
+      - Inspect the per-operation load balance and the maximum I/O time fraction in the I/O diagnostics.
+
+    children:
+      - io_eff
+      - io_lb
+
+    availability: >
+      Reported as Non-Avail when the trace has no classified I/O calls.
+
+    sources:
+      - basicanalysis_io_metrics
+
   io_eff:
     name: I/O Efficiency
     short_name: I/O Eff
@@ -1569,6 +1633,64 @@ metrics:
       - Check which call (open, close, seek) dominates File Management time.
       - Compare operation counts and mean durations, to distinguish many operations from more expensive operations.
       - Inspect the number of opens per file and the files opened by each unit.
+
+    children: []
+
+    availability: >
+      Reported as Non-Avail when the trace has no classified I/O calls.
+
+    sources:
+      - basicanalysis_io_metrics
+
+  io_lb:
+    name: I/O Load Balance
+    short_name: I/O LB
+    family: io
+    analysis_level: io
+    metric_type: efficiency
+
+    thresholds:
+      critical: 90.0
+      attention: 95.0
+
+    definition: >
+      Effect of the uneven distribution of the I/O time across the units on
+      the critical path: the useful plus average I/O time divided by the
+      useful plus critical-path I/O time. It assumes that the units
+      synchronize after each kind of I/O call (for example, in read and
+      write phases), so that the others wait for the slowest unit.
+
+    formula:
+      text: >
+        IO_LB = (U_avg + IO_avg) / (U_avg + IO_cp)
+
+      latex: >
+        IO\_LB = \frac{U_{avg} + IO_{avg}}{U_{avg} + IO_{cp}}
+
+      variables:
+        U_avg: Average useful computation time per unit
+        IO_avg: Average I/O time per unit
+        IO_cp: Sum over the kinds of I/O call of the maximum time of a unit
+
+    interpretation:
+      low: >
+        Some units spend much more time than others in some kind of I/O call,
+        and the other units may wait for them.
+      high: >
+        The I/O time of each kind of call is evenly distributed across the
+        units.
+      above_100: >
+        Values above 100% are not expected and should be checked.
+
+    typical_causes:
+      - I/O performed by one or a few units (for example, rank 0 writes)
+      - Uneven data volume per unit
+      - Different interaction of the units with the file system
+
+    next_steps:
+      - Check the Read, Write, and Open Load Balance in the I/O diagnostics.
+      - Compare the maximum and average I/O time fractions and the I/O participation.
+      - Confirm in Paraver whether the other units wait (for example, in MPI calls) during the I/O of the slowest unit.
 
     children: []
 

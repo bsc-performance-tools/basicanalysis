@@ -2827,6 +2827,56 @@ Good from 85%). The thresholds are defined per metric in
 The metrics are reported as ``Non-Avail`` when no File I/O is detected.
 
 
+I/O Critical-Path Efficiency and I/O Load Balance
+-------------------------------------------------
+
+I/O Efficiency uses the average I/O time per unit. When the units
+synchronize after their I/O (for example, in read and write phases separated
+by barriers or collectives), the time paid is that of the slowest unit, and
+the other units wait for it. **I/O Critical-Path Efficiency** estimates the
+I/O cost on the critical path:
+
+.. math::
+
+   IO\_CP\_Eff = \frac{U_{avg}}{U_{avg} + IO_{cp}},
+   \qquad
+   IO_{cp} = \sum_{op} \max_i IO_{op,i}
+
+where :math:`U_{avg}` is the average useful time per unit and
+:math:`IO_{cp}` adds, for each kind of I/O call (read, write, open, close,
+seek, control), the time of the unit that spends the most time in it. It is
+the product of I/O Efficiency and **I/O Load Balance**:
+
+.. math::
+
+   IO\_CP\_Eff = IO\_Eff \times IO\_LB,
+   \qquad
+   IO\_LB = \frac{U_{avg} + IO_{avg}}{U_{avg} + IO_{cp}}
+
+I/O Load Balance measures the effect of an uneven distribution of the I/O
+time across the units on the critical path. A low value indicates that some
+units spend much more time than others in some kind of I/O call (for
+example, one rank writes the output while the others wait). It complements
+the per-operation load balances of the diagnostics, which show which kind of
+call is unevenly distributed.
+
+Using the maximum of each kind of call assumes that the units synchronize
+after each kind (separate phases). If the I/O of a unit overlaps the
+computation of the others, its imbalance costs less than estimated, and I/O
+Load Balance underestimates the efficiency. The waiting caused by the
+imbalance already appears in the hierarchical model (as Load Balance or
+Communication Efficiency); I/O Load Balance attributes part of that loss to
+I/O, and is not an additional loss.
+
+In a VTKHDF execution with 112 ranks, I/O Load Balance drops from 88.49% to
+76.19% when the chunk size changes from 100k to 2M, while I/O Efficiency
+hardly changes (68.26% and 65.19%): the writes become unbalanced (Write Load
+Balance 61.48% and 21.39%). The model predicts 0.38 s more waiting per rank,
+and the measured MPI time per rank grows by 0.44 s.
+
+All the I/O efficiencies use the stricter thresholds given above.
+
+
 .. _io-diagnostics:
 
 I/O diagnostics

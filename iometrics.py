@@ -9,8 +9,16 @@ Management. I/O Efficiency is decomposed as
     DAEff = U / (U + DA)
     FMEff = (U + DA) / (U + DA + FM)
 
-where U is the useful time and DA and FM the time in each component. The
-diagnostics (time fractions, contributions, load balance, operation counts,
+where U is the useful time and DA and FM the time in each component. When
+the units synchronize after their I/O, the time paid is that of the slowest
+unit; the I/O on the critical path, IO_cp, is the sum over the kinds of
+operation (read, write, open, ...) of the maximum time of a unit:
+
+    I/O Critical-Path Efficiency = U_avg / (U_avg + IO_cp)
+                                 = IOEff x I/O Load Balance
+    I/O Load Balance             = (U_avg + IO_avg) / (U_avg + IO_cp)
+
+The diagnostics (time fractions, contributions, load balance, operation counts,
 and mean durations) explain where the I/O time is spent.
 
 Times in the raw data are in microseconds.
@@ -103,7 +111,18 @@ def classify_call(api, call):
 IO_FACTORS_DOC = OrderedDict([
     ('io_da_eff', '-- Data Access Efficiency (%)'),
     ('io_fm_eff', '-- File Management Efficiency (%)'),
+    ('io_lb', 'I/O Load Balance (%)'),
+    ('io_cp_eff', 'I/O Critical-Path Efficiency (%)'),
 ])
+
+# Hierarchy of the I/O efficiencies, as printed and in io_metrics.csv.
+IO_EFFICIENCY_TREE = [
+    ('io_cp_eff', 'I/O Critical-Path Efficiency (%)'),
+    ('io_eff', '-- I/O Efficiency (%)'),
+    ('io_da_eff', '   -- Data Access Efficiency (%)'),
+    ('io_fm_eff', '   -- File Management Efficiency (%)'),
+    ('io_lb', '-- I/O Load Balance (%)'),
+]
 
 # Diagnostics: (label, unit). Reported in io_metrics.csv and in the
 # standard output.
@@ -315,6 +334,17 @@ def compute_trace_io_metrics(useful_tot, runtime, io_units, trace_io_data):
         useful_tot + da_tot + fm_tot,
     )
 
+    # Load balance on the critical path: each kind of operation costs the
+    # time of the slowest unit (units synchronized after each kind).
+    if io_units > 0:
+        useful_avg = useful_tot / io_units
+        io_avg = io_tot / io_units
+        io_cp = sum(max(time[operation]) for operation in OPERATIONS)
+
+        metrics['io_lb'] = _percentage(
+            useful_avg + io_avg, useful_avg + io_cp)
+        metrics['io_cp_eff'] = _percentage(useful_avg, useful_avg + io_cp)
+
     # I/O time.
     if io_units > 0:
         metrics['io_fraction_avg'] = _percentage(io_tot, io_units * runtime)
@@ -495,8 +525,8 @@ def io_diagnostics_label_width():
 
 def print_io_tables(other_metrics, trace_list, column_labels,
                     value_to_adjust):
-    """Print I/O Efficiency with its factors, and the I/O diagnostics."""
-    rows = [('io_eff', 'I/O Efficiency (%)')] + list(IO_FACTORS_DOC.items())
+    """Print the I/O efficiencies, and the I/O diagnostics."""
+    rows = IO_EFFICIENCY_TREE
 
     longest_name = io_diagnostics_label_width()
 
@@ -537,10 +567,9 @@ def print_io_metrics_csv(other_metrics, trace_list, trace_processes):
     delimiter = ';'
     file_path = os.path.join(os.getcwd(), 'io_metrics.csv')
 
-    rows = [('io_eff', 'I/O Efficiency (%)')]
-    rows += [
-        (key, label.replace('-- ', '', 1))
-        for key, label in IO_FACTORS_DOC.items()
+    rows = [
+        (key, label.replace('-- ', '').strip())
+        for key, label in IO_EFFICIENCY_TREE
     ]
     rows += [
         (key, label)

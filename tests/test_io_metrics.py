@@ -168,6 +168,30 @@ class MetricTests(unittest.TestCase):
         self.assertAlmostEqual(metrics['io_read_time'], 300.0 / 1e6)
         self.assertEqual(metrics['io_seek_time'], NON_AVAIL)
 
+    def test_critical_path_load_balance(self):
+        useful = 1600.0
+        metrics, _ = compute_trace_io_metrics(useful, 1000.0, 2,
+                                              self.io_data)
+
+        # Per unit: U_avg = 800, IO_avg = 250. Critical path: max read 300
+        # + max write 100 + max open 60 + max close 10 = 470.
+        self.assertAlmostEqual(metrics['io_lb'],
+                               (800.0 + 250.0) / (800.0 + 470.0) * 100.0)
+        self.assertAlmostEqual(metrics['io_cp_eff'],
+                               800.0 / (800.0 + 470.0) * 100.0)
+        io_eff = useful / (useful + 500.0) * 100.0
+        self.assertAlmostEqual(
+            metrics['io_cp_eff'], io_eff * metrics['io_lb'] / 100.0)
+
+    def test_balanced_io_has_full_load_balance(self):
+        io_data = _io_data(posix_time=_table(UNITS, {
+            'read': [100.0, 100.0],
+            'open': [20.0, 20.0],
+        }))
+        metrics, _ = compute_trace_io_metrics(1600.0, 1000.0, 2, io_data)
+
+        self.assertAlmostEqual(metrics['io_lb'], 100.0)
+
     def test_load_balance_over_participants(self):
         metrics, _ = compute_trace_io_metrics(1600.0, 1000.0, 2,
                                               self.io_data)
@@ -257,7 +281,9 @@ class PrintTests(unittest.TestCase):
             print_io_tables(other_metrics, ['t1'], ['2[1]'], 10)
 
         text = output.getvalue()
-        self.assertIn('-- Data Access Efficiency (%)', text)
+        self.assertIn('I/O Critical-Path Efficiency (%)', text)
+        self.assertIn('   -- Data Access Efficiency (%)', text)
+        self.assertIn('-- I/O Load Balance (%)', text)
         self.assertIn('Read Load Balance (%)', text)
         self.assertNotIn('MPI-IO contribution', text)
         self.assertNotIn('Seek time', text)
@@ -356,3 +382,14 @@ class IoDiagnosticsReportTests(unittest.TestCase):
 
         self.assertEqual(
             _build_io_diagnostics_card_html({}, ['t1'], ['2 [T1]']), "")
+
+
+class MetricLabelTests(unittest.TestCase):
+
+    def test_inner_hyphens_are_kept(self):
+        from interactiveplots import _clean_metric_label
+
+        self.assertEqual(_clean_metric_label("-- I/O Critical-Path Efficiency"),
+                         "I/O Critical-Path Efficiency")
+        self.assertEqual(_clean_metric_label("   == Device Load balance"),
+                         "Device Load balance")

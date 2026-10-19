@@ -115,6 +115,15 @@ The following assumptions and limitations apply:
 * **Whole-execution aggregation.** The metrics describe the whole execution;
   applications with distinct I/O phases (for example, a write phase and a
   read phase) should be inspected per phase in Paraver.
+* **Critical path.** I/O Load Balance and I/O Critical-Path Efficiency
+  assume that the units synchronize after each kind of I/O call, so that the
+  others wait for the slowest unit. When the I/O of a unit overlaps the
+  computation of the others, they underestimate the efficiency.
+* **Useful time in GPU applications.** In MPI+GPU traces, the useful time
+  used by the I/O efficiencies also includes the useful time of the GPU
+  streams, while File I/O is performed by the Host. The I/O efficiencies are
+  therefore slightly overestimated when the GPU streams have significant
+  useful time.
 
 These metrics do not characterize achieved I/O bandwidth, storage-system
 utilization, or filesystem contention. They identify whether File I/O has a
