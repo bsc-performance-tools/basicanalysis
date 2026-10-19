@@ -2355,6 +2355,12 @@ These metrics provide the first level of the device-side performance
 assessment by identifying whether efficiency is limited by device parallel
 execution or by Device Computation Scalability.
 
+The execution time :math:`T` of an *nsys2prv* trace is the end time declared
+in its header. *nsys2prv* can write GPU metric samples after that end (each
+process's Nsight Systems session ends at a different time); Paraver then
+extends the trace to the last event, but that period contains no application
+activity, so BasicAnalysis uses the declared end and prints a message.
+
 The timelines are exported in nanoseconds, so that the sum of many short
 kernels is not affected by rounding.
 

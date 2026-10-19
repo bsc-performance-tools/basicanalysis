@@ -17,6 +17,10 @@
   GPUs of different nodes are not merged (a multi-node trace of 32 GPUs was
   analyzed as 4 GPUs before). Without GPU metrics threads this cannot be
   checked, and a warning is printed.
+  The execution time is the end declared in the trace header: nsys2prv can
+  write GPU metric samples after it, and Paraver then extends the trace to
+  the last event, which made the period without application activity count
+  as idle Device time and as useful Host time.
 - Add Host metrics for nsys2prv traces: Device Offload efficiency, Host
   Parallel efficiency and Host Computation scalability. Since these traces
   have no state records, the useful host time is the elapsed time minus the

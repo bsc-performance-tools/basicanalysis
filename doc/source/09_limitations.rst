@@ -202,6 +202,12 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
     BasicAnalysis converts averages above 10\ :sup:`5` to MHz.
   * The control window of the configurations assumes that the GPC clock is
     sampled during the whole execution.
+  * The integrals cover the whole trace as loaded by Paraver, including the
+    samples written after the end declared in the header, and the last
+    sample of each GPU is extended until the end of the trace. GPU Active is
+    computed over that same period. When the sampling of the GPUs ends at
+    different times, GPU Active is overestimated (in a 32-GPU trace, 97.06%
+    instead of 93.36% for the measured samples only).
   * With several GPUs, the counters of all ``Metrics GPU<n>`` threads are
     added.
   * The *Avg* variants of the warp counters are not used: values that

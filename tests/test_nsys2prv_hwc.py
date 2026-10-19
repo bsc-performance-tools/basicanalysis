@@ -121,6 +121,14 @@ class HwcFactorsTests(unittest.TestCase):
             _raw_data('t', integrals, devices=2), 't')
         self.assertAlmostEqual(factors['dev_hwc_gpu_active'], 15.10, places=2)
 
+    def test_gpu_active_uses_the_period_of_the_integrals(self):
+        # The trace ends before the last samples (declared end shorter than
+        # the period covered by the integrals): GPU Active uses the latter.
+        raw_data = _raw_data('b1', B1_INTEGRALS, runtime=B1_RUNTIME_US / 2)
+        raw_data['hwc_elapsed'] = {'b1': B1_RUNTIME_US}
+        factors = compute_device_hwc_factors(raw_data, 'b1')
+        self.assertAlmostEqual(factors['dev_hwc_gpu_active'], 15.10, places=2)
+
     def test_clock_already_in_mhz(self):
         integrals = dict(B1_INTEGRALS)
         integrals['gpc_clock'] = 1905.0 * B1_INTEGRALS['gr_active']
@@ -174,6 +182,7 @@ class HwcRawDataTests(unittest.TestCase):
     def test_rawdata_csv_with_counters(self):
         raw_data = create_raw_data(['t', 'u'])
         raw_data['hwc_devices']['t'] = 1
+        raw_data['hwc_elapsed']['t'] = B1_RUNTIME_US
         for key in HWC_KEYS:
             raw_data['hwc_' + key + '_int']['t'] = B1_INTEGRALS[key]
         content = self._rawdata_csv(raw_data, ['t', 'u'])

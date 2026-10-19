@@ -42,7 +42,11 @@ import re
 import time
 from collections import OrderedDict, defaultdict
 
-from tracemetadata import parse_trace_header, NSYS2PRV_METRICS_LABEL_RE
+from tracemetadata import (
+    _read_header_line,
+    parse_trace_header,
+    NSYS2PRV_METRICS_LABEL_RE,
+)
 from utils import run_command, move_files
 
 
@@ -90,7 +94,8 @@ HWC_KEYS = tuple(key for key, _event, _label in HWC_COUNTERS)
 # Raw data of the hardware counters. They are only printed in rawdata.csv
 # when a trace has them, so that the raw data of Extrae traces is unchanged.
 hwc_raw_data_doc = OrderedDict(
-    [('hwc_devices', 'GPUs with sampled hardware counters')]
+    [('hwc_devices', 'GPUs with sampled hardware counters'),
+     ('hwc_elapsed', 'Elapsed time of the hardware counter integrals (us)')]
     + [('hwc_' + key + '_int', 'Integral of ' + label + ' (value x ns)')
        for key, _event, label in HWC_COUNTERS]
 )
@@ -261,6 +266,27 @@ def _resolve_gpu_identity(result):
     if not result['metrics'] and any(
             len(tasks) > 1 for tasks in tasks_per_gpu.values()):
         result['gpu_shared_unverified'] = True
+
+
+_HEADER_END_RE = re.compile(r"^#Paraver \([^)]*\):(\d+)(?:_(ns|us))?:")
+
+
+def trace_header_end_us(prv_file):
+    """End time declared in the trace header, in microseconds.
+
+    Returns None when the header has no time unit (the unit cannot be
+    known) or cannot be read.
+    """
+    try:
+        match = _HEADER_END_RE.match(_read_header_line(prv_file))
+    except (OSError, ValueError):
+        return None
+
+    if not match or not match.group(2):
+        return None
+
+    value = float(match.group(1))
+    return value / NS_PER_US if match.group(2) == 'ns' else value
 
 
 def _task_of(thread_obj):
@@ -458,8 +484,13 @@ def compute_device_hwc_factors(raw_data, trace):
 
     gr = integrals['gr_active']
 
+    # The integrals cover the whole trace as loaded by Paraver, which can be
+    # longer than the end declared in the header (see hwc_elapsed).
+    elapsed = raw('hwc_elapsed')
+    if elapsed in ('Non-Avail', 'NaN', None):
+        elapsed = raw('runtime')
     try:
-        elapsed_ns = float(raw('runtime')) * NS_PER_US * float(raw('hwc_devices'))
+        elapsed_ns = float(elapsed) * NS_PER_US * float(raw('hwc_devices'))
     except (TypeError, ValueError):
         elapsed_ns = 0.0
     factors['dev_hwc_gpu_active'] = ratio(gr, elapsed_ns, scale=1.0)
@@ -737,11 +768,23 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     # ------------------------------------------------------------
     # 3) Parse
     # ------------------------------------------------------------
+    paraver_runtime = 'NaN'
     if os.path.exists(stats['runtime']):
-        _, runtime_avg, _ = parse_total_average_max(stats['runtime'])
-        trace_raw_data['runtime'] = runtime_avg
-    else:
-        trace_raw_data['runtime'] = 'NaN'
+        _, paraver_runtime, _ = parse_total_average_max(stats['runtime'])
+
+    # nsys2prv can write events (GPU metric samples) after the end declared
+    # in the header; Paraver then extends the trace to the last event. The
+    # metrics use the declared end, which covers the application activity.
+    header_end = trace_header_end_us(trace)
+    trace_raw_data['runtime'] = (
+        header_end if header_end is not None else paraver_runtime)
+    if (header_end is not None and paraver_runtime != 'NaN'
+            and paraver_runtime > header_end * 1.001):
+        print('==INFO== The trace has events after the end declared in its '
+              'header ({0:.3f} s); Paraver extends it to {1:.3f} s. The '
+              'metrics use the declared end; the GPU hardware counters '
+              'include the samples after it.'.format(
+                  header_end / 1e6, paraver_runtime / 1e6))
 
     # Host useful time: elapsed time minus time inside CUDA calls.
     host_calls = parse_nsys2prv_host_calls(stats['cuda_calls_host'], threads)
@@ -797,6 +840,7 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     hwc_devices = {value[1] for value in hwc_values.values() if value}
     if all(hwc_values.values()) and len(hwc_devices) == 1:
         trace_raw_data['hwc_devices'] = hwc_devices.pop()
+        trace_raw_data['hwc_elapsed'] = paraver_runtime
         for key, (integral, _devices) in hwc_values.items():
             trace_raw_data['hwc_' + key + '_int'] = integral
         print("==> GPU hardware counters: {} device(s) with sampled metrics".format(

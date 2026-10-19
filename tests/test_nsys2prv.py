@@ -11,6 +11,7 @@ from nsys2prvmetrics import (
     parse_nsys2prv_host_calls,
     parse_nsys2prv_timeline,
     streams_per_task_value,
+    trace_header_end_us,
 )
 from tracemetadata import (
     is_host_gpu_mode,
@@ -162,6 +163,19 @@ class Nsys2prvDetectionTests(unittest.TestCase):
         self.assertEqual(mapping["gpus_per_node"], 1)
         self.assertEqual(mapping["gpu_streams_per_node"], 4)
         self.assertEqual(mapping["streams_per_gpu"], 4)
+
+    def test_header_end_time(self):
+        prv = self._write("end.prv", NSYS2PRV_HEADER)
+        self.assertAlmostEqual(trace_header_end_us(prv), 53664645.850)
+
+        prv = self._write("end_us.prv", NSYS2PRV_HEADER.replace(
+            "53664645850_ns", "53664645_us"))
+        self.assertAlmostEqual(trace_header_end_us(prv), 53664645.0)
+
+        # Without a time unit the end time is not used.
+        prv = self._write("end_nounit.prv", NSYS2PRV_HEADER.replace(
+            "53664645850_ns", "53664645850"))
+        self.assertIsNone(trace_header_end_us(prv))
 
     def test_resources_without_row_file(self):
         prv = self._write("norow.prv", NSYS2PRV_HEADER)
