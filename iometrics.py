@@ -9,7 +9,9 @@ Management. I/O Efficiency is decomposed as
     DAEff = U / (U + DA)
     FMEff = (U + DA) / (U + DA + FM)
 
-where U is the useful time and DA and FM the time in each component. When
+where U is the useful time of the units that perform File I/O (the Host
+processes and threads; the kernel time of the GPU streams is excluded)
+and DA and FM the time in each component. When
 the units synchronize after their I/O, the time paid is that of the slowest
 unit; the I/O on the critical path, IO_cp, is the sum over the kinds of
 operation (read, write, open, ...) of the maximum time of a unit:
@@ -266,6 +268,26 @@ def aggregate_io_calls(trace_io_data):
     return aggregate
 
 
+def io_useful_time(raw_data, trace):
+    """Useful time (us) of the units that perform File I/O.
+
+    The I/O factors compare the I/O time with the useful time of the same
+    units: the Host processes and threads (the THREAD rows of the timings
+    table). In GPU traces useful_tot also holds the kernel time of the GPU
+    streams, which perform no File I/O. useful_tot is used when the Host
+    useful time is not available.
+    """
+    try:
+        useful_io = float(raw_data['useful_io_tot'][trace])
+    except (KeyError, TypeError, ValueError):
+        useful_io = 0.0
+
+    if useful_io > 0.0:
+        return useful_io
+
+    return float(raw_data['useful_tot'][trace])
+
+
 def _percentage(numerator, denominator):
     if denominator > 0.0:
         return numerator / denominator * 100.0
@@ -293,7 +315,8 @@ def _sum_units(*series):
 def compute_trace_io_metrics(useful_tot, runtime, io_units, trace_io_data):
     """Compute the I/O factors and diagnostics of one trace.
 
-    useful_tot: total useful time of the execution units (us).
+    useful_tot: total useful time of the units that perform File I/O (us),
+        as returned by io_useful_time.
     runtime: execution time (us).
     io_units: number of execution units that can perform File I/O (Host
         units), used for the average time fraction and the participation.
@@ -409,7 +432,7 @@ def add_io_metrics(other_metrics, raw_data, io_data, trace_list):
 
     for trace in trace_list:
         try:
-            useful_tot = float(raw_data['useful_tot'][trace])
+            useful_tot = io_useful_time(raw_data, trace)
             runtime = float(raw_data['runtime'][trace])
             reference_io = (
                 float(raw_data['io_tot'][trace])

@@ -10,9 +10,10 @@ from iometrics import (
     aggregate_io_calls,
     classify_call,
     compute_trace_io_metrics,
+    io_useful_time,
     print_io_tables,
 )
-from rawdata import parse_io_call_table
+from rawdata import parse_io_call_table, parse_timings_stats
 
 
 def _table(units, calls):
@@ -259,6 +260,70 @@ class AddIoMetricsTests(unittest.TestCase):
                            self._io_data(), ['t1'])
 
         self.assertIn('differs by more than 1%', output.getvalue())
+
+
+class IoUsefulTimeTests(unittest.TestCase):
+
+    def test_cpu_trace_uses_total_useful_time(self):
+        raw_data = {
+            'useful_tot': {'t1': 1600.0},
+            'useful_io_tot': {'t1': 1600.0},
+        }
+        self.assertEqual(io_useful_time(raw_data, 't1'), 1600.0)
+
+    def test_falls_back_to_total_useful_time(self):
+        raw_data = {
+            'useful_tot': {'t1': 1600.0},
+            'useful_io_tot': {'t1': 'NaN'},
+        }
+        self.assertEqual(io_useful_time(raw_data, 't1'), 1600.0)
+
+    def test_gpu_trace_uses_host_useful_time(self):
+        # useful_tot also holds the kernel time of the GPU streams.
+        raw_data = {
+            'useful_tot': {'t1': 2600.0},
+            'useful_io_tot': {'t1': 1600.0},
+        }
+        self.assertEqual(io_useful_time(raw_data, 't1'), 1600.0)
+
+    def test_timings_host_rows_exclude_gpu_streams(self):
+        content = (
+            '\tRunning\tI/O\t\n'
+            'THREAD 1.1.1\t1000\t100\t\n'
+            'CUDA-D1.S1-node1\t900\t\t\n'
+            'THREAD 1.2.1\t600\t50\t\n'
+            '\n'
+            'Total\t2500\t150\t\n'
+            'Average\t833.33\t75\t\n'
+            'Maximum\t1000\t100\t\n'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.timings.stats.csv')
+            with open(path, 'w') as f:
+                f.write(content)
+            result = parse_timings_stats(path, has_pcf=True)
+
+        self.assertEqual(result['useful_tot'], 2500.0)
+        self.assertEqual(result['useful_io_tot'], 1600.0)
+
+    def test_gpu_io_factors_exclude_stream_time(self):
+        raw_data = {
+            'useful_tot': {'t1': 2600.0},
+            'useful_io_tot': {'t1': 1600.0},
+            'runtime': {'t1': 1000.0},
+            'io_tot': {'t1': 400.0},
+            'mpiio_tot': {'t1': 0.0},
+        }
+        io_data = {'t1': _io_data(posix_time=_table(UNITS, {
+            'read': [300.0, 0.0],
+            'write': [0.0, 100.0],
+        }))}
+        other_metrics = {'io_units': {'t1': 2}}
+
+        with redirect_stdout(io.StringIO()):
+            add_io_metrics(other_metrics, raw_data, io_data, ['t1'])
+
+        self.assertAlmostEqual(other_metrics['io_da_eff']['t1'], 80.0)
 
 
 class PrintTests(unittest.TestCase):

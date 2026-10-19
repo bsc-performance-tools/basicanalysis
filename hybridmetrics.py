@@ -9,7 +9,7 @@ import math
 from rawdata import *
 from collections import OrderedDict
 from scaling import get_scaling_info
-from iometrics import IO_FACTORS_DOC, print_io_tables
+from iometrics import IO_FACTORS_DOC, io_useful_time, print_io_tables
 from tracemetadata import is_host_gpu_mode
 from comparison import (
     NOT_APPLICABLE,
@@ -997,9 +997,9 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         if has_posix_io or has_mpi_io:
 
             try:
-                useful_tot = float(
-                    raw_data['useful_tot'][trace]
-                )
+                # Useful time of the Host units only: they perform the
+                # File I/O, the GPU streams do not.
+                useful_tot = io_useful_time(raw_data, trace)
 
                 io_total = (
                     posix_io_tot

@@ -1544,14 +1544,21 @@ for the first I/O report.
 Review Log
 ----------
 
+*2026-10-19* -- Decision (useful time of the I/O units): the I/O factors
+always use the useful time of the Host execution units, the units that
+perform File I/O (``useful_io_tot``: the THREAD rows of the timings table;
+``useful_tot`` as a fallback). In GPU traces the kernel time of the GPU
+streams is excluded. SPH-EXA 64 ranks: Host useful 308.6 s versus 3611.7 s
+with the streams; I/O Efficiency 99.51% -> 94.58%, Critical-Path 99.46% ->
+94.04%. CPU traces unchanged (cfdem identical).
+
 *2026-10-19* -- Decision (multiplicative structure): I/O Critical-Path
 Efficiency = I/O Efficiency x I/O Load Balance, with the critical-path I/O
 time as the sum of the per-operation maxima (units synchronized after each
 kind of call) and a single load-balance factor (not split into Data Access
 and File Management). Validated with VTKHDF 100k/2M (I/O Load Balance 88.49
 / 76.19%; predicted extra waiting 0.38 s per rank, measured MPI time +0.44 s)
-and cfdem 4p (95.71%). Open: in MPI+GPU traces the useful time includes the
-GPU streams.
+and cfdem 4p (95.71%).
 
 *2026-10-19* -- Implementation: I/O diagnostics table in the I/O Analysis
 view and in the printable report (groups I/O time, Data Access, File

@@ -2737,7 +2737,10 @@ Notation
    * - Symbol
      - Description
    * - :math:`U`
-     - Total useful computation time.
+     - Total useful computation time of the Host execution units, the units
+       that perform File I/O. In GPU applications, the kernel time of the
+       GPU streams is excluded: the I/O time is compared with the useful
+       time of the same units.
    * - :math:`DA`
      - Total time in Data Access calls (POSIX, ANSI C, and MPI-IO).
    * - :math:`FM`

@@ -24,6 +24,7 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_avg', 'Useful duration (average)'),
                             ('useful_max', 'Useful duration (maximum)'),
                             ('useful_tot', 'Useful duration (total)'),
+                            ('useful_io_tot', 'Useful duration of the Host units, which perform File I/O (total)'),
                             ('useful_dim', 'Useful duration (ideal, max)'),
                             ('hybrid_useful_dim', 'Hybrid Useful duration (ideal, max)'),
                             ('useful_ins', 'Useful instructions (total)'),
@@ -379,6 +380,7 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
 
     Returns a dict with:
       useful_tot, useful_avg, useful_max,
+      useful_io_tot (Host rows only: the units that perform File I/O),
       useful_not_0_tot, useful_not_0_avg, useful_not_0_max,
       io_state_tot, io_state_avg, io_state_max,
       useful_plus_io_avg, useful_plus_io_max
@@ -388,6 +390,7 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
         'useful_tot': 'NaN',
         'useful_avg': 'NaN',
         'useful_max': 'NaN',
+        'useful_io_tot': 'NaN',
         'useful_not_0_tot': 'NaN',
         'useful_not_0_avg': 'NaN',
         'useful_not_0_max': 'NaN',
@@ -400,6 +403,8 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
 
     useful_not_0_values = []
     useful_plus_io = []
+    # Host rows (THREAD app.task.thread); GPU stream rows do no File I/O.
+    useful_host_values = []
 
     io_index = None
     data_row_index = 0
@@ -456,6 +461,9 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
 
                 useful_value = float(line_list[1])
 
+                if key.startswith('THREAD'):
+                    useful_host_values.append(useful_value)
+
                 # useful_not_0_* based on instructions mask
                 if instructions_mask is not None and data_row_index < len(instructions_mask):
                     if instructions_mask[data_row_index] == 1:
@@ -471,6 +479,9 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
                 data_row_index += 1
 
     # Final reductions
+    if useful_host_values:
+        result['useful_io_tot'] = float(sum(useful_host_values))
+
     if useful_not_0_values:
         result['useful_not_0_tot'] = float(sum(useful_not_0_values))
         result['useful_not_0_avg'] = float(sum(useful_not_0_values) / len(useful_not_0_values))
@@ -3030,6 +3041,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_raw_data['useful_tot'] = timings_data['useful_tot']
         trace_raw_data['useful_avg'] = timings_data['useful_avg']
         trace_raw_data['useful_max'] = timings_data['useful_max']
+        trace_raw_data['useful_io_tot'] = timings_data['useful_io_tot']
         trace_raw_data['useful_not_0_tot'] = timings_data['useful_not_0_tot']
         trace_raw_data['useful_not_0_avg'] = timings_data['useful_not_0_avg']
         trace_raw_data['useful_not_0_max'] = timings_data['useful_not_0_max']
@@ -3042,6 +3054,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_raw_data['useful_tot'] = 'NaN'
         trace_raw_data['useful_avg'] = 'NaN'
         trace_raw_data['useful_max'] = 'NaN'
+        trace_raw_data['useful_io_tot'] = 'NaN'
         trace_raw_data['useful_not_0_tot'] = 'NaN'
         trace_raw_data['useful_not_0_avg'] = 'NaN'
         trace_raw_data['useful_not_0_max'] = 'NaN'

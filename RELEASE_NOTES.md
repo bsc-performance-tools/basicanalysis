@@ -39,13 +39,20 @@
   are replaced by Data Access and File Management Efficiency and the I/O
   diagnostics (the API-specific efficiencies by the I/O time fractions and
   the MPI-IO and POSIX/ANSI C contributions, the API-specific load balances
-  by the per-operation load balances). I/O Efficiency is unchanged. In
+  by the per-operation load balances). In
   `other_metrics.csv`, the four rows are replaced by Data Access and File
   Management Efficiency, I/O Load Balance, and I/O Critical-Path
   Efficiency. The
   other metrics do not change; in the standard output, the first column of
   the general-indicators table is narrower because its longest label was
   removed.
+- **I/O Efficiency in GPU applications.** The I/O efficiencies compare the
+  I/O time with the useful time of the Host execution units, the units that
+  perform File I/O. Previously, I/O Efficiency in GPU traces also counted
+  the kernel time of the GPU streams as useful time and was overestimated
+  (SPH-EXA, 64 ranks: 99.51% before, 94.58% now). The I/O Efficiency of
+  traces without GPUs does not change. `rawdata.csv` has a new row, *Useful
+  duration of the Host units, which perform File I/O (total)*.
 - The I/O diagnostics include every traced I/O call, including the ANSI C
   (`fread`, `fwrite`, `fopen`, `fclose`, `fseek`) and the vector and
   positional POSIX calls, which the previous per-operation raw data ignored.

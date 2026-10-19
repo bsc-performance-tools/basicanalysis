@@ -8,7 +8,7 @@ import sys
 from rawdata import *
 from collections import OrderedDict
 from scaling import get_scaling_info
-from iometrics import IO_FACTORS_DOC, print_io_tables
+from iometrics import IO_FACTORS_DOC, io_useful_time, print_io_tables
 
 # error import variables
 error_import_pandas = False
@@ -596,7 +596,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         if has_posix_io or has_mpi_io:
 
             try:
-                useful_tot = float(raw_data['useful_tot'][trace])
+                useful_tot = io_useful_time(raw_data, trace)
 
                 io_total = (
                     posix_io_tot
