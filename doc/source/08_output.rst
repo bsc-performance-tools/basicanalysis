@@ -70,8 +70,10 @@ The main files include:
    Written when File I/O is detected. Contains I/O Efficiency, its factors,
    and the I/O diagnostics: time fractions, participation, contributions,
    load balance, the time, count, and mean duration of each group of I/O
-   calls, and the read and write volume, mean request size, and
-   request-size coverage.
+   calls, the read and write volume, mean request size, and
+   request-size coverage, and the files accessed, maximum processes per
+   file, volume moved by the main process of each file, and file-name
+   coverage.
 
 ``io_request_sizes.csv``
    Written when the traces have read or write requests. One row per
@@ -79,6 +81,15 @@ The main files include:
    request-size interval, with the number of requests, time, bytes, and
    their shares of the
    operation.
+
+``io_files.csv``
+   Written when the traces have POSIX or ANSI C calls. One row per
+   execution and file accessed, in decreasing I/O time, with the processes,
+   opens, I/O time, the requests, bytes, time, and processes of the reads
+   and writes, the bytes of the main process and their share, and the
+   shares of the I/O time and of the bytes. The row *(descriptors without a
+   traced open)* collects the calls on descriptors without an open in the
+   trace.
 
 ``modelfactors.csv``
    Contains the application-level hierarchical efficiency and scalability

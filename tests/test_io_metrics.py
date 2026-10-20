@@ -712,3 +712,171 @@ class RequestSizeMetricTests(unittest.TestCase):
         self.assertEqual(card.count('class="io-request-size-plot"'), 1)
         self.assertIn('Read requests', card)
         self.assertNotIn('Write requests', card)
+
+
+# Filtered trace with descriptors and file names (times in us) and its .pcf.
+FILES_TRACE = (
+    '#Paraver (20/10/2026 at 10:00):100000:1(2):1:2(1:1,1:1),0\n'
+    # task 1: open of file 1 on descriptor 3, 1 us
+    '2:1:1:1:1:1000:40000004:11:40000010:3:40000059:1\n'
+    '2:1:1:1:1:1001:40000004:0\n'
+    # write of 100 B on 3, 2 us; read of 50 B on 3, 1 us; close of 3
+    '2:1:1:1:1:2000:40000004:2:40000010:3:40000011:100\n'
+    '2:1:1:1:1:2002:40000004:0\n'
+    '2:1:1:1:1:3000:40000004:1:40000010:3:40000011:50\n'
+    '2:1:1:1:1:3001:40000004:0\n'
+    '2:1:1:1:1:4000:40000004:14:40000010:3\n'
+    '2:1:1:1:1:4001:40000004:0\n'
+    # descriptor 3 reused for file 2 (name with a space): write of 40 B
+    '2:1:1:1:1:5000:40000004:11:40000010:3:40000059:2\n'
+    '2:1:1:1:1:5001:40000004:0\n'
+    '2:1:1:1:1:6000:40000004:2:40000010:3:40000011:40\n'
+    '2:1:1:1:1:6004:40000004:0\n'
+    # write of 10 B on the standard output: no open in the trace
+    '2:1:1:1:1:7000:40000004:2:40000010:1:40000011:10\n'
+    '2:1:1:1:1:7001:40000004:0\n'
+    # task 2: fopen of file 1 on 5, fread of 30 B
+    '2:2:1:2:1:1000:40000004:12:40000010:5:40000059:1\n'
+    '2:2:1:2:1:1001:40000004:0\n'
+    '2:2:1:2:1:2000:40000004:3:40000010:5:40000011:30\n'
+    '2:2:1:2:1:2003:40000004:0\n'
+    # failed open of file 2 (descriptor -1)
+    '2:2:1:2:1:3000:40000004:11:40000010:18446744073709551615:40000059:2\n'
+    '2:2:1:2:1:3001:40000004:0\n'
+    # open without a file name on 5: the descriptor no longer is file 1
+    '2:2:1:2:1:4000:40000004:12:40000010:5\n'
+    '2:2:1:2:1:4001:40000004:0\n'
+    '2:2:1:2:1:5000:40000004:3:40000010:5:40000011:20\n'
+    '2:2:1:2:1:5001:40000004:0\n'
+    # read of 7 B on 5 replaced by a nested write of 8 B: only the write
+    '2:2:1:2:1:6000:40000004:1:40000010:5:40000011:7\n'
+    '2:2:1:2:1:6001:40000004:2:40000010:5:40000011:8\n'
+    '2:2:1:2:1:6002:40000004:0\n'
+)
+
+FILES_PCF = '''EVENT_TYPE
+0    40000059    Filename
+VALUES
+0      Unknown
+1      /data/a.h5
+2      /data/my file.dat
+
+'''
+
+
+class FileAccessTests(unittest.TestCase):
+
+    def _parse(self):
+        from rawdata import parse_io_files_trace
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.io_requests.prv')
+            with open(path, 'w') as f:
+                f.write(FILES_TRACE)
+            with open(path[:-4] + '.pcf', 'w') as f:
+                f.write(FILES_PCF)
+            return parse_io_files_trace(path)
+
+    def test_calls_per_file(self):
+        access = self._parse()
+        files = access['files']
+
+        self.assertEqual(sorted(files), ['/data/a.h5', '/data/my file.dat'])
+
+        first = files['/data/a.h5']
+        self.assertEqual(first['opens'], 2.0)
+        self.assertEqual(first['processes'], [[1, 1], [1, 2]])
+        self.assertEqual(first['write'], {'requests': 1.0, 'bytes': 100.0,
+                                          'time': 2.0, 'processes': [[1, 1]]})
+        self.assertEqual(first['read']['bytes'], 80.0)
+        self.assertEqual(first['read']['processes'], [[1, 1], [1, 2]])
+        self.assertEqual(first['bytes_by_process'],
+                         [[1, 1, 150.0], [1, 2, 30.0]])
+        # open, write, read, close of task 1; fopen and fread of task 2.
+        self.assertEqual(first['time'], 9.0)
+
+        # The failed open counts as an open of the file by task 2.
+        second = files['/data/my file.dat']
+        self.assertEqual(second['opens'], 2.0)
+        self.assertEqual(second['processes'], [[1, 1], [1, 2]])
+        self.assertEqual(second['bytes_by_process'], [[1, 1, 40.0]])
+
+    def test_descriptors_without_a_traced_open(self):
+        unnamed = self._parse()['unnamed']
+
+        # stdout of task 1; open without name, read of 20 B, and the nested
+        # write of 8 B of task 2 (the replaced read is not counted).
+        self.assertEqual(unnamed['opens'], 1.0)
+        self.assertEqual(unnamed['write']['bytes'], 18.0)
+        self.assertEqual(unnamed['read']['bytes'], 20.0)
+        self.assertEqual(unnamed['processes'], [[1, 1], [1, 2]])
+
+    def test_rows_and_diagnostics(self):
+        from iometrics import (UNNAMED_FILE_LABEL, file_diagnostics,
+                               io_file_access_rows)
+
+        rows = io_file_access_rows({'file_access': self._parse()})
+
+        self.assertEqual([row['name'] for row in rows],
+                         ['/data/a.h5', '/data/my file.dat',
+                          UNNAMED_FILE_LABEL])
+        self.assertAlmostEqual(rows[0]['main_process_pct'], 150.0 / 180.0
+                               * 100.0)
+        self.assertEqual(rows[2]['main_process_pct'], NON_AVAIL)
+
+        metrics = file_diagnostics(rows)
+
+        self.assertEqual(metrics['io_files'], 2.0)
+        self.assertEqual(metrics['io_max_processes_per_file'], 2.0)
+        # Main processes: 150 B of a.h5 and 40 B of my file.dat.
+        self.assertAlmostEqual(metrics['io_main_process_volume'],
+                               190.0 / 220.0 * 100.0)
+        self.assertAlmostEqual(metrics['io_file_name_coverage'],
+                               220.0 / 258.0 * 100.0)
+
+    def test_no_file_data(self):
+        from iometrics import file_diagnostics, io_file_access_rows
+
+        self.assertEqual(io_file_access_rows({'file_access': None}), [])
+        self.assertTrue(all(value == NON_AVAIL
+                            for value in file_diagnostics([]).values()))
+
+    def test_csv(self):
+        from iometrics import io_file_access_rows, print_io_files_csv
+
+        other_metrics = {'io_file_access': {
+            't1': io_file_access_rows({'file_access': self._parse()})}}
+
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                with redirect_stdout(io.StringIO()):
+                    print_io_files_csv(other_metrics, ['t1'])
+                with open('io_files.csv') as f:
+                    lines = f.read().splitlines()
+            finally:
+                os.chdir(cwd)
+
+        self.assertEqual(len(lines), 4)
+        self.assertTrue(lines[1].startswith('"t1";"/data/a.h5";2;2;9.000000;'))
+        self.assertIn('"/data/my file.dat"', lines[2])
+
+    def test_report_card(self):
+        from iometrics import io_file_access_rows
+        from interactiveplots import _build_io_files_card_html
+
+        other_metrics = {'io_file_access': {
+            't1': io_file_access_rows({'file_access': self._parse()}),
+            't2': [],
+        }}
+        card = _build_io_files_card_html(
+            other_metrics, ['t1', 't2'], ['2 [T1]', '2 [T2]'])
+
+        # One table, for the execution with file data.
+        self.assertEqual(card.count('class="io-files-execution"'), 1)
+        self.assertIn('2 [T1]: 2 of 2 files', card)
+        self.assertIn('title="/data/my file.dat"', card)
+        self.assertIn('83.3%', card)
+        self.assertEqual(
+            _build_io_files_card_html({}, ['t1'], ['2 [T1]']), '')

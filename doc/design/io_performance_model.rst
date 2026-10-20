@@ -786,6 +786,17 @@ chunks, rank 0 opens its own part file 10 times, the common file 5 times,
 and each other part file 4 times. Overlapping regions still require
 offsets.
 
+*Implemented (2026-10-20)* from the filtered trace instead of the open
+matrix, because the opens alone do not show who moves the data: each call
+is attributed to a file through its descriptor (``40000010``) and the file
+name (``40000059``) of the ``open``/``fopen`` that returned it. Diagnostics:
+files accessed, maximum processes per file, volume moved by the main
+process of each file, and file-name coverage; per-file table in the report
+and ``io_files.csv``. A count of shared files (more than one process) was
+tried and discarded: in VTKHDF all 113 files are opened and read (metadata)
+by the 112 processes, so all were shared, while each part file is written
+and read about 97% by one process.
+
 Data Access Diagnostic Questions
 --------------------------------
 
@@ -1140,8 +1151,12 @@ Current Raw-Data Coverage
 +------------------------------------+------------------------------+
 | Per-file open count/time           | Available                    |
 +------------------------------------+------------------------------+
-| Ranks per file / files per rank    | In the CSV (unit × file      |
-|                                    | matrix); not parsed yet      |
+| Ranks per file / files per rank    | Implemented (filtered trace: |
+|                                    | descriptor and file name;    |
+|                                    | POSIX and ANSI C only)       |
++------------------------------------+------------------------------+
+| Bytes, requests, and time per file | Implemented (same source)    |
+| and per process                    |                              |
 +------------------------------------+------------------------------+
 | Filename count/time coverage       | Available                    |
 +------------------------------------+------------------------------+
@@ -1543,6 +1558,30 @@ for the first I/O report.
 
 Review Log
 ----------
+
+*2026-10-20* -- Implementation (files and processes per file, POSIX and
+ANSI C): the filtered trace also keeps the descriptor (``40000010``) and
+file name (``40000059``) events. Extrae 5.1.3 records the descriptor
+returned by ``open`` (``fileno`` for ``fopen``) in the same record as the
+file name, and the descriptor in every call (ANSI C: ``fileno`` of the
+stream); MPI-IO records neither the file nor the handle. Calls are
+attributed per process (descriptors are shared by the threads) until the
+descriptor is closed; descriptors without a traced open (stdout, files
+opened before the tracing starts in a process, ``openat``/``creat``/``dup``
+not instrumented, ``fopen`` records without a file name) go to one unnamed
+group. Calls are counted at their end, as the requests. Decision: the
+sharing indicator is the volume moved by the main process of each file
+(threshold-free; 100% one process per file, 100/N % shared evenly), not a
+count of shared files. Validation: bytes, requests, and time of the reads
+and writes identical to the request-size distribution (cfdem, VTKHDF);
+call time of all the files 3.264 s versus 3.271 s of POSIX I/O in cfdem
+(44 nested calls not counted, as in the requests). VTKHDF 100k: 113 files,
+112 processes per file, main processes 96.4%, coverage 94.9% (12 processes
+write their part file through a descriptor opened before their first
+traced call); cfdem: 320 files, main processes 100%, one probe file with
+80% of the POSIX I/O time (223 writes of about 280 bytes). Also fixed: the
+``.pcf`` value labels keep their spaces (file names), and the open calls of
+a thread are no longer keyed by CPU.
 
 *2026-10-20* -- Implementation (MPI-IO request sizes): the filtered trace
 also keeps the MPI-IO call (``50000005``) and size (``50000110``) events.

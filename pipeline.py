@@ -10,7 +10,7 @@ from collections import OrderedDict
 from contextlib import redirect_stdout
 
 import hybridmetrics
-from iometrics import add_io_metrics, print_io_metrics_csv, print_io_request_sizes_csv
+from iometrics import add_io_metrics, print_io_metrics_csv, print_io_request_sizes_csv, print_io_files_csv
 import plots
 import reportdata
 from report import build_analysis_context, build_report_model
@@ -257,6 +257,7 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
         hybridmetrics.print_other_metrics_csv(other_metrics, trace_list, trace_processes)
         print_io_metrics_csv(other_metrics, trace_list, trace_processes)
         print_io_request_sizes_csv(other_metrics, trace_list)
+        print_io_files_csv(other_metrics, trace_list)
         
         # MPI+GPU and GPU without MPI share the Host/Device model.
         is_mpi_gpu = (
@@ -368,6 +369,7 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
     print_other_metrics_csv(other_metrics, trace_list, trace_processes)
     print_io_metrics_csv(other_metrics, trace_list, trace_processes)
     print_io_request_sizes_csv(other_metrics, trace_list)
+    print_io_files_csv(other_metrics, trace_list)
     print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes, trace_mode)
     print_mod_factors_csv(mod_factors, trace_list, trace_processes)
 

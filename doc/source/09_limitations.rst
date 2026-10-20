@@ -129,6 +129,16 @@ The following assumptions and limitations apply:
   a call starts before the previous call of the same thread has ended
   (unclosed or nested calls, rare in Extrae traces), only the later call is
   counted.
+* **Files.** Only the POSIX and ANSI C calls are attributed to files: MPI-IO
+  records neither the file name nor the file handle. A call is attributed
+  through its descriptor to the last ``open`` or ``fopen`` of the process
+  that returned it; calls on descriptors opened before the tracing starts
+  or with calls that Extrae does not instrument (``openat``, ``creat``,
+  ``dup``), and after an ``open`` or ``fopen`` without a file name in the
+  trace, are not attributed to a file (see the file-name coverage). Files
+  are identified by the name passed to ``open``: the same file opened with
+  different paths (relative and absolute, or through links) appears as
+  several files. A failed ``open`` counts as an open of the file.
 
 These metrics do not characterize achieved I/O bandwidth, storage-system
 utilization, or filesystem contention. They identify whether File I/O has a

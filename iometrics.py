@@ -23,7 +23,8 @@ operation (read, write, open, ...) of the maximum time of a unit:
 The diagnostics (time fractions, contributions, load balance, operation counts,
 and mean durations) explain where the I/O time is spent. The request-size
 distribution of the read and write calls of every API (power-of-two
-intervals) shows which request sizes cost the time.
+intervals) shows which request sizes cost the time, and the files accessed
+by the POSIX and ANSI C calls show whether the processes share files.
 
 Times in the raw data are in microseconds.
 """
@@ -177,6 +178,31 @@ for _operation in REQUEST_SIZE_OPERATIONS:
     IO_DIAGNOSTICS_DOC['io_{}_size_coverage'.format(_operation)] = (
         '{} request-size coverage (%)'.format(_label), '%')
 
+# Files accessed by the POSIX and ANSI C calls (MPI-IO records no file).
+# The main process of a file is the one that reads and writes most of its
+# bytes: 100% of the volume moved by the main processes means one process
+# per file; a file shared evenly by N processes gives 100/N %.
+IO_DIAGNOSTICS_DOC['io_files'] = ('Files accessed', 'count')
+IO_DIAGNOSTICS_DOC['io_max_processes_per_file'] = (
+    'Processes per file, maximum', 'count')
+IO_DIAGNOSTICS_DOC['io_main_process_volume'] = (
+    'Volume moved by the main process of each file (%)', '%')
+IO_DIAGNOSTICS_DOC['io_file_name_coverage'] = (
+    'File-name coverage of the volume (%)', '%')
+
+FILE_DIAGNOSTICS = [
+    'io_files',
+    'io_max_processes_per_file',
+    'io_main_process_volume',
+    'io_file_name_coverage',
+]
+
+# Name of the calls on descriptors without an open in the trace.
+UNNAMED_FILE_LABEL = '(descriptors without a traced open)'
+
+# Files shown in the standard output and in the report.
+TOP_FILES = 10
+
 NON_AVAIL = 'Non-Avail'
 
 # Groups of diagnostics shown in the report.
@@ -214,6 +240,7 @@ IO_DIAGNOSTIC_GROUPS = [
         for operation in REQUEST_SIZE_OPERATIONS
         for quantity in ('volume', 'mean_request_size', 'size_coverage')
     ]),
+    ('Files', FILE_DIAGNOSTICS),
 ]
 
 BINARY_UNITS = ('B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB')
@@ -456,6 +483,102 @@ def io_request_size_distribution_by_api(trace_io_data):
     return distribution
 
 
+def _file_row(name, stats, unnamed=False):
+    row = OrderedDict([
+        ('name', name),
+        ('unnamed', unnamed),
+        ('processes', len(stats['processes'])),
+        ('opens', stats['opens']),
+        ('time', stats['time']),
+    ])
+
+    for operation in REQUEST_SIZE_OPERATIONS:
+        for key in ('requests', 'bytes', 'time'):
+            row['{}_{}'.format(operation, key)] = stats[operation][key]
+
+        row['{}_processes'.format(operation)] = len(
+            stats[operation]['processes'])
+
+    row['bytes'] = sum(
+        row['{}_bytes'.format(operation)]
+        for operation in REQUEST_SIZE_OPERATIONS
+    )
+    row['main_process_bytes'] = max(
+        [entry[-1] for entry in stats.get('bytes_by_process', [])] or [0.0])
+    row['main_process_pct'] = _percentage(
+        row['main_process_bytes'], row['bytes'])
+
+    return row
+
+
+def io_file_access_rows(trace_io_data):
+    """Files accessed by the POSIX and ANSI C calls of a trace, in
+    decreasing I/O time, followed by the calls on descriptors without an
+    open in the trace (when there are any).
+
+    Each row has the file name, the processes that call on the file, the
+    opens, the I/O time (all the calls on the file, us), the requests,
+    bytes, time, and processes of the read and write calls, the bytes read
+    and written, the bytes of the process that moves the most
+    (main_process_bytes, and its share main_process_pct), and the shares of
+    the time and of the bytes of all the rows (time_pct, bytes_pct).
+    Returns [] when the trace has no file data.
+    """
+    file_access = (trace_io_data or {}).get('file_access')
+
+    if not file_access:
+        return []
+
+    rows = [
+        _file_row(name, stats)
+        for name, stats in file_access['files'].items()
+    ]
+    rows.sort(key=lambda row: (-row['time'], row['name']))
+
+    unnamed = file_access['unnamed']
+
+    if unnamed['processes']:
+        row = _file_row(UNNAMED_FILE_LABEL, unnamed, unnamed=True)
+        # Several descriptors of each process: no main process.
+        row['main_process_bytes'] = NON_AVAIL
+        row['main_process_pct'] = NON_AVAIL
+        rows.append(row)
+
+    total_time = sum(row['time'] for row in rows)
+    total_bytes = sum(row['bytes'] for row in rows)
+
+    for row in rows:
+        row['time_pct'] = _percentage(row['time'], total_time)
+        row['bytes_pct'] = _percentage(row['bytes'], total_bytes)
+
+    return rows
+
+
+def file_diagnostics(rows):
+    """Diagnostics of the files accessed (FILE_DIAGNOSTICS) from the rows of
+    io_file_access_rows."""
+    metrics = OrderedDict((key, NON_AVAIL) for key in FILE_DIAGNOSTICS)
+    files = [row for row in rows if not row['unnamed']]
+
+    if not rows:
+        return metrics
+
+    total_bytes = sum(row['bytes'] for row in rows)
+    file_bytes = sum(row['bytes'] for row in files)
+
+    metrics['io_files'] = float(len(files))
+
+    if files:
+        metrics['io_max_processes_per_file'] = float(
+            max(row['processes'] for row in files))
+
+    metrics['io_main_process_volume'] = _percentage(
+        sum(row['main_process_bytes'] for row in files), file_bytes)
+    metrics['io_file_name_coverage'] = _percentage(file_bytes, total_bytes)
+
+    return metrics
+
+
 def _percentage(numerator, denominator):
     if denominator > 0.0:
         return numerator / denominator * 100.0
@@ -597,6 +720,9 @@ def compute_trace_io_metrics(useful_tot, runtime, io_units, trace_io_data):
             metrics['io_{}_size_coverage'.format(operation)] = (
                 requests / calls * 100.0)
 
+    # Files (POSIX and ANSI C).
+    metrics.update(file_diagnostics(io_file_access_rows(trace_io_data)))
+
     return metrics, aggregate
 
 
@@ -621,6 +747,12 @@ def add_io_metrics(other_metrics, raw_data, io_data, trace_list):
     other_metrics['io_request_sizes_by_api'] = {
         trace: io_request_size_distribution_by_api(
             (io_data or {}).get(trace))
+        for trace in trace_list
+    }
+    # Internal key: files accessed by each trace (see io_file_access_rows),
+    # for the report and io_files.csv.
+    other_metrics['io_file_access'] = {
+        trace: io_file_access_rows((io_data or {}).get(trace))
         for trace in trace_list
     }
 
@@ -786,6 +918,7 @@ def print_io_tables(other_metrics, trace_list, column_labels,
             longest_name,
             value_to_adjust,
         )
+        print_io_file_tables(other_metrics, trace_list, column_labels)
 
 
 def _request_size_rows(other_metrics, trace_list, operation):
@@ -847,6 +980,121 @@ def print_io_request_size_tables(other_metrics, trace_list, column_labels,
             print(line)
 
         print(''.ljust(len(line_head), '-'))
+
+
+def shorten_file_name(name, width):
+    """Keep the end of a long file name ('...part2.vtkhdf')."""
+    if len(name) <= width:
+        return name
+
+    return '...' + name[-(width - 3):]
+
+
+def print_io_file_tables(other_metrics, trace_list, column_labels,
+                         name_width=48):
+    """Print, for every trace, the files with the most I/O time."""
+    columns = [
+        ('Processes', lambda row: '{0:d}'.format(row['processes'])),
+        ('Read', lambda row: format_bytes(row['read_bytes'])),
+        ('Written', lambda row: format_bytes(row['write_bytes'])),
+        ('Main process', lambda row: (
+            '-' if row['main_process_pct'] == NON_AVAIL
+            else format_io_value(row['main_process_pct'], '%'))),
+        ('I/O time (s)', lambda row: '{0:.3f}'.format(row['time'] / 1e6)),
+        ('I/O time (%)', lambda row: format_io_value(row['time_pct'], '%')),
+    ]
+    width = max(len(title) for title, _ in columns)
+
+    for trace, label in zip(trace_list, column_labels):
+        rows = other_metrics.get('io_file_access', {}).get(trace) or []
+
+        if not rows:
+            continue
+
+        files = [row for row in rows if not row['unnamed']]
+        shown = files[:TOP_FILES] + [row for row in rows if row['unnamed']]
+
+        line_head = 'File'.ljust(name_width)
+
+        for title, _ in columns:
+            line_head += ' | ' + title.rjust(width)
+
+        print('Files with the most I/O time, POSIX and ANSI C ({0}, {1} of '
+              '{2} files):'.format(label.strip(), min(len(files), TOP_FILES),
+                                    len(files)))
+        print(''.ljust(len(line_head), '-'))
+        print(line_head)
+        print(''.ljust(len(line_head), '-'))
+
+        for row in shown:
+            line = shorten_file_name(row['name'], name_width).ljust(
+                name_width)
+
+            for _, cell in columns:
+                line += ' | ' + cell(row).rjust(width)
+
+            print(line)
+
+        print(''.ljust(len(line_head), '-'))
+
+
+def print_io_files_csv(other_metrics, trace_list):
+    """Write the files accessed by the POSIX and ANSI C calls to
+    io_files.csv, one row per trace and file, in decreasing I/O time."""
+    files = other_metrics.get('io_file_access', {})
+
+    if not any(files.get(trace) for trace in trace_list):
+        return
+
+    delimiter = ';'
+    file_path = os.path.join(os.getcwd(), 'io_files.csv')
+
+    columns = [
+        ('Trace', None),
+        ('File', None),
+        ('Processes', 'processes'),
+        ('Opens', 'opens'),
+        ('I/O time (us)', 'time'),
+        ('Read requests', 'read_requests'),
+        ('Read bytes', 'read_bytes'),
+        ('Read time (us)', 'read_time'),
+        ('Reading processes', 'read_processes'),
+        ('Write requests', 'write_requests'),
+        ('Write bytes', 'write_bytes'),
+        ('Write time (us)', 'write_time'),
+        ('Writing processes', 'write_processes'),
+        ('Main process bytes', 'main_process_bytes'),
+        ('Main process bytes (%)', 'main_process_pct'),
+        ('I/O time (%)', 'time_pct'),
+        ('Bytes (%)', 'bytes_pct'),
+    ]
+
+    with open(file_path, 'w') as output:
+        output.write(
+            delimiter.join('"' + c + '"' for c, _ in columns) + '\n')
+
+        for trace in trace_list:
+            for row in files.get(trace) or []:
+                values = [
+                    '"' + trace + '"',
+                    '"' + row['name'].replace('"', '""') + '"',
+                ]
+
+                for _, key in columns[2:]:
+                    value = row[key]
+
+                    if not isinstance(value, (int, float)):
+                        values.append(str(value))
+                    elif key.endswith('_pct') or key.endswith('time'):
+                        values.append('{0:.6f}'.format(value))
+                    else:
+                        values.append('{0:.0f}'.format(value))
+
+                output.write(delimiter.join(values) + '\n')
+
+    print('======== Output File: I/O Files ========')
+    print('Files accessed written to ' + file_path)
+    print('')
 
 
 def print_io_request_sizes_csv(other_metrics, trace_list):

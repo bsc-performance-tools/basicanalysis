@@ -113,6 +113,16 @@ IO_REQUEST_SIZE_FAMILIES = {
     'write': (2, 4, 6, 8, 10),   # write, fwrite, pwrite, writev, pwritev
 }
 
+# Files accessed by the POSIX and ANSI C calls. Extrae records the
+# descriptor of every call (40000010; fileno() of the stream for ANSI C),
+# and the file name only on open and fopen (40000059, the returned
+# descriptor in the same record). MPI-IO records neither the file nor the
+# handle.
+IO_DESCRIPTOR_EVENT = 40000010
+IO_FILE_NAME_EVENT = 40000059
+IO_OPEN_CALLS = (11, 12)       # open, fopen
+IO_CLOSE_CALLS = (14, 15)      # close, fclose
+
 
 SUMMARY_KEYS = {"Total", "Average", "Maximum", "Minimum", "StDev", "Num.", "Avg/Max", "Num. Cells"}
 
@@ -1137,7 +1147,8 @@ def parse_io_call_table(path):
 
 
 def io_requests_trace_path(trace_name):
-    """Temporary trace with only the I/O call and I/O size events."""
+    """Temporary trace with only the I/O call, size, descriptor, and file
+    name events."""
     return trace_name + '.io_requests.prv'
 
 
@@ -1159,9 +1170,11 @@ def trace_has_io_call_events(trace_name_control):
 def filter_io_request_events(trace, trace_name, trace_name_control, cfgs,
                              cmdl_args):
     """Write a temporary trace that keeps only the I/O call and size events
-    of POSIX/ANSI C and MPI-IO (cfgs/io-requests-filter.xml), for the
-    request-size distribution. Paraver reads the full trace; the request
-    sizes are then taken from the much smaller filtered trace."""
+    of POSIX/ANSI C and MPI-IO, and the descriptor and file name of the
+    POSIX/ANSI C calls (cfgs/io-requests-filter.xml), for the request-size
+    distribution and the files accessed. Paraver reads the full trace; the
+    requests and files are then taken from the much smaller filtered
+    trace."""
     if not trace_has_io_call_events(trace_name_control):
         return
 
@@ -1235,13 +1248,21 @@ def parse_pcf_event_values(pcf_path, event_type):
                 in_values = False
                 continue
 
-            fields = line.split(None, 2)
+            if in_types:
+                fields = line.split(None, 2)
 
-            if in_types and len(fields) >= 2:
-                types.append(fields[1])
-            elif in_values and len(fields) >= 2:
+                if len(fields) >= 2:
+                    types.append(fields[1])
+            elif in_values:
+                # The label is the rest of the line (file names may contain
+                # spaces).
+                fields = line.split(None, 1)
+
+                if len(fields) < 2:
+                    continue
+
                 try:
-                    values[int(fields[0])] = fields[1]
+                    values[int(fields[0])] = fields[1].strip()
                 except ValueError:
                     continue
 
@@ -1336,7 +1357,7 @@ def parse_io_requests_trace(path):
 
             fields = line.rstrip('\n').split(':')
             events = dict(zip(fields[6::2], fields[7::2]))
-            thread = (fields[1], fields[2], fields[3], fields[4])
+            thread = (fields[2], fields[3], fields[4])
             timestamp = int(fields[5])
 
             for api, call_event, size_event, calls in apis:
@@ -1423,6 +1444,169 @@ def build_io_request_size_bins(intervals):
         })
 
     return bins
+
+
+def _new_file_access():
+    return {
+        'opens': 0.0,
+        'time': 0.0,
+        'processes': set(),
+        # Bytes read and written by each process: {process: bytes}.
+        'bytes_by_process': {},
+        'read': {'requests': 0.0, 'bytes': 0.0, 'time': 0.0,
+                 'processes': set()},
+        'write': {'requests': 0.0, 'bytes': 0.0, 'time': 0.0,
+                  'processes': set()},
+    }
+
+
+def _valid_descriptor(value):
+    """False for the descriptor of a failed open (-1, or 2^64 - 1 in some
+    Extrae versions)."""
+    try:
+        return 0 <= int(value) < 2 ** 63
+    except (TypeError, ValueError):
+        return False
+
+
+def parse_io_files_trace(path):
+    """Files accessed by the POSIX and ANSI C calls, from the filtered trace.
+
+    An open or fopen call records the file name and the returned descriptor;
+    the following calls of the same process on that descriptor, until it is
+    closed, are calls on that file. Calls on a descriptor without an open in
+    the trace (standard input and output, files opened before the tracing
+    starts or with calls that Extrae does not instrument, such as openat or
+    dup) are collected as 'unnamed'. Descriptors are per process, so the
+    threads of a process share them. A call is counted when it ends; a call
+    that starts before the previous call of the same thread has ended
+    replaces it, as in parse_io_requests_trace.
+
+    For each file: the opens, the time of all the calls on the file (us),
+    the processes that call on it, the bytes read and written by each
+    process, and the requests, bytes, time, and processes of the read and
+    write calls (calls with size 0 are not requests).
+
+    Returns:
+        dict: {'files': {name: stats}, 'unnamed': stats}, with the
+        processes as sorted lists of [application, task] numbers and
+        'bytes_by_process' as a sorted list of [application, task, bytes].
+    """
+    names = parse_pcf_event_values(path[:-4] + '.pcf', IO_FILE_NAME_EVENT)
+    operations = {
+        value: operation
+        for operation, values in IO_REQUEST_SIZE_FAMILIES.items()
+        for value in values
+    }
+    call_event = str(IO_CALL_EVENT)
+    size_event = str(IO_SIZE_EVENT)
+    descriptor_event = str(IO_DESCRIPTOR_EVENT)
+    name_event = str(IO_FILE_NAME_EVENT)
+
+    files = {}
+    unnamed = _new_file_access()
+    # File of each open descriptor: {(application, task, descriptor): name}.
+    descriptors = {}
+    # Call in progress of each thread: (stats, operation, start).
+    open_calls = {}
+    time_to_us = 1.0
+
+    with open(path) as f:
+        for line_number, line in enumerate(f):
+            if line_number == 0:
+                time_to_us = _trace_time_to_us(line)
+                continue
+
+            if not line.startswith('2:'):
+                continue
+
+            fields = line.rstrip('\n').split(':')
+            events = dict(zip(fields[6::2], fields[7::2]))
+
+            if call_event not in events:
+                continue
+
+            process = (int(fields[2]), int(fields[3]))
+            thread = (fields[2], fields[3], fields[4])
+            timestamp = int(fields[5])
+            value = int(events[call_event])
+
+            if value == 0:
+                call = open_calls.pop(thread, None)
+
+                if call is None:
+                    continue
+
+                stats, process, is_open, operation, size, start = call
+                duration = (timestamp - start) * time_to_us
+                stats['time'] += duration
+                stats['processes'].add(process)
+
+                if is_open:
+                    stats['opens'] += 1
+
+                if operation is not None:
+                    stats[operation]['requests'] += 1
+                    stats[operation]['bytes'] += size
+                    stats[operation]['time'] += duration
+                    stats[operation]['processes'].add(process)
+                    stats['bytes_by_process'][process] = (
+                        stats['bytes_by_process'].get(process, 0.0) + size)
+
+                continue
+
+            descriptor = events.get(descriptor_event)
+            key = process + (descriptor,)
+            is_open = value in IO_OPEN_CALLS
+
+            if is_open and name_event in events:
+                name = names.get(int(events[name_event]),
+                                 events[name_event])
+                stats = files.setdefault(name, _new_file_access())
+
+                if _valid_descriptor(descriptor):
+                    descriptors[key] = name
+            elif is_open:
+                # Open without a file name (Extrae sometimes omits it).
+                descriptors.pop(key, None)
+                stats = unnamed
+            elif key in descriptors:
+                stats = files[descriptors[key]]
+            else:
+                stats = unnamed
+
+            if value in IO_CLOSE_CALLS:
+                descriptors.pop(key, None)
+
+            operation = operations.get(value)
+            size = int(events.get(size_event, 0))
+
+            if size <= 0:
+                operation = None
+
+            # Counted when the call ends; a call that starts before the
+            # previous one of the thread has ended replaces it (as in
+            # parse_io_requests_trace).
+            open_calls[thread] = (stats, process, is_open, operation, size,
+                                  timestamp)
+
+    def finish(stats):
+        stats['processes'] = [list(p) for p in sorted(stats['processes'])]
+        stats['bytes_by_process'] = [
+            list(p) + [size]
+            for p, size in sorted(stats['bytes_by_process'].items())
+        ]
+
+        for operation in IO_REQUEST_SIZE_OPERATIONS:
+            stats[operation]['processes'] = [
+                list(p) for p in sorted(stats[operation]['processes'])]
+
+        return stats
+
+    return {
+        'files': {name: finish(stats) for name, stats in files.items()},
+        'unnamed': finish(unnamed),
+    }
 
 
 def parse_io_filename_stats(path):
@@ -1562,6 +1746,9 @@ def create_io_raw_data():
             'count_coverage': None,
             'time_coverage': None,
         },
+        # Files accessed by the POSIX and ANSI C calls (see
+        # parse_io_files_trace). None when the trace was not filtered.
+        'file_access': None,
         # Per-unit time and count of every traced I/O call, by API
         # (see parse_io_call_table). Empty when the trace has no calls of
         # that API.
@@ -3060,6 +3247,10 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
                 api: build_io_request_size_bins(requests[api][operation])
                 for api in IO_REQUEST_SIZE_APIS
             }
+
+        # Files accessed by the POSIX and ANSI C calls
+        trace_io_data['file_access'] = parse_io_files_trace(
+            io_requests_trace_path(trace_name))
 
         if not cmdl_args.debug:
             remove_io_requests_trace(trace_name)

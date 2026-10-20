@@ -2989,13 +2989,65 @@ with ``cfgs/io-requests-filter.xml`` and removed after the analysis). The
 histograms ``cfgs/io-{read,write}-size-pow2-{count,time,bytes}.cfg`` show the
 same intervals in Paraver for the POSIX and ANSI C calls.
 
+.. _io-files:
+
+**Files** accessed by the POSIX and ANSI C calls:
+
+* the **files accessed**, the files with at least one call in the trace;
+* the **processes per file, maximum**, the largest number of processes
+  that call on one file;
+* the **volume moved by the main process of each file**: for each file, the
+  bytes read and written by the process that moves the most (its *main
+  process*), added over the files and divided by the bytes read and written
+  in all the files. It is 100% when each file is read and written by one
+  process (one file per process), and :math:`100/N` % when every file is
+  shared evenly by :math:`N` processes;
+* the **file-name coverage of the volume**, the percentage of the bytes read
+  and written by the POSIX and ANSI C calls that are attributed to a file.
+
+The number of processes per file alone does not tell whether the processes
+share the data of the files: in a VTKHDF execution of 112 processes, every
+process opens every file and reads its metadata, so all 113 files have 112
+processes, but each part file is written and read almost entirely by one
+process (97% of its bytes), and the volume moved by the main processes is
+96%. Only the common file is shared (its main process moves 1.4% of its
+bytes).
+
+Extrae records the descriptor of every POSIX and ANSI C call (for the ANSI C
+calls, the descriptor of the stream), and the file name only in the
+``open`` and ``fopen`` calls, together with the returned descriptor. A call
+is attributed to the file of the last ``open`` or ``fopen`` of the same
+process that returned its descriptor, until the descriptor is closed. The
+threads of a process share its descriptors. Calls on descriptors without an
+``open`` or ``fopen`` in the trace are collected in one group, *descriptors
+without a traced open*: the standard input, output, and error, files opened
+before the tracing starts, and files opened with calls that Extrae does not
+instrument (such as ``openat``, ``creat``, or ``dup``). MPI-IO records
+neither the file name nor the file handle, so the MPI-IO calls are not
+attributed to files.
+
+For each file, BasicAnalysis computes the opens, the I/O time (the time of
+all the POSIX and ANSI C calls on the file), the processes that call on it,
+and the requests, bytes, time, and processes of the reads and writes. The
+files are read from the same temporary trace as the requests, which also
+keeps the descriptor and file name events. The bytes, requests, and time of
+the reads and writes of all the files, including the descriptors without a
+traced open, are those of the request-size distribution of the POSIX and
+ANSI C calls.
+
+In a cfdem execution, 80% of the POSIX I/O time is spent in one probe file
+of 61 KiB, written by one process in 223 writes of about 280 bytes (12 ms
+per write).
+
 The I/O diagnostics are shown in the I/O Analysis view of the report and
 printed in the standard output (in both, rows that are zero for all the
 executions are omitted), and written to ``io_metrics.csv``. The
 request-size distribution is shown in the *Request sizes* histograms of the
 view and in the standard output (share of the requests and of the time), and
 written to ``io_request_sizes.csv`` (requests, time, bytes, and their
-shares).
+shares). The files with the most I/O time are shown in the *Files* table of
+the view and in the standard output, and all the files are written to
+``io_files.csv``.
 
 These metrics quantify the time of the File I/O captured in the trace. They
 do not measure achieved bandwidth or storage-system utilization. When File

@@ -25,5 +25,5 @@ behaviour of the released tool.
 
 | Document | Status | Branch |
 |----------|--------|--------|
-| [I/O Performance Model and Diagnostic Metrics](io_performance_model.rst) | Implementation in progress (step 1 of 4 done: factors and time diagnostics) | `feature/io-metrics` |
+| [I/O Performance Model and Diagnostic Metrics](io_performance_model.rst) | Implementation in progress (factors, time diagnostics, request sizes, and files done) | `feature/io-metrics` |
 | [GPU Metrics: States, Events, and the `.row` File](gpu_states_events_row.rst) | Decision recorded; future work proposed (Paraver views, fallback without `.row`) | — |

@@ -19,9 +19,11 @@ from iometrics import (
     IO_DIAGNOSTIC_GROUPS,
     NON_AVAIL as IO_NON_AVAIL,
     REQUEST_SIZE_OPERATIONS,
+    TOP_FILES,
     format_bytes,
     is_unused_diagnostic,
     request_size_interval_label,
+    shorten_file_name,
 )
 
 from report.renderer.html import (
@@ -1073,6 +1075,101 @@ def _build_io_request_sizes_card_html(other_metrics, trace_list,
     """.format(note=note, plots_html=plots_html)
 
 
+def _build_io_files_table_html(rows):
+    """Table of the files with the most I/O time of one execution, and the
+    calls on descriptors without an open in the trace."""
+    files = [row for row in rows if not row['unnamed']]
+    shown = files[:TOP_FILES] + [row for row in rows if row['unnamed']]
+
+    def percentage(value):
+        if value == IO_NON_AVAIL:
+            return '\u2013'
+        return '{0:.1f}%'.format(value)
+
+    body = []
+
+    for row in shown:
+        name = row['name']
+        body.append(
+            '<tr><td title="{title}">{name}</td><td>{processes}</td>'
+            '<td>{read}</td><td>{written}</td><td>{main}</td>'
+            '<td>{time:.3f}</td><td>{time_pct}</td></tr>'.format(
+                title=html.escape(name, quote=True),
+                name=html.escape(shorten_file_name(name, 52)),
+                processes=row['processes'],
+                read=format_bytes(row['read_bytes']),
+                written=format_bytes(row['write_bytes']),
+                main=percentage(row['main_process_pct']),
+                time=row['time'] / 1e6,
+                time_pct=percentage(row['time_pct']),
+            ))
+
+    return (
+        "<div class='io-files-table-wrap'>"
+        "<table class='metric-table io-diagnostics-table io-files-table'>"
+        "<thead><tr><th>File</th><th>Processes</th><th>Read</th>"
+        "<th>Written</th><th>Main process</th><th>I/O time (s)</th>"
+        "<th>I/O time (%)</th></tr></thead>"
+        "<tbody>{}</tbody></table></div>".format(''.join(body))
+    )
+
+
+def _build_io_files_card_html(other_metrics, trace_list, trace_labels,
+                              printable=False):
+    """Card with the files with the most I/O time (POSIX and ANSI C) of
+    every execution."""
+    tables = []
+
+    for trace, label in zip(trace_list, trace_labels):
+        rows = other_metrics.get('io_file_access', {}).get(trace) or []
+
+        if not rows:
+            continue
+
+        files = sum(1 for row in rows if not row['unnamed'])
+        tables.append(
+            '<div class="io-files-execution"><h4>{label}: {shown} of {files} '
+            'files</h4>{table}</div>'.format(
+                label=html.escape(label),
+                shown=min(files, TOP_FILES),
+                files=files,
+                table=_build_io_files_table_html(rows),
+            ))
+
+    if not tables:
+        return ""
+
+    note = (
+        "Files with the most I/O time (all the POSIX and ANSI C calls on "
+        "the file); MPI-IO does not record the files. "
+        "<em>Processes</em>: processes that call on the file. "
+        "<em>Main process</em>: share of the bytes of the file read and "
+        "written by the process that moves the most; 100% means one process "
+        "per file, and a file shared evenly by N processes gives 100/N %. "
+        "The last row collects the calls on descriptors without an open in "
+        "the trace (standard output, files opened before the tracing "
+        "starts). Hover over a name for the full path; all the files are "
+        "in <code>io_files.csv</code>."
+    )
+
+    if printable:
+        return """
+        <h3 class="print-subsection-title">Files</h3>
+        <p class="print-section-description">{note}</p>
+        <div class="print-metric-results metric-table-card">
+            {tables}
+        </div>
+        """.format(note=note, tables=''.join(tables))
+
+    return """
+    <div class="metric-table-card io-diagnostics-card">
+        <h3>Files</h3>
+        <p class="io-diagnostics-note">{note}</p>
+        {tables}
+    </div>
+    """.format(note=note, tables=''.join(tables))
+
+
 def _build_io_metrics_section(
         other_metrics,
         trace_list,
@@ -1212,6 +1309,10 @@ def _build_io_metrics_section(
             trace_labels,
             trace_column_description,
         ) + _build_io_request_sizes_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+        ) + _build_io_files_card_html(
             other_metrics,
             trace_list,
             trace_labels,
@@ -3854,6 +3955,11 @@ def _build_printable_io_section(
             trace_list,
             trace_labels,
             printable=True,
+        ) + _build_io_files_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+            printable=True,
         ),
         trend_html=trend_html,
     )
@@ -4955,6 +5061,16 @@ def _build_io_metrics_guidance_html():
                 few requests but much of the time holds the expensive
                 requests.
             </li>
+            <li>
+                <strong>Files</strong> (POSIX and ANSI C): the files accessed,
+                the maximum number of processes per file, and the volume
+                moved by the main process of each file (the process that
+                reads and writes most of its bytes). Near 100% the processes
+                use their own files; a low value means files shared by
+                several processes. The <strong>Files</strong> table lists the
+                files with the most I/O time (all files in
+                <code>io_files.csv</code>).
+            </li>
         </ul>
 
         <p>
@@ -5697,6 +5813,30 @@ def _build_interactive_report_document(workspace_html,
 
         .io-request-size-plot {
             margin-top: 12px;
+        }
+
+        .io-files-execution {
+            margin-top: 12px;
+        }
+
+        .io-files-execution h4 {
+            margin: 0 0 4px;
+            color: var(--primary);
+            font-size: 14px;
+        }
+
+        .io-files-table-wrap {
+            max-width: 100%;
+            overflow-x: auto;
+        }
+
+        .io-files-table td {
+            white-space: nowrap;
+        }
+
+        .io-files-table td:first-child {
+            font-family: monospace;
+            font-size: 12px;
         }
 
         .io-request-size-plot h4 {

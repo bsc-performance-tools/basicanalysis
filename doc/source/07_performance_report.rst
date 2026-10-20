@@ -250,13 +250,15 @@ below 90%, Attention 90%--95%, Good from 95%); the efficiency scale of the
 view shows them.
 
 Below the efficiency table, the **I/O diagnostics** table shows where the I/O
-time is spent, grouped in four sections: *I/O time* (average and maximum
+time is spent, grouped in six sections: *I/O time* (average and maximum
 time fractions, participation, and API contributions), *Data Access* (read
 and write contributions and load balance), *File Management* (open, close,
 seek, and control contributions and load balance), *Operations* (time,
 number of operations, and mean duration of each group of calls), and
 *Requests* (read and write volume, mean request size, and
-request-size coverage). These values
+request-size coverage), and *Files* (files accessed, maximum processes per
+file, volume moved by the main process of each file, and file-name
+coverage). These values
 are not efficiencies, so they have no color scale; rows of calls or APIs that
 no execution uses are omitted. The same diagnostics are printed in the
 standard output and written to ``io_metrics.csv``; see
@@ -268,6 +270,14 @@ panel) in each power-of-two size interval, with one bar per execution.
 Compare the two panels: an interval with few requests and much of the time
 holds the expensive requests. Hovering over a bar shows the number of
 requests, the time, and the bytes. See :ref:`requests <io-request-sizes>`.
+
+The **Files** table shows, for each execution, the ten files with the most
+I/O time (POSIX and ANSI C calls): the processes that call on the file, the
+bytes read and written, the share of the bytes moved by the main process of
+the file, and the I/O time and its share. The last row collects the calls
+on descriptors without an open in the trace. Hovering over a file name
+shows its full path; all the files are in ``io_files.csv``. See
+:ref:`files <io-files>`.
 
 The I/O metrics are reported independently from the hierarchical
 performance-efficiency model and must not be interpreted as additional

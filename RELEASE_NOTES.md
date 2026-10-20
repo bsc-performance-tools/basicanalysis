@@ -37,6 +37,16 @@
   written by Paraver (`cfgs/io-requests-filter.xml`); the histograms
   `cfgs/io-*-size-pow2-*.cfg` show the same intervals in Paraver for the
   POSIX and ANSI C calls.
+- Files accessed by the POSIX and ANSI C calls (MPI-IO records no file):
+  files accessed, maximum processes per file, volume moved by the main
+  process of each file (100% when each file is read and written by one
+  process), and file-name coverage of the volume. Each call is attributed
+  to its file through its descriptor and the file name of the open that
+  returned it. They are shown in the I/O diagnostics, a new *Files* table
+  of the I/O Analysis view (the ten files with the most I/O time of each
+  execution), the standard output, `io_metrics.csv`, and the new
+  `io_files.csv` (every file). The temporary trace of the requests also
+  keeps the descriptor and file name events.
 - The I/O efficiencies (I/O, Data Access, and File Management Efficiency)
   are classified with stricter thresholds than the other efficiencies:
   Critical below 90% (I/O takes 10% or more of the useful plus I/O time),
