@@ -1027,8 +1027,8 @@ def _build_io_request_size_plot_html(other_metrics, trace_list,
 
 def _build_io_request_sizes_card_html(other_metrics, trace_list,
                                       trace_labels, printable=False):
-    """Card with the request-size distribution of the POSIX and ANSI C
-    read and write calls."""
+    """Card with the request-size distribution of the read and write calls
+    (POSIX, ANSI C, and MPI-IO)."""
     plots = [
         _build_io_request_size_plot_html(
             other_metrics, trace_list, trace_labels, operation, printable)
@@ -1043,8 +1043,9 @@ def _build_io_request_sizes_card_html(other_metrics, trace_list,
         return ""
 
     note = (
-        "Share of the requests (top) and of the time (bottom) of the POSIX "
-        "and ANSI C read and write calls in each request-size interval. "
+        "Share of the requests (top) and of the time (bottom) of the read "
+        "and write calls (POSIX, ANSI C, and MPI-IO) in each request-size "
+        "interval. "
         "Compare the two panels: an interval with a small share of the "
         "requests and a large share of the time holds the expensive "
         "requests. The intervals are powers of two and include the lower "
@@ -4946,7 +4947,7 @@ def _build_io_metrics_guidance_html():
                 rather than to the application I/O pattern.
             </li>
             <li>
-                <strong>Requests</strong> (POSIX and ANSI C): the volume read
+                <strong>Requests</strong> (POSIX, ANSI C, and MPI-IO): the volume read
                 and written, the mean request size, and, in the
                 <strong>Request sizes</strong> histograms, the share of the
                 requests and of the time in each power-of-two size interval

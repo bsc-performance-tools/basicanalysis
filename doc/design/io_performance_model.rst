@@ -1134,7 +1134,7 @@ Current Raw-Data Coverage
 +------------------------------------+------------------------------+
 | Request-size distribution          | Implemented (power-of-two    |
 |                                    | intervals; count, time,      |
-|                                    | bytes; POSIX and ANSI C)     |
+|                                    | bytes; POSIX, ANSI C, MPI-IO)|
 +------------------------------------+------------------------------+
 | Request-size histogram coverage    | Implemented                  |
 +------------------------------------+------------------------------+
@@ -1543,6 +1543,19 @@ for the first I/O report.
 
 Review Log
 ----------
+
+*2026-10-20* -- Implementation (MPI-IO request sizes): the filtered trace
+also keeps the MPI-IO call (``50000005``) and size (``50000110``) events.
+Extrae records count x datatype size (requested bytes) at the entry and the
+exit of every MPI-IO call; split collectives carry the size in ``*_begin``
+(``*_end`` has none): one request with the time of both calls; nonblocking
+calls are not instrumented (Extrae 5.1.3). Read/write identified by the
+``.pcf`` labels. One distribution per operation for all the APIs (as the
+classification by meaning); ``io_request_sizes.csv`` by API. Coverage counts
+the calls of every API except the MPI-IO ``*_end`` calls. Validated on
+SPH-EXA (64 ranks, ``MPI_File_read_at``): 836 requests and 192,308,840
+bytes, identical to a direct count in the trace; VTKHDF and cfdem (POSIX
+only) unchanged.
 
 *2026-10-20* -- Implementation (request sizes, POSIX and ANSI C): read and
 write families (Extrae values 1, 3, 5, 7, 9 and 2, 4, 6, 8, 10), volume,

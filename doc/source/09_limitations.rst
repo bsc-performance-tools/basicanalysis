@@ -120,9 +120,12 @@ The following assumptions and limitations apply:
   others wait for the slowest unit. When the I/O of a unit overlaps the
   computation of the others, they underestimate the efficiency.
 * **Request sizes.** The volume and the request-size distribution include
-  only the POSIX and ANSI C read and write calls whose request size is
-  recorded in the trace (see the request-size coverage); the size of the
-  MPI-IO requests is not used yet. Zero-byte requests are not counted. When
+  the read and write calls whose request size is recorded in the trace (see
+  the request-size coverage). The MPI-IO size is the requested size (count
+  times the datatype size), which may be more than the bytes read at the end
+  of a file. The nonblocking MPI-IO calls (``MPI_File_iread``,
+  ``MPI_File_iwrite``) are not instrumented by Extrae. Zero-byte requests
+  are not counted. When
   a call starts before the previous call of the same thread has ended
   (unclosed or nested calls, rare in Extrae traces), only the later call is
   counted.

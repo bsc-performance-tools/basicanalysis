@@ -255,15 +255,15 @@ time fractions, participation, and API contributions), *Data Access* (read
 and write contributions and load balance), *File Management* (open, close,
 seek, and control contributions and load balance), *Operations* (time,
 number of operations, and mean duration of each group of calls), and
-*Requests* (POSIX and ANSI C read and write volume, mean request size, and
+*Requests* (read and write volume, mean request size, and
 request-size coverage). These values
 are not efficiencies, so they have no color scale; rows of calls or APIs that
 no execution uses are omitted. The same diagnostics are printed in the
 standard output and written to ``io_metrics.csv``; see
 :ref:`I/O diagnostics <io-diagnostics>`.
 
-The **Request sizes** histograms show, for the POSIX and ANSI C read and
-write calls, the share of the requests (top panel) and of the time (bottom
+The **Request sizes** histograms show, for the read and write calls of
+every API (POSIX, ANSI C, and MPI-IO), the share of the requests (top panel) and of the time (bottom
 panel) in each power-of-two size interval, with one bar per execution.
 Compare the two panels: an interval with few requests and much of the time
 holds the expensive requests. Hovering over a bar shows the number of

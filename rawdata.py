@@ -95,12 +95,15 @@ IO_OPERATIONS = (
 )
 
 
-# Request-size distribution of the POSIX and ANSI C read and write calls.
-# Interval j holds the requests of [2^(j-1), 2^j) bytes; the last one also
-# the larger requests (as cfgs/io-*-size-pow2-*.cfg, which show the same
-# intervals in Paraver).
+# Request-size distribution of the read and write calls (POSIX, ANSI C, and
+# MPI-IO). Interval j holds the requests of [2^(j-1), 2^j) bytes; the last
+# one also the larger requests (as cfgs/io-*-size-pow2-*.cfg, which show the
+# same intervals in Paraver for POSIX and ANSI C).
 IO_CALL_EVENT = 40000004
 IO_SIZE_EVENT = 40000011
+MPIIO_CALL_EVENT = 50000005
+MPIIO_SIZE_EVENT = 50000110
+IO_REQUEST_SIZE_APIS = ('posix', 'mpiio')
 IO_REQUEST_SIZE_INTERVALS = 32
 IO_REQUEST_SIZE_OPERATIONS = ('read', 'write')
 
@@ -1138,25 +1141,28 @@ def io_requests_trace_path(trace_name):
     return trace_name + '.io_requests.prv'
 
 
-def trace_has_posix_io_events(trace_name_control):
-    """True when the .pcf declares the I/O calls event (40000004). Without
-    a .pcf, the I/O events are filtered anyway."""
+def trace_has_io_call_events(trace_name_control):
+    """True when the .pcf declares the I/O calls event (40000004) or the
+    MPI-IO event (50000005). Without a .pcf, the I/O events are filtered
+    anyway."""
     pcf = trace_name_control + '.pcf'
 
     if not os.path.exists(pcf):
         return True
 
-    with open(pcf) as f:
-        return any(str(IO_CALL_EVENT) in line for line in f)
+    events = (str(IO_CALL_EVENT), str(MPIIO_CALL_EVENT))
+
+    with open(pcf, errors='replace') as f:
+        return any(event in line for line in f for event in events)
 
 
 def filter_io_request_events(trace, trace_name, trace_name_control, cfgs,
                              cmdl_args):
-    """Write a temporary trace that keeps only the I/O call and I/O size
-    events (cfgs/io-requests-filter.xml), for the request-size
-    distribution. Paraver reads the full trace; the request sizes are then
-    taken from the much smaller filtered trace."""
-    if not trace_has_posix_io_events(trace_name_control):
+    """Write a temporary trace that keeps only the I/O call and size events
+    of POSIX/ANSI C and MPI-IO (cfgs/io-requests-filter.xml), for the
+    request-size distribution. Paraver reads the full trace; the request
+    sizes are then taken from the much smaller filtered trace."""
+    if not trace_has_io_call_events(trace_name_control):
         return
 
     run_command(
@@ -1197,31 +1203,126 @@ def request_size_interval(size):
     return min(int(size).bit_length(), IO_REQUEST_SIZE_INTERVALS)
 
 
-def parse_io_requests_trace(path):
-    """Requests of the POSIX and ANSI C read and write calls per
-    power-of-two size interval, from the filtered trace.
+def parse_pcf_event_values(pcf_path, event_type):
+    """Labels of the values of an event type in a .pcf file: {value: label}."""
+    values = {}
 
-    A call starts with a non-zero value of the I/O calls event, with the
-    I/O size event in the same record, and ends with the value 0. Calls
-    without size are not counted. When a call starts before the previous
-    call of the same thread has ended (unclosed or nested calls, rare in
-    Extrae traces), the later call replaces the earlier one, which is not
-    counted.
+    if not os.path.exists(pcf_path):
+        return values
+
+    event_type = str(event_type)
+    types = []
+    in_types = False
+    in_values = False
+
+    with open(pcf_path, errors='replace') as f:
+        for raw_line in f:
+            line = raw_line.strip()
+
+            if line == 'EVENT_TYPE':
+                types = []
+                in_types = True
+                in_values = False
+                continue
+
+            if line == 'VALUES':
+                in_types = False
+                in_values = event_type in types
+                continue
+
+            if not line:
+                in_types = False
+                in_values = False
+                continue
+
+            fields = line.split(None, 2)
+
+            if in_types and len(fields) >= 2:
+                types.append(fields[1])
+            elif in_values and len(fields) >= 2:
+                try:
+                    values[int(fields[0])] = fields[1]
+                except ValueError:
+                    continue
+
+    return values
+
+
+def _mpiio_request_calls(labels):
+    """Read and write MPI-IO calls by value of the MPI-IO event:
+    {value: (operation, kind)}, where kind is 'call' (the call carries the
+    request), 'begin' (split collective: carries the request), or 'end'
+    (split collective: completes the request of the last 'begin')."""
+    calls = {}
+
+    for value, label in labels.items():
+        name = label.lower()
+
+        if name.startswith('mpi_file_read'):
+            operation = 'read'
+        elif name.startswith('mpi_file_write'):
+            operation = 'write'
+        else:
+            continue
+
+        if name.endswith('_begin'):
+            kind = 'begin'
+        elif name.endswith('_end'):
+            kind = 'end'
+        else:
+            kind = 'call'
+
+        calls[value] = (operation, kind)
+
+    return calls
+
+
+def parse_io_requests_trace(path):
+    """Requests of the read and write calls per power-of-two size interval
+    and API, from the filtered trace.
+
+    POSIX and ANSI C: a call starts with a non-zero value of the I/O calls
+    event (40000004), with the I/O size event (40000011) in the same record,
+    and ends with the value 0.
+
+    MPI-IO: a call starts with a non-zero value of the MPI-IO event
+    (50000005), with the MPI-IO size event (50000110: count times the size
+    of the datatype, the requested bytes), and ends with the value 0. The
+    read and write calls are identified by their labels in the .pcf file of
+    the trace. A split collective (*_begin and *_end) is one request: its
+    size is that of the *_begin call, and its time is that of both calls.
+
+    Calls without size or with size 0 are not counted. When a call starts
+    before the previous call of the same API and thread has ended (unclosed
+    or nested calls, rare in Extrae traces), the later call replaces the
+    earlier one, which is not counted.
 
     Returns:
-        dict: {operation: {interval index: {'count', 'time', 'bytes'}}},
-        with the time in microseconds.
+        dict: {api: {operation: {interval index: {'count', 'time',
+        'bytes'}}}}, api in ('posix', 'mpiio'), time in microseconds.
     """
-    families = {}
+    posix_calls = {}
 
     for operation, values in IO_REQUEST_SIZE_FAMILIES.items():
         for value in values:
-            families[value] = operation
+            posix_calls[value] = (operation, 'call')
 
-    requests = {operation: {} for operation in IO_REQUEST_SIZE_OPERATIONS}
-    open_calls = {}
-    call_event = str(IO_CALL_EVENT)
-    size_event = str(IO_SIZE_EVENT)
+    mpiio_calls = _mpiio_request_calls(
+        parse_pcf_event_values(path[:-4] + '.pcf', MPIIO_CALL_EVENT))
+
+    apis = (
+        ('posix', str(IO_CALL_EVENT), str(IO_SIZE_EVENT), posix_calls),
+        ('mpiio', str(MPIIO_CALL_EVENT), str(MPIIO_SIZE_EVENT), mpiio_calls),
+    )
+
+    requests = {
+        api: {operation: {} for operation in IO_REQUEST_SIZE_OPERATIONS}
+        for api, _, _, _ in apis
+    }
+    open_calls = {api: {} for api, _, _, _ in apis}
+    # Interval of the last *_begin of each thread and operation, which the
+    # *_end call completes.
+    pending_begin = {}
     time_to_us = 1.0
 
     with open(path) as f:
@@ -1235,42 +1336,70 @@ def parse_io_requests_trace(path):
 
             fields = line.rstrip('\n').split(':')
             events = dict(zip(fields[6::2], fields[7::2]))
-
-            if call_event not in events:
-                continue
-
             thread = (fields[1], fields[2], fields[3], fields[4])
             timestamp = int(fields[5])
-            value = int(events[call_event])
 
-            if value != 0:
-                size = events.get(size_event)
-                open_calls[thread] = (
-                    families.get(value),
-                    timestamp,
-                    int(size) if size is not None else 0,
+            for api, call_event, size_event, calls in apis:
+                if call_event not in events:
+                    continue
+
+                value = int(events[call_event])
+
+                if value != 0:
+                    size = events.get(size_event)
+                    open_calls[api][thread] = (
+                        calls.get(value),
+                        timestamp,
+                        int(size) if size is not None else 0,
+                    )
+                    continue
+
+                call = open_calls[api].pop(thread, None)
+
+                if call is None or call[0] is None:
+                    continue
+
+                (operation, kind), start, size = call
+                duration = (timestamp - start) * time_to_us
+
+                if kind == 'end':
+                    stats = pending_begin.pop((api, thread, operation), None)
+
+                    if stats is not None:
+                        stats['time'] += duration
+
+                    continue
+
+                if size <= 0:
+                    continue
+
+                stats = requests[api][operation].setdefault(
+                    request_size_interval(size),
+                    {'count': 0.0, 'time': 0.0, 'bytes': 0.0},
                 )
-                continue
+                stats['count'] += 1
+                stats['time'] += duration
+                stats['bytes'] += size
 
-            call = open_calls.pop(thread, None)
-
-            if call is None:
-                continue
-
-            operation, start, size = call
-
-            if operation is None or size <= 0:
-                continue
-
-            stats = requests[operation].setdefault(
-                request_size_interval(size),
-                {'count': 0.0, 'time': 0.0, 'bytes': 0.0},
-            )
-            stats['count'] += 1
-            stats['time'] += (timestamp - start) * time_to_us
-            stats['bytes'] += size
+                if kind == 'begin':
+                    pending_begin[(api, thread, operation)] = stats
 
     return requests
+
+
+def merge_io_request_intervals(*interval_sets):
+    """Add the intervals of several APIs of one operation."""
+    merged = {}
+
+    for intervals in interval_sets:
+        for index, stats in intervals.items():
+            total = merged.setdefault(
+                index, {'count': 0.0, 'time': 0.0, 'bytes': 0.0})
+
+            for key in total:
+                total[key] += stats[key]
+
+    return merged
 
 
 def build_io_request_size_bins(intervals):
@@ -1416,14 +1545,16 @@ def create_io_raw_data():
             }
             for operation in IO_OPERATIONS
         },
-        # POSIX and ANSI C requests per power-of-two size interval (see
-        # build_io_request_size_bins).
+        # Read and write requests per power-of-two size interval (see
+        # build_io_request_size_bins), of all the APIs and by API.
         'request_size': {
             'read': {
                 'bins': [],
+                'bins_by_api': {},
             },
             'write': {
                 'bins': [],
+                'bins_by_api': {},
             },
         },
         'files': {
@@ -2915,14 +3046,20 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         if os.path.exists(path):
             trace_io_data['calls'][api][stat] = parse_io_call_table(path)
 
-    # POSIX and ANSI C requests per power-of-two size interval
+    # Read and write requests per power-of-two size interval
     if os.path.exists(io_requests_trace_path(trace_name)):
         requests = parse_io_requests_trace(io_requests_trace_path(trace_name))
 
         for operation in IO_REQUEST_SIZE_OPERATIONS:
             trace_io_data['request_size'][operation]['bins'] = (
-                build_io_request_size_bins(requests[operation])
+                build_io_request_size_bins(merge_io_request_intervals(*[
+                    requests[api][operation] for api in IO_REQUEST_SIZE_APIS
+                ]))
             )
+            trace_io_data['request_size'][operation]['bins_by_api'] = {
+                api: build_io_request_size_bins(requests[api][operation])
+                for api in IO_REQUEST_SIZE_APIS
+            }
 
         if not cmdl_args.debug:
             remove_io_requests_trace(trace_name)

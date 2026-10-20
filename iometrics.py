@@ -22,7 +22,7 @@ operation (read, write, open, ...) of the maximum time of a unit:
 
 The diagnostics (time fractions, contributions, load balance, operation counts,
 and mean durations) explain where the I/O time is spent. The request-size
-distribution of the POSIX and ANSI C read and write calls (power-of-two
+distribution of the read and write calls of every API (power-of-two
 intervals) shows which request sizes cost the time.
 
 Times in the raw data are in microseconds.
@@ -159,18 +159,23 @@ for _operation in OPERATIONS:
     IO_DIAGNOSTICS_DOC['io_{}_mean_duration'.format(_operation)] = (
         '{} mean duration (us)'.format(_label), 'us')
 
-# Requests of the POSIX and ANSI C read and write calls (the size of the
-# MPI-IO requests is not used yet).
+# Requests of the read and write calls of every API (POSIX, ANSI C, and
+# MPI-IO).
 REQUEST_SIZE_OPERATIONS = DATA_ACCESS_OPERATIONS
 
+API_LABELS = {
+    'posix': 'POSIX/ANSI C',
+    'mpiio': 'MPI-IO',
+}
+
 for _operation in REQUEST_SIZE_OPERATIONS:
+    _label = OPERATION_LABELS[_operation]
     IO_DIAGNOSTICS_DOC['io_{}_volume'.format(_operation)] = (
-        'POSIX/ANSI C {} volume (bytes)'.format(_operation), 'bytes')
+        '{} volume (bytes)'.format(_label), 'bytes')
     IO_DIAGNOSTICS_DOC['io_{}_mean_request_size'.format(_operation)] = (
-        'POSIX/ANSI C {} mean request size (bytes)'.format(_operation),
-        'bytes')
+        '{} mean request size (bytes)'.format(_label), 'bytes')
     IO_DIAGNOSTICS_DOC['io_{}_size_coverage'.format(_operation)] = (
-        'POSIX/ANSI C {} request-size coverage (%)'.format(_operation), '%')
+        '{} request-size coverage (%)'.format(_label), '%')
 
 NON_AVAIL = 'Non-Avail'
 
@@ -204,7 +209,7 @@ IO_DIAGNOSTIC_GROUPS = [
         for operation in OPERATIONS
         for quantity in ('time', 'operations', 'mean_duration')
     ]),
-    ('Requests (POSIX and ANSI C)', [
+    ('Requests', [
         'io_{}_{}'.format(operation, quantity)
         for operation in REQUEST_SIZE_OPERATIONS
         for quantity in ('volume', 'mean_request_size', 'size_coverage')
@@ -345,30 +350,35 @@ def io_useful_time(raw_data, trace):
     return float(raw_data['useful_tot'][trace])
 
 
-def _posix_operation_count(trace_io_data, operation):
-    """Number of POSIX and ANSI C calls of an operation (call table)."""
-    table = (
-        ((trace_io_data or {}).get('calls') or {}).get('posix') or {}
-    ).get('count')
-
-    if not table:
-        return 0.0
-
+def _request_call_count(trace_io_data, operation):
+    """Number of calls of an operation that issue a request (call tables of
+    every API). The *_end call of an MPI-IO split collective completes the
+    request of its *_begin call and is not counted."""
+    calls = (trace_io_data or {}).get('calls') or {}
     total = 0.0
 
-    for call, values in table['calls'].items():
-        if call in NOT_A_CALL:
+    for api in APIS:
+        table = (calls.get(api) or {}).get('count')
+
+        if not table:
             continue
 
-        if classify_call('posix', call)[0] == operation:
-            total += sum(values)
+        for call, values in table['calls'].items():
+            if call in NOT_A_CALL:
+                continue
+
+            if api == 'mpiio' and call.lower().endswith('_end'):
+                continue
+
+            if classify_call(api, call)[0] == operation:
+                total += sum(values)
 
     return total
 
 
 def io_request_size_distribution(trace_io_data):
-    """Request-size distribution of the POSIX and ANSI C read and write
-    calls of a trace.
+    """Request-size distribution of the read and write calls of a trace
+    (every API).
 
     Returns {operation: [bin, ...]} for the operations with requests, where
     every bin of the raw data (min, max, count, time, bytes) gets the
@@ -402,6 +412,46 @@ def io_request_size_distribution(trace_io_data):
             rows.append(row)
 
         distribution[operation] = rows
+
+    return distribution
+
+
+def io_request_size_distribution_by_api(trace_io_data):
+    """Request-size distribution of each API: {operation: {api: [bin]}}.
+    The shares of every bin are relative to the totals of the operation in
+    all the APIs, so that the bins of all the APIs add up to 100%."""
+    distribution = OrderedDict()
+    request_size = (trace_io_data or {}).get('request_size') or {}
+
+    for operation in REQUEST_SIZE_OPERATIONS:
+        by_api = (request_size.get(operation) or {}).get('bins_by_api') or {}
+        bins = [bin_ for api in APIS for bin_ in by_api.get(api, [])]
+
+        totals = {
+            key: sum(bin_[key] for bin_ in bins)
+            for key in ('count', 'time', 'bytes')
+        }
+
+        if totals['count'] <= 0.0:
+            continue
+
+        distribution[operation] = OrderedDict()
+
+        for api in APIS:
+            rows = []
+
+            for bin_ in by_api.get(api, []):
+                row = dict(bin_)
+                row['label'] = request_size_interval_label(
+                    bin_['min'], bin_['max'])
+
+                for key in ('count', 'time', 'bytes'):
+                    row[key + '_pct'] = _percentage(bin_[key], totals[key])
+
+                rows.append(row)
+
+            if rows:
+                distribution[operation][api] = rows
 
     return distribution
 
@@ -531,7 +581,7 @@ def compute_trace_io_metrics(useful_tot, runtime, io_units, trace_io_data):
                 operation_time / operation_count
             )
 
-    # Requests (POSIX and ANSI C).
+    # Requests (every API).
     for operation, bins in io_request_size_distribution(
             trace_io_data).items():
         requests = sum(bin_['count'] for bin_ in bins)
@@ -541,7 +591,7 @@ def compute_trace_io_metrics(useful_tot, runtime, io_units, trace_io_data):
         metrics['io_{}_mean_request_size'.format(operation)] = (
             volume / requests)
 
-        calls = _posix_operation_count(trace_io_data, operation)
+        calls = _request_call_count(trace_io_data, operation)
 
         if calls > 0.0:
             metrics['io_{}_size_coverage'.format(operation)] = (
@@ -566,6 +616,11 @@ def add_io_metrics(other_metrics, raw_data, io_data, trace_list):
     # io_request_size_distribution), for the report and io_request_sizes.csv.
     other_metrics['io_request_sizes'] = {
         trace: io_request_size_distribution((io_data or {}).get(trace))
+        for trace in trace_list
+    }
+    other_metrics['io_request_sizes_by_api'] = {
+        trace: io_request_size_distribution_by_api(
+            (io_data or {}).get(trace))
         for trace in trace_list
     }
 
@@ -767,8 +822,9 @@ def print_io_request_size_tables(other_metrics, trace_list, column_labels,
         for label in column_labels:
             line_head += ' | ' + label.rjust(width)
 
-        print('POSIX/ANSI C {} requests per size interval '
-              '(% of requests / % of time):'.format(operation))
+        print('{} requests per size interval '
+              '(% of requests / % of time):'.format(
+                  OPERATION_LABELS[operation]))
         print(''.ljust(len(line_head), '-'))
         print(line_head)
         print(''.ljust(len(line_head), '-'))
@@ -795,8 +851,9 @@ def print_io_request_size_tables(other_metrics, trace_list, column_labels,
 
 def print_io_request_sizes_csv(other_metrics, trace_list):
     """Write the request-size distribution to io_request_sizes.csv, one row
-    per trace, operation, and non-empty interval."""
-    distributions = other_metrics.get('io_request_sizes', {})
+    per trace, operation, API, and non-empty interval. The shares are
+    relative to the operation in all the APIs."""
+    distributions = other_metrics.get('io_request_sizes_by_api', {})
 
     if not any(distributions.get(trace) for trace in trace_list):
         return
@@ -814,11 +871,12 @@ def print_io_request_sizes_csv(other_metrics, trace_list):
         output.write(delimiter.join('"' + c + '"' for c in columns) + '\n')
 
         for trace in trace_list:
-            for operation, bins in (distributions.get(trace) or {}).items():
-                for bin_ in bins:
+            for operation, by_api in (distributions.get(trace) or {}).items():
+                for api, bin_ in [(api, bin_) for api, bins in by_api.items()
+                                  for bin_ in bins]:
                     values = [
                         '"' + trace + '"',
-                        '"POSIX/ANSI C"',
+                        '"' + API_LABELS[api] + '"',
                         '"' + operation + '"',
                         '"' + bin_['label'] + '"',
                         '{:d}'.format(int(bin_['min'])),

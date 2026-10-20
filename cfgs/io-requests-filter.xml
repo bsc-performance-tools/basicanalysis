@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Keeps only the I/O call (40000004) and I/O size (40000011) events. The
-     request-size distribution is computed from the filtered trace
+<!-- Keeps only the I/O call and size events of POSIX/ANSI C (40000004,
+     40000011) and MPI-IO (50000005, 50000110). The request-size
+     distribution is computed from the filtered trace
      (rawdata.parse_io_requests_trace); the io-*-size-pow2-*.cfg histograms
-     show the same intervals in Paraver. -->
+     show the same intervals in Paraver for POSIX and ANSI C. -->
 <config>
   <filter>
     <discard_states>1</discard_states>
@@ -11,6 +12,8 @@
     <types>
       <type>40000004</type>
       <type>40000011</type>
+      <type>50000005</type>
+      <type>50000110</type>
     </types>
   </filter>
 </config>

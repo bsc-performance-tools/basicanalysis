@@ -2943,15 +2943,16 @@ system rather than to the application I/O pattern.
 
 .. _io-request-sizes:
 
-**Requests** of the POSIX and ANSI C read and write calls (the read and
-write families: ``read``, ``fread``, ``pread``, ``readv``, ``preadv``, and
-the corresponding write calls):
+**Requests** of the read and write calls of every API: the POSIX and
+ANSI C read and write families (``read``, ``fread``, ``pread``, ``readv``,
+``preadv``, and the corresponding write calls) and the MPI-IO read and write
+calls (``MPI_File_read*``, ``MPI_File_write*``):
 
 * the **volume** read and written (bytes);
 * the **mean request size**, the volume divided by the number of requests;
 * the **request-size coverage**, the percentage of the read or write calls
-  that have a request size in the trace and are therefore included in the
-  volume and the distribution;
+  that have a non-zero request size in the trace and are therefore included
+  in the volume and the distribution;
 * the **request-size distribution**: for each power-of-two size interval,
   the share of the requests, of the time, and of the bytes of the read or
   write calls.
@@ -2963,6 +2964,18 @@ same for every execution, so executions can be compared directly, and they
 resolve small requests even when large requests exist. The mean alone is not
 enough, because different distributions can have the same mean.
 
+The size of a request is the one recorded by Extrae for the call: the bytes
+requested by a POSIX or ANSI C call, and the count times the size of the
+datatype of an MPI-IO call (also the requested bytes, which may be more than
+the bytes read at the end of a file). An MPI-IO split collective
+(``*_begin`` and ``*_end``) is one request, with the size of the
+``*_begin`` call and the time of both calls. The requests of every API are
+added in the distribution, as in the classification of the calls;
+``io_request_sizes.csv`` gives them by API. Extrae does not trace, by
+default, the POSIX calls performed inside the MPI-IO calls, so the MPI-IO
+requests are the requests of the application, not those that the MPI-IO
+library issues to the file system.
+
 The distribution shows which request sizes cost the time. In a cfdem
 execution, the writes of 256--511 bytes are 1.3% of the writes but 84% of
 the write time; in a VTKHDF execution with chunks of 2M, the writes of 8--16
@@ -2971,10 +2984,10 @@ small share of the requests and a large share of the time holds the
 expensive requests.
 
 BasicAnalysis obtains the requests from a temporary trace that keeps only
-the I/O call and I/O size events (written by Paraver with
-``cfgs/io-requests-filter.xml`` and removed after the analysis). The
+the I/O call and size events of POSIX/ANSI C and MPI-IO (written by Paraver
+with ``cfgs/io-requests-filter.xml`` and removed after the analysis). The
 histograms ``cfgs/io-{read,write}-size-pow2-{count,time,bytes}.cfg`` show the
-same intervals in Paraver. The size of the MPI-IO requests is not used yet.
+same intervals in Paraver for the POSIX and ANSI C calls.
 
 The I/O diagnostics are shown in the I/O Analysis view of the report and
 printed in the standard output (in both, rows that are zero for all the

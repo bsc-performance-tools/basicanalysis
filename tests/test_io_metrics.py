@@ -495,7 +495,7 @@ class RequestSizeTraceTests(unittest.TestCase):
             return parse_io_requests_trace(path)
 
     def test_requests_per_power_of_two_interval(self):
-        requests = self._parse()
+        requests = self._parse()['posix']
 
         self.assertEqual(requests['read'][9],
                          {'count': 1.0, 'time': 2.0, 'bytes': 300.0})
@@ -519,10 +519,98 @@ class RequestSizeTraceTests(unittest.TestCase):
     def test_bins(self):
         from rawdata import build_io_request_size_bins
 
-        bins = build_io_request_size_bins(self._parse()['read'])
+        bins = build_io_request_size_bins(self._parse()['posix']['read'])
 
         self.assertEqual([(b['min'], b['max']) for b in bins],
                          [(256, 512), (2 ** 31, None)])
+
+
+# Filtered trace with MPI-IO calls (times in ns) and its .pcf.
+MPIIO_TRACE = (
+    '#Paraver (20/10/2026 at 10:00):100000_ns:1(1):1:1(1:1),0\n'
+    # MPI_File_read of 4096 B, 2 us -> interval 13
+    '2:1:1:1:1:1000:50000005:143:50000110:4096\n'
+    '2:1:1:1:1:3000:50000005:0:50000110:4096\n'
+    # MPI_File_open: not a request
+    '2:1:1:1:1:4000:50000005:141:50000110:0\n'
+    '2:1:1:1:1:5000:50000005:0:50000110:0\n'
+    # split collective write of 1 MiB: begin 1 us, end 3 us -> interval 21
+    '2:1:1:1:1:6000:50000005:195:50000110:1048576\n'
+    '2:1:1:1:1:7000:50000005:0:50000110:1048576\n'
+    '2:1:1:1:1:9000:50000005:196:50000110:0\n'
+    '2:1:1:1:1:12000:50000005:0:50000110:0\n'
+)
+
+MPIIO_PCF = '''EVENT_TYPE
+9    50000005    MPI I/O
+VALUES
+0   Outside MPI
+141   MPI_File_open
+143   MPI_File_read
+195   MPI_File_write_all_begin
+196   MPI_File_write_all_end
+
+'''
+
+
+class MpiioRequestTests(unittest.TestCase):
+
+    def _parse(self):
+        from rawdata import parse_io_requests_trace
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.io_requests.prv')
+            with open(path, 'w') as f:
+                f.write(MPIIO_TRACE)
+            with open(path[:-4] + '.pcf', 'w') as f:
+                f.write(MPIIO_PCF)
+            return parse_io_requests_trace(path)
+
+    def test_mpiio_requests(self):
+        requests = self._parse()
+
+        self.assertEqual(requests['mpiio']['read'],
+                         {13: {'count': 1.0, 'time': 2.0, 'bytes': 4096.0}})
+        # The split collective is one request with the time of both calls.
+        self.assertEqual(requests['mpiio']['write'],
+                         {21: {'count': 1.0, 'time': 4.0,
+                               'bytes': 1048576.0}})
+        self.assertEqual(requests['posix'], {'read': {}, 'write': {}})
+
+    def test_pcf_values(self):
+        from rawdata import parse_pcf_event_values
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.pcf')
+            with open(path, 'w') as f:
+                f.write(MPIIO_PCF)
+            values = parse_pcf_event_values(path, 50000005)
+
+        self.assertEqual(values[196], 'MPI_File_write_all_end')
+        self.assertEqual(len(values), 5)
+
+    def test_coverage_counts_split_collectives_once(self):
+        io_data = _io_data(
+            mpiio_time=_table(UNITS, {
+                'MPI_File_write_all_begin': [1.0, 0.0],
+                'MPI_File_write_all_end': [3.0, 0.0],
+            }),
+            mpiio_count=_table(UNITS, {
+                'MPI_File_write_all_begin': [1.0, 0.0],
+                'MPI_File_write_all_end': [1.0, 0.0],
+            }),
+        )
+        io_data['request_size'] = {
+            'read': {'bins': []},
+            'write': {'bins': [
+                {'min': 2 ** 20, 'max': 2 ** 21, 'count': 1.0, 'time': 4.0,
+                 'bytes': 1048576.0},
+            ]},
+        }
+        metrics, _ = compute_trace_io_metrics(1000.0, 1000.0, 2, io_data)
+
+        self.assertAlmostEqual(metrics['io_write_size_coverage'], 100.0)
+        self.assertEqual(metrics['io_write_volume'], 1048576.0)
 
 
 def _request_io_data():
@@ -545,6 +633,9 @@ def _request_io_data():
              'bytes': 1024.0},
         ]},
         'write': {'bins': []},
+    }
+    io_data['request_size']['read']['bins_by_api'] = {
+        'posix': io_data['request_size']['read']['bins'],
     }
     return io_data
 

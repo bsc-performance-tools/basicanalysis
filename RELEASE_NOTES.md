@@ -24,17 +24,19 @@
   colors), the standard output, and the new `io_metrics.csv`. The time
   and number of MPI-IO calls are obtained with two new Paraver
   configurations (`mpiio-calls-time.cfg`, `mpiio-calls-count.cfg`).
-- Request sizes of the POSIX and ANSI C read and write calls: volume, mean
+- Request sizes of the read and write calls (POSIX, ANSI C, and MPI-IO;
+  an MPI-IO split collective is one request): volume, mean
   request size, request-size coverage, and the request-size distribution in
   power-of-two intervals (share of the requests, of the time, and of the
   bytes), identical for every execution. They are shown in the standard
   output, the I/O diagnostics and new *Request sizes* histograms (share of
   the requests and of the time per interval, one bar per execution) of the
-  I/O Analysis view, `io_metrics.csv`, and the new `io_request_sizes.csv`. The
+  I/O Analysis view, `io_metrics.csv`, and the new `io_request_sizes.csv`
+  (by API). The
   requests are read from a temporary trace with only the I/O events,
   written by Paraver (`cfgs/io-requests-filter.xml`); the histograms
-  `cfgs/io-*-size-pow2-*.cfg` show the same intervals in Paraver. MPI-IO
-  request sizes are not included yet.
+  `cfgs/io-*-size-pow2-*.cfg` show the same intervals in Paraver for the
+  POSIX and ANSI C calls.
 - The I/O efficiencies (I/O, Data Access, and File Management Efficiency)
   are classified with stricter thresholds than the other efficiencies:
   Critical below 90% (I/O takes 10% or more of the useful plus I/O time),
