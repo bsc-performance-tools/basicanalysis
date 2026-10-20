@@ -205,8 +205,11 @@ TOP_FILES = 10
 
 NON_AVAIL = 'Non-Avail'
 
-# Groups of diagnostics shown in the report.
-IO_DIAGNOSTIC_GROUPS = [
+# Diagnostics of the distribution of the I/O time, in the groups shown in
+# the report. The operations, the requests, and the files have their own
+# tables in the report (OPERATION_QUANTITIES, REQUEST_QUANTITIES,
+# FILE_DIAGNOSTICS).
+IO_TIME_DIAGNOSTIC_GROUPS = [
     ('I/O time', [
         'io_fraction_avg',
         'io_fraction_max',
@@ -230,18 +233,13 @@ IO_DIAGNOSTIC_GROUPS = [
         'io_fm_load_balance',
         'io_open_load_balance',
     ]),
-    ('Operations', [
-        'io_{}_{}'.format(operation, quantity)
-        for operation in OPERATIONS
-        for quantity in ('time', 'operations', 'mean_duration')
-    ]),
-    ('Requests', [
-        'io_{}_{}'.format(operation, quantity)
-        for operation in REQUEST_SIZE_OPERATIONS
-        for quantity in ('volume', 'mean_request_size', 'size_coverage')
-    ]),
-    ('Files', FILE_DIAGNOSTICS),
 ]
+
+# Diagnostics of each operation (io_<operation>_<quantity>).
+OPERATION_QUANTITIES = ('time', 'operations', 'mean_duration')
+
+# Diagnostics of the requests of each operation in REQUEST_SIZE_OPERATIONS.
+REQUEST_QUANTITIES = ('volume', 'mean_request_size', 'size_coverage')
 
 BINARY_UNITS = ('B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB')
 

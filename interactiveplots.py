@@ -15,9 +15,14 @@ from plotly.subplots import make_subplots
 from configuration import format_configuration_label
 from tracemetadata import is_host_gpu_mode
 from iometrics import (
+    FILE_DIAGNOSTICS,
     IO_DIAGNOSTICS_DOC,
-    IO_DIAGNOSTIC_GROUPS,
+    IO_TIME_DIAGNOSTIC_GROUPS,
     NON_AVAIL as IO_NON_AVAIL,
+    OPERATIONS as IO_OPERATIONS,
+    OPERATION_LABELS as IO_OPERATION_LABELS,
+    OPERATION_QUANTITIES as IO_OPERATION_QUANTITIES,
+    REQUEST_QUANTITIES as IO_REQUEST_QUANTITIES,
     REQUEST_SIZE_OPERATIONS,
     TOP_FILES,
     format_bytes,
@@ -806,23 +811,30 @@ def _format_io_diagnostic(value, unit):
     return '{0:,.1f}'.format(value)
 
 
-def _build_io_diagnostics_table_html(other_metrics, trace_list, trace_labels):
-    """Table of the I/O diagnostics, grouped as in IO_DIAGNOSTIC_GROUPS.
+def _io_diagnostic_values(other_metrics, key, trace_list):
+    return [
+        other_metrics.get(key, {}).get(trace, IO_NON_AVAIL)
+        for trace in trace_list
+    ]
+
+
+def _build_io_diagnostics_table_html(other_metrics, trace_list, trace_labels,
+                                     groups=IO_TIME_DIAGNOSTIC_GROUPS):
+    """Table of I/O diagnostics, one row per diagnostic and one column per
+    execution, in groups of (title, keys); a group without title has no
+    title row.
 
     The diagnostics are not efficiencies, so they are shown without the
     efficiency colors. Rows of calls or APIs that no trace uses are omitted.
-    Returns an empty string when no trace has I/O diagnostics.
+    Returns an empty string when no trace has these diagnostics.
     """
     rows = []
 
-    for title, keys in IO_DIAGNOSTIC_GROUPS:
+    for title, keys in groups:
         group_rows = []
 
         for key in keys:
-            values = [
-                other_metrics.get(key, {}).get(trace, IO_NON_AVAIL)
-                for trace in trace_list
-            ]
+            values = _io_diagnostic_values(other_metrics, key, trace_list)
 
             if is_unused_diagnostic(values):
                 continue
@@ -837,11 +849,12 @@ def _build_io_diagnostics_table_html(other_metrics, trace_list, trace_labels):
             group_rows.append(
                 '<tr><td>{}</td>{}</tr>'.format(html.escape(label), cells))
 
-        if group_rows:
+        if group_rows and title:
             rows.append(
                 "<tr><td colspan='{}'>{}</td></tr>".format(
                     len(trace_list) + 1, html.escape(title)))
-            rows.extend(group_rows)
+
+        rows.extend(group_rows)
 
     if not rows:
         return ""
@@ -856,10 +869,104 @@ def _build_io_diagnostics_table_html(other_metrics, trace_list, trace_labels):
     )
 
 
+def _build_io_call_table_html(other_metrics, trace_list, trace_labels,
+                              operations, quantities):
+    """Table of the diagnostics io_<operation>_<quantity>: one row per
+    operation and, for each execution, one column per (quantity, label).
+    Operations that no trace uses are omitted. Returns an empty string when
+    no operation has values."""
+    rows = []
+
+    for operation in operations:
+        cells = []
+        values_used = []
+
+        for position in range(len(trace_list)):
+            for quantity, _ in quantities:
+                key = 'io_{}_{}'.format(operation, quantity)
+                value = other_metrics.get(key, {}).get(
+                    trace_list[position], IO_NON_AVAIL)
+                values_used.append(value)
+                cells.append('<td{}>{}</td>'.format(
+                    " class='io-execution-start'"
+                    if quantity == quantities[0][0] else '',
+                    _format_io_diagnostic(value, IO_DIAGNOSTICS_DOC[key][1])))
+
+        if is_unused_diagnostic(values_used):
+            continue
+
+        rows.append('<tr><td>{}</td>{}</tr>'.format(
+            html.escape(IO_OPERATION_LABELS[operation]), ''.join(cells)))
+
+    if not rows:
+        return ""
+
+    executions = ''.join(
+        "<th class='io-execution-start' colspan='{}'>{}</th>".format(
+            len(quantities), html.escape(label))
+        for label in trace_labels
+    )
+    columns = ''.join(
+        "<th{}>{}</th>".format(
+            " class='io-execution-start'" if position == 0 else '',
+            html.escape(label))
+        for _ in trace_labels
+        for position, (_, label) in enumerate(quantities)
+    )
+
+    return (
+        "<div class='io-table-wrap'>"
+        "<table class='metric-table io-diagnostics-table io-call-table'>"
+        "<thead><tr><th rowspan='2'>Call</th>{}</tr><tr>{}</tr></thead>"
+        "<tbody>{}</tbody></table></div>".format(
+            executions, columns, ''.join(rows))
+    )
+
+
+def _build_io_card_html(title, note, body_html, printable=False,
+                        export_name="", trace_column_description=""):
+    """Card of the I/O Analysis view: a title, a short note on how to read
+    it, and its tables or plots. Tables with an export name can be saved as
+    images like the efficiency tables."""
+    if printable:
+        return """
+        <h3 class="print-subsection-title">{title}</h3>
+        <p class="print-section-description">{note}</p>
+        <div class="print-metric-results metric-table-card">
+            {body_html}
+        </div>
+        """.format(title=html.escape(title), note=note, body_html=body_html)
+
+    export = ""
+
+    if export_name:
+        export = (
+            ' data-efficiency-export data-export-name="{}"'
+            ' data-export-columns="{}"'.format(
+                export_name,
+                html.escape(trace_column_description, quote=True),
+            )
+        )
+
+    return """
+    <div class="metric-table-card io-diagnostics-card"{export}>
+        <h3>{title}</h3>
+        <p class="io-diagnostics-note">{note}</p>
+        {body_html}
+    </div>
+    """.format(
+        export=export,
+        title=html.escape(title),
+        note=note,
+        body_html=body_html,
+    )
+
+
 def _build_io_diagnostics_card_html(other_metrics, trace_list, trace_labels,
                                     trace_column_description="",
                                     printable=False):
-    """Card with the I/O diagnostics table and a short reading note."""
+    """Card with the distribution of the I/O time: time fractions,
+    participation, contributions, and load balance."""
     table_html = _build_io_diagnostics_table_html(
         other_metrics, trace_list, trace_labels)
 
@@ -867,36 +974,48 @@ def _build_io_diagnostics_card_html(other_metrics, trace_list, trace_labels,
         return ""
 
     note = (
-        "Where the I/O time is spent. These values are not efficiencies: "
-        "they have no color scale and must be read in context (see "
-        "<em>How to read this view</em>)."
+        "<em>I/O time</em>: the average and maximum fraction of the "
+        "execution time in I/O, and the percentage of units that perform "
+        "I/O; a maximum much higher than the average, with low "
+        "participation, indicates I/O concentrated in a few units, which "
+        "the other units may wait for. "
+        "<em>Contributions</em>: which API, which of read or write, and "
+        "which File Management call take most of the time; a high "
+        "contribution shows where to look first, not that those calls are "
+        "inefficient. "
+        "<em>Load balance</em>: among the units that perform each kind of "
+        "call; read and write are given separately because applications "
+        "often read and write in different phases."
     )
 
-    if printable:
-        return """
-        <h3 class="print-subsection-title">I/O diagnostics</h3>
-        <p class="print-section-description">{note}</p>
-        <div class="print-metric-results metric-table-card">
-            {table_html}
-        </div>
-        """.format(note=note, table_html=table_html)
+    return _build_io_card_html(
+        "Where is the I/O time spent?", note, table_html, printable,
+        "io-time", trace_column_description)
 
-    return """
-    <div
-        class="metric-table-card io-diagnostics-card"
-        data-efficiency-export
-        data-export-name="io-diagnostics"
-        data-export-columns="{columns}"
-    >
-        <h3>I/O diagnostics</h3>
-        <p class="io-diagnostics-note">{note}</p>
-        {table_html}
-    </div>
-    """.format(
-        columns=html.escape(trace_column_description, quote=True),
-        note=note,
-        table_html=table_html,
+
+def _build_io_operations_card_html(other_metrics, trace_list, trace_labels,
+                                   trace_column_description="",
+                                   printable=False):
+    """Card with the time, number, and mean duration of each kind of
+    call."""
+    table_html = _build_io_call_table_html(
+        other_metrics, trace_list, trace_labels, IO_OPERATIONS,
+        list(zip(IO_OPERATION_QUANTITIES,
+                 ('Time (s)', 'Operations', 'Mean (\u00b5s)'))))
+
+    if not table_html:
+        return ""
+
+    note = (
+        "Time, number, and mean duration of each kind of call, over all "
+        "the units and APIs. A higher time with the same number of "
+        "operations (a higher mean duration) points to the I/O system "
+        "rather than to the application I/O pattern."
     )
+
+    return _build_io_card_html(
+        "Which calls take the time?", note, table_html, printable,
+        "io-operations", trace_column_description)
 
 
 # One color per execution in the request-size histograms.
@@ -1029,8 +1148,13 @@ def _build_io_request_size_plot_html(other_metrics, trace_list,
 
 def _build_io_request_sizes_card_html(other_metrics, trace_list,
                                       trace_labels, printable=False):
-    """Card with the request-size distribution of the read and write calls
-    (POSIX, ANSI C, and MPI-IO)."""
+    """Card with the volume and mean size of the requests of the read and
+    write calls (POSIX, ANSI C, and MPI-IO), and their request-size
+    distribution."""
+    table_html = _build_io_call_table_html(
+        other_metrics, trace_list, trace_labels, REQUEST_SIZE_OPERATIONS,
+        list(zip(IO_REQUEST_QUANTITIES,
+                 ('Volume', 'Mean size', 'Size coverage'))))
     plots = [
         _build_io_request_size_plot_html(
             other_metrics, trace_list, trace_labels, operation, printable)
@@ -1041,13 +1165,15 @@ def _build_io_request_sizes_card_html(other_metrics, trace_list,
         for plot in plots if plot
     )
 
-    if not plots_html:
+    if not table_html and not plots_html:
         return ""
 
     note = (
-        "Share of the requests (top) and of the time (bottom) of the read "
-        "and write calls (POSIX, ANSI C, and MPI-IO) in each request-size "
-        "interval. "
+        "Volume read and written and mean request size of the read and "
+        "write calls (POSIX, ANSI C, and MPI-IO); the size coverage is the "
+        "percentage of the calls with a request size in the trace. "
+        "The histograms show the share of the requests (top) and of the "
+        "time (bottom) in each request-size interval. "
         "Compare the two panels: an interval with a small share of the "
         "requests and a large share of the time holds the expensive "
         "requests. The intervals are powers of two and include the lower "
@@ -1057,22 +1183,8 @@ def _build_io_request_sizes_card_html(other_metrics, trace_list,
         "values are also in <code>io_request_sizes.csv</code>."
     )
 
-    if printable:
-        return """
-        <h3 class="print-subsection-title">Request sizes</h3>
-        <p class="print-section-description">{note}</p>
-        <div class="print-metric-results metric-table-card">
-            {plots_html}
-        </div>
-        """.format(note=note, plots_html=plots_html)
-
-    return """
-    <div class="metric-table-card io-diagnostics-card">
-        <h3>Request sizes</h3>
-        <p class="io-diagnostics-note">{note}</p>
-        {plots_html}
-    </div>
-    """.format(note=note, plots_html=plots_html)
+    return _build_io_card_html(
+        "What requests are made?", note, table_html + plots_html, printable)
 
 
 def _build_io_files_table_html(rows):
@@ -1116,8 +1228,9 @@ def _build_io_files_table_html(rows):
 
 def _build_io_files_card_html(other_metrics, trace_list, trace_labels,
                               printable=False):
-    """Card with the files with the most I/O time (POSIX and ANSI C) of
-    every execution."""
+    """Card with the files accessed (POSIX and ANSI C): the file
+    diagnostics and the files with the most I/O time of every
+    execution."""
     tables = []
 
     for trace, label in zip(trace_list, trace_labels):
@@ -1139,35 +1252,27 @@ def _build_io_files_card_html(other_metrics, trace_list, trace_labels,
     if not tables:
         return ""
 
+    summary_html = _build_io_diagnostics_table_html(
+        other_metrics, trace_list, trace_labels,
+        groups=[(None, FILE_DIAGNOSTICS)])
+
     note = (
-        "Files with the most I/O time (all the POSIX and ANSI C calls on "
-        "the file); MPI-IO does not record the files. "
-        "<em>Processes</em>: processes that call on the file. "
-        "<em>Main process</em>: share of the bytes of the file read and "
-        "written by the process that moves the most; 100% means one process "
-        "per file, and a file shared evenly by N processes gives 100/N %. "
-        "The last row collects the calls on descriptors without an open in "
-        "the trace (standard output, files opened before the tracing "
-        "starts). Hover over a name for the full path; all the files are "
-        "in <code>io_files.csv</code>."
+        "Files read and written by the POSIX and ANSI C calls; MPI-IO does "
+        "not record the files. "
+        "<em>Main process</em>: the process that reads and writes most of "
+        "the bytes of a file; near 100% the processes use their own files, "
+        "and a file shared evenly by N processes gives 100/N %. "
+        "The tables list the files with the most I/O time (all the calls "
+        "on the file); <em>Processes</em> are the processes that call on "
+        "the file. The last row collects the calls on descriptors without "
+        "an open in the trace (standard output, files opened before the "
+        "tracing starts). Hover over a name for the full path; all the "
+        "files are in <code>io_files.csv</code>."
     )
 
-    if printable:
-        return """
-        <h3 class="print-subsection-title">Files</h3>
-        <p class="print-section-description">{note}</p>
-        <div class="print-metric-results metric-table-card">
-            {tables}
-        </div>
-        """.format(note=note, tables=''.join(tables))
-
-    return """
-    <div class="metric-table-card io-diagnostics-card">
-        <h3>Files</h3>
-        <p class="io-diagnostics-note">{note}</p>
-        {tables}
-    </div>
-    """.format(note=note, tables=''.join(tables))
+    return _build_io_card_html(
+        "Which files are accessed?", note,
+        summary_html + ''.join(tables), printable)
 
 
 def _build_io_metrics_section(
@@ -1285,10 +1390,10 @@ def _build_io_metrics_section(
             {table_html}
         </div>
 
+        {trend_html}
+
         {diagnostics_html}
 
-        {trend_html}
-        
         {efficiency_scale_html}
 
         {scope_note_html}
@@ -1304,6 +1409,11 @@ def _build_io_metrics_section(
         ),
         table_html=table_html,
         diagnostics_html=_build_io_diagnostics_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+            trace_column_description,
+        ) + _build_io_operations_card_html(
             other_metrics,
             trace_list,
             trace_labels,
@@ -3933,9 +4043,9 @@ def _build_printable_io_section(
             {table_html}
         </div>
 
-        {diagnostics_html}
-
         {trend_html}
+
+        {diagnostics_html}
 
     </section>
     """.format(
@@ -3946,6 +4056,11 @@ def _build_printable_io_section(
         ),
         table_html=table_html,
         diagnostics_html=_build_io_diagnostics_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+            printable=True,
+        ) + _build_io_operations_card_html(
             other_metrics,
             trace_list,
             trace_labels,
@@ -5021,64 +5136,17 @@ def _build_io_metrics_guidance_html():
             Efficiency</strong> (read and write calls) and <strong>File
             Management Efficiency</strong> (open, close, seek, and control
             calls). The lower factor identifies the I/O component to
-            investigate. The <strong>I/O diagnostics</strong> table then
-            shows where that time is spent (also in
-            <code>io_metrics.csv</code>):
+            investigate.
         </p>
 
-        <ul>
-            <li>
-                <strong>I/O time</strong>: the average and maximum fraction
-                of the execution time in I/O, and the percentage of units that
-                perform I/O. A maximum much higher than the average, with low
-                participation, indicates I/O concentrated in a few units,
-                which the other units may wait for.
-            </li>
-            <li>
-                <strong>Contributions</strong>: which API, which of read or
-                write, and which File Management call (open, close, seek)
-                account for most of the time. A high contribution shows where
-                to look first; it does not mean that those calls are
-                inefficient.
-            </li>
-            <li>
-                <strong>Load balance</strong>, among the units that perform
-                each kind of call. Read and write are given separately because
-                applications often read and write in different phases.
-            </li>
-            <li>
-                <strong>Operations</strong>: time, number, and mean duration
-                of each kind of call. A higher time with the same number of
-                operations (a higher mean duration) points to the I/O system
-                rather than to the application I/O pattern.
-            </li>
-            <li>
-                <strong>Requests</strong> (POSIX, ANSI C, and MPI-IO): the volume read
-                and written, the mean request size, and, in the
-                <strong>Request sizes</strong> histograms, the share of the
-                requests and of the time in each power-of-two size interval
-                (also in <code>io_request_sizes.csv</code>). An interval with
-                few requests but much of the time holds the expensive
-                requests.
-            </li>
-            <li>
-                <strong>Files</strong> (POSIX and ANSI C): the files accessed,
-                the maximum number of processes per file, and the volume
-                moved by the main process of each file (the process that
-                reads and writes most of its bytes). Near 100% the processes
-                use their own files; a low value means files shared by
-                several processes. The <strong>Files</strong> table lists the
-                files with the most I/O time (all files in
-                <code>io_files.csv</code>).
-            </li>
-        </ul>
-
         <p>
-            These metrics are <strong>complementary to the hierarchical
-            performance-efficiency model</strong>. They do not contribute to
-            Global Efficiency, Parallel Efficiency, or Computation
-            Scalability and should therefore be interpreted independently
-            rather than as part of the multiplicative efficiency hierarchy.
+            The cards below the efficiencies then answer, in order:
+            <strong>where</strong> the I/O time is spent,
+            <strong>which calls</strong> take it, <strong>which
+            requests</strong> they make, and <strong>which files</strong>
+            they access. Each card explains how to read its values. These
+            values are not efficiencies and have no color scale; they are
+            also in <code>io_metrics.csv</code>.
         </p>
     </section>
     """
@@ -5825,9 +5893,28 @@ def _build_interactive_report_document(workspace_html,
             font-size: 14px;
         }
 
-        .io-files-table-wrap {
+        .io-files-table-wrap,
+        .io-table-wrap {
             max-width: 100%;
             overflow-x: auto;
+        }
+
+        .io-diagnostics-card .io-diagnostics-note {
+            margin-bottom: 10px;
+        }
+
+        /* Per-call tables: one group of columns per execution. */
+        .io-call-table td,
+        .io-call-table th {
+            white-space: nowrap;
+        }
+
+        .io-call-table thead th[colspan] {
+            text-align: center !important;
+        }
+
+        .io-call-table .io-execution-start {
+            border-left: 1px solid var(--border);
         }
 
         .io-files-table td {

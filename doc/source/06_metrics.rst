@@ -3039,15 +3039,14 @@ In a cfdem execution, 80% of the POSIX I/O time is spent in one probe file
 of 61 KiB, written by one process in 223 writes of about 280 bytes (12 ms
 per write).
 
-The I/O diagnostics are shown in the I/O Analysis view of the report and
-printed in the standard output (in both, rows that are zero for all the
-executions are omitted), and written to ``io_metrics.csv``. The
-request-size distribution is shown in the *Request sizes* histograms of the
-view and in the standard output (share of the requests and of the time), and
-written to ``io_request_sizes.csv`` (requests, time, bytes, and their
-shares). The files with the most I/O time are shown in the *Files* table of
-the view and in the standard output, and all the files are written to
-``io_files.csv``.
+The I/O diagnostics are shown in the cards of the I/O Analysis view of the
+report and printed in the standard output (in both, rows that are zero for
+all the executions are omitted), and written to ``io_metrics.csv``. The
+request-size distribution is shown in the histograms of the view and in the
+standard output (share of the requests and of the time), and written to
+``io_request_sizes.csv`` (requests, time, bytes, and their shares). The
+files with the most I/O time are shown in the view and in the standard
+output, and all the files are written to ``io_files.csv``.
 
 These metrics quantify the time of the File I/O captured in the trace. They
 do not measure achieved bandwidth or storage-system utilization. When File

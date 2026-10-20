@@ -47,6 +47,14 @@
   execution), the standard output, `io_metrics.csv`, and the new
   `io_files.csv` (every file). The temporary trace of the requests also
   keeps the descriptor and file name events.
+- The I/O Analysis view shows, after the efficiency table and its trends,
+  four cards in reading order, each with a short note on how to read it:
+  *Where is the I/O time spent?* (time fractions, participation,
+  contributions, and load balance), *Which calls take the time?* (one row
+  per call with its time, operations, and mean duration), *What requests
+  are made?* (volume, mean request size, size coverage, and the request-size
+  histograms), and *Which files are accessed?* (file diagnostics and the
+  files with the most I/O time).
 - The I/O efficiencies (I/O, Data Access, and File Management Efficiency)
   are classified with stricter thresholds than the other efficiencies:
   Critical below 90% (I/O takes 10% or more of the useful plus I/O time),
@@ -81,6 +89,10 @@
   `hist-write-bytes.cfg`) are no longer computed: they counted only the
   `read` and `write` calls, and no metric used them. They are replaced by
   the request-size distribution.
+- The histograms of the opens per file (`hist-filename-burst.cfg`,
+  `hist-filename-time.cfg`) are no longer computed: no metric used them,
+  and the files accessed are now obtained from all the POSIX and ANSI C
+  calls.
 - The I/O diagnostics include every traced I/O call, including the ANSI C
   (`fread`, `fwrite`, `fopen`, `fclose`, `fseek`) and the vector and
   positional POSIX calls, which the previous per-operation raw data ignored.

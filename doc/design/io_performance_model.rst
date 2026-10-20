@@ -795,7 +795,9 @@ process of each file, and file-name coverage; per-file table in the report
 and ``io_files.csv``. A count of shared files (more than one process) was
 tried and discarded: in VTKHDF all 113 files are opened and read (metadata)
 by the 112 processes, so all were shared, while each part file is written
-and read about 97% by one process.
+and read about 97% by one process. The opens per file
+(``hist-filename-burst.cfg``, ``hist-filename-time.cfg``) are no longer
+computed.
 
 Data Access Diagnostic Questions
 --------------------------------
@@ -1558,6 +1560,18 @@ for the first I/O report.
 
 Review Log
 ----------
+
+*2026-10-20* -- Report organization: the I/O Analysis view had a single
+diagnostics table of about 45 rows and a long reading guide. The
+diagnostics are now in four cards, in reading order after the efficiency
+table and its trends: *Where is the I/O time spent?* (time fractions,
+participation, contributions, load balance), *Which calls take the time?*
+(one row per call: time, operations, mean duration), *What requests are
+made?* (one row per read and write: volume, mean size, size coverage, and
+the request-size histograms), and *Which files are accessed?* (file
+diagnostics and the top files). Each card explains its values; the guide
+keeps only the reading order. The standard output and ``io_metrics.csv``
+do not change.
 
 *2026-10-20* -- Implementation (files and processes per file, POSIX and
 ANSI C): the filtered trace also keeps the descriptor (``40000010``) and

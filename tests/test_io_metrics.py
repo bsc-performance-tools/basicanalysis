@@ -422,14 +422,30 @@ class IoDiagnosticsReportTests(unittest.TestCase):
 
         self.assertIn("I/O time", table)
         self.assertIn("Data Access", table)
-        self.assertIn("Operations", table)
-        self.assertIn("Read mean duration (µs)", table)
-        self.assertIn("<td>3,000</td>", table)
         self.assertIn("<td>100.00%</td>", table)
+        # The operations have their own table.
+        self.assertNotIn("Read time", table)
         # Diagnostics are not efficiencies.
         self.assertNotIn("metric-good", table)
         self.assertNotIn("metric-critical", table)
         self.assertNotIn("background:", table)
+
+    def test_operations_one_row_per_call(self):
+        from interactiveplots import _build_io_operations_card_html
+
+        card = _build_io_operations_card_html(
+            self._other_metrics(), ['t1'], ['2 [T1]'])
+
+        self.assertIn("Which calls take the time?", card)
+        self.assertIn("Mean (µs)", card)
+        # Only the read calls have values: one row, with time, operations,
+        # and mean duration.
+        self.assertEqual(card.count("<tr><td>"), 1)
+        self.assertIn("<td>Read</td>", card)
+        self.assertIn(">3,000</td>", card)
+        self.assertNotIn("<td>Write</td>", card)
+        self.assertEqual(
+            _build_io_operations_card_html({}, ['t1'], ['2 [T1]']), "")
 
     def test_unused_calls_and_groups_are_omitted(self):
         from interactiveplots import _build_io_diagnostics_table_html
