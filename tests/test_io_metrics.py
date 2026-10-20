@@ -430,6 +430,23 @@ class IoDiagnosticsReportTests(unittest.TestCase):
         self.assertNotIn("metric-critical", table)
         self.assertNotIn("background:", table)
 
+    def test_cards_show_plots_and_collapsed_values(self):
+        from interactiveplots import (
+            _build_io_diagnostics_card_html,
+            _build_io_operations_card_html,
+        )
+
+        for build in (_build_io_diagnostics_card_html,
+                      _build_io_operations_card_html):
+            card = build(self._other_metrics(), ['t1'], ['2 [T1]'])
+            self.assertIn('plotly-graph-div', card)
+            self.assertIn('<details class="io-values">', card)
+
+            printable = build(self._other_metrics(), ['t1'], ['2 [T1]'],
+                              printable=True)
+            self.assertIn('plotly-graph-div', printable)
+            self.assertNotIn('io-values', printable)
+
     def test_operations_one_row_per_call(self):
         from interactiveplots import _build_io_operations_card_html
 

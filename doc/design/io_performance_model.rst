@@ -1561,6 +1561,15 @@ for the first I/O report.
 Review Log
 ----------
 
+*2026-10-20* -- Report plots (user: plots instead of tables): each card
+shows its diagnostics as bar plots, one bar per execution, with the table of
+values collapsed below. Share of the I/O time as one stacked bar per
+execution (by call, and by API when MPI-IO is used); mean duration and mean
+request size on logarithmic scales; per-file I/O time split into read,
+write, and other calls, labelled with the main-process share. The
+request-size coverage (near 100%) and the four file diagnostics stay as
+tables.
+
 *2026-10-20* -- Report organization: the I/O Analysis view had a single
 diagnostics table of about 45 rows and a long reading guide. The
 diagnostics are now in four cards, in reading order after the efficiency

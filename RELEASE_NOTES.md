@@ -48,12 +48,13 @@
   `io_files.csv` (every file). The temporary trace of the requests also
   keeps the descriptor and file name events.
 - The I/O Analysis view shows, after the efficiency table and its trends,
-  four cards in reading order, each with a short note on how to read it:
-  *Where is the I/O time spent?* (time fractions, participation,
-  contributions, and load balance), *Which calls take the time?* (one row
-  per call with its time, operations, and mean duration), *What requests
-  are made?* (volume, mean request size, size coverage, and the request-size
-  histograms), and *Which files are accessed?* (file diagnostics and the
+  four cards in reading order, each with a short note on how to read it and
+  the diagnostics as plots (the values in a collapsible table): *Where is
+  the I/O time spent?* (share of the I/O time of each call and API, time
+  fractions, participation, and load balance), *Which calls take the
+  time?* (time, operations, and mean duration of each call), *What requests
+  are made?* (volume, mean request size, and the request-size histograms),
+  and *Which files are accessed?* (file diagnostics and the I/O time of the
   files with the most I/O time).
 - The I/O efficiencies (I/O, Data Access, and File Management Efficiency)
   are classified with stricter thresholds than the other efficiencies:

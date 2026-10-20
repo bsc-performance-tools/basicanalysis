@@ -251,36 +251,39 @@ view shows them.
 
 With several executions, the **I/O Efficiency Trends** plot follows the
 efficiency table. Below them, the **I/O diagnostics** are shown in four
-cards, in reading order; each card starts with a short note on how to read
-its values:
+cards, in reading order. Each card starts with a short note on how to read
+it and shows the diagnostics as plots, one bar per execution; hovering over
+a bar shows its value, and the **Values** link under each plot opens the
+table of the plotted values:
 
-* **Where is the I/O time spent?** The *I/O time* group gives the average
-  and maximum time fractions, participation, and API contributions; the
-  *Data Access* group, the read and write contributions and load balance;
-  the *File Management* group, the open, close, seek, and control
-  contributions and load balance.
-* **Which calls take the time?** One row per kind of call (read, write,
-  open, close, seek, control) with its time, number of operations, and mean
-  duration in each execution.
-* **What requests are made?** One row for the read calls and one for the
-  write calls, with the volume, mean request size, and request-size
-  coverage. The *request-size histograms* below show, for the calls of
-  every API (POSIX, ANSI C, and MPI-IO), the share of the requests (top
-  panel) and of the time (bottom panel) in each power-of-two size interval,
-  with one bar per execution. Compare the two panels: an interval with few
-  requests and much of the time holds the expensive requests. Hovering over
-  a bar shows the number of requests, the time, and the bytes. See
+* **Where is the I/O time spent?** The share of the I/O time of each call
+  (read and write, the Data Access calls, and open, close, seek, and
+  control, the File Management calls) and, when an execution uses MPI-IO,
+  of each API, as one stacked bar per execution. Then the average and
+  maximum I/O time fractions, the participation, and the load balance of
+  Data Access, read, write, File Management, and open.
+* **Which calls take the time?** The time, number of operations, and mean
+  duration (logarithmic scale) of each kind of call.
+* **What requests are made?** The volume and the mean request size
+  (logarithmic scale) of the read and write calls; the request-size
+  coverage is in the values. The *request-size histograms* below show, for
+  the calls of every API (POSIX, ANSI C, and MPI-IO), the share of the
+  requests (top panel) and of the time (bottom panel) in each power-of-two
+  size interval. Compare the two panels: an interval with few requests and
+  much of the time holds the expensive requests. Hovering over a bar shows
+  the number of requests, the time, and the bytes. See
   :ref:`requests <io-request-sizes>`.
-* **Which files are accessed?** The files accessed, maximum processes per
-  file, volume moved by the main process of each file, and file-name
-  coverage. Then, for each execution, a table of the ten files with the
-  most I/O time (POSIX and ANSI C calls): the processes that call on the
-  file, the bytes read and written, the share of the bytes moved by the
-  main process of the file, and the I/O time and its share. The last row
-  collects the calls on descriptors without an open in the trace. Hovering
-  over a file name shows its full path; all the files are in
-  ``io_files.csv``. See :ref:`files <io-files>`.
+* **Which files are accessed?** A table with the files accessed, maximum
+  processes per file, volume moved by the main process of each file, and
+  file-name coverage. Then, for each execution, the I/O time of the ten
+  files with the most I/O time (POSIX and ANSI C calls), split into read,
+  write, and the other calls, with the share of the bytes moved by the main
+  process of the file at the end of each bar. The last bar collects the
+  calls on descriptors without an open in the trace. Hovering over a bar
+  shows the full path, the processes, and the bytes read and written; all
+  the files are in ``io_files.csv``. See :ref:`files <io-files>`.
 
+The printable report shows the plots without the tables of values.
 These values are not efficiencies, so they have no color scale; rows of
 calls or APIs that no execution uses are omitted. The same diagnostics are
 printed in the standard output and written to ``io_metrics.csv``; see
