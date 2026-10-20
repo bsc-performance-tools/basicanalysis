@@ -32,8 +32,6 @@ class CfgAnalyzerRangeTests(unittest.TestCase):
         # cfg, minimum allowed (> 0, and small enough for every value)
         ("mpi-time.cfg", 1.0),                 # MPI call identifiers >= 1
         ("useful_outside_omp.cfg", 1e-3),      # burst durations (us)
-        ("hist-read-bytes.cfg", 1e-3),         # bytes per call
-        ("hist-write-bytes.cfg", 1e-3),
     )
 
     def test_single_column_covers_all_positive_values(self):
@@ -45,6 +43,23 @@ class CfgAnalyzerRangeTests(unittest.TestCase):
                 self.assertGreater(rng["minimum"], 0.0)
                 self.assertLessEqual(rng["minimum"], max_minimum)
                 self.assertGreaterEqual(rng["maximum"], 1e18)
+
+
+class RequestSizeCfgRangeTests(unittest.TestCase):
+    """The power-of-two request-size histograms must have one column per
+    interval index 1..32 (see generate_io_request_size_cfgs.py)."""
+
+    def test_one_column_per_interval(self):
+        for operation in ("read", "write"):
+            for statistic in ("count", "time", "bytes"):
+                cfg_name = "io-{}-size-pow2-{}.cfg".format(operation, statistic)
+
+                with self.subTest(cfg=cfg_name):
+                    rng = _analyzer_range(cfg_name)
+                    self.assertEqual(rng["compute_y_scale"], "False")
+                    self.assertEqual(rng["minimum"], 1.0)
+                    self.assertEqual(rng["maximum"], 33.0)
+                    self.assertEqual(rng["columns"], 32)
 
 
 if __name__ == "__main__":

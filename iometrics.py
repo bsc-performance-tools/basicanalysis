@@ -21,7 +21,9 @@ operation (read, write, open, ...) of the maximum time of a unit:
     I/O Load Balance             = (U_avg + IO_avg) / (U_avg + IO_cp)
 
 The diagnostics (time fractions, contributions, load balance, operation counts,
-and mean durations) explain where the I/O time is spent.
+and mean durations) explain where the I/O time is spent. The request-size
+distribution of the POSIX and ANSI C read and write calls (power-of-two
+intervals) shows which request sizes cost the time.
 
 Times in the raw data are in microseconds.
 """
@@ -157,6 +159,19 @@ for _operation in OPERATIONS:
     IO_DIAGNOSTICS_DOC['io_{}_mean_duration'.format(_operation)] = (
         '{} mean duration (us)'.format(_label), 'us')
 
+# Requests of the POSIX and ANSI C read and write calls (the size of the
+# MPI-IO requests is not used yet).
+REQUEST_SIZE_OPERATIONS = DATA_ACCESS_OPERATIONS
+
+for _operation in REQUEST_SIZE_OPERATIONS:
+    IO_DIAGNOSTICS_DOC['io_{}_volume'.format(_operation)] = (
+        'POSIX/ANSI C {} volume (bytes)'.format(_operation), 'bytes')
+    IO_DIAGNOSTICS_DOC['io_{}_mean_request_size'.format(_operation)] = (
+        'POSIX/ANSI C {} mean request size (bytes)'.format(_operation),
+        'bytes')
+    IO_DIAGNOSTICS_DOC['io_{}_size_coverage'.format(_operation)] = (
+        'POSIX/ANSI C {} request-size coverage (%)'.format(_operation), '%')
+
 NON_AVAIL = 'Non-Avail'
 
 # Groups of diagnostics shown in the report.
@@ -189,7 +204,49 @@ IO_DIAGNOSTIC_GROUPS = [
         for operation in OPERATIONS
         for quantity in ('time', 'operations', 'mean_duration')
     ]),
+    ('Requests (POSIX and ANSI C)', [
+        'io_{}_{}'.format(operation, quantity)
+        for operation in REQUEST_SIZE_OPERATIONS
+        for quantity in ('volume', 'mean_request_size', 'size_coverage')
+    ]),
 ]
+
+BINARY_UNITS = ('B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB')
+
+
+def format_bytes(value):
+    """Format a number of bytes with binary units (1 KiB = 1024 B)."""
+    unit = 0
+
+    while value >= 1024.0 and unit < len(BINARY_UNITS) - 1:
+        value /= 1024.0
+        unit += 1
+
+    if unit == 0:
+        return '{0:.0f} B'.format(value)
+
+    return '{0:.2f} {1}'.format(value, BINARY_UNITS[unit])
+
+
+def request_size_interval_label(low, high, dash='-'):
+    """Label of the request-size interval [low, high) bytes, in the unit of
+    its lower bound: '1 B', '2-4 B', '512-1024 B', '1-2 KiB', '>= 2 GiB'.
+    high is None for the last interval."""
+    unit = 0
+    scale = 1
+
+    while low >= 1024 * scale and unit < len(BINARY_UNITS) - 1:
+        scale *= 1024
+        unit += 1
+
+    if high is None:
+        return '>= {0:g} {1}'.format(low / scale, BINARY_UNITS[unit])
+
+    if high - low == 1:
+        return '{0:g} {1}'.format(low / scale, BINARY_UNITS[unit])
+
+    return '{0:g}{1}{2:g} {3}'.format(
+        low / scale, dash, high / scale, BINARY_UNITS[unit])
 
 
 def is_unused_diagnostic(values):
@@ -286,6 +343,67 @@ def io_useful_time(raw_data, trace):
         return useful_io
 
     return float(raw_data['useful_tot'][trace])
+
+
+def _posix_operation_count(trace_io_data, operation):
+    """Number of POSIX and ANSI C calls of an operation (call table)."""
+    table = (
+        ((trace_io_data or {}).get('calls') or {}).get('posix') or {}
+    ).get('count')
+
+    if not table:
+        return 0.0
+
+    total = 0.0
+
+    for call, values in table['calls'].items():
+        if call in NOT_A_CALL:
+            continue
+
+        if classify_call('posix', call)[0] == operation:
+            total += sum(values)
+
+    return total
+
+
+def io_request_size_distribution(trace_io_data):
+    """Request-size distribution of the POSIX and ANSI C read and write
+    calls of a trace.
+
+    Returns {operation: [bin, ...]} for the operations with requests, where
+    every bin of the raw data (min, max, count, time, bytes) gets the
+    'label' and the shares of the operation (count_pct, time_pct,
+    bytes_pct).
+    """
+    distribution = OrderedDict()
+    request_size = (trace_io_data or {}).get('request_size') or {}
+
+    for operation in REQUEST_SIZE_OPERATIONS:
+        bins = (request_size.get(operation) or {}).get('bins') or []
+
+        totals = {
+            key: sum(bin_[key] for bin_ in bins)
+            for key in ('count', 'time', 'bytes')
+        }
+
+        if totals['count'] <= 0.0:
+            continue
+
+        rows = []
+
+        for bin_ in bins:
+            row = dict(bin_)
+            row['label'] = request_size_interval_label(
+                bin_['min'], bin_['max'])
+
+            for key in ('count', 'time', 'bytes'):
+                row[key + '_pct'] = _percentage(bin_[key], totals[key])
+
+            rows.append(row)
+
+        distribution[operation] = rows
+
+    return distribution
 
 
 def _percentage(numerator, denominator):
@@ -413,6 +531,22 @@ def compute_trace_io_metrics(useful_tot, runtime, io_units, trace_io_data):
                 operation_time / operation_count
             )
 
+    # Requests (POSIX and ANSI C).
+    for operation, bins in io_request_size_distribution(
+            trace_io_data).items():
+        requests = sum(bin_['count'] for bin_ in bins)
+        volume = sum(bin_['bytes'] for bin_ in bins)
+
+        metrics['io_{}_volume'.format(operation)] = volume
+        metrics['io_{}_mean_request_size'.format(operation)] = (
+            volume / requests)
+
+        calls = _posix_operation_count(trace_io_data, operation)
+
+        if calls > 0.0:
+            metrics['io_{}_size_coverage'.format(operation)] = (
+                requests / calls * 100.0)
+
     return metrics, aggregate
 
 
@@ -427,6 +561,13 @@ def add_io_metrics(other_metrics, raw_data, io_data, trace_list):
     """
     for key in list(IO_FACTORS_DOC) + list(IO_DIAGNOSTICS_DOC):
         other_metrics[key] = {trace: NON_AVAIL for trace in trace_list}
+
+    # Internal key: request-size distribution of each trace (see
+    # io_request_size_distribution), for the report and io_request_sizes.csv.
+    other_metrics['io_request_sizes'] = {
+        trace: io_request_size_distribution((io_data or {}).get(trace))
+        for trace in trace_list
+    }
 
     unknown_calls = []
 
@@ -510,6 +651,9 @@ def format_io_value(value, unit):
     if unit == 'count':
         return '{0:.0f}'.format(value)
 
+    if unit == 'bytes':
+        return format_bytes(value)
+
     return '{0:.1f}'.format(value)
 
 
@@ -580,6 +724,122 @@ def print_io_tables(other_metrics, trace_list, column_labels,
             longest_name,
             value_to_adjust,
         )
+        print_io_request_size_tables(
+            other_metrics,
+            trace_list,
+            column_labels,
+            longest_name,
+            value_to_adjust,
+        )
+
+
+def _request_size_rows(other_metrics, trace_list, operation):
+    """Intervals with requests in some trace, in increasing size, and the
+    bin of each trace in each interval ({trace: bin})."""
+    intervals = OrderedDict()
+
+    for trace in trace_list:
+        distribution = (
+            other_metrics.get('io_request_sizes', {}).get(trace) or {})
+
+        for bin_ in distribution.get(operation, []):
+            intervals.setdefault(bin_['min'], {})[trace] = bin_
+
+    return [
+        (low, intervals[low]) for low in sorted(intervals)
+    ]
+
+
+def print_io_request_size_tables(other_metrics, trace_list, column_labels,
+                                 longest_name, value_to_adjust):
+    """Print the share of the requests and of the time of each
+    power-of-two request-size interval."""
+    for operation in REQUEST_SIZE_OPERATIONS:
+        rows = _request_size_rows(other_metrics, trace_list, operation)
+
+        if not rows:
+            continue
+
+        # Cells hold two shares ('100.0 / 100.0').
+        width = max(value_to_adjust, 13)
+        line_head = 'Request size'.ljust(longest_name)
+
+        for label in column_labels:
+            line_head += ' | ' + label.rjust(width)
+
+        print('POSIX/ANSI C {} requests per size interval '
+              '(% of requests / % of time):'.format(operation))
+        print(''.ljust(len(line_head), '-'))
+        print(line_head)
+        print(''.ljust(len(line_head), '-'))
+
+        for _, bins in rows:
+            any_bin = next(iter(bins.values()))
+            line = any_bin['label'].ljust(longest_name)
+
+            for trace in trace_list:
+                bin_ = bins.get(trace)
+
+                if bin_ is None:
+                    cell = '-'
+                else:
+                    cell = '{0:.1f} / {1:.1f}'.format(
+                        bin_['count_pct'], bin_['time_pct'])
+
+                line += ' | ' + cell.rjust(width)
+
+            print(line)
+
+        print(''.ljust(len(line_head), '-'))
+
+
+def print_io_request_sizes_csv(other_metrics, trace_list):
+    """Write the request-size distribution to io_request_sizes.csv, one row
+    per trace, operation, and non-empty interval."""
+    distributions = other_metrics.get('io_request_sizes', {})
+
+    if not any(distributions.get(trace) for trace in trace_list):
+        return
+
+    delimiter = ';'
+    file_path = os.path.join(os.getcwd(), 'io_request_sizes.csv')
+
+    columns = [
+        'Trace', 'API', 'Operation', 'Interval', 'Minimum size (bytes)',
+        'Maximum size (bytes, excluded)', 'Requests', 'Time (us)', 'Bytes',
+        'Requests (%)', 'Time (%)', 'Bytes (%)',
+    ]
+
+    with open(file_path, 'w') as output:
+        output.write(delimiter.join('"' + c + '"' for c in columns) + '\n')
+
+        for trace in trace_list:
+            for operation, bins in (distributions.get(trace) or {}).items():
+                for bin_ in bins:
+                    values = [
+                        '"' + trace + '"',
+                        '"POSIX/ANSI C"',
+                        '"' + operation + '"',
+                        '"' + bin_['label'] + '"',
+                        '{:d}'.format(int(bin_['min'])),
+                        '' if bin_['max'] is None
+                        else '{:d}'.format(int(bin_['max'])),
+                        '{0:.0f}'.format(bin_['count']),
+                        '{0:.3f}'.format(bin_['time']),
+                        '{0:.0f}'.format(bin_['bytes']),
+                    ]
+
+                    for key in ('count_pct', 'time_pct', 'bytes_pct'):
+                        value = bin_[key]
+                        values.append(
+                            '{0:.6f}'.format(value)
+                            if isinstance(value, float) else str(value))
+
+                    output.write(delimiter.join(values) + '\n')
+
+    print('======== Output File: I/O Request Sizes ========')
+    print('Request-size distribution written to ' + file_path)
+    print('')
 
 
 def print_io_metrics_csv(other_metrics, trace_list, trace_processes):

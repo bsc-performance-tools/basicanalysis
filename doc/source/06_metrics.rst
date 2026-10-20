@@ -2941,9 +2941,48 @@ distinguishes the two explanations of a high operation time: many operations
 higher mean duration). The latter points to the interaction with the I/O
 system rather than to the application I/O pattern.
 
+.. _io-request-sizes:
+
+**Requests** of the POSIX and ANSI C read and write calls (the read and
+write families: ``read``, ``fread``, ``pread``, ``readv``, ``preadv``, and
+the corresponding write calls):
+
+* the **volume** read and written (bytes);
+* the **mean request size**, the volume divided by the number of requests;
+* the **request-size coverage**, the percentage of the read or write calls
+  that have a request size in the trace and are therefore included in the
+  volume and the distribution;
+* the **request-size distribution**: for each power-of-two size interval,
+  the share of the requests, of the time, and of the bytes of the read or
+  write calls.
+
+The intervals are :math:`[2^{j-1}, 2^j)` bytes (``256-512 B`` holds the
+requests from 256 to 511 bytes), from 1 byte to 2 GiB or more. They are a
+scale, not a classification of the requests as small or large: they are the
+same for every execution, so executions can be compared directly, and they
+resolve small requests even when large requests exist. The mean alone is not
+enough, because different distributions can have the same mean.
+
+The distribution shows which request sizes cost the time. In a cfdem
+execution, the writes of 256--511 bytes are 1.3% of the writes but 84% of
+the write time; in a VTKHDF execution with chunks of 2M, the writes of 8--16
+MiB are 3.1% of the writes and 60% of the write time. An interval with a
+small share of the requests and a large share of the time holds the
+expensive requests.
+
+BasicAnalysis obtains the requests from a temporary trace that keeps only
+the I/O call and I/O size events (written by Paraver with
+``cfgs/io-requests-filter.xml`` and removed after the analysis). The
+histograms ``cfgs/io-{read,write}-size-pow2-{count,time,bytes}.cfg`` show the
+same intervals in Paraver. The size of the MPI-IO requests is not used yet.
+
 The I/O diagnostics are shown in the I/O Analysis view of the report and
 printed in the standard output (in both, rows that are zero for all the
-executions are omitted), and written to ``io_metrics.csv``.
+executions are omitted), and written to ``io_metrics.csv``. The
+request-size distribution is shown in the *Request sizes* table of the view
+and in the standard output (share of the requests and of the time), and
+written to ``io_request_sizes.csv`` (requests, time, bytes, and their
+shares).
 
 These metrics quantify the time of the File I/O captured in the trace. They
 do not measure achieved bandwidth or storage-system utilization. When File

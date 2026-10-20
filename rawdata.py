@@ -95,6 +95,22 @@ IO_OPERATIONS = (
 )
 
 
+# Request-size distribution of the POSIX and ANSI C read and write calls.
+# Interval j holds the requests of [2^(j-1), 2^j) bytes; the last one also
+# the larger requests (as cfgs/io-*-size-pow2-*.cfg, which show the same
+# intervals in Paraver).
+IO_CALL_EVENT = 40000004
+IO_SIZE_EVENT = 40000011
+IO_REQUEST_SIZE_INTERVALS = 32
+IO_REQUEST_SIZE_OPERATIONS = ('read', 'write')
+
+# Values of the I/O calls event in Extrae.
+IO_REQUEST_SIZE_FAMILIES = {
+    'read': (1, 3, 5, 7, 9),     # read, fread, pread, readv, preadv
+    'write': (2, 4, 6, 8, 10),   # write, fwrite, pwrite, writev, pwritev
+}
+
+
 SUMMARY_KEYS = {"Total", "Average", "Maximum", "Minimum", "StDev", "Num.", "Avg/Max", "Num. Cells"}
 
 # ----------------------------------------------------------------------
@@ -1117,87 +1133,164 @@ def parse_io_call_table(path):
     return table
 
 
-def parse_io_request_size_histogram(path):
-    """Parse a Paraver I/O request-size count histogram.
+def io_requests_trace_path(trace_name):
+    """Temporary trace with only the I/O call and I/O size events."""
+    return trace_name + '.io_requests.prv'
 
-    The CSV contains one column per non-empty request-size interval.
-    Interval boundaries are encoded in the column headers, while the
-    Total row contains the number of I/O operations in each interval.
+
+def trace_has_posix_io_events(trace_name_control):
+    """True when the .pcf declares the I/O calls event (40000004). Without
+    a .pcf, the I/O events are filtered anyway."""
+    pcf = trace_name_control + '.pcf'
+
+    if not os.path.exists(pcf):
+        return True
+
+    with open(pcf) as f:
+        return any(str(IO_CALL_EVENT) in line for line in f)
+
+
+def filter_io_request_events(trace, trace_name, trace_name_control, cfgs,
+                             cmdl_args):
+    """Write a temporary trace that keeps only the I/O call and I/O size
+    events (cfgs/io-requests-filter.xml), for the request-size
+    distribution. Paraver reads the full trace; the request sizes are then
+    taken from the much smaller filtered trace."""
+    if not trace_has_posix_io_events(trace_name_control):
+        return
+
+    run_command(
+        ['paramedir', '-f', '-o', io_requests_trace_path(trace_name), trace,
+         cfgs['io_requests_filter']],
+        cmdl_args,
+    )
+
+
+def remove_io_requests_trace(trace_name):
+    """Remove the temporary trace written by filter_io_request_events."""
+    base = io_requests_trace_path(trace_name)[:-4]
+
+    for extension in ('.prv', '.pcf', '.row'):
+        if os.path.exists(base + extension):
+            os.remove(base + extension)
+
+
+def _trace_time_to_us(header):
+    """Factor from the time unit of a .prv header to microseconds."""
+    fields = header.split(':')
+
+    if len(fields) > 1 and '(' in fields[0]:
+        # '#Paraver (dd/mm/yyyy at hh:mm):<end time>[_ns|_us]:...'
+        end_time = header.split('):', 1)[1].split(':', 1)[0]
+    else:
+        end_time = fields[1] if len(fields) > 1 else ''
+
+    if end_time.endswith('_ns'):
+        return 1e-3
+
+    return 1.0
+
+
+def request_size_interval(size):
+    """Power-of-two interval index of a request: interval j holds the sizes
+    [2^(j-1), 2^j); the last interval also holds the larger requests."""
+    return min(int(size).bit_length(), IO_REQUEST_SIZE_INTERVALS)
+
+
+def parse_io_requests_trace(path):
+    """Requests of the POSIX and ANSI C read and write calls per
+    power-of-two size interval, from the filtered trace.
+
+    A call starts with a non-zero value of the I/O calls event, with the
+    I/O size event in the same record, and ends with the value 0. Calls
+    without size are not counted. When a call starts before the previous
+    call of the same thread has ended (unclosed or nested calls, rare in
+    Extrae traces), the later call replaces the earlier one, which is not
+    counted.
 
     Returns:
-        list: Histogram bins in the form:
-            [
-                {
-                    'min': 8.0,
-                    'max': 2107.96,
-                    'count': 466608.0,
-                },
-                ...
-            ]
+        dict: {operation: {interval index: {'count', 'time', 'bytes'}}},
+        with the time in microseconds.
     """
+    families = {}
+
+    for operation, values in IO_REQUEST_SIZE_FAMILIES.items():
+        for value in values:
+            families[value] = operation
+
+    requests = {operation: {} for operation in IO_REQUEST_SIZE_OPERATIONS}
+    open_calls = {}
+    call_event = str(IO_CALL_EVENT)
+    size_event = str(IO_SIZE_EVENT)
+    time_to_us = 1.0
+
     with open(path) as f:
-        lines = f.readlines()
+        for line_number, line in enumerate(f):
+            if line_number == 0:
+                time_to_us = _trace_time_to_us(line)
+                continue
 
-    if not lines:
-        return []
+            if not line.startswith('2:'):
+                continue
 
-    # Parse histogram intervals from the header.
-    header = lines[0].rstrip('\n').split('\t')[1:]
+            fields = line.rstrip('\n').split(':')
+            events = dict(zip(fields[6::2], fields[7::2]))
 
-    intervals = []
+            if call_event not in events:
+                continue
 
-    for column in header:
-        column = column.strip()
+            thread = (fields[1], fields[2], fields[3], fields[4])
+            timestamp = int(fields[5])
+            value = int(events[call_event])
 
-        if not column:
-            continue
+            if value != 0:
+                size = events.get(size_event)
+                open_calls[thread] = (
+                    families.get(value),
+                    timestamp,
+                    int(size) if size is not None else 0,
+                )
+                continue
 
-        # Paraver interval format: [lower..upper)
-        if not (column.startswith('[') and column.endswith(')')):
-            continue
+            call = open_calls.pop(thread, None)
 
-        bounds = column[1:-1].split('..')
+            if call is None:
+                continue
 
-        if len(bounds) != 2:
-            continue
+            operation, start, size = call
 
-        lower = float(bounds[0].replace(',', ''))
-        upper = float(bounds[1].replace(',', ''))
+            if operation is None or size <= 0:
+                continue
 
-        intervals.append((lower, upper))
+            stats = requests[operation].setdefault(
+                request_size_interval(size),
+                {'count': 0.0, 'time': 0.0, 'bytes': 0.0},
+            )
+            stats['count'] += 1
+            stats['time'] += (timestamp - start) * time_to_us
+            stats['bytes'] += size
 
-    # Find the Total row.
-    total_values = None
+    return requests
 
-    for line in lines[1:]:
-        fields = line.rstrip('\n').split('\t')
 
-        if fields and fields[0].strip() == 'Total':
-            total_values = [
-                float(value)
-                for value in fields[1:]
-                if value.strip()
-            ]
-            break
+def build_io_request_size_bins(intervals):
+    """Bins of one operation, in increasing size, from the intervals of
+    parse_io_requests_trace:
 
-    if total_values is None:
-        return []
+        [{'min': 256, 'max': 512, 'count': ..., 'time': ..., 'bytes': ...}]
 
-    # The number of histogram intervals and Total values must match.
-    if len(intervals) != len(total_values):
-        raise ValueError(
-            "I/O request-size histogram has a different number of "
-            "intervals and Total values: "
-            f"{len(intervals)} intervals, {len(total_values)} values"
-        )
-
+    'max' is None for the last interval (2 GiB or more).
+    """
     bins = []
 
-    for (lower, upper), count in zip(intervals, total_values):
+    for index in sorted(intervals):
+        stats = intervals[index]
         bins.append({
-            'min': lower,
-            'max': upper,
-            'count': count,
+            'min': 2 ** (index - 1),
+            'max': 2 ** index if index < IO_REQUEST_SIZE_INTERVALS else None,
+            'count': stats['count'],
+            'time': stats['time'],
+            'bytes': stats['bytes'],
         })
 
     return bins
@@ -1276,50 +1369,6 @@ def parse_io_filename_stats(path):
     return stats
 
 
-def parse_io_bytes_stats(path):
-    """Parse I/O byte statistics generated by Paraver.
-
-    Returns:
-        dict: Total, average, and maximum byte volume across ranks.
-    """
-    row_to_key = {
-        'Total': 'tot',
-        'Average': 'avg',
-        'Maximum': 'max',
-    }
-
-    stats = {
-        'tot': 0.0,
-        'avg': 0.0,
-        'max': 0.0,
-    }
-
-    with open(path) as f:
-        for line in f:
-            fields = line.rstrip('\n').split('\t')
-
-            if not fields:
-                continue
-
-            row_name = fields[0].strip()
-
-            if row_name not in row_to_key:
-                continue
-
-            values = [
-                value
-                for value in fields[1:]
-                if value.strip()
-            ]
-
-            if not values:
-                continue
-
-            stats[row_to_key[row_name]] = float(values[0])
-
-    return stats
-
-
 def flushing_stats_has_data(path):
     with open(path) as f:
         for line in f:
@@ -1367,26 +1416,14 @@ def create_io_raw_data():
             }
             for operation in IO_OPERATIONS
         },
+        # POSIX and ANSI C requests per power-of-two size interval (see
+        # build_io_request_size_bins).
         'request_size': {
             'read': {
                 'bins': [],
-                'coverage': None,
             },
             'write': {
                 'bins': [],
-                'coverage': None,
-            },
-        },
-        'bytes': {
-            'read': {
-                'tot': 0.0,
-                'avg': 0.0,
-                'max': 0.0,
-            },
-            'write': {
-                'tot': 0.0,
-                'avg': 0.0,
-                'max': 0.0,
             },
         },
         'files': {
@@ -2232,10 +2269,7 @@ def init_cfgs():
     cfgs['io_calls_count'] = os.path.join(cfgs['root_dir'], 'io-calls-count.cfg')
     cfgs['mpiio_calls_time'] = os.path.join(cfgs['root_dir'], 'mpiio-calls-time.cfg')
     cfgs['mpiio_calls_count'] = os.path.join(cfgs['root_dir'], 'mpiio-calls-count.cfg')
-    cfgs['io_read_size_count'] = os.path.join(cfgs['root_dir'], 'hist-read-size-count.cfg')
-    cfgs['io_write_size_count'] = os.path.join(cfgs['root_dir'], 'hist-write-size-count.cfg')
-    cfgs['io_read_bytes'] = os.path.join(cfgs['root_dir'],'hist-read-bytes.cfg')
-    cfgs['io_write_bytes'] = os.path.join(cfgs['root_dir'], 'hist-write-bytes.cfg')
+    cfgs['io_requests_filter'] = os.path.join(cfgs['root_dir'], 'io-requests-filter.xml')
     cfgs['io_filename_count'] = os.path.join(cfgs['root_dir'], 'hist-filename-burst.cfg')
     cfgs['io_filename_time'] = os.path.join(cfgs['root_dir'], 'hist-filename-time.cfg')
 
@@ -2490,10 +2524,6 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     ## new I/O cfgs
     cmd_base.extend([cfgs['io_calls_time'], trace_name + '.io_calls_time.stats.csv'])
     cmd_base.extend([cfgs['io_calls_count'], trace_name + '.io_calls_count.stats.csv'])
-    cmd_base.extend([cfgs['io_read_size_count'], trace_name + '.io_read_size_count.stats.csv'])
-    cmd_base.extend([cfgs['io_write_size_count'], trace_name + '.io_write_size_count.stats.csv'])
-    cmd_base.extend([cfgs['io_read_bytes'], trace_name + '.io_read_bytes.stats.csv'])
-    cmd_base.extend([cfgs['io_write_bytes'], trace_name + '.io_write_bytes.stats.csv'])
     cmd_base.extend([cfgs['io_filename_count'], trace_name + '.io_filename_count.stats.csv'])
     cmd_base.extend([cfgs['io_filename_time'], trace_name + '.io_filename_time.stats.csv'])
 
@@ -2627,6 +2657,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
 
     time_base = time.time()
     run_command(cmd_base, cmdl_args)
+    filter_io_request_events(
+        trace, trace_name, trace_name_control, cfgs, cmdl_args)
     time_base = time.time() - time_base
 
 
@@ -2844,20 +2876,12 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
 
     io_count_path = trace_name + '.io_calls_count.stats.csv'
     io_time_path = trace_name + '.io_calls_time.stats.csv'
-    read_size_path = trace_name + '.io_read_size_count.stats.csv'
-    write_size_path = trace_name + '.io_write_size_count.stats.csv'
-    read_bytes_path = trace_name + '.io_read_bytes.stats.csv'
-    write_bytes_path = trace_name + '.io_write_bytes.stats.csv'
     filename_count_path = trace_name + '.io_filename_count.stats.csv'
     filename_time_path = trace_name + '.io_filename_time.stats.csv'
 
 
     io_count_exists = os.path.exists(io_count_path)
     io_time_exists = os.path.exists(io_time_path)
-    read_size_exists = os.path.exists(read_size_path)
-    write_size_exists = os.path.exists(write_size_path)
-    read_bytes_exists = os.path.exists(read_bytes_path)
-    write_bytes_exists = os.path.exists(write_bytes_path)
     filename_count_exists = os.path.exists(filename_count_path)
     filename_time_exists = os.path.exists(filename_time_path)
 
@@ -2891,51 +2915,17 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         if os.path.exists(path):
             trace_io_data['calls'][api][stat] = parse_io_call_table(path)
 
-    # POSIX I/O read request-size distribution
-    if read_size_exists:
-        trace_io_data['request_size']['read']['bins'] = (
-            parse_io_request_size_histogram(read_size_path)
-        )
+    # POSIX and ANSI C requests per power-of-two size interval
+    if os.path.exists(io_requests_trace_path(trace_name)):
+        requests = parse_io_requests_trace(io_requests_trace_path(trace_name))
 
-    # POSIX I/O write request-size distribution
-    if write_size_exists:
-        trace_io_data['request_size']['write']['bins'] = (
-            parse_io_request_size_histogram(write_size_path)
-        )
-
-    # POSIX I/O request-size histogram coverage
-    for operation, size_exists in (
-        ('read', read_size_exists),
-        ('write', write_size_exists),
-    ):
-        if not (io_count_exists and size_exists):
-            continue
-
-        bins = trace_io_data['request_size'][operation]['bins']
-
-        histogram_count = sum(
-            bin_['count'] for bin_ in bins
-        )
-
-        operation_count = (
-            trace_io_data['operations'][operation]['count']['tot']
-        )
-
-        if operation_count > 0:
-            trace_io_data['request_size'][operation]['coverage'] = (
-                histogram_count / operation_count
+        for operation in IO_REQUEST_SIZE_OPERATIONS:
+            trace_io_data['request_size'][operation]['bins'] = (
+                build_io_request_size_bins(requests[operation])
             )
 
-    # POSIX I/O byte volume
-    if read_bytes_exists:
-        trace_io_data['bytes']['read'].update(
-            parse_io_bytes_stats(read_bytes_path)
-        )
-
-    if write_bytes_exists:
-        trace_io_data['bytes']['write'].update(
-            parse_io_bytes_stats(write_bytes_path)
-        )
+        if not cmdl_args.debug:
+            remove_io_requests_trace(trace_name)
 
     # POSIX I/O file opens
     filename_count_stats = {}
@@ -3488,10 +3478,6 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     move_files(trace_name + '.io_calls_count.stats.csv', local_path_dest, cmdl_args)
     move_files(trace_name + '.mpiio_calls_time.stats.csv', local_path_dest, cmdl_args)
     move_files(trace_name + '.mpiio_calls_count.stats.csv', local_path_dest, cmdl_args)
-    move_files(trace_name + '.io_read_size_count.stats.csv', local_path_dest, cmdl_args)
-    move_files(trace_name + '.io_write_size_count.stats.csv', local_path_dest, cmdl_args)
-    move_files(trace_name + '.io_read_bytes.stats.csv', local_path_dest, cmdl_args)
-    move_files(trace_name + '.io_write_bytes.stats.csv', local_path_dest, cmdl_args)
     move_files(trace_name + '.io_filename_count.stats.csv', local_path_dest, cmdl_args)
     move_files(trace_name + '.io_filename_time.stats.csv', local_path_dest, cmdl_args)
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Keeps only the I/O call (40000004) and I/O size (40000011) events. The
+     request-size distribution is computed from the filtered trace
+     (rawdata.parse_io_requests_trace); the io-*-size-pow2-*.cfg histograms
+     show the same intervals in Paraver. -->
+<config>
+  <filter>
+    <discard_states>1</discard_states>
+    <discard_events>0</discard_events>
+    <discard_communications>1</discard_communications>
+    <types>
+      <type>40000004</type>
+      <type>40000011</type>
+    </types>
+  </filter>
+</config>

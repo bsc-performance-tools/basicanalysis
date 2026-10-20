@@ -253,12 +253,20 @@ Below the efficiency table, the **I/O diagnostics** table shows where the I/O
 time is spent, grouped in four sections: *I/O time* (average and maximum
 time fractions, participation, and API contributions), *Data Access* (read
 and write contributions and load balance), *File Management* (open, close,
-seek, and control contributions and load balance), and *Operations* (time,
-number of operations, and mean duration of each group of calls). These values
+seek, and control contributions and load balance), *Operations* (time,
+number of operations, and mean duration of each group of calls), and
+*Requests* (POSIX and ANSI C read and write volume, mean request size, and
+request-size coverage). These values
 are not efficiencies, so they have no color scale; rows of calls or APIs that
 no execution uses are omitted. The same diagnostics are printed in the
 standard output and written to ``io_metrics.csv``; see
 :ref:`I/O diagnostics <io-diagnostics>`.
+
+The **Request sizes** table gives, for the POSIX and ANSI C read and write
+calls of each execution, the share of the requests and of the time in each
+power-of-two size interval. Compare the two shares: an interval with few
+requests and much of the time holds the expensive requests. See
+:ref:`requests <io-request-sizes>`.
 
 The I/O metrics are reported independently from the hierarchical
 performance-efficiency model and must not be interpreted as additional

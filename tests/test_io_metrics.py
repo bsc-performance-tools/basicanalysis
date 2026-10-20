@@ -458,3 +458,165 @@ class MetricLabelTests(unittest.TestCase):
                          "I/O Critical-Path Efficiency")
         self.assertEqual(_clean_metric_label("   == Device Load balance"),
                          "Device Load balance")
+
+
+# Filtered trace: thread 1.1.1 and 1.2.1, times in ns.
+REQUESTS_TRACE = (
+    '#Paraver (20/10/2026 at 10:00):100000_ns:1(2):1:2(1:1,1:1),0\n'
+    # read of 300 B, 2 us -> interval 9 [256, 512)
+    '2:1:1:1:1:1000:40000004:1:40000011:300\n'
+    '2:1:1:1:1:3000:40000004:0\n'
+    # fwrite of 1 B, 1 us -> interval 1
+    '2:1:1:1:1:4000:40000004:4:40000011:1\n'
+    '2:1:1:1:1:5000:40000004:0\n'
+    # open: not a request
+    '2:1:1:1:1:6000:40000004:11\n'
+    '2:1:1:1:1:7000:40000004:0\n'
+    # write without size: not counted
+    '2:2:1:2:1:1000:40000004:2\n'
+    '2:2:1:2:1:2000:40000004:0\n'
+    # unclosed fopen, then pread of 3 GiB (last interval), 4 us
+    '2:2:1:2:1:3000:40000004:12\n'
+    '2:2:1:2:1:4000:40000004:5:40000011:3221225472\n'
+    '2:2:1:2:1:8000:40000004:0\n'
+    '2:2:1:2:1:9000:40000004:0\n'
+)
+
+
+class RequestSizeTraceTests(unittest.TestCase):
+
+    def _parse(self):
+        from rawdata import parse_io_requests_trace
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.io_requests.prv')
+            with open(path, 'w') as f:
+                f.write(REQUESTS_TRACE)
+            return parse_io_requests_trace(path)
+
+    def test_requests_per_power_of_two_interval(self):
+        requests = self._parse()
+
+        self.assertEqual(requests['read'][9],
+                         {'count': 1.0, 'time': 2.0, 'bytes': 300.0})
+        self.assertEqual(requests['write'][1],
+                         {'count': 1.0, 'time': 1.0, 'bytes': 1.0})
+        # The pread follows an unclosed fopen and goes to the last interval.
+        self.assertEqual(requests['read'][32]['count'], 1.0)
+        self.assertEqual(requests['read'][32]['time'], 4.0)
+        # Calls without size and File Management calls are not requests.
+        self.assertEqual(sorted(requests['read']), [9, 32])
+        self.assertEqual(sorted(requests['write']), [1])
+
+    def test_interval_index(self):
+        from rawdata import request_size_interval
+
+        self.assertEqual(request_size_interval(1), 1)
+        self.assertEqual(request_size_interval(255), 8)
+        self.assertEqual(request_size_interval(256), 9)
+        self.assertEqual(request_size_interval(2 ** 40), 32)
+
+    def test_bins(self):
+        from rawdata import build_io_request_size_bins
+
+        bins = build_io_request_size_bins(self._parse()['read'])
+
+        self.assertEqual([(b['min'], b['max']) for b in bins],
+                         [(256, 512), (2 ** 31, None)])
+
+
+def _request_io_data():
+    io_data = _io_data(
+        posix_time=_table(UNITS, {
+            'read': [10.0, 0.0],
+            'fread': [0.0, 30.0],
+            'write': [5.0, 5.0],
+        }),
+        posix_count=_table(UNITS, {
+            'read': [3.0, 0.0],
+            'fread': [0.0, 1.0],
+            'write': [1.0, 1.0],
+        }),
+    )
+    io_data['request_size'] = {
+        'read': {'bins': [
+            {'min': 8, 'max': 16, 'count': 3.0, 'time': 10.0, 'bytes': 30.0},
+            {'min': 1024, 'max': 2048, 'count': 1.0, 'time': 30.0,
+             'bytes': 1024.0},
+        ]},
+        'write': {'bins': []},
+    }
+    return io_data
+
+
+class RequestSizeMetricTests(unittest.TestCase):
+
+    def test_distribution_shares_and_labels(self):
+        from iometrics import io_request_size_distribution
+
+        distribution = io_request_size_distribution(_request_io_data())
+
+        self.assertEqual(list(distribution), ['read'])
+        small, large = distribution['read']
+        self.assertEqual(small['label'], '8-16 B')
+        self.assertEqual(large['label'], '1-2 KiB')
+        self.assertAlmostEqual(small['count_pct'], 75.0)
+        self.assertAlmostEqual(large['time_pct'], 75.0)
+
+    def test_volume_mean_size_and_coverage(self):
+        metrics, _ = compute_trace_io_metrics(
+            1000.0, 1000.0, 2, _request_io_data())
+
+        self.assertEqual(metrics['io_read_volume'], 1054.0)
+        self.assertAlmostEqual(metrics['io_read_mean_request_size'], 263.5)
+        # 4 requests with size, 4 POSIX/ANSI C read calls.
+        self.assertAlmostEqual(metrics['io_read_size_coverage'], 100.0)
+        self.assertEqual(metrics['io_write_volume'], NON_AVAIL)
+
+    def test_interval_labels_and_bytes(self):
+        from iometrics import format_bytes, request_size_interval_label
+
+        self.assertEqual(request_size_interval_label(1, 2), '1 B')
+        self.assertEqual(request_size_interval_label(512, 1024), '512-1024 B')
+        self.assertEqual(request_size_interval_label(2 ** 20, 2 ** 21),
+                         '1-2 MiB')
+        self.assertEqual(request_size_interval_label(2 ** 31, None),
+                         '>= 2 GiB')
+        self.assertEqual(format_bytes(432.0), '432 B')
+        self.assertEqual(format_bytes(1536.0), '1.50 KiB')
+
+    def test_csv_and_report_table(self):
+        from iometrics import print_io_request_sizes_csv
+        from interactiveplots import _build_io_request_sizes_card_html
+
+        other_metrics = {'io_units': {'t1': 2}}
+        raw_data = {
+            'useful_tot': {'t1': 1000.0},
+            'runtime': {'t1': 1000.0},
+            'io_tot': {'t1': 50.0},
+            'mpiio_tot': {'t1': 0.0},
+        }
+        with redirect_stdout(io.StringIO()):
+            add_io_metrics(other_metrics, raw_data,
+                           {'t1': _request_io_data()}, ['t1'])
+
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                with redirect_stdout(io.StringIO()):
+                    print_io_request_sizes_csv(other_metrics, ['t1'])
+                with open('io_request_sizes.csv') as f:
+                    lines = f.read().splitlines()
+            finally:
+                os.chdir(cwd)
+
+        self.assertEqual(len(lines), 3)
+        self.assertIn('"t1";"POSIX/ANSI C";"read";"8-16 B";8;16;3;',
+                      lines[1])
+
+        card = _build_io_request_sizes_card_html(
+            other_metrics, ['t1'], ['2 [T1]'])
+        self.assertIn('Read request size', card)
+        self.assertIn('1–2 KiB', card)
+        self.assertNotIn('Write request size', card)

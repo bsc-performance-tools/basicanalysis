@@ -119,6 +119,13 @@ The following assumptions and limitations apply:
   assume that the units synchronize after each kind of I/O call, so that the
   others wait for the slowest unit. When the I/O of a unit overlaps the
   computation of the others, they underestimate the efficiency.
+* **Request sizes.** The volume and the request-size distribution include
+  only the POSIX and ANSI C read and write calls whose request size is
+  recorded in the trace (see the request-size coverage); the size of the
+  MPI-IO requests is not used yet. Zero-byte requests are not counted. When
+  a call starts before the previous call of the same thread has ended
+  (unclosed or nested calls, rare in Extrae traces), only the later call is
+  counted.
 
 These metrics do not characterize achieved I/O bandwidth, storage-system
 utilization, or filesystem contention. They identify whether File I/O has a

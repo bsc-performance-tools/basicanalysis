@@ -17,7 +17,10 @@ from iometrics import (
     IO_DIAGNOSTICS_DOC,
     IO_DIAGNOSTIC_GROUPS,
     NON_AVAIL as IO_NON_AVAIL,
+    REQUEST_SIZE_OPERATIONS,
+    format_bytes,
     is_unused_diagnostic,
+    request_size_interval_label,
 )
 
 from report.renderer.html import (
@@ -794,6 +797,9 @@ def _format_io_diagnostic(value, unit):
     if unit == 'count':
         return '{0:,.0f}'.format(value)
 
+    if unit == 'bytes':
+        return format_bytes(value)
+
     return '{0:,.1f}'.format(value)
 
 
@@ -888,6 +894,103 @@ def _build_io_diagnostics_card_html(other_metrics, trace_list, trace_labels,
         note=note,
         table_html=table_html,
     )
+
+
+def _build_io_request_sizes_table_html(other_metrics, trace_list,
+                                       trace_labels, operation):
+    """Table of the share of the requests and of the time of each
+    power-of-two request-size interval of one operation. Returns an empty
+    string when no trace has requests of that operation."""
+    intervals = {}
+
+    for trace in trace_list:
+        distribution = (
+            other_metrics.get('io_request_sizes', {}).get(trace) or {})
+
+        for bin_ in distribution.get(operation, []):
+            intervals.setdefault(
+                (bin_['min'], bin_['max']), {})[trace] = bin_
+
+    if not intervals:
+        return ""
+
+    header_traces = ''.join(
+        "<th colspan='2'>{}</th>".format(html.escape(label))
+        for label in trace_labels)
+    header_shares = "<th>Requests</th><th>Time</th>" * len(trace_list)
+
+    rows = []
+
+    for low, high in sorted(intervals, key=lambda interval: interval[0]):
+        bins = intervals[(low, high)]
+        cells = []
+
+        for trace in trace_list:
+            bin_ = bins.get(trace)
+
+            if bin_ is None:
+                cells.append('<td>-</td><td>-</td>')
+                continue
+
+            for key in ('count_pct', 'time_pct'):
+                cells.append(
+                    '<td>{}</td>'.format(_format_io_diagnostic(bin_[key], '%')))
+
+        rows.append('<tr><td>{}</td>{}</tr>'.format(
+            html.escape(request_size_interval_label(low, high, '\u2013')),
+            ''.join(cells)))
+
+    return (
+        "<table class='metric-table io-diagnostics-table "
+        "io-request-sizes-table'>"
+        "<thead><tr><th rowspan='2'>{} request size</th>{}</tr>"
+        "<tr>{}</tr></thead>"
+        "<tbody>{}</tbody></table>".format(
+            operation.capitalize(), header_traces, header_shares,
+            ''.join(rows))
+    )
+
+
+def _build_io_request_sizes_card_html(other_metrics, trace_list,
+                                      trace_labels, printable=False):
+    """Card with the request-size distribution of the POSIX and ANSI C
+    read and write calls."""
+    tables = [
+        _build_io_request_sizes_table_html(
+            other_metrics, trace_list, trace_labels, operation)
+        for operation in REQUEST_SIZE_OPERATIONS
+    ]
+    tables_html = ''.join(table for table in tables if table)
+
+    if not tables_html:
+        return ""
+
+    note = (
+        "Share of the requests and of the time of the POSIX and ANSI C read "
+        "and write calls in each request-size interval. The intervals are "
+        "powers of two and include the lower bound (256\u2013512 B: from 256 "
+        "to 511 bytes); they are a scale, not a classification of the "
+        "requests as small or large. Compare the two shares: an interval "
+        "with a small share of the requests and a large share of the time "
+        "holds the expensive requests."
+    )
+
+    if printable:
+        return """
+        <h3 class="print-subsection-title">Request sizes</h3>
+        <p class="print-section-description">{note}</p>
+        <div class="print-metric-results metric-table-card">
+            {tables_html}
+        </div>
+        """.format(note=note, tables_html=tables_html)
+
+    return """
+    <div class="metric-table-card io-diagnostics-card">
+        <h3>Request sizes</h3>
+        <p class="io-diagnostics-note">{note}</p>
+        {tables_html}
+    </div>
+    """.format(note=note, tables_html=tables_html)
 
 
 def _build_io_metrics_section(
@@ -1028,6 +1131,10 @@ def _build_io_metrics_section(
             trace_list,
             trace_labels,
             trace_column_description,
+        ) + _build_io_request_sizes_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
         ),
         trend_html=trend_html,
         efficiency_scale_html=efficiency_scale_html,
@@ -3662,6 +3769,11 @@ def _build_printable_io_section(
             trace_list,
             trace_labels,
             printable=True,
+        ) + _build_io_request_sizes_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+            printable=True,
         ),
         trend_html=trend_html,
     )
@@ -4754,6 +4866,15 @@ def _build_io_metrics_guidance_html():
                 operations (a higher mean duration) points to the I/O system
                 rather than to the application I/O pattern.
             </li>
+            <li>
+                <strong>Requests</strong> (POSIX and ANSI C): the volume read
+                and written, the mean request size, and, in the
+                <strong>Request sizes</strong> table, the share of the
+                requests and of the time in each power-of-two size interval
+                (also in <code>io_request_sizes.csv</code>). An interval with
+                few requests but much of the time holds the expensive
+                requests.
+            </li>
         </ul>
 
         <p>
@@ -5492,6 +5613,15 @@ def _build_interactive_report_document(workspace_html,
         .io-diagnostics-table th:not(:first-child) {
             min-width: 90px;
             font-variant-numeric: tabular-nums;
+        }
+
+        .io-request-sizes-table {
+            margin-top: 12px;
+        }
+
+        .io-request-sizes-table td:not(:first-child),
+        .io-request-sizes-table th:not(:first-child) {
+            min-width: 70px;
         }
 
  

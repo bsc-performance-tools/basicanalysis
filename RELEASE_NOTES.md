@@ -24,6 +24,16 @@
   colors), the standard output, and the new `io_metrics.csv`. The time
   and number of MPI-IO calls are obtained with two new Paraver
   configurations (`mpiio-calls-time.cfg`, `mpiio-calls-count.cfg`).
+- Request sizes of the POSIX and ANSI C read and write calls: volume, mean
+  request size, request-size coverage, and the request-size distribution in
+  power-of-two intervals (share of the requests, of the time, and of the
+  bytes), identical for every execution. They are shown in the standard
+  output, the I/O diagnostics and a new *Request sizes* table of the I/O
+  Analysis view, `io_metrics.csv`, and the new `io_request_sizes.csv`. The
+  requests are read from a temporary trace with only the I/O events,
+  written by Paraver (`cfgs/io-requests-filter.xml`); the histograms
+  `cfgs/io-*-size-pow2-*.cfg` show the same intervals in Paraver. MPI-IO
+  request sizes are not included yet.
 - The I/O efficiencies (I/O, Data Access, and File Management Efficiency)
   are classified with stricter thresholds than the other efficiencies:
   Critical below 90% (I/O takes 10% or more of the useful plus I/O time),
@@ -53,6 +63,11 @@
   (SPH-EXA, 64 ranks: 99.51% before, 94.58% now). The I/O Efficiency of
   traces without GPUs does not change. `rawdata.csv` has a new row, *Useful
   duration of the Host units, which perform File I/O (total)*.
+- The linear request-size histograms (`hist-read-size-count.cfg`,
+  `hist-write-size-count.cfg`) and the byte histograms (`hist-read-bytes.cfg`,
+  `hist-write-bytes.cfg`) are no longer computed: they counted only the
+  `read` and `write` calls, and no metric used them. They are replaced by
+  the request-size distribution.
 - The I/O diagnostics include every traced I/O call, including the ANSI C
   (`fread`, `fwrite`, `fopen`, `fclose`, `fseek`) and the vector and
   positional POSIX calls, which the previous per-operation raw data ignored.
