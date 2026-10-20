@@ -617,6 +617,7 @@ class RequestSizeMetricTests(unittest.TestCase):
 
         card = _build_io_request_sizes_card_html(
             other_metrics, ['t1'], ['2 [T1]'])
-        self.assertIn('Read request size', card)
-        self.assertIn('1–2 KiB', card)
-        self.assertNotIn('Write request size', card)
+        # One histogram per operation with requests.
+        self.assertEqual(card.count('class="io-request-size-plot"'), 1)
+        self.assertIn('Read requests', card)
+        self.assertNotIn('Write requests', card)

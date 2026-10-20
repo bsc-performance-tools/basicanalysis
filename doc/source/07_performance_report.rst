@@ -262,11 +262,12 @@ no execution uses are omitted. The same diagnostics are printed in the
 standard output and written to ``io_metrics.csv``; see
 :ref:`I/O diagnostics <io-diagnostics>`.
 
-The **Request sizes** table gives, for the POSIX and ANSI C read and write
-calls of each execution, the share of the requests and of the time in each
-power-of-two size interval. Compare the two shares: an interval with few
-requests and much of the time holds the expensive requests. See
-:ref:`requests <io-request-sizes>`.
+The **Request sizes** histograms show, for the POSIX and ANSI C read and
+write calls, the share of the requests (top panel) and of the time (bottom
+panel) in each power-of-two size interval, with one bar per execution.
+Compare the two panels: an interval with few requests and much of the time
+holds the expensive requests. Hovering over a bar shows the number of
+requests, the time, and the bytes. See :ref:`requests <io-request-sizes>`.
 
 The I/O metrics are reported independently from the hierarchical
 performance-efficiency model and must not be interpreted as additional

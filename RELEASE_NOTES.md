@@ -28,8 +28,9 @@
   request size, request-size coverage, and the request-size distribution in
   power-of-two intervals (share of the requests, of the time, and of the
   bytes), identical for every execution. They are shown in the standard
-  output, the I/O diagnostics and a new *Request sizes* table of the I/O
-  Analysis view, `io_metrics.csv`, and the new `io_request_sizes.csv`. The
+  output, the I/O diagnostics and new *Request sizes* histograms (share of
+  the requests and of the time per interval, one bar per execution) of the
+  I/O Analysis view, `io_metrics.csv`, and the new `io_request_sizes.csv`. The
   requests are read from a temporary trace with only the I/O events,
   written by Paraver (`cfgs/io-requests-filter.xml`); the histograms
   `cfgs/io-*-size-pow2-*.cfg` show the same intervals in Paraver. MPI-IO

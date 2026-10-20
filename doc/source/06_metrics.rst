@@ -2979,8 +2979,8 @@ same intervals in Paraver. The size of the MPI-IO requests is not used yet.
 The I/O diagnostics are shown in the I/O Analysis view of the report and
 printed in the standard output (in both, rows that are zero for all the
 executions are omitted), and written to ``io_metrics.csv``. The
-request-size distribution is shown in the *Request sizes* table of the view
-and in the standard output (share of the requests and of the time), and
+request-size distribution is shown in the *Request sizes* histograms of the
+view and in the standard output (share of the requests and of the time), and
 written to ``io_request_sizes.csv`` (requests, time, bytes, and their
 shares).
 

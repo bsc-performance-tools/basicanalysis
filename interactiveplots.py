@@ -10,6 +10,7 @@ import json
 import html
 
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from configuration import format_configuration_label
 from tracemetadata import is_host_gpu_mode
@@ -896,11 +897,20 @@ def _build_io_diagnostics_card_html(other_metrics, trace_list, trace_labels,
     )
 
 
-def _build_io_request_sizes_table_html(other_metrics, trace_list,
-                                       trace_labels, operation):
-    """Table of the share of the requests and of the time of each
-    power-of-two request-size interval of one operation. Returns an empty
-    string when no trace has requests of that operation."""
+# One color per execution in the request-size histograms.
+_IO_REQUEST_SIZE_COLORS = (
+    '#1f5f9e', '#e07b39', '#3a9a5b', '#8e5bb5', '#c0504d', '#5a9bd5',
+    '#b8860b', '#6b6b6b',
+)
+
+
+def _build_io_request_size_plot_html(other_metrics, trace_list,
+                                     trace_labels, operation,
+                                     printable=False):
+    """Histogram of the share of the requests (top) and of the time
+    (bottom) of each power-of-two request-size interval of one operation,
+    one bar per execution. Returns an empty string when no trace has
+    requests of that operation."""
     intervals = {}
 
     for trace in trace_list:
@@ -914,40 +924,104 @@ def _build_io_request_sizes_table_html(other_metrics, trace_list,
     if not intervals:
         return ""
 
-    header_traces = ''.join(
-        "<th colspan='2'>{}</th>".format(html.escape(label))
-        for label in trace_labels)
-    header_shares = "<th>Requests</th><th>Time</th>" * len(trace_list)
+    ordered = sorted(intervals, key=lambda interval: interval[0])
+    categories = [
+        request_size_interval_label(low, high, '\u2013')
+        for low, high in ordered
+    ]
 
-    rows = []
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+    )
 
-    for low, high in sorted(intervals, key=lambda interval: interval[0]):
-        bins = intervals[(low, high)]
-        cells = []
+    for position, (trace, label) in enumerate(zip(trace_list, trace_labels)):
+        bins = [intervals[interval].get(trace) for interval in ordered]
+        color = _IO_REQUEST_SIZE_COLORS[
+            position % len(_IO_REQUEST_SIZE_COLORS)]
 
-        for trace in trace_list:
-            bin_ = bins.get(trace)
+        customdata = [
+            [
+                '{0:,.0f}'.format(bin_['count']) if bin_ else '-',
+                '{0:,.3f}'.format(bin_['time'] / 1e6) if bin_ else '-',
+                format_bytes(bin_['bytes']) if bin_ else '-',
+            ]
+            for bin_ in bins
+        ]
 
-            if bin_ is None:
-                cells.append('<td>-</td><td>-</td>')
-                continue
+        for row, key, quantity in (
+            (1, 'count_pct', 'requests'),
+            (2, 'time_pct', 'time'),
+        ):
+            fig.add_trace(
+                go.Bar(
+                    x=categories,
+                    y=[bin_[key] if bin_ else 0.0 for bin_ in bins],
+                    name=label,
+                    legendgroup=label,
+                    showlegend=(row == 1),
+                    marker_color=color,
+                    customdata=customdata,
+                    hovertemplate=(
+                        '<b>' + html.escape(label) + '</b> %{x}<br>'
+                        + '%{y:.2f}% of the ' + quantity + '<br>'
+                        + 'Requests: %{customdata[0]}<br>'
+                        + 'Time: %{customdata[1]} s<br>'
+                        + 'Bytes: %{customdata[2]}'
+                        + '<extra></extra>'
+                    ),
+                ),
+                row=row,
+                col=1,
+            )
 
-            for key in ('count_pct', 'time_pct'):
-                cells.append(
-                    '<td>{}</td>'.format(_format_io_diagnostic(bin_[key], '%')))
+    fig.update_layout(
+        height=360 if printable else 460,
+        autosize=True,
+        barmode='group',
+        bargap=0.2,
+        margin=dict(l=65, r=20, t=40, b=95),
+        # Legend on the left: the Plotly toolbar is on the right.
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.02,
+            xanchor='left',
+            x=0.0,
+        ),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+    )
 
-        rows.append('<tr><td>{}</td>{}</tr>'.format(
-            html.escape(request_size_interval_label(low, high, '\u2013')),
-            ''.join(cells)))
+    fig.update_xaxes(
+        type='category',
+        categoryorder='array',
+        categoryarray=categories,
+        tickangle=-45,
+        showgrid=False,
+    )
+    fig.update_xaxes(title='Request size', row=2, col=1)
+    fig.update_yaxes(
+        rangemode='tozero',
+        showgrid=True,
+        gridcolor='#d9d9d9',
+        ticksuffix='%',
+    )
+    fig.update_yaxes(title='Requests', row=1, col=1)
+    fig.update_yaxes(title='Time', row=2, col=1)
 
-    return (
-        "<table class='metric-table io-diagnostics-table "
-        "io-request-sizes-table'>"
-        "<thead><tr><th rowspan='2'>{} request size</th>{}</tr>"
-        "<tr>{}</tr></thead>"
-        "<tbody>{}</tbody></table>".format(
-            operation.capitalize(), header_traces, header_shares,
-            ''.join(rows))
+    return '<h4>{} requests</h4>{}'.format(
+        operation.capitalize(),
+        fig.to_html(
+            full_html=False,
+            include_plotlyjs=False,
+            config={
+                'responsive': True,
+                'displaylogo': False,
+            },
+        ),
     )
 
 
@@ -955,24 +1029,29 @@ def _build_io_request_sizes_card_html(other_metrics, trace_list,
                                       trace_labels, printable=False):
     """Card with the request-size distribution of the POSIX and ANSI C
     read and write calls."""
-    tables = [
-        _build_io_request_sizes_table_html(
-            other_metrics, trace_list, trace_labels, operation)
+    plots = [
+        _build_io_request_size_plot_html(
+            other_metrics, trace_list, trace_labels, operation, printable)
         for operation in REQUEST_SIZE_OPERATIONS
     ]
-    tables_html = ''.join(table for table in tables if table)
+    plots_html = ''.join(
+        '<div class="io-request-size-plot">{}</div>'.format(plot)
+        for plot in plots if plot
+    )
 
-    if not tables_html:
+    if not plots_html:
         return ""
 
     note = (
-        "Share of the requests and of the time of the POSIX and ANSI C read "
-        "and write calls in each request-size interval. The intervals are "
-        "powers of two and include the lower bound (256\u2013512 B: from 256 "
-        "to 511 bytes); they are a scale, not a classification of the "
-        "requests as small or large. Compare the two shares: an interval "
-        "with a small share of the requests and a large share of the time "
-        "holds the expensive requests."
+        "Share of the requests (top) and of the time (bottom) of the POSIX "
+        "and ANSI C read and write calls in each request-size interval. "
+        "Compare the two panels: an interval with a small share of the "
+        "requests and a large share of the time holds the expensive "
+        "requests. The intervals are powers of two and include the lower "
+        "bound (256\u2013512 B: from 256 to 511 bytes); they are a scale, "
+        "not a classification of the requests as small or large. Hover over "
+        "a bar for the number of requests, the time, and the bytes; the "
+        "values are also in <code>io_request_sizes.csv</code>."
     )
 
     if printable:
@@ -980,17 +1059,17 @@ def _build_io_request_sizes_card_html(other_metrics, trace_list,
         <h3 class="print-subsection-title">Request sizes</h3>
         <p class="print-section-description">{note}</p>
         <div class="print-metric-results metric-table-card">
-            {tables_html}
+            {plots_html}
         </div>
-        """.format(note=note, tables_html=tables_html)
+        """.format(note=note, plots_html=plots_html)
 
     return """
     <div class="metric-table-card io-diagnostics-card">
         <h3>Request sizes</h3>
         <p class="io-diagnostics-note">{note}</p>
-        {tables_html}
+        {plots_html}
     </div>
-    """.format(note=note, tables_html=tables_html)
+    """.format(note=note, plots_html=plots_html)
 
 
 def _build_io_metrics_section(
@@ -4869,7 +4948,7 @@ def _build_io_metrics_guidance_html():
             <li>
                 <strong>Requests</strong> (POSIX and ANSI C): the volume read
                 and written, the mean request size, and, in the
-                <strong>Request sizes</strong> table, the share of the
+                <strong>Request sizes</strong> histograms, the share of the
                 requests and of the time in each power-of-two size interval
                 (also in <code>io_request_sizes.csv</code>). An interval with
                 few requests but much of the time holds the expensive
@@ -5615,13 +5694,14 @@ def _build_interactive_report_document(workspace_html,
             font-variant-numeric: tabular-nums;
         }
 
-        .io-request-sizes-table {
+        .io-request-size-plot {
             margin-top: 12px;
         }
 
-        .io-request-sizes-table td:not(:first-child),
-        .io-request-sizes-table th:not(:first-child) {
-            min-width: 70px;
+        .io-request-size-plot h4 {
+            margin: 0;
+            color: var(--primary);
+            font-size: 14px;
         }
 
  
