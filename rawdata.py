@@ -263,72 +263,98 @@ def parse_host_useful_stats(path):
         max(host_values),
     )
 
-def parse_total_as_int(path):
-    total = 0.0
-    for line in iter_stats_lines(path):
-        parts = line.split()
-        if not parts:
+def is_host_row_label(label):
+    """True for the rows of host execution threads, labelled
+    THREAD app.task.thread. GPU stream rows have other labels (GPU-D1.S1,
+    CUDA-D1.S1, GPU_<uuid>.1, ...)."""
+    return label.strip().startswith('THREAD ')
+
+
+def parse_stats_rows(path, skip_header=True):
+    """(label, value) of the object rows of a single-column paramedir stats
+    file, without the summary rows (Total, Average, ...). value is the first
+    number after the label, or None."""
+    rows = []
+
+    for line in iter_stats_lines(path, skip_header=skip_header):
+        parts = line.split('\t')
+        label = parts[0].strip()
+
+        if not label or label in SUMMARY_KEYS:
             continue
-        if parts[0] == 'Total':
-            total = int(float(parts[1]))
+
+        value = None
+
+        for field in parts[1:]:
+            field = field.strip()
+
+            if not field:
+                continue
+
+            try:
+                value = float(field)
+            except ValueError:
+                pass
             break
-    return total
+
+        rows.append((label, value))
+
+    return rows
+
+
+def host_row_filter(labels):
+    """Function that keeps the host rows among labels.
+
+    Hardware counters are read on the host threads only. Extrae may write a
+    few counter values on the GPU stream rows (for example when it closes
+    them), which the counter configurations would multiply by every kernel
+    of the stream. When no row has a host label (custom row labels), all
+    the rows are kept.
+    """
+    if any(is_host_row_label(label) for label in labels):
+        return is_host_row_label
+
+    return lambda label: True
+
+
+def parse_host_total_as_int(path):
+    """Sum of the host rows of a single-column stats file (see
+    host_row_filter), as an integer."""
+    rows = parse_stats_rows(path)
+    is_counted = host_row_filter([label for label, _ in rows])
+
+    return int(sum(
+        value for label, value in rows
+        if value is not None and not math.isnan(value) and is_counted(label)
+    ))
 
 
 def parse_positive_value_sum(path, skip_header=True):
-    total = 0.0
-    count_positive = 0
-
-    for line in iter_stats_lines(path, skip_header=skip_header):
-        parts = line.split()
-
-        if not parts:
-            continue
-
-        if parts[0] in SUMMARY_KEYS:
-            continue
-
-        try:
-            value = float(parts[-1])
-        except (ValueError, IndexError):
-            continue
-
-        if math.isnan(value):
-            continue
-
-        if value > 0.0:
-            total += value
-            count_positive += 1
-
-    if count_positive == 0:
-        return None
+    """Sum of the positive values of the host rows (see host_row_filter), or
+    None when no host row has a positive value."""
+    total, count_positive, _ = parse_positive_value_sum_and_mask(
+        path, skip_header=skip_header)
 
     return total
 
 
 def parse_positive_value_sum_and_mask(path, skip_header=True):
+    """Sum and number of the positive values of the host rows (see
+    host_row_filter), and a mask with one entry per row with a value: 1 for
+    a host row with a positive value, 0 otherwise. Returns (None, 0, []) when
+    no host row has a positive value."""
+    rows = parse_stats_rows(path, skip_header=skip_header)
+    is_counted = host_row_filter([label for label, _ in rows])
+
     total = 0.0
     mask = []
     count_positive = 0
 
-    for line in iter_stats_lines(path, skip_header=skip_header):
-        parts = line.split()
-
-        if not parts:
+    for label, value in rows:
+        if value is None or math.isnan(value):
             continue
 
-        if parts[0] in SUMMARY_KEYS:
-            continue
-
-        try:
-            value = float(parts[-1])
-        except (ValueError, IndexError):
-            continue
-
-        if math.isnan(value):
-            continue
-
-        if value > 0.0:
+        if value > 0.0 and is_counted(label):
             total += value
             count_positive += 1
             mask.append(1)
@@ -860,7 +886,9 @@ def parse_average_frequency_histogram(path):
 
         [3,583.34..3,753.53)
 
-    The Total row contains the accumulated time in each frequency bin.
+    Each row contains the time of a thread in each frequency bin. Only the
+    host rows are added (see host_row_filter): the GPU stream rows have no
+    meaningful frequency.
 
     Returns:
         Average frequency in cycles/us, or None when no valid
@@ -868,7 +896,7 @@ def parse_average_frequency_histogram(path):
     """
 
     bin_midpoints = []
-    total_times = None
+    row_times = []
 
     with open(path) as f:
         for raw_line in f:
@@ -936,26 +964,39 @@ def parse_average_frequency_histogram(path):
                     continue
 
             # --------------------------------------------------
-            # Total accumulated time per frequency bin
+            # Time per frequency bin of each row
             # --------------------------------------------------
-            if key == 'Total':
+            if not key or key in SUMMARY_KEYS:
+                continue
 
-                values = []
+            values = []
 
-                for field in parts[1:]:
+            for field in parts[1:]:
 
-                    field = field.strip()
+                field = field.strip()
 
-                    if not field:
-                        continue
+                if not field:
+                    continue
 
-                    try:
-                        values.append(float(field))
-                    except ValueError:
-                        values.append(0.0)
+                try:
+                    values.append(float(field))
+                except ValueError:
+                    values.append(0.0)
 
-                total_times = values
-                break
+            row_times.append((key, values))
+
+    is_counted = host_row_filter([key for key, _ in row_times])
+    total_times = []
+
+    for key, values in row_times:
+        if not is_counted(key):
+            continue
+
+        for index, value in enumerate(values):
+            if index < len(total_times):
+                total_times[index] += value
+            else:
+                total_times.append(value)
 
     if not bin_midpoints or not total_times:
         return None
@@ -3025,17 +3066,17 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_raw_data['flushing_max'] = 0.0
 
     # total-only counters
-    trace_raw_data['flushing_cyc'] = parse_total_as_int(trace_name + '.flushing-cycles.stats.csv') \
+    trace_raw_data['flushing_cyc'] = parse_host_total_as_int(trace_name + '.flushing-cycles.stats.csv') \
         if os.path.exists(trace_name + '.flushing-cycles.stats.csv') else 0.0
-    trace_raw_data['flushing_ins'] = parse_total_as_int(trace_name + '.flushing-inst.stats.csv') \
+    trace_raw_data['flushing_ins'] = parse_host_total_as_int(trace_name + '.flushing-inst.stats.csv') \
         if os.path.exists(trace_name + '.flushing-inst.stats.csv') else 0.0
-    trace_raw_data['io_cyc'] = parse_total_as_int(trace_name + '.posixio-cycles.stats.csv') \
+    trace_raw_data['io_cyc'] = parse_host_total_as_int(trace_name + '.posixio-cycles.stats.csv') \
         if os.path.exists(trace_name + '.posixio-cycles.stats.csv') else 0.0
-    trace_raw_data['io_ins'] = parse_total_as_int(trace_name + '.posixio-inst.stats.csv') \
+    trace_raw_data['io_ins'] = parse_host_total_as_int(trace_name + '.posixio-inst.stats.csv') \
         if os.path.exists(trace_name + '.posixio-inst.stats.csv') else 0.0
-    trace_raw_data['mpiio_cyc'] = parse_total_as_int(trace_name + '.mpiio-cycles.stats.csv') \
+    trace_raw_data['mpiio_cyc'] = parse_host_total_as_int(trace_name + '.mpiio-cycles.stats.csv') \
         if os.path.exists(trace_name + '.mpiio-cycles.stats.csv') and is_detailed_mpi else 0.0
-    trace_raw_data['mpiio_ins'] = parse_total_as_int(trace_name + '.mpiio-inst.stats.csv') \
+    trace_raw_data['mpiio_ins'] = parse_host_total_as_int(trace_name + '.mpiio-inst.stats.csv') \
         if os.path.exists(trace_name + '.mpiio-inst.stats.csv') and is_detailed_mpi else 0.0
 
     # mpi_io aggregates
