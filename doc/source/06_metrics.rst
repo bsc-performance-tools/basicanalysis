@@ -439,6 +439,10 @@ where :math:`Instructions` is the number of instructions executed during
 useful computation and :math:`Cycles` is the corresponding number of processor
 cycles.
 
+The hardware counters (instructions, cycles, and frequency) are read on the
+host threads only. In GPU traces, the rows of the GPU streams are excluded:
+Extrae may write a few counter values on them, which do not measure GPU work.
+
 Values below 100% indicate that fewer instructions are completed per cycle
 than in the reference execution. Values above 100% indicate an improvement in
 instruction throughput relative to the reference.
