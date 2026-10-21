@@ -20,6 +20,17 @@
 
 ### Fixes
 
+- Fixed the hardware-counter metrics of GPU traces, which also counted the
+  rows of the GPU streams. Extrae writes a few counter values on the stream
+  rows when it closes them (the counters of the host thread), and the
+  counter configurations counted them again for every kernel of the stream,
+  so the useful cycles and instructions were overestimated by about 10^6.
+  The useful instructions and cycles, the flushing, I/O, and MPI-IO cycles
+  and instructions, and the average frequency now use the host threads
+  only (rows labelled `THREAD`). Affected metrics, only in GPU traces:
+  Average IPC, Average frequency, and IPC, Instruction, and Frequency
+  Scalability (CloverLeaf CUDA, 4 GPUs: IPC 3.88 before, 3.17 now;
+  frequency 2.40 GHz before, 2.73 GHz now). CPU traces do not change.
 - Fixed two Paraver configurations of the OpenMP Runtime-Specific metrics
   whose analyzer ranges had been saved for a specific trace, so that values
   outside the range were silently ignored: the MPI time of MPI+OpenMP
