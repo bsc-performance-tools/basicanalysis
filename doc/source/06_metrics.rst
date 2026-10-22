@@ -2955,12 +2955,12 @@ Because the nsys2prv trace contains both GPU execution events and the sampled
 hardware-counter timelines, the next analysis step can be performed directly
 in Paraver. The analyst can correlate the behavior identified by
 BasicAnalysis with the corresponding kernel, memory-operation, and other GPU
-events to determine when it occurs and which execution regions are associated
-with it.
-
-Because the hardware counters are sampled at device level, this temporal
-correlation should be interpreted carefully for short kernels and for kernels
-that overlap on different streams.
+events to determine when it occurs and which kernels or execution regions are
+associated with it. The hardware counters are sampled at device level and
+are not associated with individual kernels, so this temporal correlation
+should be interpreted carefully for short kernels and for kernels that
+overlap on different streams. The dominant kernels can then be profiled with
+Nsight Compute to confirm the cause.
 
 
 Example: combining Device metrics and GPU hardware counters
@@ -3073,22 +3073,10 @@ The workflow therefore leads to two hypotheses for T2: too few resident warps
 to hide latency, and intensive device-memory activity. Both should be
 investigated for the dominant kernels.
 
-Because the nsys2prv trace contains both the GPU kernel events and the
-sampled GPU hardware counters, the next analysis step can be performed
-directly in Paraver. The analyst can inspect the dominant kernels and
-correlate their execution intervals with the sampled SM, occupancy, Tensor
-Core, DRAM, and clock activity. This can help determine which kernels or
-execution regions are associated with the behavior observed in the
-execution-level BasicAnalysis metrics.
-
-The hardware counters are sampled at device level and are not intrinsically
-associated with individual kernels. Therefore, this temporal correlation
-should be interpreted carefully, particularly for short kernels or when
-kernels overlap on different streams. The BasicAnalysis metrics should first
-be used to identify the relevant behavior, and the nsys2prv trace in Paraver
-can then be used to localize that behavior in the GPU execution. The
-dominant kernels can then be profiled with Nsight Compute to confirm the
-cause.
+As the last step of the `Diagnostic workflow`_, the dominant kernels of T2
+can be located in Paraver by correlating their execution intervals with the
+sampled SM, occupancy, Tensor Core, DRAM, and clock activity, and then
+profiled with Nsight Compute to confirm these hypotheses.
 
 
 OpenMP Runtime-Specific Metrics
