@@ -75,7 +75,9 @@ NSYS2PRV_STREAM_LABEL_RE = re.compile(
 # whole trace (value x ns). The SM, warp and tensor counters are nested in
 # GR Active and are integrated as they are; the DRAM and clock counters are
 # integrated multiplied by GR Active, to obtain averages weighted by the
-# GPU activity.
+# GPU activity. The DRAM counters are also integrated as they are: these
+# integrals are not used by the metrics, but are written to rawdata.csv as
+# the amount of data read and written relative to the peak bandwidth.
 HWC_COUNTERS = (
     # key, event, nsys2prv label
     ('gr_active', 9402, 'GR Active [Throughput %]'),
@@ -87,9 +89,15 @@ HWC_COUNTERS = (
     ('dram_read', 9418, 'DRAM Read Bandwidth [Throughput %] x GR Active'),
     ('dram_write', 9419, 'DRAM Write Bandwidth [Throughput %] x GR Active'),
     ('gpc_clock', 9400, 'GPC Clock Frequency x GR Active'),
+    ('dram_read_unweighted', 9418, 'DRAM Read Bandwidth [Throughput %]'),
+    ('dram_write_unweighted', 9419, 'DRAM Write Bandwidth [Throughput %]'),
 )
 
 HWC_KEYS = tuple(key for key, _event, _label in HWC_COUNTERS)
+
+# Integrals that are only written to rawdata.csv. The metrics do not need
+# them, so results saved before they existed still give the metrics.
+HWC_RAW_ONLY_KEYS = ('dram_read_unweighted', 'dram_write_unweighted')
 
 # Raw data of the hardware counters. They are only printed in rawdata.csv
 # when a trace has them, so that the raw data of Extrae traces is unchanged.
@@ -472,7 +480,8 @@ def compute_device_hwc_factors(raw_data, trace):
     def raw(key):
         return raw_data.get(key, {}).get(trace, 'Non-Avail')
 
-    integrals = {key: raw('hwc_' + key + '_int') for key in HWC_KEYS}
+    integrals = {key: raw('hwc_' + key + '_int') for key in HWC_KEYS
+                 if key not in HWC_RAW_ONLY_KEYS}
     if any(value in ('Non-Avail', 'NaN', None) for value in integrals.values()):
         return factors
 

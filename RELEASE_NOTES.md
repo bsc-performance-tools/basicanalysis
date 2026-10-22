@@ -45,6 +45,10 @@
   indicators, and in the new *GPU Hardware Counters* view of the interactive
   report, whose PNG export includes the indicators below the efficiency
   table. The metrics of Extrae traces do not change.
+  `rawdata.csv` contains the integrals of the counters, including the DRAM
+  read and write bandwidth without the GR Active weighting, which are
+  proportional to the amount of data read and written (for comparing
+  executions on the same GPU model).
 
 ### Improvements
 

@@ -29,6 +29,8 @@ B1_INTEGRALS = {
     'dram_read': 43845990694445.0,
     'dram_write': 1253583392686.0,
     'gpc_clock': 1543387258012957147136.0,
+    'dram_read_unweighted': 537330952012.0,
+    'dram_write_unweighted': 23523783757.0,
 }
 B1_RUNTIME_US = 53664645.850
 
@@ -134,6 +136,13 @@ class HwcFactorsTests(unittest.TestCase):
         integrals['gpc_clock'] = 1905.0 * B1_INTEGRALS['gr_active']
         factors = compute_device_hwc_factors(_raw_data('t', integrals), 't')
         self.assertAlmostEqual(factors['dev_hwc_gpc_clock'], 1905.0)
+
+    def test_metrics_do_not_need_the_unweighted_dram_integrals(self):
+        # Results saved before these integrals existed still give the metrics.
+        integrals = dict(B1_INTEGRALS)
+        del integrals['dram_read_unweighted'], integrals['dram_write_unweighted']
+        factors = compute_device_hwc_factors(_raw_data('b1', integrals), 'b1')
+        self.assertAlmostEqual(factors['dev_hwc_dram_read'], 54.12, places=2)
 
     def test_without_counters(self):
         raw_data = {'runtime': {'t': 10.0}}

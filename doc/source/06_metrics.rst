@@ -2527,6 +2527,19 @@ and:
 These quantities therefore represent activity-weighted execution averages
 during Graphics/Compute Engine activity.
 
+``rawdata.csv`` also contains the integrals of the DRAM read and write
+bandwidth without the ``GR Active`` weighting, :math:`I_{DRAM}^{Read}` and
+:math:`I_{DRAM}^{Write}` (``hwc_dram_read_unweighted.cfg`` and
+``hwc_dram_write_unweighted.cfg``). The metrics do not use them. Because the
+counters are percentages of the peak DRAM bandwidth, these integrals are
+proportional to the amount of data read and written: the amount in bytes is
+:math:`I_{DRAM}/100`, converted from nanoseconds to seconds, multiplied by the
+peak bandwidth of the GPU in bytes per second, which the trace does not
+record. Their ratio between two executions on the
+same GPU model is therefore the ratio of the data moved, and dividing them by
+the elapsed time gives the average bandwidth over the whole execution, as a
+percentage of the peak.
+
 This execution-level aggregation is particularly useful because the hardware
 counters are sampled periodically (every 100 µs by default), while individual
 GPU kernels may be shorter than the sampling period. BasicAnalysis therefore
