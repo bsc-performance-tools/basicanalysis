@@ -2602,15 +2602,13 @@ The metrics are summarized below:
 
    * - DRAM Read Bandwidth
      - :math:`I_{DRAM\,Read \times GR} / I_{GR\,Active}`
-     - Average DRAM read bandwidth during GPU-active periods, expressed
-       relative to the hardware-specific peak sustained rate reported by
-       the NVIDIA metric.
+     - Average DRAM read bandwidth during GPU-active periods, as a
+       percentage of the peak sustained rate.
 
    * - DRAM Write Bandwidth
      - :math:`I_{DRAM\,Write \times GR} / I_{GR\,Active}`
-     - Average DRAM write bandwidth during GPU-active periods, expressed
-       relative to the hardware-specific peak sustained rate reported by
-       the NVIDIA metric.
+     - Average DRAM write bandwidth during GPU-active periods, as a
+       percentage of the peak sustained rate.
 
    * - GPC Clock
      - :math:`I_{Clock \times GR} / I_{GR\,Active}`
@@ -2713,10 +2711,8 @@ issued.
 Complementary performance indicators
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The SM efficiency decomposition identifies whether low SM Utilization is
-associated with limited SM Coverage, limited SM Issue Efficiency, or both.
 The remaining hardware-counter metrics provide complementary information
-that can help interpret the observed execution behavior.
+that helps interpret the SM efficiency decomposition.
 
 Unlike the SM efficiency metrics, these performance indicators do not have a
 universal interpretation in which higher values are necessarily better.
@@ -2737,10 +2733,6 @@ as a consistency check between the sampled hardware counters and the
 kernel-based trace information. GPU idle periods and their impact on
 application performance should instead be assessed using the Device metrics
 of the Host/Device Model.
-
-Because ``GR Active`` represents Graphics/Compute Engine activity, memory
-copies executed independently by GPU copy engines are not included in this
-indicator.
 
 
 **Achieved Occupancy (run average)**
@@ -2781,42 +2773,25 @@ execution is a performance bottleneck.
 **DRAM Read and Write Bandwidth**
 
 ``DRAM Read Bandwidth`` and ``DRAM Write Bandwidth`` characterize the use of
-the device DRAM memory system during GPU-active periods. They are expressed
-as percentages of the hardware-specific peak sustained rate reported by the
-corresponding NVIDIA counters.
+the device DRAM memory system during GPU-active periods.
 
 These indicators are workload dependent. High DRAM bandwidth indicates
 intensive use of the device-memory system, but does not by itself demonstrate
 that execution is memory-bandwidth bound. Similarly, low DRAM bandwidth is
 not necessarily inefficient: an application may obtain most of its data from
 the GPU caches, perform little memory traffic, or be limited by another part
-of the execution.
-
-DRAM bandwidth becomes particularly useful when interpreted together with
-SM Issue Efficiency. For example, high DRAM bandwidth together with low
-SM Issue Efficiency may indicate that device-memory activity is limiting
-instruction progress. This remains a diagnostic hypothesis. The corresponding
-intervals should be inspected in the nsys2prv trace with Paraver to determine
-which kernels or execution regions are associated with the observed memory
-activity and limited instruction issue.
+of the execution. DRAM bandwidth is most informative together with SM Issue
+Efficiency (step 4 of the `Diagnostic workflow`_).
 
 
 **GPC Clock**
 
 ``GPC Clock`` reports the average Graphics Processing Cluster clock frequency
-during GPU-active periods. It describes an operating condition of the GPU
-rather than the utilization or efficiency of an execution resource.
-
-The absolute clock frequency should therefore not be interpreted as good or
-bad on its own. The metric is most useful when comparing executions on the
-same GPU model under comparable system conditions. An unexpectedly lower
-clock in one execution may help explain a performance difference, but it
-does not by itself demonstrate thermal or power throttling.
-
-When an unexpectedly low clock is observed, it should be treated as an
-operating-condition difference that may contribute to the observed
-performance. The GPC Clock value alone is not sufficient to determine why
-the operating frequency differs or to demonstrate power or thermal
+during GPU-active periods. As an operating condition, its absolute value is
+not good or bad on its own. It is most useful when comparing executions on
+the same GPU model under comparable system conditions: an unexpectedly lower
+clock may contribute to a performance difference, but it does not explain why
+the frequency differs and is not sufficient evidence of power or thermal
 throttling.
 
 
@@ -2836,9 +2811,8 @@ A useful starting point is **SM Utilization**, which is decomposed into
    SM\ Utilization =
    SM\ Coverage \times SM\ Issue\ Efficiency
 
-The two factors distinguish whether low SM Utilization is associated with
-limited use of the available SM capacity, limited instruction issue within
-the active SMs, or both.
+The steps below follow this decomposition and then use the complementary
+indicators to explain what limits instruction issue.
 
 
 **1. Inspect SM Coverage**
@@ -2872,84 +2846,48 @@ not providing more instruction-issue activity. Possible explanations include
 insufficient resident warps to hide latency, memory latency, instruction or
 data dependencies, synchronization, or control-flow effects.
 
-**Achieved Occupancy** and the memory-system indicators provide additional
-context for this investigation.
-
 
 **3. Inspect Achieved Occupancy**
 
-When SM Issue Efficiency is low, **Achieved Occupancy** can be used to
-determine whether the active SMs contain relatively few resident warps.
-
-Low Achieved Occupancy together with low SM Issue Efficiency may indicate
-that there are not enough resident warps to hide execution or memory latency.
-The nsys2prv trace should then be used to identify the kernels or execution
-regions associated with this behavior. Kernel launch characteristics
-available in the trace, such as grid and block dimensions, can provide
-additional context.
-
-Low occupancy alone, however, does not demonstrate a performance problem.
-Some kernels can execute efficiently with relatively few resident warps.
+When SM Issue Efficiency is low, **Achieved Occupancy** shows whether the
+active SMs contain relatively few resident warps. If it is also low, too few
+resident warps to hide execution or memory latency is a hypothesis to
+investigate; the kernel launch characteristics in the trace, such as grid
+and block dimensions, provide additional context. Low occupancy alone does
+not indicate a problem (see `Complementary performance indicators`_).
 
 
 **4. Inspect DRAM activity**
 
 If SM Issue Efficiency remains low despite sufficient resident warp
 occupancy, inspect **DRAM Read Bandwidth** and **DRAM Write Bandwidth**.
-
-High DRAM bandwidth indicates intensive use of the device-memory system.
-When high DRAM activity occurs together with low SM Issue Efficiency,
-device-memory behavior becomes a relevant hypothesis for the limited
-instruction-issue activity.
-
-Low or moderate DRAM bandwidth does not exclude memory-related effects.
-Execution may instead be affected by memory latency, cache behavior, access
-patterns, dependencies, or another source of limited instruction issue.
-
-The nsys2prv trace can then be inspected in Paraver to correlate the sampled
-DRAM and SM activity with the kernel and memory-operation events. This helps
-identify the kernels or execution regions associated with the observed
-behavior.
+High DRAM activity together with low SM Issue Efficiency makes device-memory
+behavior a relevant hypothesis for the limited instruction issue. Low or
+moderate DRAM bandwidth does not exclude memory-related effects: execution
+may instead be affected by memory latency, cache behavior, access patterns,
+or dependencies.
 
 
 **5. Inspect workload-specific resources**
 
-For workloads expected to use Tensor Cores, inspect **Tensor Core Activity**.
-Low activity may indicate that the expected Tensor Core resources are not
-being extensively exercised.
-
-The nsys2prv trace can be used to determine which kernel intervals coincide
-with Tensor Core activity and whether the activity is concentrated in the
-expected parts of the execution.
-
-High Tensor Core Activity indicates that the Tensor Core pipelines are being
-used extensively, but does not by itself establish that they are the
-performance-limiting resource.
+For workloads expected to use Tensor Cores, inspect **Tensor Core Activity**
+(see `Complementary performance indicators`_). The trace shows which kernel
+intervals coincide with Tensor Core activity and whether it is concentrated
+in the expected parts of the execution.
 
 
 **6. Inspect the GPU operating conditions**
 
-When comparing executions on the same GPU model, **GPC Clock** can help
-identify differences in GPU operating frequency.
-
-If an execution shows a lower GPC Clock together with degraded performance,
-the frequency difference may contribute to the observed performance change.
-The clock timeline in the nsys2prv trace can be inspected in Paraver to
-determine whether the frequency change is persistent or associated with
+When comparing executions on the same GPU model, a lower **GPC Clock**
+together with degraded performance may contribute to the performance change
+(see `Complementary performance indicators`_). The clock timeline in the
+trace shows whether the frequency change is persistent or associated with
 particular execution regions.
-
-A lower GPC Clock alone does not identify the reason for the frequency
-difference and is not sufficient evidence of power or thermal throttling.
 
 
 The terms *low* and *high* in this workflow are relative rather than fixed
 thresholds. They should be interpreted in the context of the application,
 GPU architecture, and, when possible, comparable executions.
-
-The values reported by BasicAnalysis are execution-level aggregates over the
-sampled GPU activity. Consequently, the diagnostic workflow identifies which
-behavior should be investigated further rather than assigning a definitive
-kernel-level root cause.
 
 Because the nsys2prv trace contains both GPU execution events and the sampled
 hardware-counter timelines, the next analysis step can be performed directly
