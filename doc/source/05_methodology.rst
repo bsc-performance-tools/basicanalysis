@@ -940,6 +940,36 @@ The detected scaling model, the model finally used for the analysis, and
 whether the selection was automatic or manual are included in the scaling
 information reported by BasicAnalysis.
 
+User-defined workload
+---------------------
+
+Strong and weak scaling are two particular cases of a more general
+experiment, in which the workload and the resources change independently. In
+strong scaling the workload is constant; in weak scaling it grows with the
+resources. Experiments in which the workload changes while the resources do
+not, for example the batch size of an inference run on the same GPU, are
+neither.
+
+For these experiments, the workload of each execution can be given with
+``--workload`` or ``--ratios-workload`` (see :doc:`03_running_basicanalysis`).
+BasicAnalysis then uses the weak-scaling formulas of the scalability metrics,
+replacing the resource ratio of each metric (processes, Host threads,
+devices, or processes with instructions) with the workload ratio
+
+.. math::
+
+   w(n) = \frac{W(n)}{W_{ref}}
+
+where :math:`W(n)` is the workload of execution :math:`n`. The same ratio is
+used for all metrics, because it describes the size of the whole problem, not
+one type of resource: if the workload doubles, the ideal is twice the useful
+computation time and twice the instructions, whichever part of the system
+executes them. With :math:`w(n) = 1` the metrics are those of strong scaling,
+and with :math:`w(n) = P(n)/P_{ref}` they are those of weak scaling.
+
+The automatic detection is still computed and reported for information, but
+it is not used.
+
 Reference execution
 -------------------
 

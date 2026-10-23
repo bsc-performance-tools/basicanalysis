@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### New Features
+
+- User-defined workload scaling: `--workload W1,W2,...` (workload sizes, for
+  example batch sizes) or `--ratios-workload R1,R2,...` (workload ratios
+  relative to the reference trace), one value per trace in command-line
+  order. The scalability metrics, Speedup, and Scaling Efficiency use the
+  weak-scaling formulas with the workload ratio in place of the ratio of
+  processes, Host threads, or devices, the same ratio for all metrics. This
+  covers experiments in which the workload changes but the resources do
+  not, such as several batch sizes on the same GPU. The workload and ratio
+  of each trace are printed in the scaling model summary and shown in the
+  Scaling section of the report.
+
 ### Improvements
 
 - Identify useful Device computation by the *Running* state on the GPU

@@ -16,6 +16,7 @@ from report import build_analysis_context, build_report_model
 import html_to_pdf
 import os
 from tracemetadata import is_host_gpu_mode
+from scaling import describe_scaling
 from comparison import (
     get_programming_model,
     is_comparison_mode,
@@ -200,20 +201,21 @@ def print_scaling_info(scaling_info):
         else "Non-Avail"
     )
 
-    selected = scaling_info.selected.capitalize()
-
-    if scaling_info.selection_mode == "auto":
-        selection = "Automatic"
-    elif scaling_info.selection_mode == "manual":
-        selection = "Manual"
-    else:
-        selection = "Implicit"
+    selected, selection = describe_scaling(scaling_info)
 
     ##print("")
     print("Scaling model:")
     print("  Detected scaling : {}".format(detected))
     print("  Scaling used     : {}".format(selected))
     print("  Selection        : {}".format(selection))
+
+    if scaling_info.workload_ratios is not None:
+        print("  Workload per trace (reference: first trace):")
+        width = max(len(trace) for trace in scaling_info.workload_ratios)
+        for trace, ratio in scaling_info.workload_ratios.items():
+            print("    {:<{w}}  workload {:>10g}  ratio {:>10g}".format(
+                trace, scaling_info.workload_values[trace], ratio, w=width))
+
     print("")
 
 def generate_reports(metrics_result, analysis_result, trace_list, trace_processes,

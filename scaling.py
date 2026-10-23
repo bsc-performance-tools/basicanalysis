@@ -22,13 +22,17 @@ class ScalingInfo:
 
     selected : str
         Scaling type finally used by BasicAnalysis for metric computation.
-        The value is always "strong" or "weak".
+        The value is "strong", "weak" or "workload". "workload" means that
+        the user gave the workload of each trace (--workload or
+        --ratios-workload); the weak-scaling formulas are then used with the
+        user workload ratio in place of the resource ratios.
 
     selection_mode : str
         Indicates how the selected scaling type was obtained.
         Possible values are:
             - "auto": automatically detected.
             - "manual": explicitly selected by the user.
+            - "workload": user-defined workload ratios.
             - "implicit": internal compatibility choice when scaling analysis
               is not applicable.
 
@@ -50,6 +54,13 @@ class ScalingInfo:
 
     status_message : str or None
         Additional information describing the scaling-analysis status.
+
+    workload_values : dict or None
+        Workload value given by the user for each trace, in workload mode.
+
+    workload_ratios : dict or None
+        Workload of each trace divided by the workload of the reference
+        trace, in workload mode.
     """
 
     def __init__(
@@ -64,6 +75,8 @@ class ScalingInfo:
         normalized_useful_avg_ratio=None,
         threshold=0.9,
         status_message=None,
+        workload_values=None,
+        workload_ratios=None,
     ):
         self.has_scaling_analysis = has_scaling_analysis
 
@@ -81,6 +94,21 @@ class ScalingInfo:
 
         self.threshold = threshold
         self.status_message = status_message
+
+        self.workload_values = workload_values
+        self.workload_ratios = workload_ratios
+        self.workload_option = None
+
+    def work_ratio(self, trace, resource_ratio):
+        """Return the multiplier of the weak-scaling formulas for a trace.
+
+        In workload mode it is the user workload ratio of the trace, the
+        same for every metric. Otherwise it is the resource ratio of the
+        metric (processes, host threads, devices, ...).
+        """
+        if self.workload_ratios is not None:
+            return self.workload_ratios[trace]
+        return resource_ratio
 
 
 def _compute_scaling_detection(
@@ -230,7 +258,13 @@ def get_scaling_info(
     The automatic detector first determines whether the analyzed executions
     resemble strong or weak scaling.
 
-    The command-line scaling option is then applied:
+    When the user gives the workload of each trace (--workload or
+    --ratios-workload), the selected scaling is "workload" and the
+    workload ratio of each trace relative to the reference trace is
+    stored in ``workload_ratios``. The detected scaling is kept only for
+    information.
+
+    Otherwise the command-line scaling option is applied:
 
         auto
             Use the automatically detected scaling type.
@@ -262,6 +296,37 @@ def get_scaling_info(
     # inspecting cmdl_args.scaling. Therefore no manual override is applied
     # for a single execution.
     if not scaling_info.has_scaling_analysis:
+        return scaling_info
+
+    workload_map = getattr(cmdl_args, "workload_map", None)
+
+    if workload_map:
+        reference_value = workload_map[trace_list[0]]
+
+        scaling_info.selected = "workload"
+        scaling_info.selection_mode = "workload"
+        scaling_info.overridden = False
+        scaling_info.workload_values = {
+            trace: workload_map[trace] for trace in trace_list
+        }
+        scaling_info.workload_ratios = {
+            trace: workload_map[trace] / reference_value
+            for trace in trace_list
+        }
+        scaling_info.workload_option = cmdl_args.workload_option
+
+        if (
+            cmdl_args.workload_option == "--ratios-workload"
+            and reference_value != 1.0
+        ):
+            print(
+                "==Warning== The reference trace has workload ratio "
+                "{:g}; all ratios are divided by it.".format(
+                    reference_value
+                )
+            )
+            print("")
+
         return scaling_info
 
     if cmdl_args.scaling == "auto":
@@ -319,6 +384,27 @@ def get_scaling_info(
     sys.exit(1)
 
 
+def describe_scaling(scaling_info):
+    """Return the (scaling used, selection) labels shown to the user."""
+
+    if scaling_info.selected == "workload":
+        return (
+            "User-defined workload",
+            "Manual ({})".format(scaling_info.workload_option),
+        )
+
+    selected = scaling_info.selected.capitalize()
+
+    if scaling_info.selection_mode == "auto":
+        selection = "Automatic"
+    elif scaling_info.selection_mode == "manual":
+        selection = "Manual"
+    else:
+        selection = "Implicit"
+
+    return selected, selection
+
+
 def get_scaling_type(
     raw_data,
     trace_list,
@@ -347,3 +433,77 @@ def get_scaling_type(
     )
 
     return scaling_info.selected
+
+
+def parse_workload_values(text, option):
+    """Parse a comma-separated list of positive workload values."""
+
+    values = []
+
+    for item in text.split(","):
+        item = item.strip()
+
+        try:
+            value = float(item)
+        except ValueError:
+            print(
+                "==Error== {} expects comma-separated numbers, "
+                "got '{}'.".format(option, item)
+            )
+            sys.exit(1)
+
+        if not value > 0.0:
+            print(
+                "==Error== {} values must be greater than zero, "
+                "got '{}'.".format(option, item)
+            )
+            sys.exit(1)
+
+        values.append(value)
+
+    return values
+
+
+def build_workload_map(cmdl_args, trace_list):
+    """Store on cmdl_args the workload value of each trace, if given.
+
+    The values of --workload or --ratios-workload are matched, in order,
+    with ``trace_list``: the traces as given on the command line, before
+    any size filtering or sorting. The result is stored as
+    ``cmdl_args.workload_map`` (trace -> value), or None when neither
+    option is used.
+    """
+
+    cmdl_args.workload_map = None
+
+    if getattr(cmdl_args, "workload", None):
+        option = "--workload"
+        text = cmdl_args.workload
+    elif getattr(cmdl_args, "ratios_workload", None):
+        option = "--ratios-workload"
+        text = cmdl_args.ratios_workload
+    else:
+        return None
+
+    if cmdl_args.scaling != "auto":
+        print(
+            "==Error== {} cannot be combined with --scaling {}.".format(
+                option, cmdl_args.scaling
+            )
+        )
+        sys.exit(1)
+
+    values = parse_workload_values(text, option)
+
+    if len(values) != len(trace_list):
+        print(
+            "==Error== {} has {} values but {} traces were given.".format(
+                option, len(values), len(trace_list)
+            )
+        )
+        sys.exit(1)
+
+    cmdl_args.workload_map = dict(zip(trace_list, values))
+    cmdl_args.workload_option = option
+
+    return cmdl_args.workload_map

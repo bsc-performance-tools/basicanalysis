@@ -61,6 +61,15 @@ def build_argument_parser():
     parser.add_argument("-s", "--scaling",
                         help="define whether the measurements are weak or strong scaling (default: auto)",
                         choices=['weak', 'strong', 'auto'], default='auto')
+    workload_group = parser.add_mutually_exclusive_group()
+    workload_group.add_argument("--workload", metavar="W1,W2,...",
+                                help='use a user-defined workload ratio instead of weak or strong scaling. '
+                                     'Comma-separated workload sizes (e.g. batch sizes), one per trace, in the '
+                                     'order the traces are given; the ratio of each trace is its size divided '
+                                     'by the size of the reference (first sorted) trace')
+    workload_group.add_argument("--ratios-workload", metavar="R1,R2,...",
+                                help='same as --workload, but the values are already the workload ratios '
+                                     'of each trace relative to the reference trace')
     parser.add_argument('--limit', help='limit number of cores for the plots '
                                         '(default: max processes of the trace list )')
     parser.add_argument("-ms", "--max_trace_size", help='set the maximum trace size in MiB allowed.'
