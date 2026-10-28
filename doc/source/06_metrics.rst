@@ -2672,232 +2672,460 @@ from the application-level runtime decomposition alone.
 I/O Metrics
 ===========
 
-BasicAnalysis provides complementary metrics for characterizing File I/O
-activity observed in the trace.
+BasicAnalysis provides complementary metrics for characterizing the File I/O
+observed in the trace: the POSIX, ANSI C, and MPI-IO calls recorded by
+Extrae.
 
 These metrics are reported independently from the hierarchical
-performance-efficiency model. They do not currently contribute to Global
-Efficiency, Parallel Efficiency, Computation Scalability, or the
-runtime-specific efficiency decompositions.
+performance-efficiency model. They do not contribute to Global Efficiency,
+Parallel Efficiency, Computation Scalability, or the runtime-specific
+efficiency decompositions.
 
-BasicAnalysis distinguishes between:
+The I/O metrics start from **time**, because BasicAnalysis observes the cost
+paid by the application on a specific I/O system. A low I/O efficiency
+identifies I/O that deserves investigation; it does not by itself show that
+the I/O is inefficient, because the application may need to move a large
+amount of data. Quantities in other units, such as operation counts, are
+diagnostics that help explain the observed time.
 
-* MPI-I/O activity; and
-* POSIX and ANSI C File I/O activity.
 
-API-specific I/O metrics are available when the corresponding I/O activity is
-present in the trace.
+Classification of the I/O calls
+-------------------------------
+
+Every traced I/O call is classified by its meaning, with the same rule for
+every API:
+
+* **Data Access**: calls that move or commit application data.
+* **File Management**: calls that manage the file without moving application
+  data (open, close, positioning, and control).
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 44 40
+
+   * - API
+     - Data Access
+     - File Management
+   * - POSIX
+     - ``read``, ``write``, ``pread``, ``pwrite``, ``readv``, ``writev``,
+       ``preadv``, ``pwritev``
+     - ``open``, ``close``, ``lseek``, ``ioctl``
+   * - ANSI C
+     - ``fread``, ``fwrite``
+     - ``fopen``, ``fclose``, ``fseek``
+   * - MPI-IO
+     - ``MPI_File_read*``, ``MPI_File_write*`` (all variants)
+     - ``MPI_File_open``, ``MPI_File_close``
+
+Within Data Access, the **read** calls (``read``, ``fread``, ``pread``,
+``readv``, ``preadv``, ``MPI_File_read*``) and the **write** calls are also
+reported separately. Within File Management, the calls are grouped as
+**open**, **close**, **seek** (``lseek``, ``fseek``), and **control**
+(``ioctl``).
+
+A call that the classification does not know (for example, a call
+instrumented by a future Extrae version) is counted as File Management, and
+BasicAnalysis prints a warning naming it.
+
+By default, Extrae does not trace the POSIX calls performed inside MPI-IO
+calls. The MPI-IO and POSIX times are therefore not counted twice.
+
+
+Notation
+--------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Symbol
+     - Description
+   * - :math:`U`
+     - Total useful computation time of the Host execution units, the units
+       that perform File I/O. In GPU applications, the kernel time of the
+       GPU streams is excluded: the I/O time is compared with the useful
+       time of the same units.
+   * - :math:`DA`
+     - Total time in Data Access calls (POSIX, ANSI C, and MPI-IO).
+   * - :math:`FM`
+     - Total time in File Management calls (POSIX, ANSI C, and MPI-IO).
+   * - :math:`IO_i`
+     - Time in I/O calls of execution unit :math:`i`.
+   * - :math:`P`
+     - Number of Host execution units. For hybrid applications, accelerator
+       execution contexts are excluded because File I/O is performed by the
+       Host.
+   * - :math:`T`
+     - Application execution time.
 
 
 I/O Efficiency
 --------------
 
-**I/O Efficiency** characterizes the overall weight of File I/O activity
-relative to useful computation.
-
-The following notation is used by the I/O metrics:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 25 75
-
-   * - Symbol
-     - Description
-   * - :math:`Useful`
-     - Total useful computation time.
-   * - :math:`MPIIO`
-     - Total I/O time done by MPI-I/O calls measured in the trace.
-   * - :math:`POSIXIO`
-     - Total I/O time done by POSIX and ANSI C File I/O calls measured in the trace.
-   * - :math:`P`
-     - Number of Host execution units considered by the I/O metric. For simple 
-       execution models, this corresponds to the parallel-unit count of the
-       analyzed configuration. For hybrid applications, accelerator execution
-       contexts are excluded because File I/O activity is attributed to the Host.
-   * - :math:`T`
-     - Application execution time represented by the analyzed trace.
-
-BasicAnalysis computes:
+**I/O Efficiency** measures the cost of File I/O relative to useful
+computation: the fraction of the useful computation plus File I/O time of
+the Host units that is useful computation:
 
 .. math::
 
-   IO\_Eff =
-   \frac{
-      Useful
-   }{
-      Useful + MPIIO + POSIXIO
-   }
+   IO\_Eff = \frac{U}{U + DA + FM}
 
-A value close to 100% indicates that File I/O represents only a small fraction
-of the activity considered by this metric relative to useful computation.
-A lower value indicates that File I/O has an increasing weight relative to
-useful computation.
-
-This metric should not be interpreted as a measure of storage-system
-performance or I/O bandwidth. It characterizes the relative contribution of
-the File I/O activity observed in the trace.
-
-
-MPI I/O Efficiency
-------------------
-
-**MPI I/O Efficiency** characterizes the fraction of the aggregate execution
-capacity that is not spent in MPI-I/O activity.
-
-BasicAnalysis computes:
+It is the product of two factors:
 
 .. math::
 
-   MPI\_IO\_Eff =
-   1 -
-   \frac{
-      MPIIO
-   }{
-      P T
-   }
+   IO\_Eff = DA\_Eff \times FM\_Eff
 
-where :math:`MPIIO` is the total MPI-I/O duration accumulated across the
-parallel execution units represented in the measurement.
-
-A value close to 100% indicates that MPI-I/O consumes only a small fraction
-of the aggregate execution capacity. Lower values indicate an increasing
-contribution from MPI-I/O activity.
-
-MPI I/O Efficiency is reported as ``Non-Avail`` when no MPI-I/O activity is
-detected in the analyzed execution.
-
-
-MPI I/O Load Balance
---------------------
-
-**MPI I/O Load Balance** characterizes how evenly MPI-I/O activity is
-distributed across the execution units represented in the MPI-I/O
-measurement.
-
-Let :math:`MPIIO_i` be the MPI-I/O duration associated with execution unit
-:math:`i`. BasicAnalysis computes:
+**Data Access Efficiency** measures the cost of reading and writing
+application data: the fraction of the useful computation plus Data Access
+time that is not spent in Data Access:
 
 .. math::
 
-   MPI\_IO\_LB =
-   \frac{
-      \overline{MPIIO}
-   }{
-      \max(MPIIO)
-   }
+   DA\_Eff = \frac{U}{U + DA}
 
-where :math:`\overline{MPIIO}` is the average MPI-I/O duration across the
-execution units represented in the measurement.
-
-A value close to 100% indicates that MPI-I/O duration is similarly
-distributed across those execution units. Lower values indicate that some
-execution units spend substantially more time in MPI-I/O than others.
-
-A low MPI I/O Load Balance may be associated with uneven I/O volumes,
-rank-specific I/O behavior, serialized I/O, or aggregator-dominated access
-patterns. Detailed trace or I/O analysis is required to determine the
-underlying cause.
-
-MPI I/O Load Balance is reported as ``Non-Avail`` when no MPI-I/O activity is
-detected.
-
-
-POSIX I/O Efficiency
---------------------
-
-**POSIX I/O Efficiency** characterizes the fraction of the aggregate execution
-capacity that is not spent in POSIX or ANSI C File I/O activity captured by
-the trace.
-
-BasicAnalysis computes:
+**File Management Efficiency** measures the additional cost of managing the
+files, which moves no application data: the fraction of the useful
+computation plus I/O time that is not spent in File Management calls:
 
 .. math::
 
-   POSIX\_IO\_Eff =
-   1 -
-   \frac{
-      POSIXIO
-   }{
-      P T
-   }
+   FM\_Eff = \frac{U + DA}{U + DA + FM}
 
-where :math:`POSIXIO` is the total POSIX and ANSI C File I/O duration
-accumulated across the parallel execution units represented in the
-measurement.
+The lower factor identifies the I/O component to investigate. A low Data
+Access Efficiency means that read and write calls take significant time
+relative to useful computation; a low File Management Efficiency means that
+open, close, seek, or control calls add significant time after the Data
+Access time is accounted for.
 
-A value close to 100% indicates that POSIX and ANSI C File I/O consumes only
-a small fraction of the aggregate execution capacity. Lower values indicate
-an increasing contribution from this File I/O activity.
+File Management Efficiency includes :math:`DA` in its denominator: with the
+same File Management time, it is higher when the Data Access time is higher.
+When comparing executions, a change of File Management Efficiency should
+therefore be read together with the File Management time and its
+contributions.
 
-POSIX I/O Efficiency is reported as ``Non-Avail`` when no POSIX or ANSI C
-File I/O activity is detected in the analyzed execution.
+I/O Efficiency compares I/O time with useful time, not with the execution
+time. The fraction of the execution time spent in I/O is given by the I/O
+time fractions below.
+
+.. _io-efficiency-thresholds:
+
+The I/O efficiencies are classified with the same thresholds as the other
+efficiencies: Critical below 60%, Attention from 60% to 85%, and Good from
+85%. An I/O Efficiency of 85%, for example, means that I/O takes 15% of the
+useful plus I/O time. For applications where such an I/O cost already
+matters, the analyst can use stricter thresholds for the I/O efficiencies.
+The thresholds are defined per metric in ``metrics/definitions.yaml``; for
+example, to classify I/O Efficiency as Critical below 90% and Good from
+95%, add to its entry (``io_eff``):
+
+.. code-block:: yaml
+
+   thresholds:
+     critical: 90.0
+     attention: 95.0
+
+The cell colors and the efficiency scale of the report follow the
+thresholds of each metric, so the colors of the other metrics do not
+change.
+
+The metrics are reported as ``Non-Avail`` when no File I/O is detected.
 
 
-POSIX I/O Load Balance
-----------------------
+I/O Critical-Path Efficiency and I/O Load Balance
+-------------------------------------------------
 
-**POSIX I/O Load Balance** characterizes how evenly POSIX and ANSI C File I/O
-activity is distributed across the execution units represented in the
-measurement.
-
-Let :math:`POSIXIO_i` be the File I/O duration associated with execution unit
-:math:`i`. BasicAnalysis computes:
+I/O Efficiency uses the average I/O time per unit. When the units
+synchronize after their I/O (for example, in read and write phases separated
+by barriers or collectives), the time paid is that of the slowest unit, and
+the other units wait for it. **I/O Critical-Path Efficiency** measures the
+cost of File I/O on the critical path of the execution, when each kind of
+I/O call costs the time of the slowest unit:
 
 .. math::
 
-   POSIX\_IO\_LB =
-   \frac{
-      \overline{POSIXIO}
-   }{
-      \max(POSIXIO)
-   }
+   IO\_CP\_Eff = \frac{U_{avg}}{U_{avg} + IO_{cp}},
+   \qquad
+   IO_{cp} = \sum_{op} \max_i IO_{op,i}
 
-where :math:`\overline{POSIXIO}` is the average POSIX and ANSI C File I/O
-duration across the execution units represented in the measurement.
+where :math:`U_{avg}` is the average useful time per unit and
+:math:`IO_{cp}` adds, for each kind of I/O call (read, write, open, close,
+seek, control), the time of the unit that spends the most time in it. It is
+the product of I/O Efficiency and **I/O Load Balance**:
 
-A value close to 100% indicates that File I/O duration is similarly
-distributed across those execution units. Lower values indicate increasing
-imbalance, with some execution units spending substantially more time in File
-I/O than others.
+.. math::
 
-A low POSIX I/O Load Balance may result from uneven data distribution,
-rank-specific File I/O, serialized access, or differences in the amount of
-data processed by individual execution units. Detailed trace or I/O analysis
-is required to determine the underlying cause.
+   IO\_CP\_Eff = IO\_Eff \times IO\_LB,
+   \qquad
+   IO\_LB = \frac{U_{avg} + IO_{avg}}{U_{avg} + IO_{cp}}
 
-POSIX I/O Load Balance is reported as ``Non-Avail`` when no POSIX or ANSI C
-File I/O activity is detected.
+I/O Load Balance measures the cost of the uneven distribution of the I/O
+time across the units: the useful plus I/O time of the average unit divided
+by that of the critical path. A low value indicates that some
+units spend much more time than others in some kind of I/O call (for
+example, one rank writes the output while the others wait). It complements
+the per-operation load balances of the diagnostics, which show which kind of
+call is unevenly distributed.
+
+Using the maximum of each kind of call assumes that the units synchronize
+after each kind (separate phases). If the I/O of a unit overlaps the
+computation of the others, its imbalance costs less than estimated, and I/O
+Load Balance underestimates the efficiency. The waiting caused by the
+imbalance already appears in the hierarchical model (as Load Balance or
+Communication Efficiency); I/O Load Balance attributes part of that loss to
+I/O, and is not an additional loss.
+
+In a VTKHDF execution with 112 ranks, I/O Load Balance drops from 88.49% to
+76.19% when the chunk size changes from 100k to 2M, while I/O Efficiency
+hardly changes (68.26% and 65.19%): the writes become unbalanced (Write Load
+Balance 61.48% and 21.39%). The model predicts 0.38 s more waiting per rank,
+and the measured MPI time per rank grows by 0.44 s.
+
+All the I/O efficiencies use the thresholds given above.
 
 
-Interpretation of the I/O Metrics
----------------------------------
+.. _io-diagnostics:
 
-The I/O metrics provide complementary perspectives on the File I/O activity
-observed during execution.
+I/O diagnostics
+---------------
 
-**I/O Efficiency** characterizes the overall weight of File I/O relative to
-useful computation. In contrast, **MPI I/O Efficiency** and **POSIX I/O
-Efficiency** characterize how much of the aggregate execution capacity is not
-consumed by activity associated with the corresponding File I/O interface.
-The API-specific efficiencies are therefore not simply a decomposition of
-I/O Efficiency.
+The I/O diagnostics explain where the I/O time is spent. They are not
+efficiencies; their values must be interpreted in context.
 
-The I/O Load Balance metrics provide a different perspective by characterizing
-the distribution of I/O duration among the execution units represented in the
-corresponding measurement. They can therefore reveal I/O imbalance even when
-the overall weight of I/O is relatively small.
+**I/O time fractions**
 
-Conversely, a high I/O Load Balance does not imply that File I/O overhead is
-small. All execution units may spend a similarly large amount of time in I/O.
-The efficiency and load-balance metrics should therefore be interpreted
-together.
+.. math::
 
-These metrics quantify the time contribution and distribution of the File I/O
-activity captured in the trace. They do not directly characterize transferred
-data volume, achieved bandwidth, storage-system utilization, or the efficiency
-of individual I/O operations. When File I/O represents a significant
-performance factor, additional trace analysis or specialized I/O analysis may
-be required to identify the underlying cause.
+   IOFraction_{avg} = \frac{DA + FM}{P\,T}, \qquad
+   IOFraction_{max} = \frac{\max_i IO_i}{T}
+
+:math:`IOFraction_{avg}` is the fraction of the execution time spent in I/O
+on average, and :math:`IOFraction_{max}` the I/O fraction of the execution
+unit with the most I/O time. Averages hide I/O concentrated in a few units:
+when one rank writes while the others wait, I/O Efficiency can be close to
+100% while :math:`IOFraction_{max}` is high. The waiting time of the other
+units appears in the main efficiency model (for example, as MPI time).
+
+**I/O participation** is the percentage of the :math:`P` execution units that
+perform I/O. A low participation can be an intentional strategy (I/O
+delegated to a few ranks); together with a high :math:`IOFraction_{max}`, it
+identifies I/O that may be on the critical path.
+
+**Contributions** are shares of time:
+
+* MPI-IO and POSIX/ANSI C contributions to the I/O time;
+* Read and Write contributions to the Data Access time;
+* Open, Close, Seek, and Control contributions to the File Management time.
+
+They indicate which part of the I/O should be investigated first; a high
+contribution does not mean that those calls are inefficient.
+
+**Load balance** is computed among the execution units that perform the
+corresponding calls (participants):
+
+.. math::
+
+   LB = \frac{\overline{X}_{participants}}{\max_i X_i}
+
+for :math:`X` = Data Access, read, write, File Management, and open time per
+unit. The Read and Write Load Balance are more informative than the Data
+Access Load Balance when the application reads and writes in different
+phases: an imbalance in the write phase costs time on its own, and adding the
+read and write times per unit dilutes it. Units that perform no I/O do not
+lower the load balance; they are reflected in the participation.
+
+**Per-operation time, count, and mean duration** for the read, write, open,
+close, seek, and control calls. The mean duration (time divided by count)
+distinguishes the two explanations of a high operation time: many operations
+(same mean duration, higher count) or more expensive operations (same count,
+higher mean duration). The latter points to the interaction with the I/O
+system rather than to the application I/O pattern.
+
+.. _io-request-sizes:
+
+**Requests** of the read and write calls of every API: the POSIX and
+ANSI C read and write families (``read``, ``fread``, ``pread``, ``readv``,
+``preadv``, and the corresponding write calls) and the MPI-IO read and write
+calls (``MPI_File_read*``, ``MPI_File_write*``):
+
+* the **volume** read and written (bytes);
+* the **mean request size**, the volume divided by the number of requests;
+* the **request-size coverage**, the percentage of the read or write calls
+  that have a non-zero request size in the trace and are therefore included
+  in the volume and the distribution;
+* the **request-size distribution**: for each power-of-two size interval,
+  the share of the requests, of the time, and of the bytes of the read or
+  write calls.
+
+The intervals are :math:`[2^{j-1}, 2^j)` bytes (``256-512 B`` holds the
+requests from 256 to 511 bytes), from 1 byte to 2 GiB or more. They are a
+scale, not a classification of the requests as small or large: they are the
+same for every execution, so executions can be compared directly, and they
+resolve small requests even when large requests exist. The mean alone is not
+enough, because different distributions can have the same mean.
+
+The size of a request is the one recorded by Extrae for the call: the bytes
+requested by a POSIX or ANSI C call, and the count times the size of the
+datatype of an MPI-IO call (also the requested bytes, which may be more than
+the bytes read at the end of a file). An MPI-IO split collective
+(``*_begin`` and ``*_end``) is one request, with the size of the
+``*_begin`` call and the time of both calls. The requests of every API are
+added in the distribution, as in the classification of the calls;
+``io_request_sizes.csv`` gives them by API. Extrae does not trace, by
+default, the POSIX calls performed inside the MPI-IO calls, so the MPI-IO
+requests are the requests of the application, not those that the MPI-IO
+library issues to the file system.
+
+The distribution shows which request sizes cost the time. In a cfdem
+execution, the writes of 256--511 bytes are 1.3% of the writes but 84% of
+the write time; in a VTKHDF execution with chunks of 2M, the writes of 8--16
+MiB are 3.1% of the writes and 60% of the write time. An interval with a
+small share of the requests and a large share of the time holds the
+expensive requests.
+
+BasicAnalysis obtains the requests from a temporary trace that keeps only
+the I/O call and size events of POSIX/ANSI C and MPI-IO (written by Paraver
+with ``cfgs/io-requests-filter.xml`` and removed after the analysis). The
+histograms ``cfgs/io-{read,write}-size-pow2-{count,time,bytes}.cfg`` show the
+same intervals in Paraver for the POSIX and ANSI C calls.
+
+.. _io-files:
+
+**Files** accessed by the POSIX and ANSI C calls:
+
+* the **files accessed**, the files with at least one call in the trace;
+* the **processes per file, maximum**, the largest number of processes
+  that call on one file;
+* the **volume moved by the main process of each file**: for each file, the
+  bytes read and written by the process that moves the most (its *main
+  process*), added over the files and divided by the bytes read and written
+  in all the files. It is 100% when each file is read and written by one
+  process (one file per process), and :math:`100/N` % when every file is
+  shared evenly by :math:`N` processes;
+* the **file-name coverage of the volume**, the percentage of the bytes read
+  and written by the POSIX and ANSI C calls that are attributed to a file.
+
+The number of processes per file alone does not tell whether the processes
+share the data of the files: in a VTKHDF execution of 112 processes, every
+process opens every file and reads its metadata, so all 113 files have 112
+processes, but each part file is written and read almost entirely by one
+process (97% of its bytes), and the volume moved by the main processes is
+96%. Only the common file is shared (its main process moves 1.4% of its
+bytes).
+
+Extrae records the descriptor of every POSIX and ANSI C call (for the ANSI C
+calls, the descriptor of the stream), and the file name only in the
+``open`` and ``fopen`` calls, together with the returned descriptor. A call
+is attributed to the file of the last ``open`` or ``fopen`` of the same
+process that returned its descriptor, until the descriptor is closed. The
+threads of a process share its descriptors. Calls on descriptors without an
+``open`` or ``fopen`` in the trace are collected in one group, *descriptors
+without a traced open*: the standard input, output, and error, files opened
+before the tracing starts, and files opened with calls that Extrae does not
+instrument (such as ``openat``, ``creat``, or ``dup``). MPI-IO records
+neither the file name nor the file handle, so the MPI-IO calls are not
+attributed to files.
+
+For each file, BasicAnalysis computes the opens, the I/O time (the time of
+all the POSIX and ANSI C calls on the file), the processes that call on it,
+and the requests, bytes, time, and processes of the reads and writes. The
+files are read from the same temporary trace as the requests, which also
+keeps the descriptor and file name events. The bytes, requests, and time of
+the reads and writes of all the files, including the descriptors without a
+traced open, are those of the request-size distribution of the POSIX and
+ANSI C calls.
+
+In a cfdem execution, 80% of the POSIX I/O time is spent in one probe file
+of 61 KiB, written by one process in 223 writes of about 280 bytes (12 ms
+per write).
+
+.. _io-access-pattern:
+
+**Access pattern** of the POSIX and ANSI C reads and writes to regular
+files. Each request is compared with the previous request of the same kind
+(read or write) on the same descriptor of the same process, through the gap
+between its offset and the end of the previous request:
+
+* **first**: the first read (write) on the descriptor after it is opened;
+  there is no previous request to compare with;
+* **consecutive**: starts exactly where the previous read (write) ended
+  (gap 0): the file is read (written) in order, without gaps;
+* **strided**: leaves the same gap after the previous request as that
+  request left after the one before it: a regular pattern, such as one
+  record every N bytes;
+* **forward**: jumps ahead, skipping part of the file, by a gap different
+  from the previous one;
+* **backward**: jumps back to an earlier offset, by a gap different from the
+  previous one; it includes reading (writing) the same region again;
+* **unknown offset**: the offset cannot be rebuilt from the trace (see
+  below).
+
+Consecutive, positive strided, and forward requests are *sequential* in the
+sense used by Darshan. For each class, BasicAnalysis gives the share of the
+requests, of the bytes, and of the time of the reads and of the writes: the
+classes that hold most requests may move few bytes. In a VTKHDF execution of
+112 processes, 78% of the read requests jump forward or backward, but 93% of
+the bytes read are consecutive: the jumps are small reads, consistent with
+HDF5 metadata lookups, and they take 74% of the read time.
+
+Extrae does not record the offset of the reads and writes. BasicAnalysis
+rebuilds it from the position of each descriptor: an ``open`` or ``fopen``
+sets it to 0, a seek (``lseek``, ``fseek``) to the offset recorded by
+Extrae, and each read or write starts at the position and advances it by its
+request size. The offset is unknown for the ``pread``/``pwrite`` family (the
+offset argument is not recorded), for descriptors without a traced
+``open`` until their first seek, and after a seek without a recorded offset.
+The seek offset is recorded only by recent Extrae versions; with older
+versions, the position is lost at the first seek of each descriptor. The
+**offset coverage** is the share of the requests to regular files with a
+known offset. Requests on sockets, pipes, and terminals (the descriptor type
+recorded by Extrae) have no position and are not classified. MPI-IO records
+no offset, so its requests are not classified.
+
+Two more diagnostics come from the same positions:
+
+* the **volume re-accessed**: the share of the bytes read (written) with a
+  known offset that the same process had already read (written) in the same
+  file. In the VTKHDF execution, 2.5% of the bytes read are re-read
+  (metadata read again after each open of a file);
+* the **redundant seeks**: the share of the seeks with an offset that go to
+  the position the descriptor already has. They move nothing, so their time
+  is File Management time that the application or the I/O library could
+  avoid. In the VTKHDF execution, 9.2% of the 417,596 seeks are redundant.
+
+The **volume in consecutive requests** of the reads and of the writes is
+reported with the I/O diagnostics. With chunks of 2M instead of 100k, the
+VTKHDF writes go from 94% to 29% of the bytes in consecutive requests: most
+writes then follow a forward gap.
+
+Each request is classified within its own file, but the shares of the
+execution add the requests of all the files and processes, so a file with a
+different pattern can be hidden by the others. The pattern is therefore
+also given **per file**: the share of the bytes read and written in
+consecutive requests of each file is shown with the files (see
+:ref:`files <io-files>`), and ``io_files.csv`` has the shares of the
+requests and of the bytes of every class for each file. In the VTKHDF
+execution with chunks of 100k, the part files have 93% of the bytes read
+and 94% of the bytes written in consecutive requests, while the common
+file has 84% and 55%: its accesses jump more, although they are hidden in
+the totals because the part files hold 99% of the requests.
+
+The I/O diagnostics are shown in the cards of the I/O Analysis view of the
+report and printed in the standard output (in both, rows that are zero for
+all the executions are omitted), and written to ``io_metrics.csv``. The
+request-size distribution is shown in the histograms of the view and in the
+standard output (share of the requests and of the time), and written to
+``io_request_sizes.csv`` (requests, time, bytes, and their shares). The
+files with the most I/O time are shown in the view and in the standard
+output, and all the files are written to ``io_files.csv``. The access
+pattern is shown in the view and in the standard output (share of the
+requests, of the bytes, and of the time of each class), and written to
+``io_access_pattern.csv``.
+
+These metrics quantify the time of the File I/O captured in the trace. They
+do not measure achieved bandwidth or storage-system utilization. When File
+I/O is a significant performance factor, the trace should be inspected in
+Paraver to locate the I/O phases and calls responsible.
 
 
 General Metrics

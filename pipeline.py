@@ -10,6 +10,7 @@ from collections import OrderedDict
 from contextlib import redirect_stdout
 
 import hybridmetrics
+from iometrics import add_io_metrics, print_io_metrics_csv, print_io_request_sizes_csv, print_io_files_csv, print_io_access_pattern_csv
 import plots
 import reportdata
 from report import build_analysis_context, build_report_model
@@ -109,6 +110,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
     """Compute either hybrid or simple metrics."""
     raw_data = analysis_result["raw_data"]
     list_mpi_procs_count = analysis_result["list_mpi_procs_count"]
+    io_data = analysis_result.get("io_data") or {}
 
     # Traces with different programming models are always compared
     # with the hybrid metrics, which cover every MPI-based model.
@@ -148,6 +150,8 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
                 cmdl_args,
             )
 
+        add_io_metrics(other_metrics, raw_data, io_data, trace_list)
+
         return {
             "kind": "hybrid",
             "mod_factors": mod_factors,
@@ -175,6 +179,8 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
         list_mpi_procs_count,
         cmdl_args,
     )
+
+    add_io_metrics(other_metrics, raw_data, io_data, trace_list)
 
     return {
         "kind": "simple",
@@ -249,6 +255,10 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
         )
 
         hybridmetrics.print_other_metrics_csv(other_metrics, trace_list, trace_processes)
+        print_io_metrics_csv(other_metrics, trace_list, trace_processes)
+        print_io_request_sizes_csv(other_metrics, trace_list)
+        print_io_files_csv(other_metrics, trace_list)
+        print_io_access_pattern_csv(other_metrics, trace_list)
         
         # MPI+GPU and GPU without MPI share the Host/Device model.
         is_mpi_gpu = (
@@ -358,6 +368,10 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
 
     print_other_metrics_table(other_metrics, trace_list, trace_processes)
     print_other_metrics_csv(other_metrics, trace_list, trace_processes)
+    print_io_metrics_csv(other_metrics, trace_list, trace_processes)
+    print_io_request_sizes_csv(other_metrics, trace_list)
+    print_io_files_csv(other_metrics, trace_list)
+    print_io_access_pattern_csv(other_metrics, trace_list)
     print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_io, trace_list, trace_processes, trace_mode)
     print_mod_factors_csv(mod_factors, trace_list, trace_processes)
 

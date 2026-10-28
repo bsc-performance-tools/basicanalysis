@@ -10,9 +10,31 @@ import json
 import html
 
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from configuration import format_configuration_label
 from tracemetadata import is_host_gpu_mode
+from iometrics import (
+    ACCESS_PATTERN_CLASSES as IO_ACCESS_PATTERN_CLASSES,
+    ACCESS_PATTERN_DESCRIPTIONS as IO_ACCESS_PATTERN_DESCRIPTIONS,
+    ACCESS_PATTERN_METHOD as IO_ACCESS_PATTERN_METHOD,
+    ACCESS_PATTERN_QUANTITIES as IO_ACCESS_PATTERN_QUANTITIES,
+    BINARY_UNITS,
+    FILE_DIAGNOSTICS,
+    IO_DIAGNOSTICS_DOC,
+    IO_TIME_DIAGNOSTIC_GROUPS,
+    NON_AVAIL as IO_NON_AVAIL,
+    OPERATIONS as IO_OPERATIONS,
+    OPERATION_LABELS as IO_OPERATION_LABELS,
+    OPERATION_QUANTITIES as IO_OPERATION_QUANTITIES,
+    REQUEST_QUANTITIES as IO_REQUEST_QUANTITIES,
+    REQUEST_SIZE_OPERATIONS,
+    TOP_FILES,
+    format_bytes,
+    is_unused_diagnostic,
+    request_size_interval_label,
+    shorten_file_name,
+)
 
 from report.renderer.html import (
     build_analysis_catalogue,
@@ -366,25 +388,25 @@ def _build_io_metric_info():
     """Build complementary File I/O metric metadata."""
 
     presentation = {
+        "io_cp_eff": {
+            "label": "I/O Critical-Path Efficiency",
+            "short_label": "I/O CP Eff",
+        },
         "io_eff": {
-            "label": "I/O Efficiency",
+            "label": "-- I/O Efficiency",
             "short_label": "I/O Eff",
         },
-        "mpi_io_eff": {
-            "label": "MPI I/O Efficiency",
-            "short_label": "MPI I/O",
+        "io_da_eff": {
+            "label": "   -- Data Access Efficiency",
+            "short_label": "Data Access",
         },
-        "mpi_io_load_balance": {
-            "label": "MPI I/O Load Balance",
-            "short_label": "MPI I/O LB",
+        "io_fm_eff": {
+            "label": "   -- File Management Efficiency",
+            "short_label": "File Mgmt",
         },
-        "posix_io_eff": {
-            "label": "POSIX I/O Efficiency",
-            "short_label": "POSIX I/O",
-        },
-        "posix_io_load_balance": {
-            "label": "POSIX I/O Load Balance",
-            "short_label": "POSIX I/O LB",
+        "io_lb": {
+            "label": "-- I/O Load Balance",
+            "short_label": "I/O LB",
         },
     }
 
@@ -432,11 +454,11 @@ OPENMP_ORDER = [
 
 
 IO_ORDER = [
+    "io_cp_eff",
     "io_eff",
-    "mpi_io_eff",
-    "mpi_io_load_balance",
-    "posix_io_eff",
-    "posix_io_load_balance",
+    "io_da_eff",
+    "io_fm_eff",
+    "io_lb",
 ]
 
 def _tree_node(metric_key, children=None):
@@ -471,6 +493,18 @@ GLOBAL_PARALLEL_TREE = [
             _tree_node("serial_eff"),
             _tree_node("transfer_eff"),
         ]),
+    ])
+]
+
+# I/O Critical-Path Efficiency = I/O Efficiency x I/O Load Balance;
+# I/O Efficiency = Data Access Efficiency x File Management Efficiency.
+IO_TREE = [
+    _tree_node("io_cp_eff", [
+        _tree_node("io_eff", [
+            _tree_node("io_da_eff"),
+            _tree_node("io_fm_eff"),
+        ]),
+        _tree_node("io_lb"),
     ])
 ]
 
@@ -750,26 +784,1205 @@ def _has_io_metrics(other_metrics, trace_list):
     """Return whether File I/O activity was detected in any execution."""
 
     for trace in trace_list:
-        if (
-            _clean_value(
-                _read_metric(
-                    other_metrics,
-                    "mpi_io_eff",
-                    trace,
-                )
-            ) is not None
-            or
-            _clean_value(
-                _read_metric(
-                    other_metrics,
-                    "posix_io_eff",
-                    trace,
-                )
-            ) is not None
-        ):
+        if _clean_value(
+            _read_metric(
+                other_metrics,
+                "io_eff",
+                trace,
+            )
+        ) is not None:
             return True
 
     return False
+
+
+def _format_io_diagnostic(value, unit):
+    """Format an I/O diagnostic for the report."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return html.escape(str(value))
+
+    if unit == '%':
+        return '{0:.2f}%'.format(value)
+
+    if unit == 's':
+        return '{0:.3f}'.format(value)
+
+    if unit == 'count':
+        return '{0:,.0f}'.format(value)
+
+    if unit == 'bytes':
+        return format_bytes(value)
+
+    return '{0:,.1f}'.format(value)
+
+
+def _io_diagnostic_values(other_metrics, key, trace_list):
+    return [
+        other_metrics.get(key, {}).get(trace, IO_NON_AVAIL)
+        for trace in trace_list
+    ]
+
+
+def _build_io_diagnostics_table_html(other_metrics, trace_list, trace_labels,
+                                     groups=IO_TIME_DIAGNOSTIC_GROUPS):
+    """Table of I/O diagnostics, one row per diagnostic and one column per
+    execution, in groups of (title, keys); a group without title has no
+    title row.
+
+    The diagnostics are not efficiencies, so they are shown without the
+    efficiency colors. Rows of calls or APIs that no trace uses are omitted.
+    Returns an empty string when no trace has these diagnostics.
+    """
+    rows = []
+
+    for title, keys in groups:
+        group_rows = []
+
+        for key in keys:
+            values = _io_diagnostic_values(other_metrics, key, trace_list)
+
+            if is_unused_diagnostic(values):
+                continue
+
+            label, unit = IO_DIAGNOSTICS_DOC[key]
+            label = label.replace('(us)', '(\u00b5s)')
+
+            cells = ''.join(
+                '<td>{}</td>'.format(_format_io_diagnostic(value, unit))
+                for value in values
+            )
+            group_rows.append(
+                '<tr><td>{}</td>{}</tr>'.format(html.escape(label), cells))
+
+        if group_rows and title:
+            rows.append(
+                "<tr><td colspan='{}'>{}</td></tr>".format(
+                    len(trace_list) + 1, html.escape(title)))
+
+        rows.extend(group_rows)
+
+    if not rows:
+        return ""
+
+    header = ''.join(
+        '<th>{}</th>'.format(html.escape(label)) for label in trace_labels)
+
+    return (
+        "<table class='metric-table io-diagnostics-table'>"
+        "<thead><tr><th>I/O diagnostic</th>{}</tr></thead>"
+        "<tbody>{}</tbody></table>".format(header, ''.join(rows))
+    )
+
+
+def _build_io_call_table_html(other_metrics, trace_list, trace_labels,
+                              operations, quantities):
+    """Table of the diagnostics io_<operation>_<quantity>: one row per
+    operation and, for each execution, one column per (quantity, label).
+    Operations that no trace uses are omitted. Returns an empty string when
+    no operation has values."""
+    rows = []
+
+    for operation in operations:
+        cells = []
+        values_used = []
+
+        for position in range(len(trace_list)):
+            for quantity, _ in quantities:
+                key = 'io_{}_{}'.format(operation, quantity)
+                value = other_metrics.get(key, {}).get(
+                    trace_list[position], IO_NON_AVAIL)
+                values_used.append(value)
+                cells.append('<td{}>{}</td>'.format(
+                    " class='io-execution-start'"
+                    if quantity == quantities[0][0] else '',
+                    _format_io_diagnostic(value, IO_DIAGNOSTICS_DOC[key][1])))
+
+        if is_unused_diagnostic(values_used):
+            continue
+
+        rows.append('<tr><td>{}</td>{}</tr>'.format(
+            html.escape(IO_OPERATION_LABELS[operation]), ''.join(cells)))
+
+    if not rows:
+        return ""
+
+    executions = ''.join(
+        "<th class='io-execution-start' colspan='{}'>{}</th>".format(
+            len(quantities), html.escape(label))
+        for label in trace_labels
+    )
+    columns = ''.join(
+        "<th{}>{}</th>".format(
+            " class='io-execution-start'" if position == 0 else '',
+            html.escape(label))
+        for _ in trace_labels
+        for position, (_, label) in enumerate(quantities)
+    )
+
+    return (
+        "<div class='io-table-wrap'>"
+        "<table class='metric-table io-diagnostics-table io-call-table'>"
+        "<thead><tr><th rowspan='2'>Call</th>{}</tr><tr>{}</tr></thead>"
+        "<tbody>{}</tbody></table></div>".format(
+            executions, columns, ''.join(rows))
+    )
+
+
+def _build_io_card_html(title, note, body_html, printable=False,
+                        export_name="", trace_column_description=""):
+    """Card of the I/O Analysis view: a title, a short note on how to read
+    it, and its tables or plots. Tables with an export name can be saved as
+    images like the efficiency tables."""
+    if printable:
+        return """
+        <h3 class="print-subsection-title">{title}</h3>
+        <p class="print-section-description">{note}</p>
+        <div class="print-metric-results metric-table-card">
+            {body_html}
+        </div>
+        """.format(title=html.escape(title), note=note, body_html=body_html)
+
+    export = ""
+
+    if export_name:
+        export = (
+            ' data-efficiency-export data-export-name="{}"'
+            ' data-export-columns="{}"'.format(
+                export_name,
+                html.escape(trace_column_description, quote=True),
+            )
+        )
+
+    return """
+    <div class="metric-table-card io-diagnostics-card"{export}>
+        <h3>{title}</h3>
+        <p class="io-diagnostics-note">{note}</p>
+        {body_html}
+    </div>
+    """.format(
+        export=export,
+        title=html.escape(title),
+        note=note,
+        body_html=body_html,
+    )
+
+
+# One color per execution in the I/O plots.
+_IO_EXECUTION_COLORS = (
+    '#1f5f9e', '#e07b39', '#3a9a5b', '#8e5bb5', '#c0504d', '#5a9bd5',
+    '#b8860b', '#6b6b6b',
+)
+
+# Colors of the calls in the I/O time shares: Data Access in blue, File
+# Management in warm colors.
+_IO_CALL_COLORS = {
+    'read': '#1f5f9e',
+    'write': '#7fb3e0',
+    'open': '#d9822b',
+    'close': '#f2c48d',
+    'seek': '#a8743a',
+    'control': '#8e5bb5',
+    'other': '#9e9e9e',
+    'posix': '#3a9a5b',
+    'mpiio': '#c0504d',
+}
+
+
+# Colors of the access-pattern classes: sequential classes in green and
+# blue, jumps back in orange, no comparison in grey.
+_IO_ACCESS_PATTERN_COLORS = {
+    'first': '#c9c9c9',
+    'consecutive': '#3a9a5b',
+    'strided': '#8cc084',
+    'forward': '#5a9bd5',
+    'backward': '#e07b39',
+    'unknown': '#8a8a8a',
+}
+
+
+def _io_execution_color(position):
+    return _IO_EXECUTION_COLORS[position % len(_IO_EXECUTION_COLORS)]
+
+
+def _io_plot_html(fig):
+    return fig.to_html(
+        full_html=False,
+        include_plotlyjs=False,
+        config={
+            'responsive': True,
+            'displaylogo': False,
+        },
+    )
+
+
+def _io_number(other_metrics, key, trace):
+    """Value of an I/O diagnostic, or None when it is not a number."""
+    value = other_metrics.get(key, {}).get(trace, IO_NON_AVAIL)
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+
+    return value
+
+
+def _io_used_categories(other_metrics, trace_list, categories):
+    """The (label, key) categories with a value for some trace."""
+    return [
+        (label, key) for label, key in categories
+        if not is_unused_diagnostic(
+            _io_diagnostic_values(other_metrics, key, trace_list))
+    ]
+
+
+def _io_byte_scale(values):
+    """Divisor and binary unit for an axis of bytes, from its largest
+    value."""
+    largest = max([value for value in values if value] or [1.0])
+    scale = 1
+    unit = 0
+
+    while largest >= 1024 * scale and unit < len(BINARY_UNITS) - 1:
+        scale *= 1024
+        unit += 1
+
+    return scale, BINARY_UNITS[unit]
+
+
+def _io_values_html(table_html, printable=False):
+    """Collapsed table with the plotted values. The printable report shows
+    only the plots."""
+    if printable or not table_html:
+        return ""
+
+    return (
+        '<details class="io-values"><summary>Values</summary>{}</details>'
+        .format(table_html)
+    )
+
+
+def _build_io_panels_plot_html(panels, trace_list, trace_labels,
+                               printable=False):
+    """Bars side by side in panels, one bar per execution and category.
+
+    Each panel is a dict with 'title', 'categories' [(label, key)],
+    'value' (function (key, trace) -> number or None), 'text' (function
+    (value) -> hover text), and optionally 'percentage' (0-100 axis) or
+    'log' (logarithmic axis). Panels without categories are omitted;
+    returns an empty string when none is left.
+    """
+    panels = [panel for panel in panels if panel['categories']]
+
+    if not panels:
+        return ""
+
+    fig = make_subplots(
+        rows=1,
+        cols=len(panels),
+        column_widths=[len(panel['categories']) + 1 for panel in panels],
+        subplot_titles=[panel['title'] for panel in panels],
+        horizontal_spacing=0.07 if len(panels) > 1 else 0.0,
+    )
+
+    for column, panel in enumerate(panels, start=1):
+        labels = [label for label, _ in panel['categories']]
+
+        for position, (trace, trace_label) in enumerate(
+                zip(trace_list, trace_labels)):
+            values = [panel['value'](key, trace)
+                      for _, key in panel['categories']]
+
+            fig.add_trace(
+                go.Bar(
+                    x=labels,
+                    y=values,
+                    name=trace_label,
+                    legendgroup=trace_label,
+                    showlegend=(column == 1),
+                    marker_color=_io_execution_color(position),
+                    customdata=[
+                        panel['text'](value) if value is not None else '-'
+                        for value in values
+                    ],
+                    hovertemplate=(
+                        '<b>' + html.escape(trace_label) + '</b> %{x}<br>'
+                        + '%{customdata}<extra></extra>'
+                    ),
+                ),
+                row=1,
+                col=column,
+            )
+
+        if panel.get('percentage'):
+            fig.update_yaxes(range=[0, 105], ticksuffix='%',
+                             row=1, col=column)
+        elif panel.get('log'):
+            fig.update_yaxes(type='log', row=1, col=column)
+        else:
+            fig.update_yaxes(rangemode='tozero', row=1, col=column)
+
+    fig.update_layout(
+        height=280 if printable else 320,
+        autosize=True,
+        barmode='group',
+        bargap=0.25,
+        margin=dict(l=55, r=20, t=80, b=40),
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.12,
+            xanchor='left',
+            x=0.0,
+        ),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+    )
+    fig.update_xaxes(type='category', showgrid=False)
+    fig.update_yaxes(showgrid=True, gridcolor='#d9d9d9')
+    fig.update_annotations(font_size=13)
+
+    return _io_plot_html(fig)
+
+
+def _build_io_time_share_plot_html(other_metrics, trace_list, trace_labels,
+                                   printable=False):
+    """Share of the I/O time of each call and, when some execution uses
+    MPI-IO, of each API: one stacked bar per execution."""
+    calls = [
+        operation for operation in IO_OPERATIONS
+        if not is_unused_diagnostic(_io_diagnostic_values(
+            other_metrics, 'io_{}_time'.format(operation), trace_list))
+    ]
+
+    if not calls:
+        return ""
+
+    apis = []
+
+    if not is_unused_diagnostic(_io_diagnostic_values(
+            other_metrics, 'io_mpiio_contribution', trace_list)):
+        apis = [('posix', 'POSIX and ANSI C'), ('mpiio', 'MPI-IO')]
+
+    fig = make_subplots(
+        rows=1,
+        cols=2 if apis else 1,
+        column_widths=[3, 1] if apis else None,
+        shared_yaxes=True,
+        subplot_titles=['By call', 'By API'] if apis else None,
+        horizontal_spacing=0.04,
+    )
+
+    for trace, label in zip(trace_list, trace_labels):
+        times = {
+            operation: _io_number(
+                other_metrics, 'io_{}_time'.format(operation), trace) or 0.0
+            for operation in calls
+        }
+        total = sum(times.values())
+
+        for operation in calls:
+            share = 100.0 * times[operation] / total if total else 0.0
+            fig.add_trace(
+                go.Bar(
+                    y=[label],
+                    x=[share],
+                    orientation='h',
+                    name=IO_OPERATION_LABELS[operation],
+                    legendgroup=operation,
+                    showlegend=(trace == trace_list[0]),
+                    marker_color=_IO_CALL_COLORS[operation],
+                    customdata=[[times[operation]]],
+                    hovertemplate=(
+                        '<b>' + html.escape(IO_OPERATION_LABELS[operation])
+                        + '</b> ' + html.escape(label) + '<br>'
+                        + '%{x:.1f}% of the I/O time<br>'
+                        + '%{customdata[0]:,.3f} s<extra></extra>'
+                    ),
+                ),
+                row=1,
+                col=1,
+            )
+
+        for api, api_label in apis:
+            share = _io_number(
+                other_metrics, 'io_{}_contribution'.format(api), trace) or 0.0
+            fig.add_trace(
+                go.Bar(
+                    y=[label],
+                    x=[share],
+                    orientation='h',
+                    name=api_label,
+                    legendgroup=api,
+                    showlegend=(trace == trace_list[0]),
+                    marker_color=_IO_CALL_COLORS[api],
+                    hovertemplate=(
+                        '<b>' + html.escape(api_label) + '</b> '
+                        + html.escape(label) + '<br>'
+                        + '%{x:.1f}% of the I/O time<extra></extra>'
+                    ),
+                ),
+                row=1,
+                col=2,
+            )
+
+    fig.update_layout(
+        height=110 + 36 * len(trace_list),
+        autosize=True,
+        barmode='stack',
+        bargap=0.3,
+        margin=dict(l=20, r=20, t=75 if apis else 45, b=35),
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.0 + (60.0 if apis else 25.0) / (110 + 36 * len(trace_list)),
+            xanchor='left',
+            x=0.0,
+            traceorder='normal',
+        ),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+    )
+    fig.update_xaxes(range=[0, 100], ticksuffix='%', showgrid=True,
+                     gridcolor='#d9d9d9')
+    fig.update_yaxes(autorange='reversed', automargin=True)
+    fig.update_annotations(font_size=13)
+
+    return _io_plot_html(fig)
+
+
+def _build_io_diagnostics_card_html(other_metrics, trace_list, trace_labels,
+                                    trace_column_description="",
+                                    printable=False):
+    """Card with the distribution of the I/O time: share of each call and
+    API, time fractions, participation, and load balance."""
+    table_html = _build_io_diagnostics_table_html(
+        other_metrics, trace_list, trace_labels)
+
+    if not table_html:
+        return ""
+
+    def value(key, trace):
+        return _io_number(other_metrics, key, trace)
+
+    def percentage(number):
+        return '{0:.2f}%'.format(number)
+
+    panels_html = _build_io_panels_plot_html(
+        [
+            {
+                'title': 'I/O time fraction',
+                'categories': _io_used_categories(
+                    other_metrics, trace_list, [
+                        ('Average', 'io_fraction_avg'),
+                        ('Maximum', 'io_fraction_max'),
+                    ]),
+                'value': value,
+                'text': percentage,
+                'percentage': True,
+            },
+            {
+                'title': 'Participation',
+                'categories': _io_used_categories(
+                    other_metrics, trace_list, [
+                        ('Units with I/O', 'io_participation'),
+                    ]),
+                'value': value,
+                'text': percentage,
+                'percentage': True,
+            },
+            {
+                'title': 'Load balance',
+                'categories': _io_used_categories(
+                    other_metrics, trace_list, [
+                        ('Data Access', 'io_da_load_balance'),
+                        ('Read', 'io_read_load_balance'),
+                        ('Write', 'io_write_load_balance'),
+                        ('File Mgmt.', 'io_fm_load_balance'),
+                        ('Open', 'io_open_load_balance'),
+                    ]),
+                'value': value,
+                'text': percentage,
+                'percentage': True,
+            },
+        ],
+        trace_list,
+        trace_labels,
+        printable,
+    )
+
+    note = (
+        "<em>Share of the I/O time</em> of each call (read and write are "
+        "Data Access; the others, File Management) and of each API: a "
+        "large share shows where to look first, not that those calls are "
+        "inefficient. "
+        "<em>I/O time fraction</em>: the average and maximum fraction of "
+        "the execution time in I/O; with the <em>participation</em> (units "
+        "that perform I/O), a maximum much higher than the average, with "
+        "low participation, indicates I/O concentrated in a few units, "
+        "which the other units may wait for. "
+        "<em>Load balance</em>: among the units that perform each kind of "
+        "call; read and write are given separately because applications "
+        "often read and write in different phases. Hover over a bar for its "
+        "value."
+    )
+
+    body_html = (
+        '<h4 class="io-plot-title">Share of the I/O time</h4>'
+        + _build_io_time_share_plot_html(
+            other_metrics, trace_list, trace_labels, printable)
+        + '<h4 class="io-plot-title">Time fraction, participation, and '
+        'load balance</h4>'
+        + panels_html
+        + _io_values_html(table_html, printable)
+    )
+
+    return _build_io_card_html(
+        "Where is the I/O time spent?", note, body_html, printable,
+        "io-time", trace_column_description)
+
+
+def _build_io_operations_card_html(other_metrics, trace_list, trace_labels,
+                                   trace_column_description="",
+                                   printable=False):
+    """Card with the time, number, and mean duration of each kind of
+    call."""
+    table_html = _build_io_call_table_html(
+        other_metrics, trace_list, trace_labels, IO_OPERATIONS,
+        list(zip(IO_OPERATION_QUANTITIES,
+                 ('Time (s)', 'Operations', 'Mean (\u00b5s)'))))
+
+    if not table_html:
+        return ""
+
+    def categories(quantity):
+        return _io_used_categories(other_metrics, trace_list, [
+            (IO_OPERATION_LABELS[operation],
+             'io_{}_{}'.format(operation, quantity))
+            for operation in IO_OPERATIONS
+        ])
+
+    def value(key, trace):
+        return _io_number(other_metrics, key, trace)
+
+    plot_html = _build_io_panels_plot_html(
+        [
+            {
+                'title': 'Time (s)',
+                'categories': categories('time'),
+                'value': value,
+                'text': lambda number: '{0:,.3f} s'.format(number),
+            },
+            {
+                'title': 'Operations',
+                'categories': categories('operations'),
+                'value': value,
+                'text': lambda number: '{0:,.0f} operations'.format(number),
+            },
+            {
+                'title': 'Mean duration (\u00b5s, log scale)',
+                'categories': categories('mean_duration'),
+                'value': value,
+                'text': lambda number: '{0:,.1f} \u00b5s'.format(number),
+                'log': True,
+            },
+            {
+                'title': 'Redundant seeks',
+                'categories': _io_used_categories(
+                    other_metrics, trace_list, [
+                        ('To current position', 'io_seek_to_current'),
+                    ]),
+                'value': value,
+                'text': lambda number: '{0:.2f}% of the seeks'.format(
+                    number),
+                'percentage': True,
+            },
+        ],
+        trace_list,
+        trace_labels,
+        printable,
+    )
+
+    note = (
+        "Time, number, and mean duration of each kind of call, over all "
+        "the units and APIs. A higher time with the same number of "
+        "operations (a higher mean duration) points to the I/O system "
+        "rather than to the application I/O pattern."
+    )
+
+    seek_table_html = _build_io_diagnostics_table_html(
+        other_metrics, trace_list, trace_labels,
+        [(None, ['io_seek_to_current'])])
+
+    if seek_table_html:
+        note += (
+            " <em>Redundant seeks</em>: seeks to the current position, "
+            "whose offset is the position the descriptor already has; they "
+            "move nothing, so their time is File Management time that could "
+            "be avoided."
+        )
+
+    return _build_io_card_html(
+        "Which calls take the time?", note,
+        plot_html + _io_values_html(table_html + seek_table_html, printable),
+        printable, "io-operations", trace_column_description)
+
+
+def _build_io_request_size_plot_html(other_metrics, trace_list,
+                                     trace_labels, operation,
+                                     printable=False):
+    """Histogram of the share of the requests (top) and of the time
+    (bottom) of each power-of-two request-size interval of one operation,
+    one bar per execution. Returns an empty string when no trace has
+    requests of that operation."""
+    intervals = {}
+
+    for trace in trace_list:
+        distribution = (
+            other_metrics.get('io_request_sizes', {}).get(trace) or {})
+
+        for bin_ in distribution.get(operation, []):
+            intervals.setdefault(
+                (bin_['min'], bin_['max']), {})[trace] = bin_
+
+    if not intervals:
+        return ""
+
+    ordered = sorted(intervals, key=lambda interval: interval[0])
+    categories = [
+        request_size_interval_label(low, high, '\u2013')
+        for low, high in ordered
+    ]
+
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+    )
+
+    for position, (trace, label) in enumerate(zip(trace_list, trace_labels)):
+        bins = [intervals[interval].get(trace) for interval in ordered]
+        color = _io_execution_color(position)
+
+        customdata = [
+            [
+                '{0:,.0f}'.format(bin_['count']) if bin_ else '-',
+                '{0:,.3f}'.format(bin_['time'] / 1e6) if bin_ else '-',
+                format_bytes(bin_['bytes']) if bin_ else '-',
+            ]
+            for bin_ in bins
+        ]
+
+        for row, key, quantity in (
+            (1, 'count_pct', 'requests'),
+            (2, 'time_pct', 'time'),
+        ):
+            fig.add_trace(
+                go.Bar(
+                    x=categories,
+                    y=[bin_[key] if bin_ else 0.0 for bin_ in bins],
+                    name=label,
+                    legendgroup=label,
+                    showlegend=(row == 1),
+                    marker_color=color,
+                    customdata=customdata,
+                    hovertemplate=(
+                        '<b>' + html.escape(label) + '</b> %{x}<br>'
+                        + '%{y:.2f}% of the ' + quantity + '<br>'
+                        + 'Requests: %{customdata[0]}<br>'
+                        + 'Time: %{customdata[1]} s<br>'
+                        + 'Bytes: %{customdata[2]}'
+                        + '<extra></extra>'
+                    ),
+                ),
+                row=row,
+                col=1,
+            )
+
+    fig.update_layout(
+        height=360 if printable else 460,
+        autosize=True,
+        barmode='group',
+        bargap=0.2,
+        margin=dict(l=65, r=20, t=40, b=95),
+        # Legend on the left: the Plotly toolbar is on the right.
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.02,
+            xanchor='left',
+            x=0.0,
+        ),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+    )
+
+    fig.update_xaxes(
+        type='category',
+        categoryorder='array',
+        categoryarray=categories,
+        tickangle=-45,
+        showgrid=False,
+    )
+    fig.update_xaxes(title='Request size', row=2, col=1)
+    fig.update_yaxes(
+        rangemode='tozero',
+        showgrid=True,
+        gridcolor='#d9d9d9',
+        ticksuffix='%',
+    )
+    fig.update_yaxes(title='Requests', row=1, col=1)
+    fig.update_yaxes(title='Time', row=2, col=1)
+
+    return '<h4>{} requests</h4>{}'.format(
+        operation.capitalize(),
+        fig.to_html(
+            full_html=False,
+            include_plotlyjs=False,
+            config={
+                'responsive': True,
+                'displaylogo': False,
+            },
+        ),
+    )
+
+
+def _build_io_access_pattern_plot_html(other_metrics, trace_list,
+                                       trace_labels, operation,
+                                       printable=False):
+    """Share of the requests, of the bytes, and of the time of each
+    access-pattern class of one operation: one stacked bar per execution
+    and quantity. Returns an empty string when no trace has an access
+    pattern for that operation."""
+    patterns = other_metrics.get('io_access_pattern', {})
+    executions = [
+        (trace, label,
+         {row['class']: row
+          for row in (patterns.get(trace) or {}).get(operation, [])})
+        for trace, label in zip(trace_list, trace_labels)
+    ]
+    executions = [execution for execution in executions if execution[2]]
+
+    if not executions:
+        return ""
+
+    quantities = (('requests', 'Requests'), ('bytes', 'Bytes'),
+                  ('time', 'Time'))
+    categories = [
+        '{} · {}'.format(label, quantity_label)
+        for _, label, _ in executions
+        for _, quantity_label in quantities
+    ]
+
+    fig = go.Figure()
+
+    for name, class_label in IO_ACCESS_PATTERN_CLASSES.items():
+        shares = []
+        customdata = []
+
+        for _, _, rows in executions:
+            row = rows.get(name)
+
+            for quantity, _ in quantities:
+                share = row[quantity + '_pct'] if row else 0.0
+                shares.append(share if isinstance(share, float) else 0.0)
+                customdata.append([
+                    '{0:,.0f}'.format(row['requests']) if row else '-',
+                    format_bytes(row['bytes']) if row else '-',
+                    '{0:,.3f}'.format(row['time'] / 1e6) if row else '-',
+                ])
+
+        if not any(shares):
+            continue
+
+        fig.add_trace(go.Bar(
+            y=categories,
+            x=shares,
+            orientation='h',
+            name=class_label,
+            marker_color=_IO_ACCESS_PATTERN_COLORS[name],
+            customdata=customdata,
+            hovertemplate=(
+                '<b>' + html.escape(class_label) + '</b> %{y}<br>'
+                + '%{x:.1f}%<br>'
+                + 'Requests: %{customdata[0]}<br>'
+                + 'Bytes: %{customdata[1]}<br>'
+                + 'Time: %{customdata[2]} s<extra></extra>'
+            ),
+        ))
+
+    height = 100 + 24 * len(categories)
+    fig.update_layout(
+        height=height,
+        autosize=True,
+        barmode='stack',
+        bargap=0.3,
+        margin=dict(l=20, r=20, t=45, b=35),
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.0 + 25.0 / height,
+            xanchor='left',
+            x=0.0,
+            traceorder='normal',
+        ),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+    )
+    fig.update_xaxes(range=[0, 100], ticksuffix='%', showgrid=True,
+                     gridcolor='#d9d9d9')
+    fig.update_yaxes(autorange='reversed', automargin=True,
+                     categoryorder='array', categoryarray=categories)
+
+    return '<h4 class="io-plot-title">{} access pattern</h4>{}'.format(
+        IO_OPERATION_LABELS[operation],
+        _io_plot_html(fig))
+
+
+def _build_io_access_pattern_legend_html():
+    """Meaning of each access-pattern class, with the color of its bars."""
+    items = ''.join(
+        '<li><span class="io-access-pattern-swatch" '
+        'style="background:{color}"></span><strong>{label}</strong>: '
+        '{description}</li>'.format(
+            color=_IO_ACCESS_PATTERN_COLORS[name],
+            label=html.escape(label),
+            description=html.escape(IO_ACCESS_PATTERN_DESCRIPTIONS[name]),
+        )
+        for name, label in IO_ACCESS_PATTERN_CLASSES.items()
+    )
+
+    return (
+        '<div class="io-access-pattern-legend">'
+        '<h4 class="io-plot-title">Access pattern (POSIX and ANSI C, '
+        'regular files)</h4>'
+        '<p>{}</p><ul>{}</ul></div>'.format(
+            html.escape(IO_ACCESS_PATTERN_METHOD), items)
+    )
+
+
+def _build_io_request_sizes_card_html(other_metrics, trace_list,
+                                      trace_labels, printable=False):
+    """Card with the volume and mean size of the requests of the read and
+    write calls (POSIX, ANSI C, and MPI-IO), and their request-size
+    distribution."""
+    table_html = _build_io_call_table_html(
+        other_metrics, trace_list, trace_labels, REQUEST_SIZE_OPERATIONS,
+        list(zip(IO_REQUEST_QUANTITIES,
+                 ('Volume', 'Mean size', 'Size coverage'))))
+    plots = [
+        _build_io_request_size_plot_html(
+            other_metrics, trace_list, trace_labels, operation, printable)
+        for operation in REQUEST_SIZE_OPERATIONS
+    ]
+    plots_html = ''.join(
+        '<div class="io-request-size-plot">{}</div>'.format(plot)
+        for plot in plots if plot
+    )
+    pattern_table_html = _build_io_call_table_html(
+        other_metrics, trace_list, trace_labels, REQUEST_SIZE_OPERATIONS,
+        list(zip(IO_ACCESS_PATTERN_QUANTITIES,
+                 ('Consecutive volume', 'Re-accessed volume',
+                  'Offset coverage'))))
+    pattern_html = ''.join(
+        _build_io_access_pattern_plot_html(
+            other_metrics, trace_list, trace_labels, operation, printable)
+        for operation in REQUEST_SIZE_OPERATIONS
+    )
+
+    if not table_html and not plots_html and not pattern_html:
+        return ""
+
+    def value(key, trace):
+        return _io_number(other_metrics, key, trace)
+
+    def categories(quantity):
+        return _io_used_categories(other_metrics, trace_list, [
+            (IO_OPERATION_LABELS[operation],
+             'io_{}_{}'.format(operation, quantity))
+            for operation in REQUEST_SIZE_OPERATIONS
+        ])
+
+    def byte_panel(title, quantity, log=False):
+        keys = [key for _, key in categories(quantity)]
+        scale, unit = _io_byte_scale([
+            value(key, trace) for key in keys for trace in trace_list])
+
+        return {
+            'title': '{} ({}{})'.format(
+                title, unit, ', log scale' if log else ''),
+            'categories': categories(quantity),
+            'value': lambda key, trace: (
+                None if value(key, trace) is None
+                else value(key, trace) / scale),
+            'text': lambda number: format_bytes(number * scale),
+            'log': log,
+        }
+
+    panels_html = _build_io_panels_plot_html(
+        [
+            byte_panel('Volume', 'volume'),
+            byte_panel('Mean request size', 'mean_request_size', log=True),
+        ],
+        trace_list,
+        trace_labels,
+        printable,
+    )
+
+    note = (
+        "Volume read and written and mean request size of the read and "
+        "write calls (POSIX, ANSI C, and MPI-IO; the mean size on a "
+        "logarithmic scale); the size coverage, in the values, is the "
+        "percentage of the calls with a request size in the trace. "
+        "The histograms show the share of the requests (top) and of the "
+        "time (bottom) in each request-size interval. "
+        "Compare the two panels: an interval with a small share of the "
+        "requests and a large share of the time holds the expensive "
+        "requests. The intervals are powers of two and include the lower "
+        "bound (256\u2013512 B: from 256 to 511 bytes); they are a scale, "
+        "not a classification of the requests as small or large. Hover over "
+        "a bar for the number of requests, the time, and the bytes; the "
+        "values are also in <code>io_request_sizes.csv</code>."
+    )
+
+    if pattern_html:
+        note += (
+            " The <em>access pattern</em> shows where each read or write "
+            "falls in the file with respect to the previous one (the "
+            "classes are explained above the plots). Compare the requests "
+            "with the bytes and the time: many jumps that move few bytes "
+            "usually come from metadata accesses. The re-accessed volume, "
+            "in the values, is the share of the bytes a process reads or "
+            "writes again in the same file. The values are also in "
+            "<code>io_access_pattern.csv</code>."
+        )
+        pattern_html = _build_io_access_pattern_legend_html() + pattern_html
+
+    return _build_io_card_html(
+        "What requests are made?", note,
+        panels_html + _io_values_html(table_html, printable) + plots_html
+        + pattern_html + _io_values_html(pattern_table_html, printable),
+        printable)
+
+
+def _build_io_files_table_html(rows):
+    """Table of the files with the most I/O time of one execution, and the
+    calls on descriptors without an open in the trace."""
+    files = [row for row in rows if not row['unnamed']]
+    shown = files[:TOP_FILES] + [row for row in rows if row['unnamed']]
+
+    def percentage(value):
+        if value == IO_NON_AVAIL:
+            return '\u2013'
+        return '{0:.1f}%'.format(value)
+
+    body = []
+
+    for row in shown:
+        name = row['name']
+        body.append(
+            '<tr><td title="{title}">{name}</td><td>{processes}</td>'
+            '<td>{read}</td><td>{written}</td><td>{main}</td>'
+            '<td>{time:.3f}</td><td>{time_pct}</td>'
+            '<td>{consecutive_read}</td><td>{consecutive_write}</td>'
+            '</tr>'.format(
+                title=html.escape(name, quote=True),
+                name=html.escape(shorten_file_name(name, 52)),
+                processes=row['processes'],
+                read=format_bytes(row['read_bytes']),
+                written=format_bytes(row['write_bytes']),
+                main=percentage(row['main_process_pct']),
+                time=row['time'] / 1e6,
+                time_pct=percentage(row['time_pct']),
+                consecutive_read=percentage(
+                    row.get('read_consecutive_volume', IO_NON_AVAIL)),
+                consecutive_write=percentage(
+                    row.get('write_consecutive_volume', IO_NON_AVAIL)),
+            ))
+
+    return (
+        "<div class='io-files-table-wrap'>"
+        "<table class='metric-table io-diagnostics-table io-files-table'>"
+        "<thead><tr><th>File</th><th>Processes</th><th>Read</th>"
+        "<th>Written</th><th>Main process</th><th>I/O time (s)</th>"
+        "<th>I/O time (%)</th><th>Consecutive read</th>"
+        "<th>Consecutive write</th></tr></thead>"
+        "<tbody>{}</tbody></table></div>".format(''.join(body))
+    )
+
+
+def _build_io_files_plot_html(rows, printable=False):
+    """Horizontal bars of the I/O time of the files with the most I/O time
+    of one execution, split into read, write, and the other calls, and the
+    calls on descriptors without an open in the trace. The label at the end
+    of each bar is the share of the bytes of the main process."""
+    files = [row for row in rows if not row['unnamed']]
+    shown = files[:TOP_FILES] + [row for row in rows if row['unnamed']]
+    names = [
+        row['name'] if row['unnamed'] else shorten_file_name(row['name'], 45)
+        for row in shown
+    ]
+
+    def main_process(row):
+        if row['main_process_pct'] == IO_NON_AVAIL:
+            return '\u2013'
+        return '{0:.1f}%'.format(row['main_process_pct'])
+
+    def consecutive(row, operation):
+        value = row.get('{}_consecutive_volume'.format(operation),
+                        IO_NON_AVAIL)
+
+        if value == IO_NON_AVAIL:
+            return '\u2013'
+        return '{0:.1f}%'.format(value)
+
+    customdata = [
+        [
+            row['name'],
+            row['processes'],
+            format_bytes(row['read_bytes']),
+            format_bytes(row['write_bytes']),
+            main_process(row),
+            row['time'] / 1e6,
+            row['time_pct'],
+            consecutive(row, 'read'),
+            consecutive(row, 'write'),
+        ]
+        for row in shown
+    ]
+
+    fig = go.Figure()
+
+    for label, color, times in (
+        ('Read', _IO_CALL_COLORS['read'],
+         [row['read_time'] for row in shown]),
+        ('Write', _IO_CALL_COLORS['write'],
+         [row['write_time'] for row in shown]),
+        ('Other calls', _IO_CALL_COLORS['open'],
+         [max(row['time'] - row['read_time'] - row['write_time'], 0.0)
+          for row in shown]),
+    ):
+        fig.add_trace(go.Bar(
+            y=names,
+            x=[time / 1e6 for time in times],
+            orientation='h',
+            name=label,
+            marker_color=color,
+            customdata=customdata,
+            hovertemplate=(
+                '<b>%{customdata[0]}</b><br>'
+                + label + ': %{x:,.3f} s<br>'
+                + 'I/O time: %{customdata[5]:,.3f} s '
+                + '(%{customdata[6]:.1f}%)<br>'
+                + 'Processes: %{customdata[1]}<br>'
+                + 'Read: %{customdata[2]}, written: %{customdata[3]}<br>'
+                + 'Main process: %{customdata[4]}<br>'
+                + 'Consecutive read: %{customdata[7]}, '
+                + 'write: %{customdata[8]}<extra></extra>'
+            ),
+        ))
+
+    # Share of the main process at the end of each bar.
+    fig.add_trace(go.Scatter(
+        y=names,
+        x=[row['time'] / 1e6 for row in shown],
+        mode='text',
+        text=[' ' + main_process(row) for row in shown],
+        textposition='middle right',
+        textfont=dict(size=11, color='#4a5568'),
+        showlegend=False,
+        hoverinfo='skip',
+    ))
+
+    largest = max([row['time'] / 1e6 for row in shown] or [1.0])
+
+    fig.update_layout(
+        height=(90 if printable else 100) + 24 * len(shown),
+        autosize=True,
+        barmode='stack',
+        bargap=0.25,
+        margin=dict(l=10, r=20, t=35, b=40),
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.0,
+            xanchor='left',
+            x=0.0,
+            traceorder='normal',
+        ),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+    )
+    fig.update_xaxes(
+        title='I/O time (s)',
+        range=[0, largest * 1.12],
+        showgrid=True,
+        gridcolor='#d9d9d9',
+    )
+    fig.update_yaxes(
+        autorange='reversed',
+        automargin=True,
+        tickfont=dict(family='monospace', size=11),
+    )
+
+    return _io_plot_html(fig)
+
+
+def _build_io_files_card_html(other_metrics, trace_list, trace_labels,
+                              printable=False):
+    """Card with the files accessed (POSIX and ANSI C): the file
+    diagnostics and the files with the most I/O time of every
+    execution."""
+    sections = []
+
+    for trace, label in zip(trace_list, trace_labels):
+        rows = other_metrics.get('io_file_access', {}).get(trace) or []
+
+        if not rows:
+            continue
+
+        files = sum(1 for row in rows if not row['unnamed'])
+        sections.append(
+            '<div class="io-files-execution"><h4>{label}: {shown} of {files} '
+            'files</h4>{plot}{table}</div>'.format(
+                label=html.escape(label),
+                shown=min(files, TOP_FILES),
+                files=files,
+                plot=_build_io_files_plot_html(rows, printable),
+                table=_io_values_html(
+                    _build_io_files_table_html(rows), printable),
+            ))
+
+    if not sections:
+        return ""
+
+    summary_html = _build_io_diagnostics_table_html(
+        other_metrics, trace_list, trace_labels,
+        groups=[(None, FILE_DIAGNOSTICS)])
+
+    note = (
+        "Files read and written by the POSIX and ANSI C calls; MPI-IO does "
+        "not record the files. "
+        "<em>Main process</em>: the process that reads and writes most of "
+        "the bytes of a file; near 100% the processes use their own files, "
+        "and a file shared evenly by N processes gives 100/N %. "
+        "The plots show the I/O time of the files with the most I/O time "
+        "(all the calls on the file), with the share of the main process at "
+        "the end of each bar. The last bar collects the calls on "
+        "descriptors without an open in the trace (standard output, files "
+        "opened before the tracing starts). Hover over a bar for the full "
+        "path, the processes, and the bytes; all the files are in "
+        "<code>io_files.csv</code>. "
+        "<em>Consecutive read</em> and <em>write</em>, in the hover and the "
+        "values: the share of the bytes of the file read or written in "
+        "consecutive requests (see the access pattern in <em>What requests "
+        "are made?</em>); a file much lower than the others is accessed "
+        "differently. <code>io_files.csv</code> has every class of the "
+        "access pattern of each file."
+    )
+
+    return _build_io_card_html(
+        "Which files are accessed?", note,
+        summary_html + ''.join(sections), printable)
 
 
 def _build_io_metrics_section(
@@ -798,7 +2011,7 @@ def _build_io_metrics_section(
         trace_list=trace_list,
         trace_labels=trace_labels,
         section_id="io-metrics",
-        tree=[],
+        tree=IO_TREE,
         metric_knowledge=metric_knowledge,
     )
 
@@ -816,8 +2029,12 @@ def _build_io_metrics_section(
         _build_io_metrics_guidance_html()
     )
 
+    # The I/O efficiencies use stricter thresholds than the other
+    # efficiencies (definitions.yaml).
     efficiency_scale_html = (
-        _build_efficiency_scale_html()
+        _build_efficiency_scale_html(
+            metric_knowledge["io_eff"].thresholds
+        )
     )
 
     scope_note_html = """
@@ -832,9 +2049,9 @@ def _build_io_metrics_section(
 
         <p>
             These metrics are reported independently from the
-            hierarchical performance-efficiency model and should not
-            be interpreted as a multiplicative decomposition of the
-            application efficiency.
+            hierarchical performance-efficiency model: I/O Efficiency is
+            decomposed into Data Access and File Management Efficiency,
+            but it is not a factor of Global Efficiency.
         </p>
     </div>
     """
@@ -850,8 +2067,9 @@ def _build_io_metrics_section(
             trace_labels=trace_labels,
             title="I/O Efficiency Trends",
             description=(
-                "Compare how File I/O efficiency and I/O load balance "
-                "evolve across the analyzed execution configurations."
+                "Compare how I/O Efficiency and its Data Access and File "
+                "Management factors evolve across the analyzed execution "
+                "configurations."
             ),
             x_axis_title=trace_column_description,
             y_axis_title="Efficiency (%)",
@@ -883,7 +2101,9 @@ def _build_io_metrics_section(
         </div>
 
         {trend_html}
-        
+
+        {diagnostics_html}
+
         {efficiency_scale_html}
 
         {scope_note_html}
@@ -898,6 +2118,25 @@ def _build_io_metrics_section(
             quote=True,
         ),
         table_html=table_html,
+        diagnostics_html=_build_io_diagnostics_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+            trace_column_description,
+        ) + _build_io_operations_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+            trace_column_description,
+        ) + _build_io_request_sizes_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+        ) + _build_io_files_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+        ),
         trend_html=trend_html,
         efficiency_scale_html=efficiency_scale_html,
         scope_note_html=scope_note_html,
@@ -925,10 +2164,12 @@ def _read_metric(metrics_dict, metric_key, trace):
         return "Non-Avail"
 
 
-def _cell_text_color(value):
+def _cell_text_color(value, thresholds=None):
     """Use white text on dark cells, black text on light cells."""
     if value is None:
         return "black"
+
+    value = _efficiency_scale_position(value, thresholds)
 
     # Low red cells and very high green cells are dark.
     if value < 25.0 or value >= 95.0:
@@ -1940,9 +3181,14 @@ def _build_efficiency_scale_html(thresholds=None):
     attention = float(thresholds.attention)
     reference = float(thresholds.reference)
 
-    critical_width = critical
-    attention_width = attention - critical
-    acceptable_width = reference - attention
+    # The cell colors map the thresholds of each metric to the positions
+    # of the default thresholds, so the segments of the color bar keep the
+    # default proportions.
+    default = _default_metric_thresholds()
+
+    critical_width = float(default.critical)
+    attention_width = float(default.attention) - float(default.critical)
+    acceptable_width = float(default.reference) - float(default.attention)
 
     return """
     <div class="efficiency-scale-panel">
@@ -2458,8 +3704,9 @@ def _build_trace_config_table_html(report):
 
 
 def _clean_metric_label(label):
-    """Remove visual hierarchy markers from labels for the info panel."""
-    return label.replace("-", "").replace("=", "").replace("*", "").strip()
+    """Remove the leading visual hierarchy markers ('--', '==', '*') of a
+    label; hyphens inside the name (e.g. 'Critical-Path') are kept."""
+    return label.lstrip(" -=*").strip()
 
 
 
@@ -2544,12 +3791,48 @@ def _metric_info_json(
 
 
 
-def _metric_value_color(value):
+def _efficiency_scale_position(value, thresholds=None):
+    """Map a value of a metric to the position of the common color scale.
+
+    Metrics with their own thresholds (e.g. the I/O efficiencies) are
+    mapped piecewise linearly so that their critical and attention
+    thresholds fall on the positions of the default thresholds. With the
+    default thresholds the value is returned unchanged.
+    """
+    value = float(value)
+
+    if thresholds is None:
+        return value
+
+    default = _default_metric_thresholds()
+
+    critical = float(thresholds.critical)
+    attention = float(thresholds.attention)
+    reference = float(thresholds.reference)
+
+    if value < critical:
+        return value / critical * float(default.critical)
+
+    if value < attention:
+        return float(default.critical) + (
+            (value - critical) / (attention - critical)
+            * (float(default.attention) - float(default.critical))
+        )
+
+    return float(default.attention) + (
+        (value - attention) / (reference - attention)
+        * (float(default.reference) - float(default.attention))
+    )
+
+
+def _metric_value_color(value, thresholds=None):
     """Return interpolated color from the efficiency scale."""
     if value is None:
         return "#f0f2f5"
 
-    normalized = max(0.0, min(float(value), 100.0)) / 100.0
+    position = _efficiency_scale_position(value, thresholds)
+
+    normalized = max(0.0, min(position, 100.0)) / 100.0
 
     for index in range(len(EFFICIENCY_COLOR_SCALE) - 1):
         lower_position, lower_color = EFFICIENCY_COLOR_SCALE[index]
@@ -3396,7 +4679,11 @@ def _build_printable_io_section(
         trace_list=trace_list,
         trace_labels=trace_labels,
         section_id="print-io-metrics",
-        tree=[],
+        tree=IO_TREE,
+        # Stricter I/O thresholds (definitions.yaml) for the cell colors.
+        metric_knowledge=_build_metric_knowledge(
+            metric_keys=filtered_keys,
+        ),
         printable=True,
     )
 
@@ -3412,8 +4699,9 @@ def _build_printable_io_section(
 
         <p>
             These metrics are reported independently from the hierarchical
-            performance-efficiency model and should not be interpreted as
-            a multiplicative decomposition of application efficiency.
+            performance-efficiency model: I/O Efficiency is decomposed into
+            Data Access and File Management Efficiency, but it is not a
+            factor of Global Efficiency.
         </p>
     </div>
     """
@@ -3429,8 +4717,9 @@ def _build_printable_io_section(
             trace_labels=trace_labels,
             title="I/O Efficiency Trends",
             description=(
-                "Compare how File I/O efficiency and I/O load balance "
-                "evolve across the analyzed execution configurations."
+                "Compare how I/O Efficiency and its Data Access and File "
+                "Management factors evolve across the analyzed execution "
+                "configurations."
             ),
             x_axis_title=trace_column_description,
             y_axis_title="Efficiency (%)",
@@ -3448,8 +4737,8 @@ def _build_printable_io_section(
             <h2>{section_number} I/O Analysis</h2>
 
             <p class="print-section-description">
-                Complementary File I/O efficiency and load-balance metrics
-                for the analyzed execution.
+                I/O Efficiency and its Data Access and File Management
+                factors for the analyzed execution.
             </p>
         </header>
 
@@ -3466,6 +4755,8 @@ def _build_printable_io_section(
 
         {trend_html}
 
+        {diagnostics_html}
+
     </section>
     """.format(
         section_number=section_number,
@@ -3474,6 +4765,27 @@ def _build_printable_io_section(
             trace_column_description
         ),
         table_html=table_html,
+        diagnostics_html=_build_io_diagnostics_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+            printable=True,
+        ) + _build_io_operations_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+            printable=True,
+        ) + _build_io_request_sizes_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+            printable=True,
+        ) + _build_io_files_card_html(
+            other_metrics,
+            trace_list,
+            trace_labels,
+            printable=True,
+        ),
         trend_html=trend_html,
     )
 
@@ -4269,8 +5581,8 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
                 thresholds,
             )
 
-            background_color = _metric_value_color(value)
-            text_color = _cell_text_color(value)
+            background_color = _metric_value_color(value, thresholds)
+            text_color = _cell_text_color(value, thresholds)
 
             if printable:
                 lines.append(
@@ -4521,27 +5833,30 @@ def _build_io_metrics_guidance_html():
         <h3>How to read this view</h3>
 
         <p>
-            Use this view to characterize the contribution and distribution
-            of <strong>File I/O activity</strong> observed in the execution.
-            Start with <strong>I/O Efficiency</strong> to assess the overall
-            weight of File I/O relative to useful computation.
+            Use this view to characterize the <strong>File I/O</strong>
+            (POSIX, ANSI C, and MPI-IO calls) observed in the execution.
+            Start with <strong>I/O Efficiency</strong> to assess the weight
+            of File I/O relative to useful computation. A low value
+            identifies I/O that deserves investigation; it does not by
+            itself show that the I/O is inefficient.
         </p>
 
         <p>
-            Continue with <strong>MPI I/O Efficiency</strong> and
-            <strong>POSIX I/O Efficiency</strong> to examine the execution
-            capacity consumed by activity associated with each File I/O
-            interface. Use the corresponding <strong>I/O Load Balance</strong>
-            metrics to determine how evenly that activity is distributed
-            across the execution units represented in the measurement.
+            I/O Efficiency is the product of <strong>Data Access
+            Efficiency</strong> (read and write calls) and <strong>File
+            Management Efficiency</strong> (open, close, seek, and control
+            calls). The lower factor identifies the I/O component to
+            investigate.
         </p>
 
         <p>
-            These metrics are <strong>complementary to the hierarchical
-            performance-efficiency model</strong>. They do not contribute to
-            Global Efficiency, Parallel Efficiency, or Computation
-            Scalability and should therefore be interpreted independently
-            rather than as part of the multiplicative efficiency hierarchy.
+            The cards below the efficiencies then answer, in order:
+            <strong>where</strong> the I/O time is spent,
+            <strong>which calls</strong> take it, <strong>which
+            requests</strong> they make, and <strong>which files</strong>
+            they access. Each card explains how to read its values. These
+            values are not efficiencies and have no color scale; they are
+            also in <code>io_metrics.csv</code>.
         </p>
     </section>
     """
@@ -5238,6 +6553,140 @@ def _build_interactive_report_document(workspace_html,
             color: var(--primary);
             font-weight: 700 !important;
             letter-spacing: 0.01em;
+        }
+
+        /* I/O diagnostics: indicators without efficiency colors. */
+        .io-diagnostics-card {
+            padding: 14px 16px;
+        }
+
+        .io-diagnostics-card h3 {
+            margin: 0 0 4px;
+            color: var(--primary);
+            font-size: 16px;
+        }
+
+        .io-diagnostics-note {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        /* Compact, like the efficiency tables: values next to labels. */
+        .metric-table.io-diagnostics-table {
+            width: auto;
+            min-width: 50%;
+        }
+
+        .io-diagnostics-table th,
+        .io-diagnostics-table td {
+            padding: 6px 14px;
+        }
+
+        .io-diagnostics-table td:not(:first-child),
+        .io-diagnostics-table th:not(:first-child) {
+            min-width: 90px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .io-request-size-plot {
+            margin-top: 12px;
+        }
+
+        .io-files-execution {
+            margin-top: 12px;
+        }
+
+        .io-files-execution h4 {
+            margin: 0 0 4px;
+            color: var(--primary);
+            font-size: 14px;
+        }
+
+        .io-files-table-wrap,
+        .io-table-wrap {
+            max-width: 100%;
+            overflow-x: auto;
+        }
+
+        .io-diagnostics-card .io-diagnostics-note {
+            margin-bottom: 10px;
+        }
+
+        /* Per-call tables: one group of columns per execution. */
+        .io-call-table td,
+        .io-call-table th {
+            white-space: nowrap;
+        }
+
+        .io-call-table thead th[colspan] {
+            text-align: center !important;
+        }
+
+        .io-call-table .io-execution-start {
+            border-left: 1px solid var(--border);
+        }
+
+        .io-files-table td {
+            white-space: nowrap;
+        }
+
+        .io-files-table td:first-child {
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .io-plot-title {
+            margin: 12px 0 0;
+            color: var(--primary);
+            font-size: 14px;
+        }
+
+        .io-values {
+            margin-top: 8px;
+        }
+
+        .io-access-pattern-legend p,
+        .io-access-pattern-legend li {
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .io-access-pattern-legend ul {
+            list-style: none;
+            margin: 6px 0 4px;
+            padding: 0;
+        }
+
+        .io-access-pattern-legend li {
+            margin: 3px 0;
+        }
+
+        .io-access-pattern-swatch {
+            display: inline-block;
+            width: 11px;
+            height: 11px;
+            margin-right: 6px;
+            border-radius: 2px;
+            vertical-align: -1px;
+        }
+
+        .io-values summary {
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .io-values[open] summary {
+            margin-bottom: 8px;
+        }
+
+        .io-request-size-plot h4 {
+            margin: 0;
+            color: var(--primary);
+            font-size: 14px;
         }
 
  
@@ -6135,6 +7584,17 @@ def _build_interactive_report_document(workspace_html,
 
         .analysis-guide-note p:last-child {
             margin-bottom: 0;
+        }
+
+        .analysis-guide-note ul {
+            margin: 4px 0 7px;
+            padding-left: 22px;
+        }
+
+        .analysis-guide-note li {
+            margin: 3px 0;
+            font-size: 13px;
+            line-height: 1.55;
         }
 
         .metric-interaction-hint {

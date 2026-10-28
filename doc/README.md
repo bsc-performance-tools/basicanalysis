@@ -98,6 +98,7 @@ doc/
 │   ├── conf.py         # Sphinx configuration
 │   ├── index.rst       # Main documentation index
 │   └── *.rst           # User Guide sections
+├── design/             # Design documents in progress (not part of the User Guide)
 ├── Makefile            # Sphinx build commands for Unix/Linux
 ├── make.bat            # Sphinx build commands for Windows
 └── README.md
@@ -105,3 +106,8 @@ doc/
 
 The `build/` directory contains generated Sphinx output and is not tracked
 in the repository.
+
+The `design/` directory contains design documents of features that are being
+defined or validated (see `design/README.md`). They are not included in the
+User Guide; their content is moved to `source/` once the feature is
+implemented and validated.

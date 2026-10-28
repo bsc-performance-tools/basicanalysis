@@ -1,0 +1,1217 @@
+import io
+import os
+import tempfile
+import unittest
+from contextlib import redirect_stdout
+
+from iometrics import (
+    NON_AVAIL,
+    add_io_metrics,
+    aggregate_io_calls,
+    classify_call,
+    compute_trace_io_metrics,
+    io_useful_time,
+    print_io_tables,
+)
+from rawdata import parse_io_call_table, parse_timings_stats
+
+
+def _table(units, calls):
+    return {'units': units, 'calls': calls}
+
+
+def _io_data(posix_time=None, posix_count=None, mpiio_time=None,
+             mpiio_count=None):
+    return {
+        'calls': {
+            'posix': {'time': posix_time, 'count': posix_count},
+            'mpiio': {'time': mpiio_time, 'count': mpiio_count},
+        },
+    }
+
+
+UNITS = ['THREAD 1.1.1', 'THREAD 1.2.1']
+
+
+class ClassificationTests(unittest.TestCase):
+
+    def test_posix_and_ansi_c_calls(self):
+        self.assertEqual(classify_call('posix', 'fread'), ('read', True))
+        self.assertEqual(classify_call('posix', 'writev'), ('write', True))
+        self.assertEqual(classify_call('posix', 'fopen'), ('open', True))
+        self.assertEqual(classify_call('posix', 'fclose'), ('close', True))
+        self.assertEqual(classify_call('posix', 'fseek'), ('seek', True))
+        self.assertEqual(classify_call('posix', 'ioctl'), ('control', True))
+
+    def test_mpiio_calls(self):
+        self.assertEqual(
+            classify_call('mpiio', 'MPI_File_read_at_all_begin'),
+            ('read', True))
+        self.assertEqual(
+            classify_call('mpiio', 'MPI_File_write_shared'), ('write', True))
+        self.assertEqual(classify_call('mpiio', 'MPI_File_open'),
+                         ('open', True))
+        self.assertEqual(classify_call('mpiio', 'MPI_File_close'),
+                         ('close', True))
+
+    def test_unknown_calls_are_file_management(self):
+        self.assertEqual(classify_call('posix', 'fsync'), ('other', False))
+        self.assertEqual(classify_call('mpiio', 'MPI_File_sync'),
+                         ('other', False))
+
+
+class CallTableParserTests(unittest.TestCase):
+
+    def test_parses_per_unit_rows(self):
+        content = (
+            '\tread()\twrite()\topen()\t\n'
+            'THREAD 1.1.1\t10.0\t\t5.0\t\n'
+            'THREAD 1.2.1\t20.0\t3.0\t\t\n'
+            '\n'
+            'Total\t30.0\t3.0\t5.0\t\n'
+            'Average\t15.0\t3.0\t5.0\t\n'
+        )
+
+        with tempfile.NamedTemporaryFile('w', suffix='.csv',
+                                         delete=False) as handle:
+            handle.write(content)
+            path = handle.name
+
+        try:
+            table = parse_io_call_table(path)
+        finally:
+            os.remove(path)
+
+        self.assertEqual(table['units'], UNITS)
+        self.assertEqual(table['calls']['read'], [10.0, 20.0])
+        self.assertEqual(table['calls']['write'], [0.0, 3.0])
+        self.assertEqual(table['calls']['open'], [5.0, 0.0])
+
+
+class AggregationTests(unittest.TestCase):
+
+    def test_families_and_apis_are_added_per_unit(self):
+        io_data = _io_data(
+            posix_time=_table(UNITS, {
+                'read': [10.0, 0.0],
+                'fread': [5.0, 1.0],
+                'fopen': [2.0, 2.0],
+            }),
+            mpiio_time=_table(['THREAD 1.2.1'], {
+                'MPI_File_write_at': [8.0],
+                'MPI_File_sync': [1.0],
+            }),
+        )
+
+        aggregate = aggregate_io_calls(io_data)
+
+        self.assertEqual(aggregate['units'], UNITS)
+        self.assertEqual(aggregate['time']['read'], [15.0, 1.0])
+        self.assertEqual(aggregate['time']['write'], [0.0, 8.0])
+        self.assertEqual(aggregate['time']['open'], [2.0, 2.0])
+        self.assertEqual(aggregate['time']['other'], [0.0, 1.0])
+        self.assertEqual(aggregate['api_time']['mpiio'], [0.0, 9.0])
+        self.assertEqual(aggregate['unknown'], [('mpiio', 'MPI_File_sync')])
+
+    def test_raw_data_without_call_tables(self):
+        self.assertIsNone(aggregate_io_calls({'operations': {}}))
+        self.assertIsNone(aggregate_io_calls(_io_data()))
+
+
+class MetricTests(unittest.TestCase):
+
+    def setUp(self):
+        # Unit 1 reads, unit 2 writes; both open files.
+        self.io_data = _io_data(
+            posix_time=_table(UNITS, {
+                'read': [300.0, 0.0],
+                'write': [0.0, 100.0],
+                'open': [60.0, 20.0],
+                'close': [10.0, 10.0],
+            }),
+            posix_count=_table(UNITS, {
+                'read': [3.0, 0.0],
+                'write': [0.0, 2.0],
+                'open': [2.0, 2.0],
+                'close': [2.0, 2.0],
+            }),
+        )
+
+    def test_factors_multiply_to_io_efficiency(self):
+        useful = 1600.0
+        metrics, _ = compute_trace_io_metrics(useful, 1000.0, 2,
+                                              self.io_data)
+
+        da = 400.0
+        fm = 100.0
+        self.assertAlmostEqual(metrics['io_da_eff'],
+                               useful / (useful + da) * 100.0)
+        self.assertAlmostEqual(metrics['io_fm_eff'],
+                               (useful + da) / (useful + da + fm) * 100.0)
+        self.assertAlmostEqual(
+            metrics['io_da_eff'] * metrics['io_fm_eff'] / 100.0,
+            useful / (useful + da + fm) * 100.0)
+
+    def test_diagnostics(self):
+        metrics, _ = compute_trace_io_metrics(1600.0, 1000.0, 2,
+                                              self.io_data)
+
+        # Unit 1: 370 us of I/O, unit 2: 130 us.
+        self.assertAlmostEqual(metrics['io_fraction_avg'], 25.0)
+        self.assertAlmostEqual(metrics['io_fraction_max'], 37.0)
+        self.assertAlmostEqual(metrics['io_participation'], 100.0)
+        self.assertAlmostEqual(metrics['io_read_contribution'], 75.0)
+        self.assertAlmostEqual(metrics['io_posix_contribution'], 100.0)
+        self.assertAlmostEqual(metrics['io_mpiio_contribution'], 0.0)
+        self.assertAlmostEqual(metrics['io_open_contribution'], 80.0)
+        self.assertAlmostEqual(metrics['io_read_mean_duration'], 100.0)
+        self.assertAlmostEqual(metrics['io_open_operations'], 4.0)
+        self.assertAlmostEqual(metrics['io_read_time'], 300.0 / 1e6)
+        self.assertEqual(metrics['io_seek_time'], NON_AVAIL)
+
+    def test_critical_path_load_balance(self):
+        useful = 1600.0
+        metrics, _ = compute_trace_io_metrics(useful, 1000.0, 2,
+                                              self.io_data)
+
+        # Per unit: U_avg = 800, IO_avg = 250. Critical path: max read 300
+        # + max write 100 + max open 60 + max close 10 = 470.
+        self.assertAlmostEqual(metrics['io_lb'],
+                               (800.0 + 250.0) / (800.0 + 470.0) * 100.0)
+        self.assertAlmostEqual(metrics['io_cp_eff'],
+                               800.0 / (800.0 + 470.0) * 100.0)
+        io_eff = useful / (useful + 500.0) * 100.0
+        self.assertAlmostEqual(
+            metrics['io_cp_eff'], io_eff * metrics['io_lb'] / 100.0)
+
+    def test_balanced_io_has_full_load_balance(self):
+        io_data = _io_data(posix_time=_table(UNITS, {
+            'read': [100.0, 100.0],
+            'open': [20.0, 20.0],
+        }))
+        metrics, _ = compute_trace_io_metrics(1600.0, 1000.0, 2, io_data)
+
+        self.assertAlmostEqual(metrics['io_lb'], 100.0)
+
+    def test_load_balance_over_participants(self):
+        metrics, _ = compute_trace_io_metrics(1600.0, 1000.0, 2,
+                                              self.io_data)
+
+        # Only one unit reads and only one writes: balanced among the
+        # participants.
+        self.assertAlmostEqual(metrics['io_read_load_balance'], 100.0)
+        self.assertAlmostEqual(metrics['io_write_load_balance'], 100.0)
+        # Data Access per unit: 300 and 100.
+        self.assertAlmostEqual(metrics['io_da_load_balance'],
+                               200.0 / 300.0 * 100.0)
+        self.assertAlmostEqual(metrics['io_open_load_balance'],
+                               40.0 / 60.0 * 100.0)
+
+    def test_participation_with_units_without_io(self):
+        metrics, _ = compute_trace_io_metrics(1600.0, 1000.0, 4,
+                                              self.io_data)
+
+        self.assertAlmostEqual(metrics['io_participation'], 50.0)
+        self.assertAlmostEqual(metrics['io_fraction_avg'], 12.5)
+
+    def test_no_io(self):
+        metrics, _ = compute_trace_io_metrics(1600.0, 1000.0, 2, {})
+
+        self.assertTrue(all(value == NON_AVAIL for value in metrics.values()))
+
+
+class AddIoMetricsTests(unittest.TestCase):
+
+    def _raw_data(self, io_tot):
+        return {
+            'useful_tot': {'t1': 1600.0},
+            'runtime': {'t1': 1000.0},
+            'io_tot': {'t1': io_tot},
+            'mpiio_tot': {'t1': 0.0},
+        }
+
+    def _io_data(self):
+        return {'t1': _io_data(
+            posix_time=_table(UNITS, {
+                'read': [300.0, 0.0],
+                'fsync': [0.0, 100.0],
+            }),
+        )}
+
+    def test_warns_about_unknown_calls(self):
+        other_metrics = {'io_units': {'t1': 2}}
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            add_io_metrics(other_metrics, self._raw_data(400.0),
+                           self._io_data(), ['t1'])
+
+        self.assertIn('fsync (POSIX/ANSI C)', output.getvalue())
+        self.assertNotIn('differs by more than 1%', output.getvalue())
+        self.assertAlmostEqual(other_metrics['io_other_contribution']['t1'],
+                               100.0)
+
+    def test_warns_when_call_time_differs_from_io_time(self):
+        other_metrics = {'io_units': {'t1': 2}}
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            add_io_metrics(other_metrics, self._raw_data(500.0),
+                           self._io_data(), ['t1'])
+
+        self.assertIn('differs by more than 1%', output.getvalue())
+
+
+class IoUsefulTimeTests(unittest.TestCase):
+
+    def test_cpu_trace_uses_total_useful_time(self):
+        raw_data = {
+            'useful_tot': {'t1': 1600.0},
+            'useful_io_tot': {'t1': 1600.0},
+        }
+        self.assertEqual(io_useful_time(raw_data, 't1'), 1600.0)
+
+    def test_falls_back_to_total_useful_time(self):
+        raw_data = {
+            'useful_tot': {'t1': 1600.0},
+            'useful_io_tot': {'t1': 'NaN'},
+        }
+        self.assertEqual(io_useful_time(raw_data, 't1'), 1600.0)
+
+    def test_gpu_trace_uses_host_useful_time(self):
+        # useful_tot also holds the kernel time of the GPU streams.
+        raw_data = {
+            'useful_tot': {'t1': 2600.0},
+            'useful_io_tot': {'t1': 1600.0},
+        }
+        self.assertEqual(io_useful_time(raw_data, 't1'), 1600.0)
+
+    def test_timings_host_rows_exclude_gpu_streams(self):
+        content = (
+            '\tRunning\tI/O\t\n'
+            'THREAD 1.1.1\t1000\t100\t\n'
+            'CUDA-D1.S1-node1\t900\t\t\n'
+            'THREAD 1.2.1\t600\t50\t\n'
+            '\n'
+            'Total\t2500\t150\t\n'
+            'Average\t833.33\t75\t\n'
+            'Maximum\t1000\t100\t\n'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.timings.stats.csv')
+            with open(path, 'w') as f:
+                f.write(content)
+            result = parse_timings_stats(path, has_pcf=True)
+
+        self.assertEqual(result['useful_tot'], 2500.0)
+        self.assertEqual(result['useful_io_tot'], 1600.0)
+
+    def test_gpu_io_factors_exclude_stream_time(self):
+        raw_data = {
+            'useful_tot': {'t1': 2600.0},
+            'useful_io_tot': {'t1': 1600.0},
+            'runtime': {'t1': 1000.0},
+            'io_tot': {'t1': 400.0},
+            'mpiio_tot': {'t1': 0.0},
+        }
+        io_data = {'t1': _io_data(posix_time=_table(UNITS, {
+            'read': [300.0, 0.0],
+            'write': [0.0, 100.0],
+        }))}
+        other_metrics = {'io_units': {'t1': 2}}
+
+        with redirect_stdout(io.StringIO()):
+            add_io_metrics(other_metrics, raw_data, io_data, ['t1'])
+
+        self.assertAlmostEqual(other_metrics['io_da_eff']['t1'], 80.0)
+
+
+class PrintTests(unittest.TestCase):
+
+    def test_hides_calls_not_used_by_any_trace(self):
+        other_metrics = {'io_units': {'t1': 2}, 'io_eff': {'t1': 75.0}}
+        raw_data = {
+            'useful_tot': {'t1': 1600.0},
+            'runtime': {'t1': 1000.0},
+            'io_tot': {'t1': 300.0},
+            'mpiio_tot': {'t1': 0.0},
+        }
+        io_data = {'t1': _io_data(
+            posix_time=_table(UNITS, {'read': [300.0, 0.0]}),
+        )}
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            add_io_metrics(other_metrics, raw_data, io_data, ['t1'])
+            print_io_tables(other_metrics, ['t1'], ['2[1]'], 10)
+
+        text = output.getvalue()
+        self.assertIn('I/O Critical-Path Efficiency (%)', text)
+        self.assertIn('   -- Data Access Efficiency (%)', text)
+        self.assertIn('-- I/O Load Balance (%)', text)
+        self.assertIn('Read Load Balance (%)', text)
+        self.assertNotIn('MPI-IO contribution', text)
+        self.assertNotIn('Seek time', text)
+
+
+if __name__ == '__main__':
+    unittest.main()
+
+
+class IoThresholdTests(unittest.TestCase):
+
+    def test_io_efficiencies_use_the_default_thresholds(self):
+        from interactiveplots import KNOWLEDGE_PROVIDER
+
+        for key in ('io_cp_eff', 'io_eff', 'io_da_eff', 'io_fm_eff',
+                    'io_lb'):
+            thresholds = KNOWLEDGE_PROVIDER.get(key).thresholds
+            self.assertEqual(thresholds.critical, 60.0)
+            self.assertEqual(thresholds.attention, 85.0)
+
+    def test_colors_follow_the_thresholds_of_the_metric(self):
+        from metrics.provider import MetricThresholds
+        from interactiveplots import (
+            KNOWLEDGE_PROVIDER,
+            _efficiency_scale_position,
+            _metric_value_color,
+        )
+
+        # Thresholds set for one metric in metrics/definitions.yaml.
+        strict = MetricThresholds(critical=90.0, attention=95.0)
+        default = KNOWLEDGE_PROVIDER.get('global_eff').thresholds
+
+        # They fall on the positions of the default ones.
+        self.assertAlmostEqual(_efficiency_scale_position(90.0, strict), 60.0)
+        self.assertAlmostEqual(_efficiency_scale_position(95.0, strict), 85.0)
+        self.assertEqual(_metric_value_color(90.0, strict),
+                         _metric_value_color(60.0, default))
+
+        # The metrics with the default thresholds keep their colors.
+        for value in (0.0, 30.0, 60.0, 72.5, 85.0, 99.0, 100.0):
+            self.assertAlmostEqual(
+                _efficiency_scale_position(value, default), value)
+            self.assertEqual(_metric_value_color(value, default),
+                             _metric_value_color(value))
+
+
+class IoDiagnosticsReportTests(unittest.TestCase):
+
+    def _other_metrics(self):
+        other_metrics = {'io_units': {'t1': 2}, 'io_eff': {'t1': 75.0}}
+        raw_data = {
+            'useful_tot': {'t1': 1600.0},
+            'runtime': {'t1': 1000.0},
+            'io_tot': {'t1': 300.0},
+            'mpiio_tot': {'t1': 0.0},
+        }
+        io_data = {'t1': _io_data(
+            posix_time=_table(UNITS, {'read': [300.0, 0.0]}),
+            posix_count=_table(UNITS, {'read': [3000.0, 0.0]}),
+        )}
+        with redirect_stdout(io.StringIO()):
+            add_io_metrics(other_metrics, raw_data, io_data, ['t1'])
+        return other_metrics
+
+    def test_groups_without_efficiency_colors(self):
+        from interactiveplots import _build_io_diagnostics_table_html
+
+        table = _build_io_diagnostics_table_html(
+            self._other_metrics(), ['t1'], ['2 [T1]'])
+
+        self.assertIn("I/O time", table)
+        self.assertIn("Data Access", table)
+        self.assertIn("<td>100.00%</td>", table)
+        # The operations have their own table.
+        self.assertNotIn("Read time", table)
+        # Diagnostics are not efficiencies.
+        self.assertNotIn("metric-good", table)
+        self.assertNotIn("metric-critical", table)
+        self.assertNotIn("background:", table)
+
+    def test_cards_show_plots_and_collapsed_values(self):
+        from interactiveplots import (
+            _build_io_diagnostics_card_html,
+            _build_io_operations_card_html,
+        )
+
+        for build in (_build_io_diagnostics_card_html,
+                      _build_io_operations_card_html):
+            card = build(self._other_metrics(), ['t1'], ['2 [T1]'])
+            self.assertIn('plotly-graph-div', card)
+            self.assertIn('<details class="io-values">', card)
+
+            printable = build(self._other_metrics(), ['t1'], ['2 [T1]'],
+                              printable=True)
+            self.assertIn('plotly-graph-div', printable)
+            self.assertNotIn('io-values', printable)
+
+    def test_operations_one_row_per_call(self):
+        from interactiveplots import _build_io_operations_card_html
+
+        card = _build_io_operations_card_html(
+            self._other_metrics(), ['t1'], ['2 [T1]'])
+
+        self.assertIn("Which calls take the time?", card)
+        self.assertIn("Mean (µs)", card)
+        # Only the read calls have values: one row, with time, operations,
+        # and mean duration.
+        self.assertEqual(card.count("<tr><td>"), 1)
+        self.assertIn("<td>Read</td>", card)
+        self.assertIn(">3,000</td>", card)
+        self.assertNotIn("<td>Write</td>", card)
+        self.assertEqual(
+            _build_io_operations_card_html({}, ['t1'], ['2 [T1]']), "")
+
+    def test_unused_calls_and_groups_are_omitted(self):
+        from interactiveplots import _build_io_diagnostics_table_html
+
+        table = _build_io_diagnostics_table_html(
+            self._other_metrics(), ['t1'], ['2 [T1]'])
+
+        self.assertNotIn("MPI-IO contribution", table)
+        self.assertNotIn("Write time", table)
+        # No File Management call has time: the whole group is omitted.
+        self.assertNotIn("File Management Load Balance", table)
+
+    def test_no_table_without_io(self):
+        from interactiveplots import _build_io_diagnostics_card_html
+
+        self.assertEqual(
+            _build_io_diagnostics_card_html({}, ['t1'], ['2 [T1]']), "")
+
+
+class MetricLabelTests(unittest.TestCase):
+
+    def test_inner_hyphens_are_kept(self):
+        from interactiveplots import _clean_metric_label
+
+        self.assertEqual(_clean_metric_label("-- I/O Critical-Path Efficiency"),
+                         "I/O Critical-Path Efficiency")
+        self.assertEqual(_clean_metric_label("   == Device Load balance"),
+                         "Device Load balance")
+
+
+# Filtered trace: thread 1.1.1 and 1.2.1, times in ns.
+REQUESTS_TRACE = (
+    '#Paraver (20/10/2026 at 10:00):100000_ns:1(2):1:2(1:1,1:1),0\n'
+    # read of 300 B, 2 us -> interval 9 [256, 512)
+    '2:1:1:1:1:1000:40000004:1:40000011:300\n'
+    '2:1:1:1:1:3000:40000004:0\n'
+    # fwrite of 1 B, 1 us -> interval 1
+    '2:1:1:1:1:4000:40000004:4:40000011:1\n'
+    '2:1:1:1:1:5000:40000004:0\n'
+    # open: not a request
+    '2:1:1:1:1:6000:40000004:11\n'
+    '2:1:1:1:1:7000:40000004:0\n'
+    # write without size: not counted
+    '2:2:1:2:1:1000:40000004:2\n'
+    '2:2:1:2:1:2000:40000004:0\n'
+    # unclosed fopen, then pread of 3 GiB (last interval), 4 us
+    '2:2:1:2:1:3000:40000004:12\n'
+    '2:2:1:2:1:4000:40000004:5:40000011:3221225472\n'
+    '2:2:1:2:1:8000:40000004:0\n'
+    '2:2:1:2:1:9000:40000004:0\n'
+)
+
+
+class RequestSizeTraceTests(unittest.TestCase):
+
+    def _parse(self):
+        from rawdata import parse_io_requests_trace
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.io_requests.prv')
+            with open(path, 'w') as f:
+                f.write(REQUESTS_TRACE)
+            return parse_io_requests_trace(path)
+
+    def test_requests_per_power_of_two_interval(self):
+        requests = self._parse()['posix']
+
+        self.assertEqual(requests['read'][9],
+                         {'count': 1.0, 'time': 2.0, 'bytes': 300.0})
+        self.assertEqual(requests['write'][1],
+                         {'count': 1.0, 'time': 1.0, 'bytes': 1.0})
+        # The pread follows an unclosed fopen and goes to the last interval.
+        self.assertEqual(requests['read'][32]['count'], 1.0)
+        self.assertEqual(requests['read'][32]['time'], 4.0)
+        # Calls without size and File Management calls are not requests.
+        self.assertEqual(sorted(requests['read']), [9, 32])
+        self.assertEqual(sorted(requests['write']), [1])
+
+    def test_interval_index(self):
+        from rawdata import request_size_interval
+
+        self.assertEqual(request_size_interval(1), 1)
+        self.assertEqual(request_size_interval(255), 8)
+        self.assertEqual(request_size_interval(256), 9)
+        self.assertEqual(request_size_interval(2 ** 40), 32)
+
+    def test_bins(self):
+        from rawdata import build_io_request_size_bins
+
+        bins = build_io_request_size_bins(self._parse()['posix']['read'])
+
+        self.assertEqual([(b['min'], b['max']) for b in bins],
+                         [(256, 512), (2 ** 31, None)])
+
+
+# Filtered trace with MPI-IO calls (times in ns) and its .pcf.
+MPIIO_TRACE = (
+    '#Paraver (20/10/2026 at 10:00):100000_ns:1(1):1:1(1:1),0\n'
+    # MPI_File_read of 4096 B, 2 us -> interval 13
+    '2:1:1:1:1:1000:50000005:143:50000110:4096\n'
+    '2:1:1:1:1:3000:50000005:0:50000110:4096\n'
+    # MPI_File_open: not a request
+    '2:1:1:1:1:4000:50000005:141:50000110:0\n'
+    '2:1:1:1:1:5000:50000005:0:50000110:0\n'
+    # split collective write of 1 MiB: begin 1 us, end 3 us -> interval 21
+    '2:1:1:1:1:6000:50000005:195:50000110:1048576\n'
+    '2:1:1:1:1:7000:50000005:0:50000110:1048576\n'
+    '2:1:1:1:1:9000:50000005:196:50000110:0\n'
+    '2:1:1:1:1:12000:50000005:0:50000110:0\n'
+)
+
+MPIIO_PCF = '''EVENT_TYPE
+9    50000005    MPI I/O
+VALUES
+0   Outside MPI
+141   MPI_File_open
+143   MPI_File_read
+195   MPI_File_write_all_begin
+196   MPI_File_write_all_end
+
+'''
+
+
+class MpiioRequestTests(unittest.TestCase):
+
+    def _parse(self):
+        from rawdata import parse_io_requests_trace
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.io_requests.prv')
+            with open(path, 'w') as f:
+                f.write(MPIIO_TRACE)
+            with open(path[:-4] + '.pcf', 'w') as f:
+                f.write(MPIIO_PCF)
+            return parse_io_requests_trace(path)
+
+    def test_mpiio_requests(self):
+        requests = self._parse()
+
+        self.assertEqual(requests['mpiio']['read'],
+                         {13: {'count': 1.0, 'time': 2.0, 'bytes': 4096.0}})
+        # The split collective is one request with the time of both calls.
+        self.assertEqual(requests['mpiio']['write'],
+                         {21: {'count': 1.0, 'time': 4.0,
+                               'bytes': 1048576.0}})
+        self.assertEqual(requests['posix'], {'read': {}, 'write': {}})
+
+    def test_pcf_values(self):
+        from rawdata import parse_pcf_event_values
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.pcf')
+            with open(path, 'w') as f:
+                f.write(MPIIO_PCF)
+            values = parse_pcf_event_values(path, 50000005)
+
+        self.assertEqual(values[196], 'MPI_File_write_all_end')
+        self.assertEqual(len(values), 5)
+
+    def test_coverage_counts_split_collectives_once(self):
+        io_data = _io_data(
+            mpiio_time=_table(UNITS, {
+                'MPI_File_write_all_begin': [1.0, 0.0],
+                'MPI_File_write_all_end': [3.0, 0.0],
+            }),
+            mpiio_count=_table(UNITS, {
+                'MPI_File_write_all_begin': [1.0, 0.0],
+                'MPI_File_write_all_end': [1.0, 0.0],
+            }),
+        )
+        io_data['request_size'] = {
+            'read': {'bins': []},
+            'write': {'bins': [
+                {'min': 2 ** 20, 'max': 2 ** 21, 'count': 1.0, 'time': 4.0,
+                 'bytes': 1048576.0},
+            ]},
+        }
+        metrics, _ = compute_trace_io_metrics(1000.0, 1000.0, 2, io_data)
+
+        self.assertAlmostEqual(metrics['io_write_size_coverage'], 100.0)
+        self.assertEqual(metrics['io_write_volume'], 1048576.0)
+
+
+def _request_io_data():
+    io_data = _io_data(
+        posix_time=_table(UNITS, {
+            'read': [10.0, 0.0],
+            'fread': [0.0, 30.0],
+            'write': [5.0, 5.0],
+        }),
+        posix_count=_table(UNITS, {
+            'read': [3.0, 0.0],
+            'fread': [0.0, 1.0],
+            'write': [1.0, 1.0],
+        }),
+    )
+    io_data['request_size'] = {
+        'read': {'bins': [
+            {'min': 8, 'max': 16, 'count': 3.0, 'time': 10.0, 'bytes': 30.0},
+            {'min': 1024, 'max': 2048, 'count': 1.0, 'time': 30.0,
+             'bytes': 1024.0},
+        ]},
+        'write': {'bins': []},
+    }
+    io_data['request_size']['read']['bins_by_api'] = {
+        'posix': io_data['request_size']['read']['bins'],
+    }
+    return io_data
+
+
+class RequestSizeMetricTests(unittest.TestCase):
+
+    def test_distribution_shares_and_labels(self):
+        from iometrics import io_request_size_distribution
+
+        distribution = io_request_size_distribution(_request_io_data())
+
+        self.assertEqual(list(distribution), ['read'])
+        small, large = distribution['read']
+        self.assertEqual(small['label'], '8-16 B')
+        self.assertEqual(large['label'], '1-2 KiB')
+        self.assertAlmostEqual(small['count_pct'], 75.0)
+        self.assertAlmostEqual(large['time_pct'], 75.0)
+
+    def test_volume_mean_size_and_coverage(self):
+        metrics, _ = compute_trace_io_metrics(
+            1000.0, 1000.0, 2, _request_io_data())
+
+        self.assertEqual(metrics['io_read_volume'], 1054.0)
+        self.assertAlmostEqual(metrics['io_read_mean_request_size'], 263.5)
+        # 4 requests with size, 4 POSIX/ANSI C read calls.
+        self.assertAlmostEqual(metrics['io_read_size_coverage'], 100.0)
+        self.assertEqual(metrics['io_write_volume'], NON_AVAIL)
+
+    def test_interval_labels_and_bytes(self):
+        from iometrics import format_bytes, request_size_interval_label
+
+        self.assertEqual(request_size_interval_label(1, 2), '1 B')
+        self.assertEqual(request_size_interval_label(512, 1024), '512-1024 B')
+        self.assertEqual(request_size_interval_label(2 ** 20, 2 ** 21),
+                         '1-2 MiB')
+        self.assertEqual(request_size_interval_label(2 ** 31, None),
+                         '>= 2 GiB')
+        self.assertEqual(format_bytes(432.0), '432 B')
+        self.assertEqual(format_bytes(1536.0), '1.50 KiB')
+
+    def test_csv_and_report_table(self):
+        from iometrics import print_io_request_sizes_csv
+        from interactiveplots import _build_io_request_sizes_card_html
+
+        other_metrics = {'io_units': {'t1': 2}}
+        raw_data = {
+            'useful_tot': {'t1': 1000.0},
+            'runtime': {'t1': 1000.0},
+            'io_tot': {'t1': 50.0},
+            'mpiio_tot': {'t1': 0.0},
+        }
+        with redirect_stdout(io.StringIO()):
+            add_io_metrics(other_metrics, raw_data,
+                           {'t1': _request_io_data()}, ['t1'])
+
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                with redirect_stdout(io.StringIO()):
+                    print_io_request_sizes_csv(other_metrics, ['t1'])
+                with open('io_request_sizes.csv') as f:
+                    lines = f.read().splitlines()
+            finally:
+                os.chdir(cwd)
+
+        self.assertEqual(len(lines), 3)
+        self.assertIn('"t1";"POSIX/ANSI C";"read";"8-16 B";8;16;3;',
+                      lines[1])
+
+        card = _build_io_request_sizes_card_html(
+            other_metrics, ['t1'], ['2 [T1]'])
+        # One histogram per operation with requests.
+        self.assertEqual(card.count('class="io-request-size-plot"'), 1)
+        self.assertIn('Read requests', card)
+        self.assertNotIn('Write requests', card)
+
+
+# Filtered trace with descriptors and file names (times in us) and its .pcf.
+FILES_TRACE = (
+    '#Paraver (20/10/2026 at 10:00):100000:1(2):1:2(1:1,1:1),0\n'
+    # task 1: open of file 1 on descriptor 3, 1 us
+    '2:1:1:1:1:1000:40000004:11:40000010:3:40000059:1\n'
+    '2:1:1:1:1:1001:40000004:0\n'
+    # write of 100 B on 3, 2 us; read of 50 B on 3, 1 us; close of 3
+    '2:1:1:1:1:2000:40000004:2:40000010:3:40000011:100\n'
+    '2:1:1:1:1:2002:40000004:0\n'
+    '2:1:1:1:1:3000:40000004:1:40000010:3:40000011:50\n'
+    '2:1:1:1:1:3001:40000004:0\n'
+    '2:1:1:1:1:4000:40000004:14:40000010:3\n'
+    '2:1:1:1:1:4001:40000004:0\n'
+    # descriptor 3 reused for file 2 (name with a space): write of 40 B
+    '2:1:1:1:1:5000:40000004:11:40000010:3:40000059:2\n'
+    '2:1:1:1:1:5001:40000004:0\n'
+    '2:1:1:1:1:6000:40000004:2:40000010:3:40000011:40\n'
+    '2:1:1:1:1:6004:40000004:0\n'
+    # write of 10 B on the standard output: no open in the trace
+    '2:1:1:1:1:7000:40000004:2:40000010:1:40000011:10\n'
+    '2:1:1:1:1:7001:40000004:0\n'
+    # task 2: fopen of file 1 on 5, fread of 30 B
+    '2:2:1:2:1:1000:40000004:12:40000010:5:40000059:1\n'
+    '2:2:1:2:1:1001:40000004:0\n'
+    '2:2:1:2:1:2000:40000004:3:40000010:5:40000011:30\n'
+    '2:2:1:2:1:2003:40000004:0\n'
+    # failed open of file 2 (descriptor -1)
+    '2:2:1:2:1:3000:40000004:11:40000010:18446744073709551615:40000059:2\n'
+    '2:2:1:2:1:3001:40000004:0\n'
+    # open without a file name on 5: the descriptor no longer is file 1
+    '2:2:1:2:1:4000:40000004:12:40000010:5\n'
+    '2:2:1:2:1:4001:40000004:0\n'
+    '2:2:1:2:1:5000:40000004:3:40000010:5:40000011:20\n'
+    '2:2:1:2:1:5001:40000004:0\n'
+    # read of 7 B on 5 replaced by a nested write of 8 B: only the write
+    '2:2:1:2:1:6000:40000004:1:40000010:5:40000011:7\n'
+    '2:2:1:2:1:6001:40000004:2:40000010:5:40000011:8\n'
+    '2:2:1:2:1:6002:40000004:0\n'
+)
+
+FILES_PCF = '''EVENT_TYPE
+0    40000059    Filename
+VALUES
+0      Unknown
+1      /data/a.h5
+2      /data/my file.dat
+
+'''
+
+
+class FileAccessTests(unittest.TestCase):
+
+    def _parse(self):
+        from rawdata import parse_io_files_trace
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.io_requests.prv')
+            with open(path, 'w') as f:
+                f.write(FILES_TRACE)
+            with open(path[:-4] + '.pcf', 'w') as f:
+                f.write(FILES_PCF)
+            return parse_io_files_trace(path)
+
+    def test_calls_per_file(self):
+        access = self._parse()
+        files = access['files']
+
+        self.assertEqual(sorted(files), ['/data/a.h5', '/data/my file.dat'])
+
+        first = files['/data/a.h5']
+        self.assertEqual(first['opens'], 2.0)
+        self.assertEqual(first['processes'], [[1, 1], [1, 2]])
+        self.assertEqual(first['write'], {'requests': 1.0, 'bytes': 100.0,
+                                          'time': 2.0, 'processes': [[1, 1]]})
+        self.assertEqual(first['read']['bytes'], 80.0)
+        self.assertEqual(first['read']['processes'], [[1, 1], [1, 2]])
+        self.assertEqual(first['bytes_by_process'],
+                         [[1, 1, 150.0], [1, 2, 30.0]])
+        # open, write, read, close of task 1; fopen and fread of task 2.
+        self.assertEqual(first['time'], 9.0)
+
+        # The failed open counts as an open of the file by task 2.
+        second = files['/data/my file.dat']
+        self.assertEqual(second['opens'], 2.0)
+        self.assertEqual(second['processes'], [[1, 1], [1, 2]])
+        self.assertEqual(second['bytes_by_process'], [[1, 1, 40.0]])
+
+    def test_descriptors_without_a_traced_open(self):
+        unnamed = self._parse()['unnamed']
+
+        # stdout of task 1; open without name, read of 20 B, and the nested
+        # write of 8 B of task 2 (the replaced read is not counted).
+        self.assertEqual(unnamed['opens'], 1.0)
+        self.assertEqual(unnamed['write']['bytes'], 18.0)
+        self.assertEqual(unnamed['read']['bytes'], 20.0)
+        self.assertEqual(unnamed['processes'], [[1, 1], [1, 2]])
+
+    def test_rows_and_diagnostics(self):
+        from iometrics import (UNNAMED_FILE_LABEL, file_diagnostics,
+                               io_file_access_rows)
+
+        rows = io_file_access_rows({'file_access': self._parse()})
+
+        self.assertEqual([row['name'] for row in rows],
+                         ['/data/a.h5', '/data/my file.dat',
+                          UNNAMED_FILE_LABEL])
+        self.assertAlmostEqual(rows[0]['main_process_pct'], 150.0 / 180.0
+                               * 100.0)
+        self.assertEqual(rows[2]['main_process_pct'], NON_AVAIL)
+
+        metrics = file_diagnostics(rows)
+
+        self.assertEqual(metrics['io_files'], 2.0)
+        self.assertEqual(metrics['io_max_processes_per_file'], 2.0)
+        # Main processes: 150 B of a.h5 and 40 B of my file.dat.
+        self.assertAlmostEqual(metrics['io_main_process_volume'],
+                               190.0 / 220.0 * 100.0)
+        self.assertAlmostEqual(metrics['io_file_name_coverage'],
+                               220.0 / 258.0 * 100.0)
+
+    def test_no_file_data(self):
+        from iometrics import file_diagnostics, io_file_access_rows
+
+        self.assertEqual(io_file_access_rows({'file_access': None}), [])
+        self.assertTrue(all(value == NON_AVAIL
+                            for value in file_diagnostics([]).values()))
+
+    def test_csv(self):
+        from iometrics import io_file_access_rows, print_io_files_csv
+
+        other_metrics = {'io_file_access': {
+            't1': io_file_access_rows({'file_access': self._parse()})}}
+
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                with redirect_stdout(io.StringIO()):
+                    print_io_files_csv(other_metrics, ['t1'])
+                with open('io_files.csv') as f:
+                    lines = f.read().splitlines()
+            finally:
+                os.chdir(cwd)
+
+        self.assertEqual(len(lines), 4)
+        self.assertTrue(lines[1].startswith('"t1";"/data/a.h5";2;2;9.000000;'))
+        self.assertIn('"/data/my file.dat"', lines[2])
+
+    def test_report_card(self):
+        from iometrics import io_file_access_rows
+        from interactiveplots import _build_io_files_card_html
+
+        other_metrics = {'io_file_access': {
+            't1': io_file_access_rows({'file_access': self._parse()}),
+            't2': [],
+        }}
+        card = _build_io_files_card_html(
+            other_metrics, ['t1', 't2'], ['2 [T1]', '2 [T2]'])
+
+        # One table, for the execution with file data.
+        self.assertEqual(card.count('class="io-files-execution"'), 1)
+        self.assertIn('2 [T1]: 2 of 2 files', card)
+        self.assertIn('title="/data/my file.dat"', card)
+        self.assertIn('83.3%', card)
+        self.assertEqual(
+            _build_io_files_card_html({}, ['t1'], ['2 [T1]']), '')
+
+
+# Filtered trace with offsets: task 1 writes a file through descriptor 5;
+# task 2 reads through descriptor 7, which has no traced open. Times in ns.
+ACCESS_PATTERN_TRACE = (
+    '#Paraver (28/10/2026 at 10:00):100000_ns:1(2):1:2(1:1,1:1),0\n'
+    # open of /data/out.dat as descriptor 5: position 0
+    '2:1:1:1:1:1000:40000004:11:40000010:5:40000059:1\n'
+    '2:1:1:1:1:2000:40000004:0\n'
+    # write 100 B at 0: first (1 us)
+    '2:1:1:1:1:3000:40000004:2:40000010:5:40000011:100:40000013:1\n'
+    '2:1:1:1:1:4000:40000004:0\n'
+    # write 100 B at 100: consecutive (2 us)
+    '2:1:1:1:1:5000:40000004:2:40000010:5:40000011:100:40000013:1\n'
+    '2:1:1:1:1:7000:40000004:0\n'
+    # seek to 300, write 100 B: forward, gap 100
+    '2:1:1:1:1:8000:40000004:16:40000010:5:40000075:300\n'
+    '2:1:1:1:1:9000:40000004:0\n'
+    '2:1:1:1:1:10000:40000004:2:40000010:5:40000011:100:40000013:1\n'
+    '2:1:1:1:1:11000:40000004:0\n'
+    # seek to 500, write 100 B: strided, gap 100 again
+    '2:1:1:1:1:12000:40000004:16:40000010:5:40000075:500\n'
+    '2:1:1:1:1:13000:40000004:0\n'
+    '2:1:1:1:1:14000:40000004:2:40000010:5:40000011:100:40000013:1\n'
+    '2:1:1:1:1:15000:40000004:0\n'
+    # seek to 600, the current position (2 us)
+    '2:1:1:1:1:16000:40000004:16:40000010:5:40000075:600\n'
+    '2:1:1:1:1:18000:40000004:0\n'
+    # seek to 0, write 50 B: backward (rewrites 50 B)
+    '2:1:1:1:1:19000:40000004:16:40000010:5:40000075:0\n'
+    '2:1:1:1:1:20000:40000004:0\n'
+    '2:1:1:1:1:21000:40000004:2:40000010:5:40000011:50:40000013:1\n'
+    '2:1:1:1:1:22000:40000004:0\n'
+    # pwrite of 10 B: offset not recorded
+    '2:1:1:1:1:23000:40000004:6:40000010:5:40000011:10:40000013:1\n'
+    '2:1:1:1:1:24000:40000004:0\n'
+    # write to the terminal: not classified
+    '2:1:1:1:1:25000:40000004:2:40000010:1:40000011:8:40000013:4\n'
+    '2:1:1:1:1:26000:40000004:0\n'
+    # seek without offset (older Extrae), write 10 B: unknown
+    '2:1:1:1:1:27000:40000004:16:40000010:5\n'
+    '2:1:1:1:1:28000:40000004:0\n'
+    '2:1:1:1:1:29000:40000004:2:40000010:5:40000011:10:40000013:1\n'
+    '2:1:1:1:1:30000:40000004:0\n'
+    '2:1:1:1:1:31000:40000004:14:40000010:5\n'
+    '2:1:1:1:1:32000:40000004:0\n'
+    # task 2: read without a traced open (unknown), then seek to 40 and
+    # read 20 B (first)
+    '2:1:2:1:1:1000:40000004:1:40000010:7:40000011:20:40000013:1\n'
+    '2:1:2:1:1:2000:40000004:0\n'
+    '2:1:2:1:1:3000:40000004:16:40000010:7:40000075:40\n'
+    '2:1:2:1:1:4000:40000004:0\n'
+    '2:1:2:1:1:5000:40000004:1:40000010:7:40000011:20:40000013:1\n'
+    '2:1:2:1:1:6000:40000004:0\n'
+)
+
+ACCESS_PATTERN_PCF = (
+    'EVENT_TYPE\n'
+    '6    40000059    I/O file name\n'
+    'VALUES\n'
+    '1      /data/out.dat\n'
+    '\n'
+)
+
+
+class AccessPatternTests(unittest.TestCase):
+
+    def _parse(self):
+        from rawdata import parse_io_access_pattern_trace
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.io_requests.prv')
+            with open(path, 'w') as f:
+                f.write(ACCESS_PATTERN_TRACE)
+            with open(path[:-4] + '.pcf', 'w') as f:
+                f.write(ACCESS_PATTERN_PCF)
+            return parse_io_access_pattern_trace(path)
+
+    def test_classes(self):
+        pattern = self._parse()
+        write = pattern['write']
+
+        self.assertEqual(write['first'],
+                         {'requests': 1.0, 'bytes': 100.0, 'time': 1.0})
+        self.assertEqual(write['consecutive'],
+                         {'requests': 1.0, 'bytes': 100.0, 'time': 2.0})
+        self.assertEqual(write['forward']['bytes'], 100.0)
+        self.assertEqual(write['strided']['bytes'], 100.0)
+        self.assertEqual(write['backward']['bytes'], 50.0)
+        # The pwrite and the write after a seek without offset.
+        self.assertEqual(write['unknown']['requests'], 2.0)
+        self.assertEqual(write['unknown']['bytes'], 20.0)
+        # The terminal write is not classified.
+        self.assertEqual(pattern['non_file'], {'read': 0.0, 'write': 1.0})
+
+        read = pattern['read']
+        self.assertEqual(read['unknown']['requests'], 1.0)
+        self.assertEqual(read['first']['requests'], 1.0)
+
+    def test_seeks_and_reaccess(self):
+        pattern = self._parse()
+
+        self.assertEqual(pattern['seeks'], {
+            'calls': 6.0, 'with_offset': 5.0, 'to_current': 1.0,
+            'to_current_time': 2.0, 'time': 7.0})
+        # 450 B written with a known offset over 400 distinct bytes.
+        self.assertEqual(pattern['reaccess']['write'],
+                         {'bytes': 450.0, 'distinct': 400.0})
+        self.assertEqual(pattern['reaccess']['read'],
+                         {'bytes': 20.0, 'distinct': 20.0})
+
+    def test_diagnostics(self):
+        from iometrics import access_pattern_diagnostics, io_access_pattern
+
+        data = {'access_pattern': self._parse()}
+        rows = {row['class']: row for row in io_access_pattern(data)['write']}
+
+        self.assertAlmostEqual(rows['consecutive']['bytes_pct'],
+                               100.0 / 470.0 * 100.0)
+        self.assertEqual(rows['first']['label'], 'First')
+
+        metrics = access_pattern_diagnostics(data)
+
+        self.assertAlmostEqual(metrics['io_write_consecutive_volume'],
+                               100.0 / 470.0 * 100.0)
+        self.assertAlmostEqual(metrics['io_write_offset_coverage'],
+                               5.0 / 7.0 * 100.0)
+        self.assertAlmostEqual(metrics['io_write_reaccessed_volume'],
+                               50.0 / 450.0 * 100.0)
+        self.assertEqual(metrics['io_read_offset_coverage'], 50.0)
+        self.assertEqual(metrics['io_seek_to_current'], 20.0)
+
+    def test_no_access_pattern(self):
+        from iometrics import access_pattern_diagnostics, io_access_pattern
+
+        self.assertEqual(io_access_pattern({'access_pattern': None}), {})
+        self.assertTrue(all(
+            value == NON_AVAIL
+            for value in access_pattern_diagnostics({}).values()))
+
+    def test_distinct_bytes(self):
+        from rawdata import _distinct_bytes
+
+        self.assertEqual(_distinct_bytes([(0, 10), (5, 15), (20, 30)]), 25)
+        self.assertEqual(_distinct_bytes([(0, 10), (2, 4)]), 10)
+        self.assertEqual(_distinct_bytes([]), 0)
+
+    def test_tables_csv_and_report(self):
+        from iometrics import (io_access_pattern,
+                               print_io_access_pattern_csv,
+                               print_io_access_pattern_tables)
+        from interactiveplots import _build_io_access_pattern_plot_html
+
+        other_metrics = {'io_access_pattern': {
+            't1': io_access_pattern({'access_pattern': self._parse()}),
+            't2': {},
+        }}
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            print_io_access_pattern_tables(
+                other_metrics, ['t1', 't2'], ['2[1]', '2[2]'], 20)
+        text = output.getvalue()
+        self.assertIn('Write access pattern', text)
+        self.assertIn('Unknown offset', text)
+        # The classes are explained once, after the tables.
+        self.assertEqual(text.count('Access pattern classes:'), 1)
+        self.assertIn('- Consecutive: Starts exactly where', text)
+
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                with redirect_stdout(io.StringIO()):
+                    print_io_access_pattern_csv(other_metrics, ['t1', 't2'])
+                with open('io_access_pattern.csv') as f:
+                    lines = f.read().splitlines()
+            finally:
+                os.chdir(cwd)
+
+        # Header, and six classes of the reads and of the writes of t1.
+        self.assertEqual(len(lines), 13)
+        self.assertTrue(lines[1].startswith('"t1";"read";"First";1;20;'))
+
+        plot = _build_io_access_pattern_plot_html(
+            other_metrics, ['t1', 't2'], ['2 [T1]', '2 [T2]'], 'write')
+        self.assertIn('Write access pattern', plot)
+        self.assertIn('2 [T1] \\u00b7 Bytes', plot)
+        self.assertNotIn('2 [T2]', plot)
+        self.assertEqual(_build_io_access_pattern_plot_html(
+            {}, ['t1'], ['2 [T1]'], 'read'), '')
+
+    def test_report_card_explains_the_classes(self):
+        from iometrics import ACCESS_PATTERN_CLASSES, io_access_pattern
+        from interactiveplots import _build_io_request_sizes_card_html
+
+        other_metrics = {'io_access_pattern': {
+            't1': io_access_pattern({'access_pattern': self._parse()})}}
+        card = _build_io_request_sizes_card_html(
+            other_metrics, ['t1'], ['2 [T1]'])
+
+        self.assertIn('class="io-access-pattern-legend"', card)
+        self.assertEqual(card.count('class="io-access-pattern-swatch"'),
+                         len(ACCESS_PATTERN_CLASSES))
+        self.assertIn('<strong>Backward</strong>: Jumps back', card)
+        # No legend without an access pattern.
+        self.assertNotIn('io-access-pattern-legend',
+                         _build_io_request_sizes_card_html(
+                             {}, ['t1'], ['2 [T1]']))
+
+
+class FileAccessPatternTests(unittest.TestCase):
+
+    def _data(self):
+        from rawdata import (parse_io_access_pattern_trace,
+                             parse_io_files_trace)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.io_requests.prv')
+            with open(path, 'w') as f:
+                f.write(ACCESS_PATTERN_TRACE)
+            with open(path[:-4] + '.pcf', 'w') as f:
+                f.write(ACCESS_PATTERN_PCF)
+            return {
+                'file_access': parse_io_files_trace(path),
+                'access_pattern': parse_io_access_pattern_trace(path),
+            }
+
+    def test_classes_per_file(self):
+        pattern = self._data()['access_pattern']
+
+        write = pattern['files']['/data/out.dat']['write']
+        self.assertEqual(write['consecutive']['bytes'], 100.0)
+        self.assertEqual(write['unknown']['requests'], 2.0)
+        # Task 2 reads through a descriptor without a traced open.
+        self.assertEqual(pattern['unnamed']['read']['first']['requests'], 1.0)
+        self.assertEqual(
+            pattern['unnamed']['read']['unknown']['requests'], 1.0)
+        # The terminal write is not classified in any file.
+        self.assertEqual(
+            sum(stats['requests']
+                for stats in pattern['unnamed']['write'].values()), 0.0)
+
+    def test_rows_and_csv(self):
+        from iometrics import (UNNAMED_FILE_LABEL, io_file_access_rows,
+                               print_io_files_csv, print_io_file_tables)
+
+        rows = {row['name']: row
+                for row in io_file_access_rows(self._data())}
+        out = rows['/data/out.dat']
+
+        self.assertAlmostEqual(out['write_consecutive_volume'],
+                               100.0 / 470.0 * 100.0)
+        self.assertAlmostEqual(out['write_backward_requests_pct'],
+                               100.0 / 7.0)
+        # No reads of the file.
+        self.assertEqual(out['read_consecutive_volume'], NON_AVAIL)
+        self.assertEqual(
+            rows[UNNAMED_FILE_LABEL]['read_first_bytes_pct'], 50.0)
+
+        other_metrics = {'io_file_access': {
+            't1': io_file_access_rows(self._data())}}
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            print_io_file_tables(other_metrics, ['t1'], ['2[1]'])
+        self.assertIn('Consec. write', output.getvalue())
+        self.assertIn('21.28%', output.getvalue())
+
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                with redirect_stdout(io.StringIO()):
+                    print_io_files_csv(other_metrics, ['t1'])
+                with open('io_files.csv') as f:
+                    lines = f.read().splitlines()
+            finally:
+                os.chdir(cwd)
+
+        header = lines[0].split(';')
+        self.assertIn('"Write consecutive bytes (%)"', header)
+        self.assertIn('"Read unknown offset requests (%)"', header)
+        self.assertEqual(len(lines[1].split(';')), len(header))
+
+    def test_report_table(self):
+        from iometrics import io_file_access_rows
+        from interactiveplots import _build_io_files_table_html
+
+        table = _build_io_files_table_html(io_file_access_rows(self._data()))
+
+        self.assertIn('<th>Consecutive write</th>', table)
+        self.assertIn('<td>21.3%</td>', table)
+
+    def test_rows_without_access_pattern(self):
+        from iometrics import io_file_access_rows
+
+        data = self._data()
+        data['access_pattern'] = None
+        rows = io_file_access_rows(data)
+
+        self.assertTrue(all(row['write_consecutive_volume'] == NON_AVAIL
+                            for row in rows))

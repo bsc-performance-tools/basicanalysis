@@ -12,7 +12,7 @@ Parallel Runtime Model to identify the main sources of efficiency loss.
 Runtime-Specific Analysis provides a more detailed view of the active parallel
 runtimes, while Execution Domains identifies where accelerator-related
 inefficiencies manifest. I/O Analysis provides a complementary view of the
-weight and distribution of File I/O activity. Finally, the Scaling view shows
+weight of File I/O and of its Data Access and File Management components. Finally, the Scaling view shows
 how performance and efficiency factors evolve across the analyzed
 configurations.
 
@@ -222,10 +222,7 @@ I/O Analysis
 ------------
 
 The **I/O Analysis** view provides a complementary characterization of the
-File I/O activity captured in the analyzed traces.
-
-BasicAnalysis distinguishes between **MPI-I/O** and **POSIX/ANSI C File I/O**
-activity and reports the corresponding metrics when that activity is detected.
+File I/O (POSIX, ANSI C, and MPI-IO calls) captured in the analyzed traces.
 
 .. _fig-report-io-analysis:
 
@@ -237,37 +234,78 @@ activity and reports the corresponding metrics when that activity is detected.
    I/O Analysis.
 
 The **I/O Analysis** view is shown in
-:numref:`fig-report-io-analysis`. This includes:
+:numref:`fig-report-io-analysis`. Its efficiency table starts with **I/O
+Critical-Path Efficiency**, the I/O cost on the critical path of the
+execution, which is the product of:
 
-* **I/O Efficiency**, which characterizes the overall weight of File I/O
-  activity relative to useful computation;
-* **MPI I/O Efficiency**, which characterizes the fraction of aggregate
-  execution capacity not spent in MPI-I/O activity;
-* **MPI I/O Load Balance**, which characterizes how evenly MPI-I/O duration is
-  distributed across the execution units represented in the measurement;
-* **POSIX I/O Efficiency**, which characterizes the fraction of aggregate
-  execution capacity not spent in POSIX or ANSI C File I/O activity; and
-* **POSIX I/O Load Balance**, which characterizes how evenly that File I/O
-  activity is distributed across the execution units represented in the
-  measurement.
+* **I/O Efficiency**, the time spent in I/O, itself the product of **Data
+  Access Efficiency** (read and write calls) and **File Management
+  Efficiency** (open, close, seek, and control calls); and
+* **I/O Load Balance**, the waiting caused by an uneven distribution of the
+  I/O time across the units.
 
-I/O Efficiency and the API-specific I/O efficiencies answer questions about
-the **weight of I/O activity**, whereas the Load Balance metrics characterize
-its **distribution**. These two aspects should be interpreted together.
+The lowest factor identifies the aspect of the I/O to investigate. The I/O
+efficiencies use the same thresholds as the other efficiencies, unless
+others are set for them in ``metrics/definitions.yaml`` (see :ref:`I/O
+Efficiency <io-efficiency-thresholds>`); the efficiency scale of the view
+shows the thresholds in use.
 
-For example, a high I/O Load Balance does not necessarily indicate that I/O
-overhead is small. All execution units may spend a similarly large amount of
-time performing File I/O. Conversely, File I/O may have a small overall weight
-while still being unevenly distributed.
+With several executions, the **I/O Efficiency Trends** plot follows the
+efficiency table. Below them, the **I/O diagnostics** are shown in four
+cards, in reading order. Each card starts with a short note on how to read
+it and shows the diagnostics as plots, one bar per execution; hovering over
+a bar shows its value, and the **Values** link under each plot opens the
+table of the plotted values:
 
-When no activity for a particular File I/O interface is detected,
-BasicAnalysis reports the corresponding API-specific Efficiency and Load
-Balance metrics as ``Non-Avail``.
+* **Where is the I/O time spent?** The share of the I/O time of each call
+  (read and write, the Data Access calls, and open, close, seek, and
+  control, the File Management calls) and, when an execution uses MPI-IO,
+  of each API, as one stacked bar per execution. Then the average and
+  maximum I/O time fractions, the participation, and the load balance of
+  Data Access, read, write, File Management, and open.
+* **Which calls take the time?** The time, number of operations, and mean
+  duration (logarithmic scale) of each kind of call, and the share of
+  redundant seeks (seeks to the position the descriptor already has).
+* **What requests are made?** The volume and the mean request size
+  (logarithmic scale) of the read and write calls; the request-size
+  coverage is in the values. The *request-size histograms* below show, for
+  the calls of every API (POSIX, ANSI C, and MPI-IO), the share of the
+  requests (top panel) and of the time (bottom panel) in each power-of-two
+  size interval. Compare the two panels: an interval with few requests and
+  much of the time holds the expensive requests. Hovering over a bar shows
+  the number of requests, the time, and the bytes. See
+  :ref:`requests <io-request-sizes>`. Above the *access pattern* plots, a
+  legend explains each class with the color of its bars. The plots show, for
+  the reads and the writes of the POSIX and ANSI C calls to regular files,
+  the share of the requests, of the bytes, and of the time that are
+  consecutive, strided, forward, backward, first, or with an unknown
+  offset, as one stacked bar per execution and quantity; the values add the
+  volume in consecutive requests, the volume re-accessed, and the offset
+  coverage. See :ref:`access pattern <io-access-pattern>`.
+* **Which files are accessed?** A table with the files accessed, maximum
+  processes per file, volume moved by the main process of each file, and
+  file-name coverage. Then, for each execution, the I/O time of the ten
+  files with the most I/O time (POSIX and ANSI C calls), split into read,
+  write, and the other calls, with the share of the bytes moved by the main
+  process of the file at the end of each bar. The last bar collects the
+  calls on descriptors without an open in the trace. Hovering over a bar
+  shows the full path, the processes, the bytes read and written, and the
+  share of the bytes read and written in consecutive requests (the access
+  pattern of the file; also in the values); all the files are in
+  ``io_files.csv``. See :ref:`files <io-files>` and :ref:`access pattern
+  <io-access-pattern>`.
 
-The I/O metrics are complementary diagnostic metrics. They are reported
-independently from the hierarchical performance-efficiency model and must not
-be interpreted as additional multiplicative components of Global Efficiency,
-Parallel Efficiency, or Computation Scalability.
+The printable report shows the plots without the tables of values.
+These values are not efficiencies, so they have no color scale; rows of
+calls or APIs that no execution uses are omitted. The same diagnostics are
+printed in the standard output and written to ``io_metrics.csv``; see
+:ref:`I/O diagnostics <io-diagnostics>`.
+
+The I/O metrics are reported independently from the hierarchical
+performance-efficiency model and must not be interpreted as additional
+multiplicative components of Global Efficiency, Parallel Efficiency, or
+Computation Scalability. When no File I/O is detected, they are reported as
+``Non-Avail``.
 
 Use the I/O Analysis view when File I/O represents a relevant fraction of the
 execution or when the distribution of I/O activity requires further

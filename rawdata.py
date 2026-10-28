@@ -24,6 +24,7 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_avg', 'Useful duration (average)'),
                             ('useful_max', 'Useful duration (maximum)'),
                             ('useful_tot', 'Useful duration (total)'),
+                            ('useful_io_tot', 'Useful duration of the Host units, which perform File I/O (total)'),
                             ('useful_dim', 'Useful duration (ideal, max)'),
                             ('hybrid_useful_dim', 'Hybrid Useful duration (ideal, max)'),
                             ('useful_ins', 'Useful instructions (total)'),
@@ -92,6 +93,49 @@ IO_OPERATIONS = (
     'close',
     'lseek',
 )
+
+
+# Request-size distribution of the read and write calls (POSIX, ANSI C, and
+# MPI-IO). Interval j holds the requests of [2^(j-1), 2^j) bytes; the last
+# one also the larger requests (as cfgs/io-*-size-pow2-*.cfg, which show the
+# same intervals in Paraver for POSIX and ANSI C).
+IO_CALL_EVENT = 40000004
+IO_SIZE_EVENT = 40000011
+MPIIO_CALL_EVENT = 50000005
+MPIIO_SIZE_EVENT = 50000110
+IO_REQUEST_SIZE_APIS = ('posix', 'mpiio')
+IO_REQUEST_SIZE_INTERVALS = 32
+IO_REQUEST_SIZE_OPERATIONS = ('read', 'write')
+
+# Values of the I/O calls event in Extrae.
+IO_REQUEST_SIZE_FAMILIES = {
+    'read': (1, 3, 5, 7, 9),     # read, fread, pread, readv, preadv
+    'write': (2, 4, 6, 8, 10),   # write, fwrite, pwrite, writev, pwritev
+}
+
+# Files accessed by the POSIX and ANSI C calls. Extrae records the
+# descriptor of every call (40000010; fileno() of the stream for ANSI C),
+# and the file name only on open and fopen (40000059, the returned
+# descriptor in the same record). MPI-IO records neither the file nor the
+# handle.
+IO_DESCRIPTOR_EVENT = 40000010
+IO_FILE_NAME_EVENT = 40000059
+IO_OPEN_CALLS = (11, 12)       # open, fopen
+IO_CLOSE_CALLS = (14, 15)      # close, fclose
+
+# Access pattern of the POSIX and ANSI C reads and writes. Extrae records
+# the offset argument of the seeks (40000075, without whence; only recent
+# Extrae versions) and the descriptor type of the reads and writes
+# (40000013), but not the offset of the reads and writes: it is rebuilt
+# from the open (position 0), the seeks, and the request sizes. The
+# pread/pwrite family does not record its offset argument.
+IO_OFFSET_EVENT = 40000075
+IO_DESCRIPTOR_TYPE_EVENT = 40000013
+IO_SEEK_CALLS = (16, 17)                 # lseek, fseek
+IO_POSITIONED_CALLS = (5, 6, 9, 10)      # pread, pwrite, preadv, pwritev
+IO_NON_FILE_DESCRIPTOR_TYPES = (2, 3, 4)  # socket, FIFO or pipe, terminal
+IO_ACCESS_PATTERN_CLASSES = (
+    'first', 'consecutive', 'strided', 'forward', 'backward', 'unknown')
 
 
 SUMMARY_KEYS = {"Total", "Average", "Maximum", "Minimum", "StDev", "Num.", "Avg/Max", "Num. Cells"}
@@ -405,6 +449,7 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
 
     Returns a dict with:
       useful_tot, useful_avg, useful_max,
+      useful_io_tot (Host rows only: the units that perform File I/O),
       useful_not_0_tot, useful_not_0_avg, useful_not_0_max,
       io_state_tot, io_state_avg, io_state_max,
       useful_plus_io_avg, useful_plus_io_max
@@ -414,6 +459,7 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
         'useful_tot': 'NaN',
         'useful_avg': 'NaN',
         'useful_max': 'NaN',
+        'useful_io_tot': 'NaN',
         'useful_not_0_tot': 'NaN',
         'useful_not_0_avg': 'NaN',
         'useful_not_0_max': 'NaN',
@@ -426,6 +472,8 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
 
     useful_not_0_values = []
     useful_plus_io = []
+    # Host rows (THREAD app.task.thread); GPU stream rows do no File I/O.
+    useful_host_values = []
 
     io_index = None
     data_row_index = 0
@@ -482,6 +530,9 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
 
                 useful_value = float(line_list[1])
 
+                if key.startswith('THREAD'):
+                    useful_host_values.append(useful_value)
+
                 # useful_not_0_* based on instructions mask
                 if instructions_mask is not None and data_row_index < len(instructions_mask):
                     if instructions_mask[data_row_index] == 1:
@@ -497,6 +548,9 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
                 data_row_index += 1
 
     # Final reductions
+    if useful_host_values:
+        result['useful_io_tot'] = float(sum(useful_host_values))
+
     if useful_not_0_values:
         result['useful_not_0_tot'] = float(sum(useful_not_0_values))
         result['useful_not_0_avg'] = float(sum(useful_not_0_values) / len(useful_not_0_values))
@@ -1093,207 +1147,786 @@ def parse_io_operations_stats(path):
     return stats
 
 
-def parse_io_request_size_histogram(path):
-    """Parse a Paraver I/O request-size count histogram.
+def parse_io_call_table(path):
+    """Parse a Paraver table with one row per execution unit and one column
+    per I/O call (POSIX/ANSI C or MPI-IO).
 
-    The CSV contains one column per non-empty request-size interval.
-    Interval boundaries are encoded in the column headers, while the
-    Total row contains the number of I/O operations in each interval.
+    The per-unit rows are kept because the I/O metrics need per-unit sums
+    of several calls (e.g. the maximum of read + write time), which cannot
+    be derived from the per-call summary rows.
 
     Returns:
-        list: Histogram bins in the form:
-            [
-                {
-                    'min': 8.0,
-                    'max': 2107.96,
-                    'count': 466608.0,
-                },
-                ...
-            ]
+        dict: {
+            'units': ['THREAD 1.1.1', ...],
+            'calls': {'read': [value per unit, ...], ...},
+        }
+        The call names are the column labels without the trailing '()'.
     """
+    table = {
+        'units': [],
+        'calls': {},
+    }
+
     with open(path) as f:
-        lines = f.readlines()
+        header = f.readline().rstrip('\n').split('\t')
 
-    if not lines:
-        return []
+        columns = [
+            column.strip().removesuffix('()')
+            for column in header[1:]
+        ]
 
-    # Parse histogram intervals from the header.
-    header = lines[0].rstrip('\n').split('\t')[1:]
+        rows = []
 
-    intervals = []
+        for line in f:
+            fields = line.rstrip('\n').split('\t')
 
-    for column in header:
-        column = column.strip()
+            if not fields or not fields[0].startswith('THREAD'):
+                continue
 
-        if not column:
+            table['units'].append(fields[0].strip())
+            rows.append(fields[1:])
+
+    for index, call in enumerate(columns):
+        if not call:
             continue
 
-        # Paraver interval format: [lower..upper)
-        if not (column.startswith('[') and column.endswith(')')):
+        values = []
+
+        for row in rows:
+            value = row[index].strip() if index < len(row) else ''
+            values.append(float(value) if value else 0.0)
+
+        table['calls'][call] = values
+
+    return table
+
+
+def io_requests_trace_path(trace_name):
+    """Temporary trace with only the I/O call, size, descriptor, descriptor
+    type, file name, and offset events."""
+    return trace_name + '.io_requests.prv'
+
+
+def trace_has_io_call_events(trace_name_control):
+    """True when the .pcf declares the I/O calls event (40000004) or the
+    MPI-IO event (50000005). Without a .pcf, the I/O events are filtered
+    anyway."""
+    pcf = trace_name_control + '.pcf'
+
+    if not os.path.exists(pcf):
+        return True
+
+    events = (str(IO_CALL_EVENT), str(MPIIO_CALL_EVENT))
+
+    with open(pcf, errors='replace') as f:
+        return any(event in line for line in f for event in events)
+
+
+def filter_io_request_events(trace, trace_name, trace_name_control, cfgs,
+                             cmdl_args):
+    """Write a temporary trace that keeps only the I/O call and size events
+    of POSIX/ANSI C and MPI-IO, and the descriptor, descriptor type, file
+    name, and seek offset of the POSIX/ANSI C calls
+    (cfgs/io-requests-filter.xml), for the request-size distribution, the
+    files accessed, and the access pattern. Paraver reads the full trace; the
+    requests and files are then taken from the much smaller filtered
+    trace."""
+    if not trace_has_io_call_events(trace_name_control):
+        return
+
+    run_command(
+        ['paramedir', '-f', '-o', io_requests_trace_path(trace_name), trace,
+         cfgs['io_requests_filter']],
+        cmdl_args,
+    )
+
+
+def remove_io_requests_trace(trace_name):
+    """Remove the temporary trace written by filter_io_request_events."""
+    base = io_requests_trace_path(trace_name)[:-4]
+
+    for extension in ('.prv', '.pcf', '.row'):
+        if os.path.exists(base + extension):
+            os.remove(base + extension)
+
+
+def _trace_time_to_us(header):
+    """Factor from the time unit of a .prv header to microseconds."""
+    fields = header.split(':')
+
+    if len(fields) > 1 and '(' in fields[0]:
+        # '#Paraver (dd/mm/yyyy at hh:mm):<end time>[_ns|_us]:...'
+        end_time = header.split('):', 1)[1].split(':', 1)[0]
+    else:
+        end_time = fields[1] if len(fields) > 1 else ''
+
+    if end_time.endswith('_ns'):
+        return 1e-3
+
+    return 1.0
+
+
+def request_size_interval(size):
+    """Power-of-two interval index of a request: interval j holds the sizes
+    [2^(j-1), 2^j); the last interval also holds the larger requests."""
+    return min(int(size).bit_length(), IO_REQUEST_SIZE_INTERVALS)
+
+
+def parse_pcf_event_values(pcf_path, event_type):
+    """Labels of the values of an event type in a .pcf file: {value: label}."""
+    values = {}
+
+    if not os.path.exists(pcf_path):
+        return values
+
+    event_type = str(event_type)
+    types = []
+    in_types = False
+    in_values = False
+
+    with open(pcf_path, errors='replace') as f:
+        for raw_line in f:
+            line = raw_line.strip()
+
+            if line == 'EVENT_TYPE':
+                types = []
+                in_types = True
+                in_values = False
+                continue
+
+            if line == 'VALUES':
+                in_types = False
+                in_values = event_type in types
+                continue
+
+            if not line:
+                in_types = False
+                in_values = False
+                continue
+
+            if in_types:
+                fields = line.split(None, 2)
+
+                if len(fields) >= 2:
+                    types.append(fields[1])
+            elif in_values:
+                # The label is the rest of the line (file names may contain
+                # spaces).
+                fields = line.split(None, 1)
+
+                if len(fields) < 2:
+                    continue
+
+                try:
+                    values[int(fields[0])] = fields[1].strip()
+                except ValueError:
+                    continue
+
+    return values
+
+
+def _mpiio_request_calls(labels):
+    """Read and write MPI-IO calls by value of the MPI-IO event:
+    {value: (operation, kind)}, where kind is 'call' (the call carries the
+    request), 'begin' (split collective: carries the request), or 'end'
+    (split collective: completes the request of the last 'begin')."""
+    calls = {}
+
+    for value, label in labels.items():
+        name = label.lower()
+
+        if name.startswith('mpi_file_read'):
+            operation = 'read'
+        elif name.startswith('mpi_file_write'):
+            operation = 'write'
+        else:
             continue
 
-        bounds = column[1:-1].split('..')
+        if name.endswith('_begin'):
+            kind = 'begin'
+        elif name.endswith('_end'):
+            kind = 'end'
+        else:
+            kind = 'call'
 
-        if len(bounds) != 2:
-            continue
+        calls[value] = (operation, kind)
 
-        lower = float(bounds[0].replace(',', ''))
-        upper = float(bounds[1].replace(',', ''))
+    return calls
 
-        intervals.append((lower, upper))
 
-    # Find the Total row.
-    total_values = None
+def parse_io_requests_trace(path):
+    """Requests of the read and write calls per power-of-two size interval
+    and API, from the filtered trace.
 
-    for line in lines[1:]:
-        fields = line.rstrip('\n').split('\t')
+    POSIX and ANSI C: a call starts with a non-zero value of the I/O calls
+    event (40000004), with the I/O size event (40000011) in the same record,
+    and ends with the value 0.
 
-        if fields and fields[0].strip() == 'Total':
-            total_values = [
-                float(value)
-                for value in fields[1:]
-                if value.strip()
-            ]
-            break
+    MPI-IO: a call starts with a non-zero value of the MPI-IO event
+    (50000005), with the MPI-IO size event (50000110: count times the size
+    of the datatype, the requested bytes), and ends with the value 0. The
+    read and write calls are identified by their labels in the .pcf file of
+    the trace. A split collective (*_begin and *_end) is one request: its
+    size is that of the *_begin call, and its time is that of both calls.
 
-    if total_values is None:
-        return []
+    Calls without size or with size 0 are not counted. When a call starts
+    before the previous call of the same API and thread has ended (unclosed
+    or nested calls, rare in Extrae traces), the later call replaces the
+    earlier one, which is not counted.
 
-    # The number of histogram intervals and Total values must match.
-    if len(intervals) != len(total_values):
-        raise ValueError(
-            "I/O request-size histogram has a different number of "
-            "intervals and Total values: "
-            f"{len(intervals)} intervals, {len(total_values)} values"
-        )
+    Returns:
+        dict: {api: {operation: {interval index: {'count', 'time',
+        'bytes'}}}}, api in ('posix', 'mpiio'), time in microseconds.
+    """
+    posix_calls = {}
 
+    for operation, values in IO_REQUEST_SIZE_FAMILIES.items():
+        for value in values:
+            posix_calls[value] = (operation, 'call')
+
+    mpiio_calls = _mpiio_request_calls(
+        parse_pcf_event_values(path[:-4] + '.pcf', MPIIO_CALL_EVENT))
+
+    apis = (
+        ('posix', str(IO_CALL_EVENT), str(IO_SIZE_EVENT), posix_calls),
+        ('mpiio', str(MPIIO_CALL_EVENT), str(MPIIO_SIZE_EVENT), mpiio_calls),
+    )
+
+    requests = {
+        api: {operation: {} for operation in IO_REQUEST_SIZE_OPERATIONS}
+        for api, _, _, _ in apis
+    }
+    open_calls = {api: {} for api, _, _, _ in apis}
+    # Interval of the last *_begin of each thread and operation, which the
+    # *_end call completes.
+    pending_begin = {}
+    time_to_us = 1.0
+
+    with open(path) as f:
+        for line_number, line in enumerate(f):
+            if line_number == 0:
+                time_to_us = _trace_time_to_us(line)
+                continue
+
+            if not line.startswith('2:'):
+                continue
+
+            fields = line.rstrip('\n').split(':')
+            events = dict(zip(fields[6::2], fields[7::2]))
+            thread = (fields[2], fields[3], fields[4])
+            timestamp = int(fields[5])
+
+            for api, call_event, size_event, calls in apis:
+                if call_event not in events:
+                    continue
+
+                value = int(events[call_event])
+
+                if value != 0:
+                    size = events.get(size_event)
+                    open_calls[api][thread] = (
+                        calls.get(value),
+                        timestamp,
+                        int(size) if size is not None else 0,
+                    )
+                    continue
+
+                call = open_calls[api].pop(thread, None)
+
+                if call is None or call[0] is None:
+                    continue
+
+                (operation, kind), start, size = call
+                duration = (timestamp - start) * time_to_us
+
+                if kind == 'end':
+                    stats = pending_begin.pop((api, thread, operation), None)
+
+                    if stats is not None:
+                        stats['time'] += duration
+
+                    continue
+
+                if size <= 0:
+                    continue
+
+                stats = requests[api][operation].setdefault(
+                    request_size_interval(size),
+                    {'count': 0.0, 'time': 0.0, 'bytes': 0.0},
+                )
+                stats['count'] += 1
+                stats['time'] += duration
+                stats['bytes'] += size
+
+                if kind == 'begin':
+                    pending_begin[(api, thread, operation)] = stats
+
+    return requests
+
+
+def merge_io_request_intervals(*interval_sets):
+    """Add the intervals of several APIs of one operation."""
+    merged = {}
+
+    for intervals in interval_sets:
+        for index, stats in intervals.items():
+            total = merged.setdefault(
+                index, {'count': 0.0, 'time': 0.0, 'bytes': 0.0})
+
+            for key in total:
+                total[key] += stats[key]
+
+    return merged
+
+
+def build_io_request_size_bins(intervals):
+    """Bins of one operation, in increasing size, from the intervals of
+    parse_io_requests_trace:
+
+        [{'min': 256, 'max': 512, 'count': ..., 'time': ..., 'bytes': ...}]
+
+    'max' is None for the last interval (2 GiB or more).
+    """
     bins = []
 
-    for (lower, upper), count in zip(intervals, total_values):
+    for index in sorted(intervals):
+        stats = intervals[index]
         bins.append({
-            'min': lower,
-            'max': upper,
-            'count': count,
+            'min': 2 ** (index - 1),
+            'max': 2 ** index if index < IO_REQUEST_SIZE_INTERVALS else None,
+            'count': stats['count'],
+            'time': stats['time'],
+            'bytes': stats['bytes'],
         })
 
     return bins
 
 
-def parse_io_filename_stats(path):
-    """Parse per-file I/O statistics generated by Paraver.
-
-    The CSV contains one column per filename and summary rows including
-    Total, Average, and Maximum.
-
-    Returns:
-        dict: Statistics indexed by filename, for example:
-            {
-                '/path/file.vtkhdf': {
-                    'tot': 0.0,
-                    'avg': 0.0,
-                    'max': 0.0,
-                },
-                ...
-            }
-    """
-    row_to_key = {
-        'Total': 'tot',
-        'Average': 'avg',
-        'Maximum': 'max',
+def _new_file_access():
+    return {
+        'opens': 0.0,
+        'time': 0.0,
+        'processes': set(),
+        # Bytes read and written by each process: {process: bytes}.
+        'bytes_by_process': {},
+        'read': {'requests': 0.0, 'bytes': 0.0, 'time': 0.0,
+                 'processes': set()},
+        'write': {'requests': 0.0, 'bytes': 0.0, 'time': 0.0,
+                  'processes': set()},
     }
 
-    stats = {}
+
+def _valid_descriptor(value):
+    """False for the descriptor of a failed open (-1, or 2^64 - 1 in some
+    Extrae versions)."""
+    try:
+        return 0 <= int(value) < 2 ** 63
+    except (TypeError, ValueError):
+        return False
+
+
+def parse_io_files_trace(path):
+    """Files accessed by the POSIX and ANSI C calls, from the filtered trace.
+
+    An open or fopen call records the file name and the returned descriptor;
+    the following calls of the same process on that descriptor, until it is
+    closed, are calls on that file. Calls on a descriptor without an open in
+    the trace (standard input and output, files opened before the tracing
+    starts or with calls that Extrae does not instrument, such as openat or
+    dup) are collected as 'unnamed'. Descriptors are per process, so the
+    threads of a process share them. A call is counted when it ends; a call
+    that starts before the previous call of the same thread has ended
+    replaces it, as in parse_io_requests_trace.
+
+    For each file: the opens, the time of all the calls on the file (us),
+    the processes that call on it, the bytes read and written by each
+    process, and the requests, bytes, time, and processes of the read and
+    write calls (calls with size 0 are not requests).
+
+    Returns:
+        dict: {'files': {name: stats}, 'unnamed': stats}, with the
+        processes as sorted lists of [application, task] numbers and
+        'bytes_by_process' as a sorted list of [application, task, bytes].
+    """
+    names = parse_pcf_event_values(path[:-4] + '.pcf', IO_FILE_NAME_EVENT)
+    operations = {
+        value: operation
+        for operation, values in IO_REQUEST_SIZE_FAMILIES.items()
+        for value in values
+    }
+    call_event = str(IO_CALL_EVENT)
+    size_event = str(IO_SIZE_EVENT)
+    descriptor_event = str(IO_DESCRIPTOR_EVENT)
+    name_event = str(IO_FILE_NAME_EVENT)
+
+    files = {}
+    unnamed = _new_file_access()
+    # File of each open descriptor: {(application, task, descriptor): name}.
+    descriptors = {}
+    # Call in progress of each thread: (stats, operation, start).
+    open_calls = {}
+    time_to_us = 1.0
 
     with open(path) as f:
-        header = f.readline().rstrip('\n').split('\t')
+        for line_number, line in enumerate(f):
+            if line_number == 0:
+                time_to_us = _trace_time_to_us(line)
+                continue
 
-        filenames = [
-            column.strip()
-            for column in header[1:]
-            if column.strip()
+            if not line.startswith('2:'):
+                continue
+
+            fields = line.rstrip('\n').split(':')
+            events = dict(zip(fields[6::2], fields[7::2]))
+
+            if call_event not in events:
+                continue
+
+            process = (int(fields[2]), int(fields[3]))
+            thread = (fields[2], fields[3], fields[4])
+            timestamp = int(fields[5])
+            value = int(events[call_event])
+
+            if value == 0:
+                call = open_calls.pop(thread, None)
+
+                if call is None:
+                    continue
+
+                stats, process, is_open, operation, size, start = call
+                duration = (timestamp - start) * time_to_us
+                stats['time'] += duration
+                stats['processes'].add(process)
+
+                if is_open:
+                    stats['opens'] += 1
+
+                if operation is not None:
+                    stats[operation]['requests'] += 1
+                    stats[operation]['bytes'] += size
+                    stats[operation]['time'] += duration
+                    stats[operation]['processes'].add(process)
+                    stats['bytes_by_process'][process] = (
+                        stats['bytes_by_process'].get(process, 0.0) + size)
+
+                continue
+
+            descriptor = events.get(descriptor_event)
+            key = process + (descriptor,)
+            is_open = value in IO_OPEN_CALLS
+
+            if is_open and name_event in events:
+                name = names.get(int(events[name_event]),
+                                 events[name_event])
+                stats = files.setdefault(name, _new_file_access())
+
+                if _valid_descriptor(descriptor):
+                    descriptors[key] = name
+            elif is_open:
+                # Open without a file name (Extrae sometimes omits it).
+                descriptors.pop(key, None)
+                stats = unnamed
+            elif key in descriptors:
+                stats = files[descriptors[key]]
+            else:
+                stats = unnamed
+
+            if value in IO_CLOSE_CALLS:
+                descriptors.pop(key, None)
+
+            operation = operations.get(value)
+            size = int(events.get(size_event, 0))
+
+            if size <= 0:
+                operation = None
+
+            # Counted when the call ends; a call that starts before the
+            # previous one of the thread has ended replaces it (as in
+            # parse_io_requests_trace).
+            open_calls[thread] = (stats, process, is_open, operation, size,
+                                  timestamp)
+
+    def finish(stats):
+        stats['processes'] = [list(p) for p in sorted(stats['processes'])]
+        stats['bytes_by_process'] = [
+            list(p) + [size]
+            for p, size in sorted(stats['bytes_by_process'].items())
         ]
 
-        for filename in filenames:
-            stats[filename] = {
-                'tot': 0.0,
-                'avg': 0.0,
-                'max': 0.0,
-            }
+        for operation in IO_REQUEST_SIZE_OPERATIONS:
+            stats[operation]['processes'] = [
+                list(p) for p in sorted(stats[operation]['processes'])]
 
-        for line in f:
-            fields = line.rstrip('\n').split('\t')
+        return stats
 
-            if not fields:
-                continue
-
-            row_name = fields[0].strip()
-
-            if row_name not in row_to_key:
-                continue
-
-            stat_key = row_to_key[row_name]
-
-            values = [
-                value
-                for value in fields[1:]
-                if value.strip()
-            ]
-
-            if len(values) != len(filenames):
-                raise ValueError(
-                    "I/O filename statistics have a different number "
-                    "of filenames and values: "
-                    f"{len(filenames)} filenames, {len(values)} values"
-                )
-
-            for filename, value in zip(filenames, values):
-                stats[filename][stat_key] = float(value)
-
-    return stats
+    return {
+        'files': {name: finish(stats) for name, stats in files.items()},
+        'unnamed': finish(unnamed),
+    }
 
 
-def parse_io_bytes_stats(path):
-    """Parse I/O byte statistics generated by Paraver.
+def _distinct_bytes(regions):
+    """Bytes covered by the union of the regions [start, end)."""
+    distinct = 0
+    end = None
+
+    for start, stop in sorted(regions):
+        if end is None or start >= end:
+            distinct += stop - start
+            end = stop
+        elif stop > end:
+            distinct += stop - end
+            end = stop
+
+    return distinct
+
+
+def parse_io_access_pattern_trace(path):
+    """Access pattern of the POSIX and ANSI C reads and writes, from the
+    filtered trace.
+
+    The position of each descriptor of a process (the threads share it) is
+    rebuilt: an open or fopen sets it to 0, a seek to the recorded offset
+    (SEEK_SET assumed: Extrae does not record whence), and a read or write
+    starts at the position and advances it by its requested size. A seek
+    without an offset (Extrae versions without the offset event) makes the
+    position unknown until the next open; a descriptor without a traced
+    open has no position until its first seek with an offset.
+
+    Each request is compared with the previous request of the same kind on
+    the descriptor, through gap = offset - end of the previous request:
+    'first' (no previous request), 'consecutive' (gap 0), 'strided' (gap
+    not 0 and equal to the previous gap), 'forward' (gap > 0), 'backward'
+    (gap < 0), or 'unknown' (no position, or a call of the pread/pwrite
+    family, whose offset is not recorded; these calls do not move the
+    position). Requests on sockets, pipes, and terminals have no position
+    and are not classified. Requests of size 0 are not counted. Times are
+    counted when the call ends; a call that starts before the previous call
+    of the same thread has ended replaces it, as in
+    parse_io_requests_trace.
 
     Returns:
-        dict: Total, average, and maximum byte volume across ranks.
+        dict: {
+            'read'/'write': {class: {'requests', 'bytes', 'time'}},
+            'files': {name: {'read'/'write': {class: {...}}}},
+            'unnamed': {'read'/'write': {class: {...}}},
+            'non_file': {'read'/'write': requests on non-file descriptors},
+            'seeks': {'calls', 'with_offset', 'to_current',
+                      'to_current_time', 'time'},
+            'reaccess': {'read'/'write': {'bytes', 'distinct'}},
+        }
+        with the time in microseconds. 'files' has the classes of the
+        requests of each file, and 'unnamed' those of the descriptors
+        without a file name (the groups of parse_io_files_trace). 'reaccess'
+        compares, per process and file, the bytes moved by the requests
+        with a known offset with the distinct bytes they cover.
     """
-    row_to_key = {
-        'Total': 'tot',
-        'Average': 'avg',
-        'Maximum': 'max',
+    names = parse_pcf_event_values(path[:-4] + '.pcf', IO_FILE_NAME_EVENT)
+    operations = {
+        value: operation
+        for operation, values in IO_REQUEST_SIZE_FAMILIES.items()
+        for value in values
     }
+    call_event = str(IO_CALL_EVENT)
+    size_event = str(IO_SIZE_EVENT)
+    descriptor_event = str(IO_DESCRIPTOR_EVENT)
+    name_event = str(IO_FILE_NAME_EVENT)
+    offset_event = str(IO_OFFSET_EVENT)
+    type_event = str(IO_DESCRIPTOR_TYPE_EVENT)
 
-    stats = {
-        'tot': 0.0,
-        'avg': 0.0,
-        'max': 0.0,
-    }
+    def new_pattern():
+        return {
+            operation: {
+                name: {'requests': 0.0, 'bytes': 0.0, 'time': 0.0}
+                for name in IO_ACCESS_PATTERN_CLASSES
+            }
+            for operation in IO_REQUEST_SIZE_OPERATIONS
+        }
+
+    pattern = new_pattern()
+    # Classes of the requests of each file name, and of the descriptors
+    # without a file name.
+    file_patterns = {}
+    unnamed_pattern = new_pattern()
+    non_file = {operation: 0.0 for operation in IO_REQUEST_SIZE_OPERATIONS}
+    seeks = {'calls': 0.0, 'with_offset': 0.0, 'to_current': 0.0,
+             'to_current_time': 0.0, 'time': 0.0}
+
+    # State of each descriptor of a process, (application, task,
+    # descriptor): 'position' (None when unknown), 'file' (key of the
+    # accessed regions), and per operation the end and the gap of the last
+    # request.
+    streams = {}
+    # Regions [start, end) of the requests with a known offset, per
+    # operation and (application, task, file).
+    regions = {operation: {} for operation in IO_REQUEST_SIZE_OPERATIONS}
+    # Descriptors without a file name are told apart by a counter.
+    unnamed_files = [0]
+    # Call in progress of each thread: (stats of the request, of all the
+    # files and of its file, or None; its size; whether a seek goes to the
+    # current position or None; start).
+    open_calls = {}
+    time_to_us = 1.0
+
+    def new_stream(position, file_key):
+        return {'position': position, 'file': file_key,
+                'end': {}, 'gap': {}}
+
+    def unnamed_file():
+        unnamed_files[0] += 1
+        return ('unnamed', unnamed_files[0])
 
     with open(path) as f:
-        for line in f:
-            fields = line.rstrip('\n').split('\t')
-
-            if not fields:
+        for line_number, line in enumerate(f):
+            if line_number == 0:
+                time_to_us = _trace_time_to_us(line)
                 continue
 
-            row_name = fields[0].strip()
-
-            if row_name not in row_to_key:
+            if not line.startswith('2:'):
                 continue
 
-            values = [
-                value
-                for value in fields[1:]
-                if value.strip()
-            ]
+            fields = line.rstrip('\n').split(':')
+            events = dict(zip(fields[6::2], fields[7::2]))
 
-            if not values:
+            if call_event not in events:
                 continue
 
-            stats[row_to_key[row_name]] = float(values[0])
+            thread = (fields[2], fields[3], fields[4])
+            timestamp = int(fields[5])
+            value = int(events[call_event])
 
-    return stats
+            if value == 0:
+                call = open_calls.pop(thread, None)
+
+                if call is None:
+                    continue
+
+                stats, size, to_current, start = call
+                duration = (timestamp - start) * time_to_us
+
+                if stats is not None:
+                    for class_stats in stats:
+                        class_stats['requests'] += 1
+                        class_stats['bytes'] += size
+                        class_stats['time'] += duration
+                elif to_current is not None:
+                    seeks['time'] += duration
+
+                    if to_current:
+                        seeks['to_current_time'] += duration
+
+                continue
+
+            descriptor = events.get(descriptor_event)
+            key = (fields[2], fields[3], descriptor)
+            stats = None
+            size = 0
+            to_current = None
+
+            if value in IO_OPEN_CALLS:
+                if _valid_descriptor(descriptor):
+                    if name_event in events:
+                        name = names.get(int(events[name_event]),
+                                         events[name_event])
+                        file_key = ('file', name)
+                    else:
+                        file_key = unnamed_file()
+
+                    streams[key] = new_stream(0, file_key)
+            elif value in IO_CLOSE_CALLS:
+                streams.pop(key, None)
+            elif value in IO_SEEK_CALLS:
+                seeks['calls'] += 1
+                stream = streams.get(key)
+
+                if stream is None:
+                    stream = streams[key] = new_stream(None, unnamed_file())
+
+                if offset_event in events:
+                    offset = int(events[offset_event])
+                    seeks['with_offset'] += 1
+                    to_current = stream['position'] == offset
+                    stream['position'] = offset
+
+                    if to_current:
+                        seeks['to_current'] += 1
+                else:
+                    to_current = False
+                    stream['position'] = None
+            elif value in operations:
+                operation = operations[value]
+                size = int(events.get(size_event, 0))
+
+                if size > 0 and int(events.get(type_event, 0)) in (
+                        IO_NON_FILE_DESCRIPTOR_TYPES):
+                    non_file[operation] += 1
+                elif size > 0:
+                    stream = streams.get(key)
+
+                    if (value in IO_POSITIONED_CALLS or stream is None
+                            or stream['position'] is None):
+                        name = 'unknown'
+                    else:
+                        offset = stream['position']
+                        previous_end = stream['end'].get(operation)
+
+                        if previous_end is None:
+                            name = 'first'
+                        else:
+                            gap = offset - previous_end
+
+                            if gap == 0:
+                                name = 'consecutive'
+                            elif gap == stream['gap'].get(operation):
+                                name = 'strided'
+                            elif gap > 0:
+                                name = 'forward'
+                            else:
+                                name = 'backward'
+
+                            stream['gap'][operation] = gap
+
+                        stream['end'][operation] = offset + size
+                        stream['position'] = offset + size
+                        regions[operation].setdefault(
+                            (fields[2], fields[3], stream['file']), []
+                        ).append((offset, offset + size))
+
+                    if stream is not None and stream['file'][0] == 'file':
+                        file_pattern = file_patterns.setdefault(
+                            stream['file'][1], new_pattern())
+                    else:
+                        file_pattern = unnamed_pattern
+
+                    stats = (pattern[operation][name],
+                             file_pattern[operation][name])
+
+            # Counted when the call ends; a call that starts before the
+            # previous one of the thread has ended replaces it.
+            open_calls[thread] = (stats, size, to_current, timestamp)
+
+    reaccess = {}
+
+    for operation in IO_REQUEST_SIZE_OPERATIONS:
+        moved = 0
+        distinct = 0
+
+        for accessed in regions[operation].values():
+            moved += sum(stop - start for start, stop in accessed)
+            distinct += _distinct_bytes(accessed)
+
+        reaccess[operation] = {'bytes': float(moved),
+                               'distinct': float(distinct)}
+
+    result = {operation: pattern[operation]
+              for operation in IO_REQUEST_SIZE_OPERATIONS}
+    result['files'] = file_patterns
+    result['unnamed'] = unnamed_pattern
+    result['non_file'] = non_file
+    result['seeks'] = seeks
+    result['reaccess'] = reaccess
+
+    return result
 
 
 def flushing_stats_has_data(path):
@@ -1343,32 +1976,37 @@ def create_io_raw_data():
             }
             for operation in IO_OPERATIONS
         },
+        # Read and write requests per power-of-two size interval (see
+        # build_io_request_size_bins), of all the APIs and by API.
         'request_size': {
             'read': {
                 'bins': [],
-                'coverage': None,
+                'bins_by_api': {},
             },
             'write': {
                 'bins': [],
-                'coverage': None,
+                'bins_by_api': {},
             },
         },
-        'bytes': {
-            'read': {
-                'tot': 0.0,
-                'avg': 0.0,
-                'max': 0.0,
+        # Files accessed by the POSIX and ANSI C calls (see
+        # parse_io_files_trace). None when the trace was not filtered.
+        'file_access': None,
+        # Access pattern of the POSIX and ANSI C reads and writes (see
+        # parse_io_access_pattern_trace). None when the trace was not
+        # filtered.
+        'access_pattern': None,
+        # Per-unit time and count of every traced I/O call, by API
+        # (see parse_io_call_table). Empty when the trace has no calls of
+        # that API.
+        'calls': {
+            'posix': {
+                'time': None,
+                'count': None,
             },
-            'write': {
-                'tot': 0.0,
-                'avg': 0.0,
-                'max': 0.0,
+            'mpiio': {
+                'time': None,
+                'count': None,
             },
-        },
-        'files': {
-            'open': {},
-            'count_coverage': None,
-            'time_coverage': None,
         },
     }
 
@@ -2193,12 +2831,9 @@ def init_cfgs():
     # I/O cfgs
     cfgs['io_calls_time'] = os.path.join(cfgs['root_dir'], 'io-calls-time.cfg')
     cfgs['io_calls_count'] = os.path.join(cfgs['root_dir'], 'io-calls-count.cfg')
-    cfgs['io_read_size_count'] = os.path.join(cfgs['root_dir'], 'hist-read-size-count.cfg')
-    cfgs['io_write_size_count'] = os.path.join(cfgs['root_dir'], 'hist-write-size-count.cfg')
-    cfgs['io_read_bytes'] = os.path.join(cfgs['root_dir'],'hist-read-bytes.cfg')
-    cfgs['io_write_bytes'] = os.path.join(cfgs['root_dir'], 'hist-write-bytes.cfg')
-    cfgs['io_filename_count'] = os.path.join(cfgs['root_dir'], 'hist-filename-burst.cfg')
-    cfgs['io_filename_time'] = os.path.join(cfgs['root_dir'], 'hist-filename-time.cfg')
+    cfgs['mpiio_calls_time'] = os.path.join(cfgs['root_dir'], 'mpiio-calls-time.cfg')
+    cfgs['mpiio_calls_count'] = os.path.join(cfgs['root_dir'], 'mpiio-calls-count.cfg')
+    cfgs['io_requests_filter'] = os.path.join(cfgs['root_dir'], 'io-requests-filter.xml')
 
     return cfgs
 
@@ -2451,12 +3086,6 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     ## new I/O cfgs
     cmd_base.extend([cfgs['io_calls_time'], trace_name + '.io_calls_time.stats.csv'])
     cmd_base.extend([cfgs['io_calls_count'], trace_name + '.io_calls_count.stats.csv'])
-    cmd_base.extend([cfgs['io_read_size_count'], trace_name + '.io_read_size_count.stats.csv'])
-    cmd_base.extend([cfgs['io_write_size_count'], trace_name + '.io_write_size_count.stats.csv'])
-    cmd_base.extend([cfgs['io_read_bytes'], trace_name + '.io_read_bytes.stats.csv'])
-    cmd_base.extend([cfgs['io_write_bytes'], trace_name + '.io_write_bytes.stats.csv'])
-    cmd_base.extend([cfgs['io_filename_count'], trace_name + '.io_filename_count.stats.csv'])
-    cmd_base.extend([cfgs['io_filename_time'], trace_name + '.io_filename_time.stats.csv'])
 
 
     if is_detailed_mpi:
@@ -2464,6 +3093,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         cmd_base.extend([cfgs['outside_mpi'], trace_name + '.outside_mpi.stats.csv'])
         cmd_base.extend([cfgs['mpiio_cycles'], trace_name + '.mpiio-cycles.stats.csv'])
         cmd_base.extend([cfgs['mpiio_inst'], trace_name + '.mpiio-inst.stats.csv'])
+        cmd_base.extend([cfgs['mpiio_calls_time'], trace_name + '.mpiio_calls_time.stats.csv'])
+        cmd_base.extend([cfgs['mpiio_calls_count'], trace_name + '.mpiio_calls_count.stats.csv'])
 
 
     if is_burst_mpi:
@@ -2586,6 +3217,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
 
     time_base = time.time()
     run_command(cmd_base, cmdl_args)
+    filter_io_request_events(
+        trace, trace_name, trace_name_control, cfgs, cmdl_args)
     time_base = time.time() - time_base
 
 
@@ -2803,22 +3436,10 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
 
     io_count_path = trace_name + '.io_calls_count.stats.csv'
     io_time_path = trace_name + '.io_calls_time.stats.csv'
-    read_size_path = trace_name + '.io_read_size_count.stats.csv'
-    write_size_path = trace_name + '.io_write_size_count.stats.csv'
-    read_bytes_path = trace_name + '.io_read_bytes.stats.csv'
-    write_bytes_path = trace_name + '.io_write_bytes.stats.csv'
-    filename_count_path = trace_name + '.io_filename_count.stats.csv'
-    filename_time_path = trace_name + '.io_filename_time.stats.csv'
 
 
     io_count_exists = os.path.exists(io_count_path)
     io_time_exists = os.path.exists(io_time_path)
-    read_size_exists = os.path.exists(read_size_path)
-    write_size_exists = os.path.exists(write_size_path)
-    read_bytes_exists = os.path.exists(read_bytes_path)
-    write_bytes_exists = os.path.exists(write_bytes_path)
-    filename_count_exists = os.path.exists(filename_count_path)
-    filename_time_exists = os.path.exists(filename_time_path)
 
     # POSIX I/O operation counts
     if io_count_exists:
@@ -2840,128 +3461,41 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
                     io_time_stats[operation]
                 )
 
-    # POSIX I/O read request-size distribution
-    if read_size_exists:
-        trace_io_data['request_size']['read']['bins'] = (
-            parse_io_request_size_histogram(read_size_path)
-        )
-
-    # POSIX I/O write request-size distribution
-    if write_size_exists:
-        trace_io_data['request_size']['write']['bins'] = (
-            parse_io_request_size_histogram(write_size_path)
-        )
-
-    # POSIX I/O request-size histogram coverage
-    for operation, size_exists in (
-        ('read', read_size_exists),
-        ('write', write_size_exists),
+    # Per-unit time and count of every traced I/O call
+    for api, stat, path in (
+        ('posix', 'time', io_time_path),
+        ('posix', 'count', io_count_path),
+        ('mpiio', 'time', trace_name + '.mpiio_calls_time.stats.csv'),
+        ('mpiio', 'count', trace_name + '.mpiio_calls_count.stats.csv'),
     ):
-        if not (io_count_exists and size_exists):
-            continue
+        if os.path.exists(path):
+            trace_io_data['calls'][api][stat] = parse_io_call_table(path)
 
-        bins = trace_io_data['request_size'][operation]['bins']
+    # Read and write requests per power-of-two size interval
+    if os.path.exists(io_requests_trace_path(trace_name)):
+        requests = parse_io_requests_trace(io_requests_trace_path(trace_name))
 
-        histogram_count = sum(
-            bin_['count'] for bin_ in bins
-        )
-
-        operation_count = (
-            trace_io_data['operations'][operation]['count']['tot']
-        )
-
-        if operation_count > 0:
-            trace_io_data['request_size'][operation]['coverage'] = (
-                histogram_count / operation_count
+        for operation in IO_REQUEST_SIZE_OPERATIONS:
+            trace_io_data['request_size'][operation]['bins'] = (
+                build_io_request_size_bins(merge_io_request_intervals(*[
+                    requests[api][operation] for api in IO_REQUEST_SIZE_APIS
+                ]))
             )
+            trace_io_data['request_size'][operation]['bins_by_api'] = {
+                api: build_io_request_size_bins(requests[api][operation])
+                for api in IO_REQUEST_SIZE_APIS
+            }
 
-    # POSIX I/O byte volume
-    if read_bytes_exists:
-        trace_io_data['bytes']['read'].update(
-            parse_io_bytes_stats(read_bytes_path)
-        )
+        # Files accessed by the POSIX and ANSI C calls
+        trace_io_data['file_access'] = parse_io_files_trace(
+            io_requests_trace_path(trace_name))
 
-    if write_bytes_exists:
-        trace_io_data['bytes']['write'].update(
-            parse_io_bytes_stats(write_bytes_path)
-        )
+        # Access pattern of the POSIX and ANSI C reads and writes
+        trace_io_data['access_pattern'] = parse_io_access_pattern_trace(
+            io_requests_trace_path(trace_name))
 
-    # POSIX I/O file opens
-    filename_count_stats = {}
-    filename_time_stats = {}
-
-    if filename_count_exists:
-        filename_count_stats = parse_io_filename_stats(
-            filename_count_path
-        )
-
-    if filename_time_exists:
-        filename_time_stats = parse_io_filename_stats(
-            filename_time_path
-        )
-
-    # Preserve filename ordering from the Paraver output.
-    filenames = list(filename_count_stats)
-
-    for filename in filename_time_stats:
-        if filename not in filename_count_stats:
-            filenames.append(filename)
-
-    for filename in filenames:
-        trace_io_data['files']['open'][filename] = {
-            'count': {
-                'tot': 0.0,
-                'avg': 0.0,
-                'max': 0.0,
-            },
-            'time': {
-                'tot': 0.0,
-                'avg': 0.0,
-                'max': 0.0,
-            },
-        }
-
-        if filename in filename_count_stats:
-            trace_io_data['files']['open'][filename]['count'].update(
-                filename_count_stats[filename]
-            )
-
-        if filename in filename_time_stats:
-            trace_io_data['files']['open'][filename]['time'].update(
-                filename_time_stats[filename]
-            )
-
-    # POSIX I/O file-open coverage
-    if filename_count_exists and io_count_exists:
-        file_open_count = sum(
-            data['count']['tot']
-            for data in trace_io_data['files']['open'].values()
-        )
-
-        open_count = (
-            trace_io_data['operations']['open']['count']['tot']
-        )
-
-        if open_count > 0:
-            trace_io_data['files']['count_coverage'] = (
-                file_open_count / open_count
-            )
-
-    if filename_time_exists and io_time_exists:
-        file_open_time = sum(
-            data['time']['tot']
-            for data in trace_io_data['files']['open'].values()
-        )
-
-        open_time = (
-            trace_io_data['operations']['open']['time']['tot']
-        )
-
-        if open_time > 0:
-            trace_io_data['files']['time_coverage'] = (
-                file_open_time / open_time
-            )
-
+        if not cmdl_args.debug:
+            remove_io_requests_trace(trace_name)
 
     # POSIX-IO aggregates
     posixio_totals = None
@@ -2990,6 +3524,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_raw_data['useful_tot'] = timings_data['useful_tot']
         trace_raw_data['useful_avg'] = timings_data['useful_avg']
         trace_raw_data['useful_max'] = timings_data['useful_max']
+        trace_raw_data['useful_io_tot'] = timings_data['useful_io_tot']
         trace_raw_data['useful_not_0_tot'] = timings_data['useful_not_0_tot']
         trace_raw_data['useful_not_0_avg'] = timings_data['useful_not_0_avg']
         trace_raw_data['useful_not_0_max'] = timings_data['useful_not_0_max']
@@ -3002,6 +3537,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_raw_data['useful_tot'] = 'NaN'
         trace_raw_data['useful_avg'] = 'NaN'
         trace_raw_data['useful_max'] = 'NaN'
+        trace_raw_data['useful_io_tot'] = 'NaN'
         trace_raw_data['useful_not_0_tot'] = 'NaN'
         trace_raw_data['useful_not_0_avg'] = 'NaN'
         trace_raw_data['useful_not_0_max'] = 'NaN'
@@ -3433,12 +3969,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     # new I/O cfgs
     move_files(trace_name + '.io_calls_time.stats.csv', local_path_dest, cmdl_args)
     move_files(trace_name + '.io_calls_count.stats.csv', local_path_dest, cmdl_args)
-    move_files(trace_name + '.io_read_size_count.stats.csv', local_path_dest, cmdl_args)
-    move_files(trace_name + '.io_write_size_count.stats.csv', local_path_dest, cmdl_args)
-    move_files(trace_name + '.io_read_bytes.stats.csv', local_path_dest, cmdl_args)
-    move_files(trace_name + '.io_write_bytes.stats.csv', local_path_dest, cmdl_args)
-    move_files(trace_name + '.io_filename_count.stats.csv', local_path_dest, cmdl_args)
-    move_files(trace_name + '.io_filename_time.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.mpiio_calls_time.stats.csv', local_path_dest, cmdl_args)
+    move_files(trace_name + '.mpiio_calls_count.stats.csv', local_path_dest, cmdl_args)
 
 
     if is_detailed_mpi:

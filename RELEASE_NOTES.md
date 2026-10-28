@@ -2,6 +2,117 @@
 
 ## Unreleased
 
+### New Features
+
+- New File I/O performance model. The traced POSIX, ANSI C, and MPI-IO calls
+  are classified into **Data Access** (calls that move or commit data: read
+  and write calls of every API) and **File Management** (open, close, seek,
+  and control calls), and **I/O Efficiency** is decomposed as
+  `I/O Efficiency = Data Access Efficiency x File Management Efficiency`.
+  **I/O Critical-Path Efficiency** = I/O Efficiency x **I/O Load Balance**
+  estimates the I/O cost when the units wait for the slowest one after each
+  kind of I/O call (the critical-path I/O time adds, for each kind of call,
+  the time of the unit that spends the most time in it).
+  I/O diagnostics explain where the I/O time is spent: average and maximum
+  I/O time fraction, I/O participation, MPI-IO and POSIX/ANSI C
+  contributions, Read/Write and Open/Close/Seek/Control contributions, load
+  balance among the units that perform I/O (Data Access, Read, Write, File
+  Management, and Open), and the time, number of operations, and mean
+  duration of each group of calls. The factors are shown in the standard
+  output, `other_metrics.csv`, and the I/O Analysis view of the report; the
+  diagnostics in a table of the I/O Analysis view (without efficiency
+  colors), the standard output, and the new `io_metrics.csv`. The time
+  and number of MPI-IO calls are obtained with two new Paraver
+  configurations (`mpiio-calls-time.cfg`, `mpiio-calls-count.cfg`).
+- Request sizes of the read and write calls (POSIX, ANSI C, and MPI-IO;
+  an MPI-IO split collective is one request): volume, mean
+  request size, request-size coverage, and the request-size distribution in
+  power-of-two intervals (share of the requests, of the time, and of the
+  bytes), identical for every execution. They are shown in the standard
+  output, the I/O diagnostics and new *Request sizes* histograms (share of
+  the requests and of the time per interval, one bar per execution) of the
+  I/O Analysis view, `io_metrics.csv`, and the new `io_request_sizes.csv`
+  (by API). The
+  requests are read from a temporary trace with only the I/O events,
+  written by Paraver (`cfgs/io-requests-filter.xml`); the histograms
+  `cfgs/io-*-size-pow2-*.cfg` show the same intervals in Paraver for the
+  POSIX and ANSI C calls.
+- Files accessed by the POSIX and ANSI C calls (MPI-IO records no file):
+  files accessed, maximum processes per file, volume moved by the main
+  process of each file (100% when each file is read and written by one
+  process), and file-name coverage of the volume. Each call is attributed
+  to its file through its descriptor and the file name of the open that
+  returned it. They are shown in the I/O diagnostics, a new *Files* table
+  of the I/O Analysis view (the ten files with the most I/O time of each
+  execution), the standard output, `io_metrics.csv`, and the new
+  `io_files.csv` (every file). The temporary trace of the requests also
+  keeps the descriptor and file name events.
+- Access pattern of the POSIX and ANSI C reads and writes to regular files:
+  each request is first, consecutive, strided, forward, backward, or with
+  an unknown offset with respect to the previous request of the same kind
+  on the same descriptor, as shares of the requests, bytes, and time. The
+  offsets are rebuilt from the opens, the seek offsets (recorded only by
+  recent Extrae versions; taken as absolute), and the request sizes. New
+  diagnostics: volume in consecutive requests, volume re-accessed, and
+  offset coverage of the reads and writes, and redundant seeks (seeks to
+  the current position). Shown in the *What requests are made?* and *Which
+  calls take the time?* cards, the standard output, `io_metrics.csv`, and
+  the new `io_access_pattern.csv`. The report (above the plots) and the
+  standard output (after the tables) explain the meaning of each class.
+  The pattern is also given per file: the share of the bytes read and
+  written in consecutive requests in the files table of the report and of
+  the standard output, and every class in `io_files.csv`. The temporary trace of the requests also
+  keeps the descriptor type and seek offset events.
+- The I/O Analysis view shows, after the efficiency table and its trends,
+  four cards in reading order, each with a short note on how to read it and
+  the diagnostics as plots (the values in a collapsible table): *Where is
+  the I/O time spent?* (share of the I/O time of each call and API, time
+  fractions, participation, and load balance), *Which calls take the
+  time?* (time, operations, and mean duration of each call), *What requests
+  are made?* (volume, mean request size, and the request-size histograms),
+  and *Which files are accessed?* (file diagnostics and the I/O time of the
+  files with the most I/O time).
+- Classification thresholds can be set per metric in
+  `metrics/definitions.yaml` (`thresholds: critical, attention`); the cell
+  colors and the efficiency scale of the report follow the thresholds of
+  each metric. The I/O efficiencies use the same thresholds as the other
+  efficiencies (Critical below 60%, Good from 85%); stricter thresholds for
+  I/O can be set this way.
+
+### Changes
+
+- **I/O metrics replaced.** MPI I/O Efficiency, MPI I/O Load Balance, POSIX
+  I/O Efficiency, and POSIX I/O Load Balance are no longer reported; they
+  are replaced by Data Access and File Management Efficiency and the I/O
+  diagnostics (the API-specific efficiencies by the I/O time fractions and
+  the MPI-IO and POSIX/ANSI C contributions, the API-specific load balances
+  by the per-operation load balances). In
+  `other_metrics.csv`, the four rows are replaced by Data Access and File
+  Management Efficiency, I/O Load Balance, and I/O Critical-Path
+  Efficiency. The
+  other metrics do not change; in the standard output, the first column of
+  the general-indicators table is narrower because its longest label was
+  removed.
+- **I/O Efficiency in GPU applications.** The I/O efficiencies compare the
+  I/O time with the useful time of the Host execution units, the units that
+  perform File I/O. Previously, I/O Efficiency in GPU traces also counted
+  the kernel time of the GPU streams as useful time and was overestimated
+  (SPH-EXA, 64 ranks: 99.51% before, 94.58% now). The I/O Efficiency of
+  traces without GPUs does not change. `rawdata.csv` has a new row, *Useful
+  duration of the Host units, which perform File I/O (total)*.
+- The linear request-size histograms (`hist-read-size-count.cfg`,
+  `hist-write-size-count.cfg`) and the byte histograms (`hist-read-bytes.cfg`,
+  `hist-write-bytes.cfg`) are no longer computed: they counted only the
+  `read` and `write` calls, and no metric used them. They are replaced by
+  the request-size distribution.
+- The histograms of the opens per file (`hist-filename-burst.cfg`,
+  `hist-filename-time.cfg`) are no longer computed: no metric used them,
+  and the files accessed are now obtained from all the POSIX and ANSI C
+  calls.
+- The I/O diagnostics include every traced I/O call, including the ANSI C
+  (`fread`, `fwrite`, `fopen`, `fclose`, `fseek`) and the vector and
+  positional POSIX calls, which the previous per-operation raw data ignored.
+
 ### Improvements
 
 - Identify useful Device computation by the *Running* state on the GPU

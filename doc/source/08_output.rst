@@ -27,8 +27,8 @@ analyzed execution.
 
 The available views depend on the programming model and performance data. For
 example, Execution Domains are available for accelerator applications, while
-I/O Analysis reports the File I/O metrics derived from MPI-I/O and POSIX/ANSI C
-File I/O activity detected in the traces. When multiple execution
+I/O Analysis reports I/O Efficiency and its Data Access and File Management
+factors when POSIX, ANSI C, or MPI-IO calls are detected in the traces. When multiple execution
 configurations are analyzed, the report also provides scaling information and
 performance trends.
 
@@ -64,7 +64,42 @@ The main files include:
 ``other_metrics.csv``
    Contains complementary performance quantities such as elapsed time,
    Speedup, Efficiency, IPC, processor frequency, tracer flushing information,
-   and I/O-related metrics when available.
+   and I/O Efficiency with its Data Access and File Management factors.
+
+``io_metrics.csv``
+   Written when File I/O is detected. Contains I/O Efficiency, its factors,
+   and the I/O diagnostics: time fractions, participation, contributions,
+   load balance, the time, count, and mean duration of each group of I/O
+   calls, the read and write volume, mean request size, and
+   request-size coverage, the files accessed, maximum processes per
+   file, volume moved by the main process of each file, and file-name
+   coverage, and the volume in consecutive requests, volume re-accessed,
+   and offset coverage of the reads and writes, and the share of redundant
+   seeks.
+
+``io_request_sizes.csv``
+   Written when the traces have read or write requests. One row per
+   execution, operation, API (POSIX/ANSI C or MPI-IO), and power-of-two
+   request-size interval, with the number of requests, time, bytes, and
+   their shares of the
+   operation.
+
+``io_files.csv``
+   Written when the traces have POSIX or ANSI C calls. One row per
+   execution and file accessed, in decreasing I/O time, with the processes,
+   opens, I/O time, the requests, bytes, time, and processes of the reads
+   and writes, the bytes of the main process and their share, the
+   shares of the I/O time and of the bytes, and the access pattern of the
+   reads and writes of the file (share of the requests and of the bytes of
+   each class). The row *(descriptors without a
+   traced open)* collects the calls on descriptors without an open in the
+   trace.
+
+``io_access_pattern.csv``
+   Written when the traces have POSIX or ANSI C reads or writes to regular
+   files. One row per execution, operation, and access-pattern class
+   (first, consecutive, strided, forward, backward, unknown offset), with
+   the number of requests, bytes, time, and their shares of the operation.
 
 ``modelfactors.csv``
    Contains the application-level hierarchical efficiency and scalability

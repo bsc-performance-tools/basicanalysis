@@ -95,19 +95,72 @@ metrics.
 I/O Analysis
 ------------
 
-The I/O metrics characterize the time contribution and distribution of the
-File I/O activity captured in the trace.
+The I/O metrics characterize the time of the File I/O captured in the
+trace: the POSIX, ANSI C, and MPI-IO calls recorded by Extrae, classified into
+Data Access and File Management.
 
-BasicAnalysis currently distinguishes MPI-I/O and POSIX/ANSI C File I/O
-activity and reports the corresponding efficiency and load-balance metrics
-when that activity is detected.
+The following assumptions and limitations apply:
 
-These metrics do not directly characterize transferred data volume, achieved
-I/O bandwidth, storage-system utilization, filesystem contention, or the
-performance of individual I/O operations. They therefore identify whether
-File I/O activity has a significant execution-time contribution or an
-imbalanced distribution, but they do not by themselves determine the
-underlying storage-system cause.
+* **Nested calls.** Extrae does not trace, by default, the POSIX calls
+  performed inside MPI-IO calls. BasicAnalysis assumes this default; if the
+  internal POSIX calls were traced, their time would be counted twice.
+* **I/O library computation.** The CPU work of I/O libraries (for example
+  HDF5 compression or metadata handling) is not distinguished from the
+  application computation and counts as useful time. A library that spends
+  more CPU time therefore increases I/O Efficiency.
+* **Descriptor types.** Calls on non-file descriptors (standard output,
+  sockets, pipes) are counted as File I/O; only the access pattern
+  excludes them.
+* **I/O not visible in the trace.** Memory-mapped I/O, asynchronous I/O,
+  and I/O performed by threads that are not instrumented are not measured.
+* **Whole-execution aggregation.** The metrics describe the whole execution;
+  applications with distinct I/O phases (for example, a write phase and a
+  read phase) should be inspected per phase in Paraver.
+* **Critical path.** I/O Load Balance and I/O Critical-Path Efficiency
+  assume that the units synchronize after each kind of I/O call, so that the
+  others wait for the slowest unit. When the I/O of a unit overlaps the
+  computation of the others, they underestimate the efficiency.
+* **Request sizes.** The volume and the request-size distribution include
+  the read and write calls whose request size is recorded in the trace (see
+  the request-size coverage). The MPI-IO size is the requested size (count
+  times the datatype size), which may be more than the bytes read at the end
+  of a file. The nonblocking MPI-IO calls (``MPI_File_iread``,
+  ``MPI_File_iwrite``) are not instrumented by Extrae. Zero-byte requests
+  are not counted. When
+  a call starts before the previous call of the same thread has ended
+  (unclosed or nested calls, rare in Extrae traces), only the later call is
+  counted.
+* **Files.** Only the POSIX and ANSI C calls are attributed to files: MPI-IO
+  records neither the file name nor the file handle. A call is attributed
+  through its descriptor to the last ``open`` or ``fopen`` of the process
+  that returned it; calls on descriptors opened before the tracing starts
+  or with calls that Extrae does not instrument (``openat``, ``creat``,
+  ``dup``), and after an ``open`` or ``fopen`` without a file name in the
+  trace, are not attributed to a file (see the file-name coverage). Files
+  are identified by the name passed to ``open``: the same file opened with
+  different paths (relative and absolute, or through links) appears as
+  several files. A failed ``open`` counts as an open of the file.
+* **Access pattern.** The offset of the reads and writes is rebuilt from
+  the ``open`` calls, the seeks, and the request sizes. Extrae records the
+  seek offset without its origin (``whence``): every seek is taken as
+  absolute (``SEEK_SET``), so a relative seek (``SEEK_CUR``, ``SEEK_END``)
+  misplaces the following requests of the descriptor. The seek offset is
+  recorded only by recent Extrae versions; with older versions, the
+  position is unknown after the first seek. The size is the requested size,
+  so a short read advances the position too far. The open flags are not
+  recorded: the writes to a file opened with ``O_APPEND`` go to its end,
+  whatever the position. The ``pread``/``pwrite`` family, MPI-IO, and
+  descriptors without a traced ``open`` (until their first seek) have no
+  known offset (see the offset coverage). ``fread``/``fwrite`` show the
+  pattern presented to the C library, before its buffering. The pattern is
+  given per process: how the regions of several processes fit together in a
+  shared file is not analyzed.
+
+These metrics do not characterize achieved I/O bandwidth, storage-system
+utilization, or filesystem contention. They identify whether File I/O has a
+significant execution-time contribution, which component (Data Access or
+File Management) is responsible, and how it is distributed, but they do not
+by themselves determine the underlying storage-system cause.
 
 When I/O activity represents a significant performance factor, detailed trace
 analysis or specialized I/O performance-analysis tools may be required for

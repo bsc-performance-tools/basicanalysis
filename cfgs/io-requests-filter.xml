@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Keeps only the I/O call and size events of POSIX/ANSI C (40000004,
+     40000011) and MPI-IO (50000005, 50000110), and the descriptor, file
+     name, descriptor type, and seek offset of the POSIX/ANSI C calls
+     (40000010, 40000059, 40000013, 40000075). The request-size
+     distribution (rawdata.parse_io_requests_trace), the files accessed
+     (rawdata.parse_io_files_trace), and the access pattern
+     (rawdata.parse_io_access_pattern_trace) are computed from the filtered
+     trace; the io-*-size-pow2-*.cfg histograms show the same intervals in
+     Paraver for POSIX and ANSI C. -->
+<config>
+  <filter>
+    <discard_states>1</discard_states>
+    <discard_events>0</discard_events>
+    <discard_communications>1</discard_communications>
+    <types>
+      <type>40000004</type>
+      <type>40000011</type>
+      <type>50000005</type>
+      <type>50000110</type>
+      <type>40000010</type>
+      <type>40000059</type>
+      <type>40000013</type>
+      <type>40000075</type>
+    </types>
+  </filter>
+</config>
