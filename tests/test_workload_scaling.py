@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from scaling import (
     build_workload_map,
+    describe_detected,
     describe_scaling,
     get_scaling_info,
 )
@@ -13,12 +14,14 @@ from scaling import (
 
 class WorkloadScalingTests(unittest.TestCase):
 
-    def _make_args(self, scaling="auto", workload=None, ratios_workload=None):
+    def _make_args(self, scaling="auto", workload=None, ratios_workload=None,
+                   **domain_options):
         return SimpleNamespace(
             scaling=scaling,
             debug=False,
             workload=workload,
             ratios_workload=ratios_workload,
+            **domain_options
         )
 
     def _data(self):
@@ -66,10 +69,61 @@ class WorkloadScalingTests(unittest.TestCase):
         self.assertIn("==Warning==", output.getvalue())
         self.assertEqual(info.workload_ratios["b16.prv"], 16.0)
 
-    def test_detected_scaling_is_kept_for_information(self):
+    def test_detector_is_not_used_in_workload_mode(self):
         info = self._scaling_info(self._make_args(workload="1,4,16"))
 
-        self.assertIn(info.detected, ("strong", "weak"))
+        self.assertIsNone(info.detected)
+        self.assertEqual(describe_detected(info), "Not used (workload given)")
+
+        info = self._scaling_info(self._make_args())
+        self.assertIn(describe_detected(info), ("Strong", "Weak"))
+
+    def test_domains_default_to_the_application_ratio(self):
+        info = self._scaling_info(self._make_args(workload="1,4,16"))
+
+        self.assertEqual(info.domain_workload_ratios, {})
+        for domain in (None, "host", "device"):
+            self.assertEqual(info.work_ratio("b16.prv", 2.0, domain), 16.0)
+
+    def test_domain_workloads(self):
+        info = self._scaling_info(self._make_args(
+            workload="1,4,16",
+            host_workload="10,11,12",
+            device_ratios_workload="1,4,16",
+        ))
+
+        self.assertAlmostEqual(info.work_ratio("b16.prv", 2.0, "host"), 1.2)
+        self.assertEqual(info.work_ratio("b16.prv", 2.0, "device"), 16.0)
+        self.assertEqual(info.work_ratio("b16.prv", 2.0), 16.0)
+        self.assertEqual(info.domain_workload_values["host"]["b4.prv"], 11.0)
+        self.assertEqual(info.domain_workload_options,
+                         {"host": "--host-workload",
+                          "device": "--device-ratios-workload"})
+
+    def test_domain_workload_needs_the_application_workload(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            with self.assertRaises(SystemExit):
+                build_workload_map(
+                    self._make_args(host_workload="1,2"), ["a.prv", "b.prv"])
+
+        self.assertIn("--host-workload", output.getvalue())
+
+    def test_domain_workload_with_wrong_number_of_values_is_an_error(self):
+        with redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                build_workload_map(
+                    self._make_args(workload="1,2", device_workload="1,2,3"),
+                    ["a.prv", "b.prv"])
+
+    def test_domain_ratios_with_reference_not_one_warn(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            info = self._scaling_info(self._make_args(
+                workload="1,4,16", host_ratios_workload="2,2,4"))
+
+        self.assertIn("--host-ratios-workload", output.getvalue())
+        self.assertEqual(info.work_ratio("b16.prv", 1.0, "host"), 2.0)
 
     def test_work_ratio_replaces_every_resource_ratio(self):
         info = self._scaling_info(self._make_args(workload="1,4,16"))

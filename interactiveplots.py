@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 
 from configuration import format_configuration_label
 from tracemetadata import is_host_gpu_mode
-from scaling import describe_scaling
+from scaling import describe_detected, describe_scaling
 
 from report.renderer.html import (
     build_analysis_catalogue,
@@ -953,37 +953,57 @@ def _build_scaling_model_html(scaling_model):
     if scaling_model is None:
         return ""
 
-    detected = (
-        scaling_model.detected.capitalize()
-        if scaling_model.detected
-        else "Non-Avail"
-    )
+    detected = describe_detected(scaling_model)
 
     selected, selection = describe_scaling(scaling_model)
 
     warning_html = ""
 
     if scaling_model.workload_ratios is not None:
+        domains = list(scaling_model.domain_workload_ratios)
+        header = "<tr><th>Trace</th><th>Workload</th><th>Ratio</th>{}</tr>".format(
+            "".join(
+                "<th>{0} workload</th><th>{0} ratio</th>".format(
+                    domain.capitalize())
+                for domain in domains
+            )
+        )
         rows = "".join(
-            "<tr><td>{}</td><td>{:g}</td><td>{:g}</td></tr>".format(
+            "<tr><td>{}</td><td>{:g}</td><td>{:g}</td>{}</tr>".format(
                 html.escape(os.path.basename(trace)),
                 scaling_model.workload_values[trace],
                 ratio,
+                "".join(
+                    "<td>{:g}</td><td>{:g}</td>".format(
+                        scaling_model.domain_workload_values[domain][trace],
+                        scaling_model.domain_workload_ratios[domain][trace],
+                    )
+                    for domain in domains
+                ),
             )
             for trace, ratio in scaling_model.workload_ratios.items()
         )
+        if domains:
+            domain_text = (
+                " The {} metrics of the Host/Device model use their own "
+                "ratio.".format(
+                    " and ".join(domain.capitalize() for domain in domains))
+            )
+        else:
+            domain_text = ""
+
         warning_html = """
         <div class="scaling-model-warning">
             <strong>User-defined workload:</strong>
             the weak-scaling formulas use the workload ratio of each trace
-            relative to the first trace, the same for all metrics, instead
-            of the ratio of processes, threads or devices.
+            relative to the first trace instead of the ratio of processes,
+            threads or devices.{domain_text}
             <table class="scaling-model-workload">
-                <tr><th>Trace</th><th>Workload</th><th>Ratio</th></tr>
+                {header}
                 {rows}
             </table>
         </div>
-        """.format(rows=rows)
+        """.format(header=header, rows=rows, domain_text=domain_text)
 
     if scaling_model.overridden:
         warning_html += """

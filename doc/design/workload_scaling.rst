@@ -496,9 +496,44 @@ are moderate.
 Proposed (not decided): **B**, with **A** as an option of the user (or as
 the default; to be decided).
 
+*Decision (2026-10-28):* **B**, implemented. The Host and device ratios
+default to the ratio of the application; the reference stays the first
+trace (the user can give the largest workload first, option A by hand);
+the workload-scaled values stay in the Global Efficiencies (no option C);
+the automatic detector is not used in the workload mode. Options:
+``--host-workload`` / ``--host-ratios-workload`` and ``--device-workload``
+/ ``--device-ratios-workload``, which need ``--workload`` or
+``--ratios-workload`` and are ignored with a warning in the models with one
+domain. The Host ratio is used by Host Computation Scalability and Host
+Instruction Scalability (host instructions), the device ratio by Device
+Computation Scalability, and both by Application Computation Scalability;
+Speedup and Scaling Efficiency use the ratio of the application.
+
+Validation (2026-10-28, branch ``feature/workload-scaling``):
+
+* CloverLeaf CUDA, Extrae 5.1.3, 4p+4d and 8p+8d (Host/Device model):
+  ``--ratios-workload 1,2`` identical to ``-s weak`` and ``--workload 7,7``
+  identical to ``-s strong`` in all the CSV files (including
+  ``talp_metrics.csv``). With ``--ratios-workload 1,2
+  --host-ratios-workload 1,1``: Host Computation Scalability 45.83% and
+  Instruction Scalability 17.84% (the strong values), Device Computation
+  Scalability 191.61% (:math:`U^D_0/U^D_1 \cdot 2`), Application
+  Computation Scalability 146.23% (:math:`(U^H_0 + 2 U^D_0)/(U^H_1 +
+  U^D_1)`, computed by hand from the raw data), Speedup 2.96 (as weak).
+* fall3d 2/4/8 traces, analyzed as MPI (one domain): ``--ratios-workload
+  1,2,4`` identical to ``-s weak``; constant ``--workload`` with Host and
+  device options identical to ``-s strong``, with the warning that the
+  Host and device workloads are ignored.
+* The vLLM case (nsys2prv traces) is to be run after the merge into
+  ``feature/nsys2prv``.
+
 
 Open questions
 --------------
+
+*Status (2026-10-28):* questions 2 (default of :math:`w_H`: :math:`w`),
+3 (option names above), 4 (first trace), 5 (no), and 7 (detector not used)
+are decided; questions 1 and 6 remain for Jesús.
 
 #. How were the vLLM runs set up: does each run process one batch of
    :math:`bs` sequences with the same output length (device workload ratio

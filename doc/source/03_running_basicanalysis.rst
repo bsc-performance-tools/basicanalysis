@@ -150,6 +150,37 @@ For example, four vLLM runs on the same GPU with batch sizes 1, 8, 64, and
    modelfactors.py --workload 1,8,64,256 \
        vllm_b1.prv vllm_b8.prv vllm_b64.prv vllm_b256.prv
 
+In the Host/Device model (MPI+GPU, GPU without MPI, and nsys2prv traces), the
+Host and the device can have their own workload, when the work of one of
+them does not grow like the workload of the application:
+
+.. code-block:: text
+
+   --host-workload W1,W2,...     --host-ratios-workload R1,R2,...
+   --device-workload W1,W2,...   --device-ratios-workload R1,R2,...
+
+Each pair has the same size and ratio forms as ``--workload`` and
+``--ratios-workload``, with one value per trace in the same order. They need
+``--workload`` or ``--ratios-workload``: the Host or device workload that is
+not given is that of the application. For example, if the Host does about
+the same work for every batch size (the same number of steps and kernel
+launches) while the GPU work grows with the batch:
+
+.. code-block:: bash
+
+   modelfactors.py --workload 1,8,64,256 --host-ratios-workload 1,1,1,1 \
+       vllm_b1.prv vllm_b8.prv vllm_b64.prv vllm_b256.prv
+
+In execution models with a single domain (MPI, MPI+OpenMP, OpenMP or
+pthreads, Burst mode), the Host and device workloads are ignored with a
+warning. The Host and device values are printed and shown with the
+workload of the application.
+
+With a user-defined workload, the automatic detection of weak or strong
+scaling is not used, and the report shows it as *Not used*. The reference
+is the first execution, as in weak and strong scaling (see
+:doc:`05_methodology`).
+
 The scaling model affects the computation and interpretation of scalability
 metrics. The detected and selected scaling models are reported in the
 **Scaling** section of the performance report.

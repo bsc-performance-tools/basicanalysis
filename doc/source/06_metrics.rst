@@ -376,8 +376,8 @@ When the workload of each execution is given with ``--workload`` or
 ``--ratios-workload`` (see :doc:`05_methodology`), the weak-scaling formulas of
 this chapter are used with the resource ratio (:math:`P/P_{ref}`, or the
 ratio of Host threads, devices, Host threads plus devices, or processes with
-instructions) replaced by the workload ratio :math:`w = W/W_{ref}`, the same
-for all metrics:
+instructions) replaced by the workload ratio :math:`w = W/W_{ref}`. In the
+models with a single domain it is the same for all metrics:
 
 .. math::
 
@@ -389,6 +389,26 @@ for all metrics:
    }
    \cdot
    w
+
+In the Host/Device model, the Host metrics (Host Computation Scalability and
+Instruction Scalability) use the Host ratio :math:`w_H`, and Device
+Computation Scalability the device ratio :math:`w_D`; both are :math:`w`
+unless given with ``--host-workload`` or ``--device-workload``. The
+Application Computation Scalability compares the useful time of the
+application with the ideal useful time of each domain:
+
+.. math::
+
+   AppCompScale =
+   \frac{
+      U^H_{ref} \cdot w_H + U^D_{ref} \cdot w_D
+   }{
+      U^H + U^D
+   }
+
+where :math:`U^H` and :math:`U^D` are the Host and device useful times. With
+:math:`w_H = w_D = w` it is the formula above applied to the application
+useful time, and with ratios of 1 the strong-scaling formula.
 
 In strong scaling, the problem size is assumed to remain constant, so changes
 in total useful-computation time characterize the scalability of the

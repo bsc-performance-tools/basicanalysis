@@ -8,7 +8,7 @@ import math
 
 from rawdata import *
 from collections import OrderedDict
-from scaling import get_scaling_info
+from scaling import get_scaling_info, warn_unused_domain_workloads
 from tracemetadata import is_host_gpu_mode
 from comparison import (
     NOT_APPLICABLE,
@@ -874,6 +874,17 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
     scaling = scaling_info.selected
 
+    # Host and device workloads apply to the Host/Device model only.
+    warn_unused_domain_workloads(
+        scaling_info,
+        has_domains=any(
+            trace_mode[trace] in ('Detailed+MPI+CUDA', 'Detailed+MPI+HIP')
+            or (is_host_gpu_mode(trace_mode[trace])
+                and cmdl_args.pop_model_to_apply == 'talp')
+            for trace in trace_list
+        ),
+    )
+
     # Loop over all traces
     for trace in trace_list:
 
@@ -1214,7 +1225,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         host_factors['host_comp_scale'][trace] = (
                             float(raw_data['useful_host'][reference])
                             / float(raw_data['useful_host'][trace])
-                            * scaling_info.work_ratio(trace, host_ratio)
+                            * scaling_info.work_ratio(
+                                trace, host_ratio, domain='host')
                             * 100.0
                         )
 
@@ -1237,6 +1249,22 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     if scaling == 'strong':
                         mod_factors['comp_scale'][trace] = (
                             useful_app_ref
+                            / useful_app
+                            * 100.0
+                        )
+                    elif scaling == 'workload':
+                        # Ideal useful time: the useful time of each
+                        # domain in the reference, scaled by the workload
+                        # ratio of the domain.
+                        mod_factors['comp_scale'][trace] = (
+                            (
+                                float(raw_data['useful_host'][reference])
+                                * scaling_info.work_ratio(
+                                    trace, None, domain='host')
+                                + float(raw_data['useful_device'][reference])
+                                * scaling_info.work_ratio(
+                                    trace, None, domain='device')
+                            )
                             / useful_app
                             * 100.0
                         )
@@ -1790,7 +1818,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     device_factors['dev_comp_scale'][trace] = (
                         float(raw_data['useful_device'][reference])
                         / float(raw_data['useful_device'][trace])
-                        * scaling_info.work_ratio(trace, device_ratio)
+                        * scaling_info.work_ratio(
+                            trace, device_ratio, domain='device')
                         * 100.0
                     )
 
@@ -2072,10 +2101,16 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                             / float(raw_data['procs_ins'][trace_list[0]])
                         )
 
+                        # The instructions are those of the host units
+                        # (Host Instruction Scalability in the Host/Device
+                        # model).
                         mod_factors['inst_scale'][trace] = (
                             float(raw_data['useful_ins'][trace_list[0]])
                             / float(raw_data['useful_ins'][trace])
-                            * scaling_info.work_ratio(trace, procs_ratio_ins)
+                            * scaling_info.work_ratio(
+                                trace, procs_ratio_ins,
+                                domain='host' if host_device_measures
+                                else None)
                             * 100.0
                         )
 
