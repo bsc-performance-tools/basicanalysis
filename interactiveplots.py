@@ -2069,6 +2069,7 @@ def _build_device_kernels_card_html(other_metrics, trace_list, trace_labels,
     device time, one table per execution compared with the reference."""
     contributions = other_metrics.get('device_kernel_contributions') or {}
     sections = []
+    labels = []
 
     for trace, label in zip(trace_list[1:], trace_labels[1:]):
         result = contributions.get(trace)
@@ -2103,8 +2104,9 @@ def _build_device_kernels_card_html(other_metrics, trace_list, trace_labels,
                 ))
 
         gap = result['gap'] / 1e6
+        labels.append(label)
         sections.append(
-            '<div class="io-files-execution"><h4>{label} vs {reference} '
+            '<div class="io-files-execution"{trace_attr}><h4>{label} vs {reference} '
             '(r = {ratio:.4g}): {gap:+.3f} s from the ideal ({direction})'
             '</h4><div class="io-files-table-wrap">'
             '<table class="metric-table io-diagnostics-table">'
@@ -2112,6 +2114,7 @@ def _build_device_kernels_card_html(other_metrics, trace_list, trace_labels,
             '<th>Time (s)</th><th>Time \u00d7</th><th>Threads \u00d7</th>'
             '<th>Time per thread \u00d7</th></tr></thead>'
             '<tbody>{body}</tbody></table></div></div>'.format(
+                trace_attr='{trace_attr}',
                 label=html.escape(label),
                 reference=html.escape(trace_labels[0]),
                 ratio=result['ratio'],
@@ -2122,6 +2125,32 @@ def _build_device_kernels_card_html(other_metrics, trace_list, trace_labels,
 
     if not sections:
         return ""
+
+    # One table at a time, with a selector for the execution (the largest
+    # one first); the printable version shows every table.
+    selector = ""
+    if printable or len(sections) == 1:
+        sections = [section.replace('{trace_attr}', '', 1)
+                    for section in sections]
+    else:
+        last = len(sections) - 1
+        sections = [
+            section.replace('{trace_attr}', ' data-kernel-trace="{}"{}'.format(
+                index, '' if index == last else ' hidden'), 1)
+            for index, section in enumerate(sections)
+        ]
+        selector = (
+            '<label class="device-kernels-selector">Execution: '
+            '<select onchange="this.closest(\'.io-diagnostics-card\')'
+            '.querySelectorAll(\'[data-kernel-trace]\').forEach('
+            'function (table) {{ table.hidden = '
+            'table.dataset.kernelTrace !== this.value; }}, this)">'
+            '{options}</select></label>'.format(options=''.join(
+                '<option value="{}"{}>{}</option>'.format(
+                    index, ' selected' if index == last else '',
+                    html.escape(label))
+                for index, label in enumerate(labels)))
+        )
 
     note = (
         "Contribution of each kernel to the change of the useful device "
@@ -2142,7 +2171,7 @@ def _build_device_kernels_card_html(other_metrics, trace_list, trace_labels,
 
     return _build_io_card_html(
         "Which kernels change the device time?", note,
-        ''.join(sections), printable)
+        selector + ''.join(sections), printable)
 
 
 def _kernel_ratio_text(numerator, denominator):
@@ -6073,6 +6102,9 @@ def _build_printable_scaling_section(
         device_global_trend_html += _build_device_computation_trend_html(
             device_factors, trace_list, trace_labels,
             trace_column_description, printable=True)
+        device_global_trend_html += _build_device_kernels_card_html(
+            metrics_result["other_metrics"], trace_list, trace_labels,
+            printable=True)
 
         # Device Parallel Efficiency
 
@@ -7376,6 +7408,12 @@ def _build_interactive_report_document(workspace_html,
 
         .io-files-execution {
             margin-top: 12px;
+        }
+
+        .device-kernels-selector {
+            display: inline-block;
+            margin-bottom: 4px;
+            font-size: 14px;
         }
 
         .io-files-execution h4 {
@@ -12462,8 +12500,6 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             trace_header_note=trace_header_note,
             trace_column_description=trace_column_description,
         )
-        device_html += _build_device_kernels_card_html(
-            other_metrics, trace_list, trace_labels)
 
         execution_domains_html = _build_execution_domains_section(
             host_metric_keys=host_filtered_keys,
@@ -13086,6 +13122,8 @@ def build_basicanalysis_interactive_report_html(metrics_result,
                 device_global_trend_html += _build_device_computation_trend_html(
                     device_factors, trace_list, trace_labels,
                     trace_column_description)
+                device_global_trend_html += _build_device_kernels_card_html(
+                    other_metrics, trace_list, trace_labels)
 
 
                 device_parallel_keys = [

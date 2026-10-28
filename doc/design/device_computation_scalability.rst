@@ -356,7 +356,11 @@ Placement
   Computation Scalability in the Device table; only with two or more traces.
 * **Report**: the same rows in the Host/Device model view (table and
   plots), with a tooltip that names the work measure used. The per-kernel
-  table as a panel in the same view, with one selector per trace.
+  table as the card *Which kernels change the device time?* in the Scaling
+  view, below the Device Computation Scalability plot, with a selector for
+  the execution (the largest one by default); the printable version shows
+  every execution. (A first version put it in the secondary Device view,
+  which the main navigation does not show.)
 * **CSV**: ``device_kernels.csv`` with all kernels (families) and traces.
 * **Raw data**: the work measure per trace in ``rawdata.csv``
   (``device_work``, ``device_work_measure``), and for nsys2prv the

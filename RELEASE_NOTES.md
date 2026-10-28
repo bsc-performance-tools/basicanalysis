@@ -150,8 +150,8 @@
   The kernels of the GPU streams are read from the trace; a new table gives
   the share of each kernel in the change of the device time from the ideal
   of the scaling model (library kernels such as cuBLAS `nvjet_*` grouped by
-  family), in the standard output, the Device view of the report, and the
-  new `device_kernels.csv`. `rawdata.csv` adds the kernels executed and the
+  family), in the standard output, the Scaling view of the report (one
+  execution at a time, with a selector), and the new `device_kernels.csv`. `rawdata.csv` adds the kernels executed and the
   GPU threads launched.
 
 ### Changes

@@ -203,11 +203,8 @@ Computation Scalability is split into Device Work and Throughput Scalability
 (and, for *nsys2prv* traces with GPU metrics, Throughput into Issue and
 Frequency Scalability), shown in the Device table and in the *Device
 Computation Scalability* plot of the Scaling view (see
-:ref:`device-work-throughput`). The Device view also contains the card
-**Which kernels change the device time?**, with the ten kernels with the
-largest share in the change of the device time from the ideal of the scaling
-model, for each execution compared with the reference (see
-:ref:`device-kernel-contributions`); hover over a kernel for its full name.
+:ref:`device-work-throughput`), followed by the card **Which kernels change
+the device time?** (see `Scaling`_).
 
 The Host domain characterizes CPU-side execution, including Host Parallel
 Efficiency, accelerator offload behavior, and Host Computation Scalability.
@@ -420,6 +417,14 @@ can include:
 * Host execution-domain metrics.
 * Device execution-domain metrics.
 * I/O-related metrics when available.
+
+For GPU traces, the *Device Computation Scalability* plot is followed by the
+card **Which kernels change the device time?**. It lists the ten kernels with
+the largest share in the change of the device time from the ideal of the
+scaling model, for one execution compared with the reference (see
+:ref:`device-kernel-contributions`). A selector chooses the execution (the
+largest one by default), and the printable version shows every execution.
+Hover over a kernel for its full name.
 
 Computation Scalability and its associated factors are evaluated relative to a
 reference execution. A value of 100% indicates behavior equivalent to the
