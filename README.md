@@ -24,8 +24,9 @@ possible next steps for further performance analysis.
   runtimes to Parallel Efficiency.
 * Runtime-specific efficiency metrics for MPI, OpenMP, and accelerator
   runtimes.
-* Host and Device execution-domain efficiency metrics for accelerator
-  applications.
+* Host and Device efficiency metrics (TALP model) for accelerator
+  applications, for traces generated with Extrae or with nsys2prv from NVIDIA
+  Nsight Systems reports.
 * File I/O analysis with complementary efficiency and load-balance metrics for
   MPI-I/O and POSIX/ANSI C File I/O activity.
 * Strong and weak scaling evaluation across multiple execution configurations.
@@ -61,6 +62,13 @@ trace.
 For MPI+HIP applications, simulation-derived MPI Serialization and Transfer
 Efficiency are currently unavailable. See the BasicAnalysis User Guide for
 the corresponding methodological limitations.
+
+CUDA traces generated with nsys2prv are detected automatically. They contain
+no state records, so the useful Host time is estimated as the elapsed time
+minus the time in CUDA calls, and Host hardware-counter metrics are
+unavailable. The User Guide (*Limitations*, *GPU Trace Sources: Extrae and
+nsys2prv*) describes the assumptions and the differences between both trace
+sources.
 
 
 ## Prerequisites
@@ -199,8 +207,8 @@ The report includes:
   Parallel Efficiency.
 * **Runtime-Specific Analysis** – presents efficiency metrics that characterize
   the behavior of individual parallel runtimes.
-* **Execution Domains** – presents Host and Device efficiency metrics for
-  accelerator applications.
+* **Host/Device Model (TALP)** – presents Device and Host efficiency metrics
+  for accelerator applications.
 * **I/O Analysis** – characterizes the weight and distribution of File I/O
   activity through complementary MPI-I/O and POSIX/ANSI C File I/O metrics.
 * **Scaling** – shows the detected scaling model and how performance indicators,
@@ -212,7 +220,7 @@ The report includes:
 
 The report also allows complementary views to be displayed together, helping
 users relate different perspectives of the efficiency results, and supports
-export of report content. Some views, such as Execution Domains and I/O
+export of report content. Some views, such as Host/Device Model (TALP) and I/O
 Analysis, provide complementary diagnostic perspectives and are not additional
 multiplicative components of the application-level performance model.
 

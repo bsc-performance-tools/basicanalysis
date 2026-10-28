@@ -109,6 +109,28 @@ class ScalingTests(unittest.TestCase):
             trace_processes,
         )
 
+    def test_unavailable_indicators_do_not_vote(self):
+        # nsys2prv traces: no instructions and no useful host time.
+        # Only the runtime indicator is available, so it cannot reach the
+        # two votes required for weak scaling.
+        trace_list = ["trace1", "trace2"]
+        trace_processes = {"trace1": 6, "trace2": 6}
+        raw_data = {
+            "useful_ins": {"trace1": "Non-Avail", "trace2": "Non-Avail"},
+            "runtime": {"trace1": 53.7, "trace2": 104.2},
+            "useful_avg": {"trace1": "Non-Avail", "trace2": "Non-Avail"},
+        }
+
+        info = get_scaling_info(
+            raw_data,
+            trace_list,
+            trace_processes,
+            self._make_args(),
+        )
+
+        self.assertTrue(info.has_scaling_analysis)
+        self.assertEqual(info.detected, "strong")
+
     def test_detects_strong_scaling(self):
         (
             raw_data,

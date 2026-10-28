@@ -524,7 +524,7 @@ class ScalabilityAnalysisBuilder:
                 "counter information. These submetrics therefore characterize "
                 "host execution only and must not be interpreted as a GPU-inclusive "
                 "decomposition of Computation Scalability. Device-side computation "
-                "scalability is analyzed separately in the Execution Domains view."
+                "scalability is analyzed separately in the Host/Device Model (TALP) view."
             )
 
         return (

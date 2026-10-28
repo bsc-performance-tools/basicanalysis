@@ -494,6 +494,55 @@ class RuntimeAnalysisBuilderTests(unittest.TestCase):
         )
 
     # ------------------------------------------------------------------
+    # GPU without MPI (hybrid metrics, no MPI level)
+    # ------------------------------------------------------------------
+
+    def _gpu_without_mpi_report_data(self, mode):
+        """Hybrid metrics of a GPU application without MPI."""
+
+        data = self._mpi_report_data()
+        data["general"]["analysis_kind"] = "hybrid"
+        data["general"]["pop_model"] = "talp"
+        data["metrics"]["kind"] = "hybrid"
+        data["metrics"]["hybrid_factors"] = {}
+
+        for trace in data["traces"]:
+            trace["mode"] = mode
+
+        for key in ("serial_eff", "transfer_eff"):
+            for trace in data["metrics"]["mod_factors"][key]:
+                data["metrics"]["mod_factors"][key][trace] = "N/A"
+
+        return data
+
+    def test_gpu_without_mpi_uses_single_runtime_model(self):
+        for mode in ("nsys2prv+CUDA", "Detailed+CUDA"):
+            section = self._build_section(
+                self._gpu_without_mpi_report_data(mode)
+            )
+
+            analysis = section.payload.parallel_runtime_model
+
+            self.assertEqual(
+                analysis.title,
+                "CUDA Parallel Runtime Model",
+            )
+            self.assertEqual(
+                self._metric_ids(analysis),
+                [
+                    "parallel_eff",
+                    "load_balance",
+                    "comm_eff",
+                ],
+            )
+            # No MPI component and no accelerator contribution of a
+            # composed MPI+X model.
+            self.assertEqual(
+                section.payload.runtime_components,
+                (),
+            )
+
+    # ------------------------------------------------------------------
     # Single-runtime MPI
     # ------------------------------------------------------------------
 

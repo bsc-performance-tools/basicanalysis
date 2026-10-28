@@ -35,6 +35,7 @@ from iometrics import (
     request_size_interval_label,
     shorten_file_name,
 )
+from scaling import describe_detected, describe_scaling
 
 from report.renderer.html import (
     build_analysis_catalogue,
@@ -418,6 +419,44 @@ def _build_io_metric_info():
 IO_METRIC_INFO = _build_io_metric_info()
 
 
+def _build_device_hwc_metric_info():
+    """Device hardware counter metrics (nsys2prv GPU metrics)."""
+
+    presentation = {
+        "dev_hwc_sm_utilization": {"label": "SM Utilization", "short_label": "SM Util"},
+        "dev_hwc_sm_coverage": {"label": "   -- SM Coverage", "short_label": "SM Coverage"},
+        "dev_hwc_sm_issue_eff": {"label": "   -- SM Issue Efficiency", "short_label": "SM Issue"},
+        "dev_hwc_gpu_active": {"label": "GPU Active (HW counters)", "short_label": "GPU Active"},
+        "dev_hwc_achieved_occupancy": {"label": "Achieved Occupancy (run average)", "short_label": "Achieved Occ."},
+        "dev_hwc_tensor_activity": {"label": "Tensor Core Activity", "short_label": "Tensor"},
+        "dev_hwc_dram_read": {"label": "DRAM Read Bandwidth", "short_label": "DRAM Read"},
+        "dev_hwc_dram_write": {"label": "DRAM Write Bandwidth", "short_label": "DRAM Write"},
+        "dev_hwc_gpc_clock": {"label": "GPC Clock", "short_label": "GPC Clock"},
+    }
+
+    return METRIC_PROVIDER.build(presentation)
+
+
+DEVICE_HWC_METRIC_INFO = _build_device_hwc_metric_info()
+
+# Multiplicative SM chain: efficiencies, shown with the efficiency colours.
+DEVICE_HWC_CHAIN_ORDER = [
+    "dev_hwc_sm_utilization",
+    "dev_hwc_sm_coverage",
+    "dev_hwc_sm_issue_eff",
+]
+
+# Indicators: higher is not always better, shown without colours.
+DEVICE_HWC_INDICATOR_ORDER = [
+    "dev_hwc_gpu_active",
+    "dev_hwc_achieved_occupancy",
+    "dev_hwc_tensor_activity",
+    "dev_hwc_dram_read",
+    "dev_hwc_dram_write",
+    "dev_hwc_gpc_clock",
+]
+
+
 HYBRID_ORDER = [
     "hybrid_eff",
     "mpi_parallel_eff",
@@ -619,6 +658,13 @@ OPENMP_TREE = [
         _tree_node("omp_talp_serial_eff"),
         _tree_node("omp_talp_load_balance"),
         _tree_node("omp_talp_scheduling_eff"),
+    ])
+]
+
+DEVICE_HWC_TREE = [
+    _tree_node("dev_hwc_sm_utilization", [
+        _tree_node("dev_hwc_sm_coverage"),
+        _tree_node("dev_hwc_sm_issue_eff"),
     ])
 ]
 
@@ -1985,6 +2031,486 @@ def _build_io_files_card_html(other_metrics, trace_list, trace_labels,
         summary_html + ''.join(sections), printable)
 
 
+def _has_device_hwc_metrics(metrics_result, trace_list):
+    """Return whether any execution has GPU hardware counter metrics."""
+
+    device_hwc_factors = metrics_result.get("device_hwc_factors") or {}
+
+    return any(
+        _clean_value(_read_metric(device_hwc_factors, key, trace)) is not None
+        for key in DEVICE_HWC_CHAIN_ORDER + DEVICE_HWC_INDICATOR_ORDER
+        for trace in trace_list
+    )
+
+
+def _format_device_hwc_indicator(metric_key, value):
+    """Text of a hardware counter indicator: % or MHz for the clock."""
+
+    if value is None:
+        return "Non-Avail"
+    if metric_key == "dev_hwc_gpc_clock":
+        # Non-breaking space: the PNG export drops a normal space here.
+        return "{:.0f}\u00a0MHz".format(value)
+    return "{:.2f}%".format(value)
+
+
+DEVICE_HWC_INDICATOR_UNITS = {
+    key: ("MHz" if key == "dev_hwc_gpc_clock" else "%")
+    for key in DEVICE_HWC_INDICATOR_ORDER
+}
+
+
+def _build_device_hwc_indicator_table_html(device_hwc_factors, trace_list,
+                                           trace_labels, section_id=None):
+    """Table of the hardware counter indicators (no efficiency colours).
+
+    With a section_id, the values open the Metric Details of the section.
+    """
+
+    lines = [
+        "<div class='efficiency-table-wrapper'>",
+        "<table class='metric-table device-hwc-indicators'>",
+        "<thead><tr><th class='metric-column-header'>Indicator</th>",
+    ]
+
+    for label in trace_labels:
+        lines.append("<th>{}</th>".format(html.escape(label)))
+    lines.append("</tr></thead><tbody>")
+
+    for metric_key in DEVICE_HWC_INDICATOR_ORDER:
+        info = DEVICE_HWC_METRIC_INFO.get(metric_key, {})
+        label = _clean_metric_label(info.get("label", metric_key))
+        meaning = info.get("meaning", "")
+
+        lines.append("<tr>")
+        lines.append(
+            "<td class='metric-name' title='{}'>{}</td>".format(
+                html.escape(meaning, quote=True),
+                html.escape(label),
+            )
+        )
+        for index, trace in enumerate(trace_list):
+            raw_value = _read_metric(device_hwc_factors, metric_key, trace)
+            value = _clean_value(raw_value)
+            text = (
+                _format_device_hwc_indicator(metric_key, value)
+                if value is not None
+                else _format_unavailable_metric_value(raw_value)
+            )
+            if section_id is None:
+                lines.append("<td>{}</td>".format(text))
+                continue
+            lines.append(
+                "<td><button type='button' class='device-hwc-indicator-value' "
+                "onclick=\"selectMetricCell(this, '{section_id}', "
+                "'{metric_key}', '{metric_label}', '{trace_label}', "
+                "{value})\">{text}</button></td>".format(
+                    section_id=html.escape(section_id, quote=True),
+                    metric_key=html.escape(metric_key, quote=True),
+                    metric_label=html.escape(label, quote=True),
+                    trace_label=html.escape(trace_labels[index], quote=True),
+                    value=(
+                        "{:.10f}".format(value) if value is not None else "null"
+                    ),
+                    text=text,
+                )
+            )
+        lines.append("</tr>")
+
+    lines.append("</tbody></table></div>")
+
+    return "\n".join(lines)
+
+
+def _build_device_hwc_scope_note_html():
+    """Scope and assumptions of the GPU hardware counter metrics."""
+
+    return """
+    <div class="analysis-scope-note">
+        <h3>Analysis focus</h3>
+
+        <p>
+            The Device metrics of the Host/Device Model (TALP)
+            characterize how effectively the accelerator is kept supplied
+            with useful work over the execution, whereas these metrics
+            characterize how the GPU resources are exercised while the
+            Graphics/Compute Engine is active. They are complementary and
+            are not part of the multiplicative efficiency model.
+        </p>
+
+        <p>
+            The GPU metrics are sampled by Nsight Systems for the whole GPU
+            (every 100&nbsp;&micro;s by default). The values are averages
+            over the whole execution weighted by the GPU activity
+            (GR Active), so idle periods do not contribute and the samples
+            do not need to be attributed to kernels. They are therefore not
+            valid per kernel. With several GPUs, the counters of all devices
+            are added (not yet validated with multi-GPU traces).
+        </p>
+
+        <p>
+            <strong>GR Active</strong> (Graphics/Compute Engine Active) is the
+            percentage of time during which the GPU graphics/compute engine is
+            active. For compute workloads, it indicates the periods in which
+            the GPU is executing compute work; memory copies performed by the
+            copy engines are not included.
+        </p>
+    </div>
+    """
+
+
+def _build_device_hwc_patterns_html():
+    """Diagnostic path through the GPU hardware counter metrics.
+
+    The steps follow the diagnostic workflow of the User Guide: start from
+    the factors of SM Utilization and use the indicators to formulate
+    hypotheses, not to assign a root cause.
+    """
+
+    return """
+    <div class="analysis-scope-note device-hwc-patterns">
+        <h3>Diagnostic path</h3>
+
+        <p>
+            Start from the factors of SM Utilization and use the indicators
+            to formulate hypotheses about the behavior to investigate:
+        </p>
+
+        <ol>
+            <li>
+                <strong>Low SM Coverage</strong>: part of the SM capacity is
+                inactive while the GPU is active. Check whether the kernels
+                expose enough parallel work (grids with few blocks relative
+                to the number of SMs, kernel tail effects).
+            </li>
+            <li>
+                <strong>High SM Coverage + low SM Issue Efficiency</strong>:
+                the work is distributed over the SMs, but the active SMs
+                often do not issue instructions. Continue with the next
+                steps to find out why.
+            </li>
+            <li>
+                <strong>Low Achieved Occupancy</strong> together with low SM
+                Issue Efficiency: there may not be enough resident warps to
+                hide latency. Check the grid and block dimensions, registers
+                per thread, and shared memory per block of the kernels. Low
+                occupancy alone is not a problem.
+            </li>
+            <li>
+                If occupancy is sufficient, check the
+                <strong>DRAM bandwidth</strong>. High DRAM bandwidth makes
+                device-memory behavior a relevant hypothesis; low bandwidth
+                does not exclude memory latency, cache, or dependency
+                effects.
+            </li>
+            <li>
+                For workloads expected to use Tensor Cores, low
+                <strong>Tensor Core Activity</strong> may indicate that they
+                are not being extensively used. High activity does not by
+                itself make them the limiting resource.
+            </li>
+            <li>
+                When comparing executions on the same GPU model, a lower
+                <strong>GPC Clock</strong> may contribute to a performance
+                difference. It is not sufficient evidence of power or
+                thermal throttling.
+            </li>
+        </ol>
+
+        <p>
+            <strong>Low</strong> and <strong>high</strong> are relative:
+            there are no fixed thresholds. The values are execution-level
+            aggregates, so the path indicates what to investigate, not a
+            kernel-level root cause. Correlate the behavior with the kernel
+            events in the nsys2prv trace with Paraver (keeping in mind that
+            the counters are sampled per device), and profile the dominant
+            kernels with Nsight Compute.
+        </p>
+    </div>
+    """
+
+
+def _build_device_hwc_guidance_html():
+    """Explain how to read the GPU Hardware Counters view."""
+
+    return """
+    <details
+        class="analysis-guide-note"
+        aria-label="How to read the GPU Hardware Counters view"
+    >
+        <summary>How to read this view</summary>
+
+        <p>
+            Start with <strong>SM Utilization</strong>, the degree to which
+            the SMs issue instructions while the GPU is active (not a
+            fraction of the peak instruction throughput). It is
+            the product of <strong>SM Coverage</strong> (are the available
+            SMs being given work?) and <strong>SM Issue Efficiency</strong>
+            (do the active SMs issue instructions?).
+        </p>
+
+        <p>
+            Then follow the <strong>Diagnostic path</strong> below the
+            indicators: SM Coverage, then SM Issue Efficiency, explained
+            with <strong>Achieved Occupancy</strong> and the
+            <strong>DRAM bandwidth</strong>, and finally
+            <strong>Tensor Core Activity</strong> and the
+            <strong>GPC Clock</strong> as context. Higher indicator values
+            are not necessarily better.
+            <strong>GPU Active</strong> can be compared with the fraction of
+            time with kernels running to check the consistency of the
+            counters with the trace events.
+        </p>
+    </details>
+    """
+
+
+def _build_device_hwc_section(metrics_result, trace_list, trace_labels,
+                              trace_header_note,
+                              trace_column_description=""):
+    """Build the complementary GPU Hardware Counters view."""
+
+    device_hwc_factors = metrics_result.get("device_hwc_factors") or {}
+
+    metric_keys = list(DEVICE_HWC_CHAIN_ORDER)
+    metric_sources = {key: device_hwc_factors for key in metric_keys}
+
+    all_keys = metric_keys + DEVICE_HWC_INDICATOR_ORDER
+
+    metric_knowledge = _build_metric_knowledge(
+        metric_keys=all_keys,
+    )
+
+    table_html = _build_efficiency_table_html(
+        metric_keys=metric_keys,
+        metric_info=DEVICE_HWC_METRIC_INFO,
+        metric_sources=metric_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        section_id="device-hwc",
+        tree=DEVICE_HWC_TREE,
+        metric_knowledge=metric_knowledge,
+    )
+
+    info_json = _metric_info_json(
+        all_keys,
+        DEVICE_HWC_METRIC_INFO,
+        metric_knowledge,
+        indicator_units=DEVICE_HWC_INDICATOR_UNITS,
+    )
+
+    indicator_table_html = _build_device_hwc_indicator_table_html(
+        device_hwc_factors,
+        trace_list,
+        trace_labels,
+        section_id="device-hwc",
+    )
+
+    trend_html = ""
+
+    if len(trace_list) > 1:
+        trend_html = _build_metric_trend_plot_html(
+            metric_keys=metric_keys,
+            metric_info=DEVICE_HWC_METRIC_INFO,
+            metric_sources=metric_sources,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            title="SM Utilization Trends",
+            description=(
+                "Compare how SM Utilization and its factors evolve across "
+                "the analyzed execution configurations."
+            ),
+            x_axis_title=trace_column_description,
+            y_axis_title="Efficiency (%)",
+            bounded_percentage=True,
+        )
+
+    return """
+    <section
+        class="device-hwc-analysis"
+        aria-label="GPU Hardware Counters"
+    >
+        <script>
+        window["metricInfo_device-hwc"] = {info_json};
+        </script>
+
+        {guidance_html}
+
+        {trace_header_note}
+
+        {metric_interaction_hint_html}
+
+        <div
+            class="metric-table-card"
+            data-efficiency-export
+            data-export-name="device-hwc"
+            data-export-columns="{trace_column_description}"
+            data-export-companion="device-hwc-indicators"
+        >
+            {table_html}
+        </div>
+
+        <style>
+        /* Indicator values: same chip as the efficiency values, with a
+           single neutral colour (indicators are not good or bad on their
+           own), so that they are recognisable as clickable. */
+        .device-hwc-indicator-value {{
+            display: inline-flex;
+            width: 104px;
+            min-width: 104px;
+            height: 34px;
+            padding: 0 8px;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #b9cbe0;
+            border-radius: 3px;
+            background: #e7f0fb;
+            color: #245887;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: clamp(14px, 0.85vw, 17px);
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            transition:
+                transform 0.15s ease,
+                box-shadow 0.15s ease;
+        }}
+        .device-hwc-indicator-value:hover {{
+            transform: translateY(-1px);
+            box-shadow: 0 3px 9px rgba(20, 38, 63, 0.16);
+        }}
+        .device-hwc-indicator-value:focus {{
+            outline: 2px solid #4f86c6;
+            outline-offset: 2px;
+        }}
+        /* Compact table, as the efficiency table above. */
+        .device-hwc-analysis .device-hwc-indicators {{
+            width: auto;
+        }}
+        .device-hwc-analysis .device-hwc-indicators th,
+        .device-hwc-analysis .device-hwc-indicators td {{
+            text-align: center;
+            padding: 6px 8px;
+        }}
+        .device-hwc-analysis .device-hwc-indicators th:first-child,
+        .device-hwc-analysis .device-hwc-indicators td:first-child {{
+            text-align: left;
+            padding-right: 24px;
+        }}
+        </style>
+
+        <h3>Indicators</h3>
+
+        <p class="trace-header-note">
+            Click any indicator value to view its definition and
+            interpretation. Indicators are not efficiencies: a higher value
+            is not necessarily better.
+        </p>
+
+        <div
+            class="metric-table-card"
+            data-export-companion-id="device-hwc-indicators"
+        >
+            {indicator_table_html}
+        </div>
+
+        {patterns_html}
+
+        {trend_html}
+
+        {efficiency_scale_html}
+
+        {scope_note_html}
+    </section>
+    """.format(
+        info_json=info_json,
+        guidance_html=_build_device_hwc_guidance_html(),
+        trace_header_note=trace_header_note,
+        metric_interaction_hint_html=_build_metric_interaction_hint_html(),
+        trace_column_description=html.escape(
+            trace_column_description,
+            quote=True,
+        ),
+        table_html=table_html,
+        indicator_table_html=indicator_table_html,
+        patterns_html=_build_device_hwc_patterns_html(),
+        trend_html=trend_html,
+        efficiency_scale_html=_build_efficiency_scale_html(),
+        scope_note_html=_build_device_hwc_scope_note_html(),
+    )
+
+
+def _build_printable_device_hwc_section(metrics_result, trace_list,
+                                        trace_labels,
+                                        trace_column_description,
+                                        section_number):
+    """Build the printable GPU Hardware Counters analysis."""
+
+    device_hwc_factors = metrics_result.get("device_hwc_factors") or {}
+
+    metric_keys = list(DEVICE_HWC_CHAIN_ORDER)
+    metric_sources = {key: device_hwc_factors for key in metric_keys}
+
+    table_html = _build_efficiency_table_html(
+        metric_keys=metric_keys,
+        metric_info=DEVICE_HWC_METRIC_INFO,
+        metric_sources=metric_sources,
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        section_id="print-device-hwc",
+        tree=DEVICE_HWC_TREE,
+        printable=True,
+    )
+
+    indicator_table_html = _build_device_hwc_indicator_table_html(
+        device_hwc_factors,
+        trace_list,
+        trace_labels,
+    )
+
+    return """
+    <section
+        class="print-metric-section
+               print-page-section
+               print-device-hwc-analysis"
+    >
+        <header class="print-section-header">
+            <h2>{section_number} GPU Hardware Counter Analysis</h2>
+
+            <p class="print-section-description">
+                Complementary metrics of how the GPU resources are exercised
+                while the device is active, from the GPU metrics sampled by
+                Nsight Systems.
+            </p>
+        </header>
+
+        {scope_note_html}
+
+        <p class="trace-header-note">
+            <b>Trace columns:</b>
+            <code>{trace_column_description}</code>
+        </p>
+
+        <div class="print-metric-results metric-table-card">
+            {table_html}
+        </div>
+
+        <div class="print-metric-results metric-table-card">
+            {indicator_table_html}
+        </div>
+
+        {patterns_html}
+    </section>
+    """.format(
+        section_number=section_number,
+        patterns_html=_build_device_hwc_patterns_html(),
+        scope_note_html=_build_device_hwc_scope_note_html(),
+        trace_column_description=html.escape(trace_column_description),
+        table_html=table_html,
+        indicator_table_html=indicator_table_html,
+    )
+
+
 def _build_io_metrics_section(
         other_metrics,
         trace_list,
@@ -2193,25 +2719,60 @@ def _build_scaling_model_html(scaling_model):
     if scaling_model is None:
         return ""
 
-    detected = (
-        scaling_model.detected.capitalize()
-        if scaling_model.detected
-        else "Non-Avail"
-    )
+    detected = describe_detected(scaling_model)
 
-    selected = scaling_model.selected.capitalize()
-
-    if scaling_model.selection_mode == "auto":
-        selection = "Automatic"
-    elif scaling_model.selection_mode == "manual":
-        selection = "Manual"
-    else:
-        selection = "Implicit"
+    selected, selection = describe_scaling(scaling_model)
 
     warning_html = ""
 
-    if scaling_model.overridden:
+    if scaling_model.workload_ratios is not None:
+        domains = list(scaling_model.domain_workload_ratios)
+        header = "<tr><th>Trace</th><th>Workload</th><th>Ratio</th>{}</tr>".format(
+            "".join(
+                "<th>{0} workload</th><th>{0} ratio</th>".format(
+                    domain.capitalize())
+                for domain in domains
+            )
+        )
+        rows = "".join(
+            "<tr><td>{}</td><td>{:g}</td><td>{:g}</td>{}</tr>".format(
+                html.escape(os.path.basename(trace)),
+                scaling_model.workload_values[trace],
+                ratio,
+                "".join(
+                    "<td>{:g}</td><td>{:g}</td>".format(
+                        scaling_model.domain_workload_values[domain][trace],
+                        scaling_model.domain_workload_ratios[domain][trace],
+                    )
+                    for domain in domains
+                ),
+            )
+            for trace, ratio in scaling_model.workload_ratios.items()
+        )
+        if domains:
+            domain_text = (
+                " The {} metrics of the Host/Device model use their own "
+                "ratio.".format(
+                    " and ".join(domain.capitalize() for domain in domains))
+            )
+        else:
+            domain_text = ""
+
         warning_html = """
+        <div class="scaling-model-warning">
+            <strong>User-defined workload:</strong>
+            the weak-scaling formulas use the workload ratio of each trace
+            relative to the first trace instead of the ratio of processes,
+            threads or devices.{domain_text}
+            <table class="scaling-model-workload">
+                {header}
+                {rows}
+            </table>
+        </div>
+        """.format(header=header, rows=rows, domain_text=domain_text)
+
+    if scaling_model.overridden:
+        warning_html += """
         <div class="scaling-model-warning">
             <strong>Manual override:</strong>
             the scaling model used to compute the metrics differs from
@@ -3074,7 +3635,7 @@ def _build_hybrid_metric_info(inner_model):
             "parallel inefficiency to the complete MPI+{} execution."
         ).format(inner_model, inner_model)
         metric_info["omp_parallel_eff"]["action"] = (
-            "Continue the diagnosis in the Execution Domain section. Compare "
+            "Continue the diagnosis in the Host/Device Model (TALP) view. Compare "
             "Host Global Efficiency, Device Offload Efficiency, and Device "
             "Global Efficiency to determine whether the dominant loss "
             "originates in the host-side accelerator execution path, "
@@ -3314,13 +3875,32 @@ def _report_trace_label(
     else:
         trace_id = None
 
-    _, programming_model = _split_trace_mode(
+    collection_mode, programming_model = _split_trace_mode(
         trace_info.get("mode", "unknown")
     )
 
     model_key = _programming_model_key(
         programming_model
     )
+
+    # --------------------------------------------------
+    # GPU traces generated with nsys2prv
+    # --------------------------------------------------
+
+    if collection_mode == "nsys2prv":
+        return format_configuration_label(
+            model_key="tasks_gpu",
+            processes=trace_info.get("processes"),
+            mpi_ranks=trace_info.get("tasks"),
+            streams_per_rank=trace_info.get(
+                "gpu_streams_per_rank"
+            ),
+            devices=trace_info.get(
+                "devices"
+            ),
+            trace_id=trace_id,
+            separator='×',
+        )
 
     # --------------------------------------------------
     # MPI
@@ -3478,13 +4058,20 @@ def _build_trace_column_description(report):
     if not traces:
         return ""
 
-    _, programming_model = _split_trace_mode(
+    collection_mode, programming_model = _split_trace_mode(
         traces[0].get("mode", "unknown")
     )
 
     model_key = _programming_model_key(
         programming_model
     )
+
+    # GPU traces generated with nsys2prv use the MPI+GPU label format.
+    if collection_mode == "nsys2prv":
+        return (
+            "Parallel units (processes × streams/process) "
+            "[nD = devices]"
+        )
 
     descriptions = {
         "mpi": (
@@ -3601,6 +4188,14 @@ def _trace_resource_columns(model_key):
             ("devices", "Devices"),
         ],
 
+        "tasks_gpu": [
+            ("processes", "Parallel units"),
+            ("tasks", "Processes"),
+            ("gpu_streams_per_rank", "Streams/process"),
+            ("gpu_streams", "GPU streams"),
+            ("devices", "Devices"),
+        ],
+
         "generic": [
             ("processes", "Parallel units"),
         ],
@@ -3619,9 +4214,13 @@ def _build_trace_config_table_html(report):
 
     first_mode = traces[0].get("mode", "unknown")
 
-    _, programming_model = _split_trace_mode(first_mode)
+    collection_mode, programming_model = _split_trace_mode(first_mode)
 
     model_key = _programming_model_key(programming_model)
+
+    # GPU traces generated with nsys2prv: MPI+GPU layout with processes.
+    if collection_mode == "nsys2prv":
+        model_key = "tasks_gpu"
 
     resource_columns = _trace_resource_columns(model_key)
 
@@ -3713,7 +4312,8 @@ def _clean_metric_label(label):
 def _metric_info_json(
         metric_keys,
         metric_info,
-        metric_knowledge):
+        metric_knowledge,
+        indicator_units=None):
     """Serialize metric presentation and semantic knowledge for JavaScript.
 
     Presentation-specific fields, such as the report label and metric type,
@@ -3786,6 +4386,15 @@ def _metric_info_json(
             "above100": interpretation_above_reference,
             "action": " ".join(recommendations),
         }
+
+        # Indicators (e.g. GPU hardware counters) are not efficiencies:
+        # their details show the unit and the low/high interpretation
+        # instead of the efficiency thresholds.
+        if indicator_units and metric_key in indicator_units:
+            data[metric_key]["indicator"] = True
+            data[metric_key]["unit"] = indicator_units[metric_key]
+            data[metric_key]["high"] = interpretation_high
+            data[metric_key]["reading"] = knowledge.interpretation_reading
 
     return json.dumps(data)
 
@@ -3931,7 +4540,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         <h3>Analysis focus</h3>
 
         <p>
-            The Execution Domains view identifies where
+            The Host/Device Model (TALP) view identifies where
             accelerator-related inefficiencies manifest across host
             execution, the accelerator offload path, and device execution.
         </p>
@@ -3947,7 +4556,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
     return """
     <section
         class="execution-domains-analysis"
-        aria-label="Execution Domains"
+        aria-label="Host/Device Model (TALP)"
     >
         <script>
         window["metricInfo_execution-domains"] = {info_json};
@@ -3958,27 +4567,6 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         {trace_header_note}
 
         {metric_interaction_hint_html}
-
-        <section
-            class="execution-domain-block execution-domain-host"
-            aria-label="Host execution domain"
-        >
-            <div class="execution-domain-title">
-                HOST
-            </div>
-
-            <div
-                class="metric-table-card"
-                data-efficiency-export
-                data-export-name="execution-domains-host"
-                data-export-group="execution-domains"
-                data-export-domain="host"
-                data-export-columns="{trace_column_description}"
-            >
-            {host_table_html}
-            </div>
-
-        </section>
 
         <section
             class="execution-domain-block execution-domain-device"
@@ -3997,6 +4585,27 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
                 data-export-columns="{trace_column_description}"
             >
                 {device_table_html}
+            </div>
+
+        </section>
+
+        <section
+            class="execution-domain-block execution-domain-host"
+            aria-label="Host execution domain"
+        >
+            <div class="execution-domain-title">
+                HOST
+            </div>
+
+            <div
+                class="metric-table-card"
+                data-efficiency-export
+                data-export-name="execution-domains-host"
+                data-export-group="execution-domains"
+                data-export-domain="host"
+                data-export-columns="{trace_column_description}"
+            >
+            {host_table_html}
             </div>
 
         </section>
@@ -4156,6 +4765,10 @@ def _report_execution_model(trace_mode, trace_list, metrics_result):
 
     return {
         "is_hybrid": is_hybrid,
+        # The composed MPI+X Parallel Runtime Model needs an MPI level. GPU
+        # applications without MPI (e.g. CUDA with a serial host) use the
+        # single-runtime model over host threads and GPU streams.
+        "runtime_model_hybrid": is_hybrid and has_mpi,
         "has_mpi": has_mpi,
         "has_omp": has_omp,
         "has_cuda": has_cuda,
@@ -4484,19 +5097,19 @@ def _build_printable_execution_domains_guidance_html():
         </p>
 
         <p>
-            In the <strong>Host</strong> domain, follow Host Global Efficiency
-            toward Host Parallel Efficiency and Host Computation Scalability.
-            Host Parallel Efficiency distinguishes losses associated with
-            host-side parallel execution from losses in supplying work to the
-            accelerator through Device Offload Efficiency.
-        </p>
-
-        <p>
             In the <strong>Device</strong> domain, follow Device Global
             Efficiency toward Device Parallel Efficiency and Device
             Computation Scalability. Device Parallel Efficiency separates
             workload imbalance, device communication, and orchestration
             effects.
+        </p>
+
+        <p>
+            In the <strong>Host</strong> domain, follow Host Global Efficiency
+            toward Host Parallel Efficiency and Host Computation Scalability.
+            Host Parallel Efficiency distinguishes losses associated with
+            host-side parallel execution from losses in supplying work to the
+            accelerator through Device Offload Efficiency.
         </p>
     </div>
     """
@@ -4568,13 +5181,13 @@ def _build_printable_execution_domains_section(
     >
         <header class="print-section-header">
 
-            <h2>{section_number} Execution Domains</h2>
+            <h2>{section_number} Host/Device Model (TALP)</h2>
         </header>
         
         {guidance_html}
         
         <div class="print-execution-domain-label">
-            HOST
+            DEVICE
         </div>
 
         <p class="trace-header-note">
@@ -4583,15 +5196,15 @@ def _build_printable_execution_domains_section(
         </p>
 
         <div class="print-metric-results metric-table-card">
-            {host_table_html}
+            {device_table_html}
         </div>
 
         <div class="print-execution-domain-label">
-            DEVICE
+            HOST
         </div>
 
         <div class="print-metric-results metric-table-card">
-            {device_table_html}
+            {host_table_html}
         </div>
 
     </section>
@@ -4949,7 +5562,7 @@ def _build_printable_scaling_section(
     device_parallel_trend_html = ""
 
 
-    if model["is_hybrid"]:
+    if model["runtime_model_hybrid"]:
 
         parallel_runtime_keys = [
             "hybrid_eff",
@@ -5381,9 +5994,9 @@ def _build_printable_scaling_section(
 
         {openmp_runtime_trend_html}
 
-        {host_execution_domain_html}
-
         {device_execution_domain_html}
+
+        {host_execution_domain_html}
 
     </section>
     """.format(
@@ -5717,7 +6330,7 @@ def _build_execution_overview_guidance_html(
 
     if has_execution_domains:
         workflow_parts.append(
-            "<strong>Execution Domains</strong> to obtain a complementary "
+            "<strong>Host/Device Model (TALP)</strong> to obtain a complementary "
             "Host/Device perspective and identify where accelerator-related "
             "inefficiencies manifest"
         )
@@ -5780,11 +6393,11 @@ def _build_scaling_guidance_html():
     """Explain how to interpret the Scaling analysis."""
 
     return """
-    <section
+    <details
         class="analysis-guide-note"
         aria-label="How to read the Scaling view"
     >
-        <h3>How to read this view</h3>
+        <summary>How to read this view</summary>
 
         <p>
             Use this view to understand <strong>how performance and
@@ -5818,7 +6431,7 @@ def _build_scaling_guidance_html():
             while Host and Device trends show where accelerator-related
             scalability effects manifest.
         </p>
-    </section>
+    </details>
     """
 
 
@@ -5826,11 +6439,11 @@ def _build_io_metrics_guidance_html():
     """Explain how to interpret the complementary File I/O metrics."""
 
     return """
-    <section
+    <details
         class="analysis-guide-note"
         aria-label="How to read the I/O Metrics view"
     >
-        <h3>How to read this view</h3>
+        <summary>How to read this view</summary>
 
         <p>
             Use this view to characterize the <strong>File I/O</strong>
@@ -5858,7 +6471,7 @@ def _build_io_metrics_guidance_html():
             values are not efficiencies and have no color scale; they are
             also in <code>io_metrics.csv</code>.
         </p>
-    </section>
+    </details>
     """
 
 
@@ -5866,11 +6479,11 @@ def _build_execution_domains_guidance_html():
     """Explain how to interpret the Host and Device execution domains."""
 
     return """
-    <section
+    <details
         class="analysis-guide-note"
-        aria-label="How to read the Execution Domains view"
+        aria-label="How to read the Host/Device Model (TALP) view"
     >
-        <h3>How to read this view</h3>
+        <summary>How to read this view</summary>
 
         <p>
             Use this view to identify <strong>where accelerator-related
@@ -5890,21 +6503,21 @@ def _build_execution_domains_guidance_html():
         </p>
 
         <p>
-            In the <strong>Host</strong> domain, follow Host Global Efficiency
-            toward Host Parallel Efficiency and Host Computation Scalability.
-            Host Parallel Efficiency distinguishes losses associated with 
-            host-side parallel execution from losses in supplying work to the accelerator
-            through Device Offload Efficiency.
-        </p>
-
-        <p>
             In the <strong>Device</strong> domain, follow Device Global
             Efficiency toward Device Parallel Efficiency and Device
             Computation Scalability. Device Parallel Efficiency separates
             workload imbalance, device communication, and orchestration
             effects.
         </p>
-    </section>
+
+        <p>
+            In the <strong>Host</strong> domain, follow Host Global Efficiency
+            toward Host Parallel Efficiency and Host Computation Scalability.
+            Host Parallel Efficiency distinguishes losses associated with 
+            host-side parallel execution from losses in supplying work to the accelerator
+            through Device Offload Efficiency.
+        </p>
+    </details>
     """
 
 
@@ -5913,7 +6526,7 @@ def _build_parallel_runtime_model_guidance_html(
         inner_model):
     """Explain how to interpret the Parallel Runtime Model."""
 
-    if model["is_hybrid"]:
+    if model["runtime_model_hybrid"]:
         model_note = """
         <p>
             For hybrid executions, the model is multiplicative.
@@ -5953,11 +6566,11 @@ def _build_parallel_runtime_model_guidance_html(
         """
 
     return """
-    <section
+    <details
         class="analysis-guide-note"
         aria-label="How to read the Parallel Runtime Model"
     >
-        <h3>How to read this view</h3>
+        <summary>How to read this view</summary>
 
         <p>
             Start with <strong>Application Efficiency</strong>.
@@ -5969,7 +6582,7 @@ def _build_parallel_runtime_model_guidance_html(
         </p>
 
         {model_note}
-    </section>
+    </details>
     """.format(
         model_note=model_note,
     )
@@ -6026,7 +6639,7 @@ def _build_parallel_runtime_model_views(
 
     # Simple traces expose the general POP Parallel Efficiency subtree.
     # Hybrid traces expose the complete derived MPI+X multiplicative model.
-    if not model["is_hybrid"]:
+    if not model["runtime_model_hybrid"]:
         simple_runtime_keys = [
             "parallel_eff",
             "load_balance",
@@ -6158,7 +6771,7 @@ def _build_component_views(model, inner_model, mpi_html,
             "html": openmp_html,
         })
 
-    if model["is_hybrid"] and model["has_gpu"] and accelerator_html:
+    if model["runtime_model_hybrid"] and model["has_gpu"] and accelerator_html:
         analysis_views.append({
             "id": "analysis-runtime-accelerator",
             "label": inner_model,
@@ -6170,20 +6783,20 @@ def _build_component_views(model, inner_model, mpi_html,
 
         analysis_views.extend([
             {
-                "id": "analysis-domain-host",
-                "label": "Host",
-                "description": "CPU side",
-                "title": "Host Execution Domain",
-                "group": "domain",
-                "html": host_html,
-            },
-            {
                 "id": "analysis-domain-device",
                 "label": "Device",
                 "description": "Accelerator side",
                 "title": "Device Execution Domain",
                 "group": "domain",
                 "html": device_html,
+            },
+            {
+                "id": "analysis-domain-host",
+                "label": "Host",
+                "description": "CPU side",
+                "title": "Host Execution Domain",
+                "group": "domain",
+                "html": host_html,
             },
         ])
 
@@ -7213,6 +7826,23 @@ def _build_interactive_report_document(workspace_html,
             white-space: nowrap;
         }
 
+        /* Rows of a companion table (e.g. the GPU hardware counter
+           indicators), exported below the efficiency rows of its view. */
+        .export-companion-header td {
+            padding-top: 18px !important;
+            border-top: 2px solid #66788a !important;
+            background: #eef3f9;
+            color: #2c3e50;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .export-companion-header td:first-child,
+        .export-companion-row td:first-child {
+            text-align: left;
+            padding-left: 18px;
+        }
+
         .export-table-footer {
             margin-top: 6px;
             padding: 6px 4px 2px;
@@ -7573,6 +8203,23 @@ def _build_interactive_report_document(workspace_html,
 
             color: var(--primary);
             font-size: 17px;
+        }
+
+        /* "How to read this view" notes are collapsed by default. */
+        details.analysis-guide-note {
+            padding: 10px 18px;
+        }
+
+        details.analysis-guide-note > summary {
+            cursor: pointer;
+
+            color: var(--primary);
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        details.analysis-guide-note[open] > summary {
+            margin-bottom: 8px;
         }
 
         .analysis-guide-note p {
@@ -10514,6 +11161,17 @@ def _build_interactive_report_document(workspace_html,
             font-size: 12px;
         }
 
+        .scaling-model-workload {
+            margin-top: 6px;
+            border-collapse: collapse;
+        }
+
+        .scaling-model-workload th,
+        .scaling-model-workload td {
+            padding: 2px 10px 2px 0;
+            text-align: left;
+        }
+
         @media (max-width: 700px) {
             .scaling-model-grid {
                 grid-template-columns: 1fr;
@@ -11118,10 +11776,19 @@ def _build_interactive_report_document(workspace_html,
             const info = infoDict[metricKey];
             const thresholds = info.thresholds;
 
-            const valueText =
+            let valueText =
                 value === null || value === undefined
                     ? "Non-Avail"
                     : value.toFixed(2) + "%";
+
+            if (
+                info.indicator
+                && value !== null
+                && value !== undefined
+                && info.unit !== "%"
+            ) {
+                valueText = value.toFixed(0) + " " + info.unit;
+            }
 
             let interpretation = "";
 
@@ -11131,6 +11798,16 @@ def _build_interactive_report_document(workspace_html,
             ) {
                 interpretation =
                     "Metric is not available for this trace or configuration.";
+            } else if (info.indicator) {
+                // Indicators have no efficiency thresholds: higher is
+                // not necessarily better.
+                interpretation =
+                    "Indicator (not an efficiency). "
+                    + (info.reading ? info.reading + " " : "")
+                    + "Low values: "
+                    + info.low
+                    + " High values: "
+                    + info.high;
             } else if (
                 value > thresholds.reference
             ) {
@@ -11397,6 +12074,17 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             report
         )
     )
+
+    device_hwc_html = ""
+
+    if _has_device_hwc_metrics(metrics_result, trace_list):
+        device_hwc_html = _build_device_hwc_section(
+            metrics_result=metrics_result,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            trace_header_note=trace_header_note,
+            trace_column_description=trace_column_description,
+        )
 
     io_metrics_html = ""
 
@@ -12320,15 +13008,15 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             # --------------------------------------------------
 
             execution_domain_analysis_content = (
-                host_global_trend_html
-                + host_parallel_trend_html
-                + device_global_trend_html
+                device_global_trend_html
                 + device_parallel_trend_html
+                + host_global_trend_html
+                + host_parallel_trend_html
             )
 
             execution_domain_analysis_html = (
                 _build_scaling_analysis_group(
-                    title="Execution Domain Analysis",
+                    title="Host/Device Model (TALP) Analysis",
                     description=(
                         "Examine accelerator-related scalability from complementary "
                         "Host and Device execution-domain perspectives."
@@ -12539,6 +13227,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
         "host-analysis": host_html,
         "device-analysis": device_html,
         "io-metrics": io_metrics_html,
+        "device-hwc": device_hwc_html,
     }
 
     analysis_catalogue = build_analysis_catalogue(
@@ -12717,7 +13406,7 @@ def _build_printable_report_guidance_html(
 
     if has_execution_domains:
         workflow_parts.append(
-            "<strong>Execution Domains</strong> to obtain a complementary "
+            "<strong>Host/Device Model (TALP)</strong> to obtain a complementary "
             "Host/Device perspective and identify where accelerator-related "
             "inefficiencies manifest"
         )
@@ -13472,6 +14161,31 @@ def _build_basicanalysis_printable_report_html(
 
 
     # --------------------------------------------------
+    # 6b. GPU hardware counter analysis
+    # --------------------------------------------------
+
+    device_hwc_print_html = ""
+
+    if _has_device_hwc_metrics(metrics_result, trace_list):
+
+        device_hwc_section_number = next_section_number
+        next_section_number += 1
+
+        _collect_metric_reference(
+            metric_reference,
+            DEVICE_HWC_CHAIN_ORDER + DEVICE_HWC_INDICATOR_ORDER,
+            DEVICE_HWC_METRIC_INFO,
+        )
+
+        device_hwc_print_html = _build_printable_device_hwc_section(
+            metrics_result=metrics_result,
+            trace_list=trace_list,
+            trace_labels=trace_labels,
+            trace_column_description=trace_column_description,
+            section_number=device_hwc_section_number,
+        )
+
+    # --------------------------------------------------
     # 7. Scaling analysis
     # --------------------------------------------------
 
@@ -13562,6 +14276,7 @@ def _build_basicanalysis_printable_report_html(
         {runtime_specific_html}
         {execution_domains_html}
         {io_html}
+        {device_hwc_print_html}
         {scaling_html}
         {appendix_html}
     """.format(
@@ -13575,6 +14290,7 @@ def _build_basicanalysis_printable_report_html(
         runtime_specific_html=runtime_specific_html,
         execution_domains_html=execution_domains_html,
         io_html=io_html,
+        device_hwc_print_html=device_hwc_print_html,
         scaling_html=scaling_html,
         appendix_html=appendix_html,
     )

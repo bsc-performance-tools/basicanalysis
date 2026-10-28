@@ -22,13 +22,14 @@ The main output of BasicAnalysis is the interactive performance report:
 
 The report provides a guided view of the performance analysis through the
 Execution Overview, Parallel Runtime Model, Runtime-Specific Analysis,
-Execution Domains, I/O Analysis, and Scaling views, as applicable to the
+Host/Device Model (TALP), I/O Analysis, and Scaling views, as applicable to the
 analyzed execution.
 
 The available views depend on the programming model and performance data. For
-example, Execution Domains are available for accelerator applications, while
-I/O Analysis reports I/O Efficiency and its Data Access and File Management
-factors when POSIX, ANSI C, or MPI-IO calls are detected in the traces. When multiple execution
+example, the Host/Device Model (TALP) view is available for accelerator
+applications, while I/O Analysis reports I/O Efficiency and its Data Access
+and File Management factors when POSIX, ANSI C, or MPI-IO calls are detected
+in the traces. When multiple execution
 configurations are analyzed, the report also provides scaling information and
 performance trends.
 
@@ -113,7 +114,10 @@ The main files include:
 Additional model-specific CSV files may also be generated. For example,
 OpenMP analyses can generate ``omp_talp_metrics.csv``, while MPI+GPU analyses
 using the Host/Device execution-domain model can generate
-``talp_metrics.csv``.
+``talp_metrics.csv``. For *nsys2prv* traces with GPU metrics, BasicAnalysis
+also writes ``device_hwc_metrics.csv`` with the GPU hardware counter metrics
+(percentages, and the GPC clock in MHz) and adds the integrals of the
+counters to ``rawdata.csv``.
 
 When the analyzed traces use different programming models, BasicAnalysis
 also writes:
@@ -146,7 +150,25 @@ performance model, the output includes files such as:
    efficiency_table-matplot.pdf
 
 or the corresponding global, hybrid, runtime-specific, or Host/Device
-variants.
+variants. For the Host/Device model, ``efficiency_table_talp_matplot``
+shows the Host and Device metrics together, and
+``efficiency_table_talp_host_matplot`` and
+``efficiency_table_talp_device_matplot`` show each execution domain on its
+own, for example for presentations that focus on the host or on the device.
+For *nsys2prv* traces with GPU metrics,
+``efficiency_table_device_hwc_matplot`` shows SM Utilization and its
+factors, and ``table_device_hwc_indicators_matplot`` shows the indicators
+(GPU Active, Achieved Occupancy, Tensor Core Activity, DRAM Read and Write
+Bandwidth and GPC Clock) with a single neutral colour, since they are not
+efficiencies.
+
+Each column of the static plots is labelled with its configuration and the
+trace identifier used in the interactive report (``[T1]``, ``[T2]``, ...),
+so that the same trace can be referenced in a paper or in slides, even when
+several traces have the same configuration. Metrics without a value for
+any trace (for example IPC, Instruction and Frequency scalability when the
+traces have no hardware counters) are not shown in the static efficiency
+tables; the CSV files keep all the metrics.
 
 When multiple execution configurations are analyzed, BasicAnalysis also
 generates plots showing the evolution of performance metrics across the

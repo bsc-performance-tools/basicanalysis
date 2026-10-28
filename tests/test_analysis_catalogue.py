@@ -653,8 +653,8 @@ class AnalysisCatalogueTests(unittest.TestCase):
                 for view in domain_views
             ],
             [
-                "host-analysis",
                 "device-analysis",
+                "host-analysis",
             ],
         )
 
@@ -770,8 +770,8 @@ class AnalysisCatalogueTests(unittest.TestCase):
                 "computation-scalability",
                 "mpi-runtime",
                 "accelerator-runtime",
-                "host-analysis",
                 "device-analysis",
+                "host-analysis",
             ],
 
         )
@@ -793,8 +793,8 @@ class AnalysisCatalogueTests(unittest.TestCase):
                 "execution-domains",
                 "mpi-runtime",
                 "accelerator-runtime",
-                "host-analysis",
                 "device-analysis",
+                "host-analysis",
             ],
         )
 
@@ -822,7 +822,7 @@ class AnalysisCatalogueTests(unittest.TestCase):
 
         self.assertEqual(
             labels["execution-domains"],
-            "Execution Domains",
+            "Host/Device Model (TALP)",
         )
 
         self.assertEqual(
@@ -985,7 +985,7 @@ class AnalysisCatalogueTests(unittest.TestCase):
 
         self.assertEqual(
             execution_domains.label,
-            "Execution Domains",
+            "Host/Device Model (TALP)",
         )
 
     def test_execution_domains_is_available_for_single_trace_mpi_cuda(self):

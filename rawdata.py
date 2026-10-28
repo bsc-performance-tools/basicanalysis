@@ -11,7 +11,8 @@ import shutil
 import json
 from utils import which
 from collections import OrderedDict, defaultdict
-from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label, is_host_gpu_mode, CUDA_LEGACY_LABEL_RE
+from nsys2prvmetrics import process_one_nsys2prv_trace, hwc_raw_data_doc
+from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label, is_host_gpu_mode, is_nsys2prv_mode, CUDA_LEGACY_LABEL_RE
 from utils import run_command, move_files,remove_files, create_temp_folder
 
 
@@ -1949,13 +1950,19 @@ def create_raw_data(trace_list):
 
         raw_data[key] = trace_dict
 
+    # Optional raw data (GPU hardware counters of nsys2prv traces).
+    for key in hwc_raw_data_doc:
+        raw_data[key] = {trace_name: 'Non-Avail' for trace_name in trace_list}
+
     return raw_data
 
 # Functions to extract GPU IDs
 
 def create_trace_raw_data():
     """Create flat raw-data dict for a single trace."""
-    return {key: 0.0 for key in raw_data_doc}
+    trace_raw_data = {key: 0.0 for key in raw_data_doc}
+    trace_raw_data.update({key: 'Non-Avail' for key in hwc_raw_data_doc})
+    return trace_raw_data
 
 
 def create_io_raw_data():
@@ -2985,6 +2992,12 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         "mpi_proc_count": int or None,
       }
     """
+    if is_nsys2prv_mode(trace_mode_value):
+        return process_one_nsys2prv_trace(
+            trace, trace_process_count, trace_task_per_node_value,
+            trace_mode_value, trace_tasks_value, trace_threads_value,
+            cmdl_args, cfgs, path_dest)
+
     trace_raw_data = create_trace_raw_data()
     trace_io_data = create_io_raw_data()
 
@@ -4048,6 +4061,10 @@ def merge_trace_results(results, trace_list):
         for key in raw_data_doc:
             raw_data[key][trace] = trace_raw_data[key]
 
+        # Optional raw data, absent in results saved by older versions.
+        for key in hwc_raw_data_doc:
+            raw_data[key][trace] = trace_raw_data.get(key, 'Non-Avail')
+
         io_data[trace] = result["io_data"]
 
         if result["mpi_proc_count"] is not None:
@@ -4362,8 +4379,17 @@ def print_raw_data_csv(raw_data, trace_list, trace_processes):
             line += str(trace_processes[trace])
         output.write(line + '\n')
 
-        for raw_key in raw_data_doc:
-            line = '#' + raw_data_doc[raw_key]
+        # Optional raw data is only written when a trace has it.
+        optional_keys = [
+            key for key in hwc_raw_data_doc
+            if any(raw_data.get(key, {}).get(trace, 'Non-Avail') != 'Non-Avail'
+                   for trace in trace_list)
+        ]
+        raw_labels = OrderedDict(raw_data_doc)
+        raw_labels.update((key, hwc_raw_data_doc[key]) for key in optional_keys)
+
+        for raw_key in raw_labels:
+            line = '#' + raw_labels[raw_key]
             for trace in trace_list:
                 line += delimiter
                 try:  # except NaN

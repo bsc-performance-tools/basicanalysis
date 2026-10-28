@@ -10,9 +10,11 @@ The report is intended to support a hierarchical analysis workflow. Start with
 the Execution Overview to verify the analyzed configurations, then use the
 Parallel Runtime Model to identify the main sources of efficiency loss.
 Runtime-Specific Analysis provides a more detailed view of the active parallel
-runtimes, while Execution Domains identifies where accelerator-related
-inefficiencies manifest. I/O Analysis provides a complementary view of the
-weight of File I/O and of its Data Access and File Management components. Finally, the Scaling view shows
+runtimes, while the Host/Device Model (TALP) identifies where accelerator-related
+inefficiencies manifest. For *nsys2prv* traces with GPU metrics, GPU Hardware
+Counters shows how the GPU resources are exercised while the device is
+active. I/O Analysis provides a complementary view of the weight of File I/O
+and of its Data Access and File Management components. Finally, the Scaling view shows
 how performance and efficiency factors evolve across the analyzed
 configurations.
 
@@ -30,12 +32,13 @@ analysis.
 Report Interface
 ----------------
 
-The BasicAnalysis performance report is organized around five primary analysis
-views:
+The BasicAnalysis performance report is organized around the following primary
+analysis views, shown when they apply to the analyzed traces:
 
 * **Execution Overview**
 * **Parallel Runtime Model**
-* **Execution Domains**
+* **Host/Device Model (TALP)**
+* **GPU Hardware Counters** (*nsys2prv* traces with GPU metrics)
 * **I/O Analysis**
 * **Scaling**
 
@@ -173,12 +176,13 @@ identified in the Parallel Runtime Model. Its metrics may therefore use a
 different analytical scope from the application-level metrics.
 
 
-Execution Domains
------------------
+Host/Device Model (TALP)
+------------------------
 
-For accelerator applications, the **Execution Domains** view provides a
-complementary analysis of where performance inefficiencies manifest by
-separating the execution into **Host** and **Device** domains.
+For accelerator applications, the **Host/Device Model (TALP)** view provides
+a complementary analysis of where performance inefficiencies manifest by
+separating the execution into **Device** and **Host** domains, following the
+TALP model. The Device metrics are shown first.
 
 .. _fig-report-execution-domains:
 
@@ -192,12 +196,12 @@ separating the execution into **Host** and **Device** domains.
 :numref:`fig-report-execution-domains` shows an example of the Host and Device
 execution-domain analysis.
 
-The Host domain characterizes CPU-side execution, including Host Parallel
-Efficiency, accelerator offload behavior, and Host Computation Scalability.
-
 The Device domain characterizes accelerator execution through Device Parallel
 Efficiency and its Load Balance, Communication, and Orchestration components,
 together with Device Computation Scalability.
+
+The Host domain characterizes CPU-side execution, including Host Parallel
+Efficiency, accelerator offload behavior, and Host Computation Scalability.
 
 For Device metrics, GPU stream activity is first mapped and flattened to the
 corresponding physical devices. Consequently, the Device analysis represents
@@ -210,12 +214,61 @@ and Device Global Efficiency must be interpreted independently and must not be
 multiplied to obtain the application Global Efficiency.
 
 Use the Parallel Runtime Model to determine **which runtime contributes to the
-efficiency loss**, and the Execution Domains view to determine **where
+efficiency loss**, and the Host/Device Model (TALP) view to determine **where
 accelerator-related inefficiencies manifest**.
 
 A low execution-domain metric identifies where a performance loss becomes
 visible. Detailed runtime or trace analysis may still be required to determine
 the underlying cause.
+
+
+GPU Hardware Counters
+---------------------
+
+For *nsys2prv* traces whose Nsight Systems report includes GPU metrics, the
+**GPU Hardware Counters** view characterizes how the GPU resources are
+exercised while the device is active. It complements the Device metrics of
+the Host/Device Model (TALP), which characterize how effectively the
+accelerator is kept supplied with useful work over the execution.
+
+.. _fig-report-gpu-hardware-counters:
+
+.. figure:: images/report-gpu-hardware-counters.png
+   :width: 90%
+   :align: center
+   :alt: BasicAnalysis GPU Hardware Counters view
+
+   GPU Hardware Counters.
+
+The view, shown in :numref:`fig-report-gpu-hardware-counters`, includes:
+
+* **SM Utilization**, the degree to which the SMs issue instructions while
+  the GPU is active (not a fraction of the peak instruction throughput), and
+  its factors **SM Coverage** (are the available SMs given
+  work?) and **SM Issue Efficiency** (do the active SMs issue instructions?).
+  They use the same efficiency colour scale as the other views.
+* **Indicators** that explain the SM Utilization chain: GPU Active (a
+  consistency check with the kernel events), Achieved Occupancy (run
+  average, not per kernel), Tensor Core Activity, DRAM Read and Write
+  Bandwidth, and GPC Clock. A higher indicator value is not necessarily
+  better, so they are shown in a single neutral colour, and
+  their Metric Details explain how to read each indicator and what low and
+  high values mean, instead of giving an efficiency verdict.
+* A **Diagnostic path** that summarizes the diagnostic workflow of
+  :ref:`gpu-hardware-counter-metrics`: SM Coverage, then SM Issue
+  Efficiency, explained with Achieved Occupancy and the DRAM bandwidth, and
+  finally Tensor Core Activity and the GPC Clock as context. The path helps
+  formulate hypotheses to investigate in the trace with Paraver, not assign a
+  root cause.
+* A trend plot of SM Utilization and its factors when several executions are
+  analyzed.
+
+As in the other views, click any value to open its Metric Details.
+
+The metrics are averages over the whole execution weighted by the GPU
+activity. They are not part of the multiplicative efficiency model and are
+not valid per kernel. See :ref:`gpu-hardware-counter-metrics` for their
+definitions.
 
 
 I/O Analysis
@@ -438,9 +491,9 @@ This is useful when evidence from two analytical perspectives should be
 compared directly, for example:
 
 * Parallel Runtime Model with Scaling;
-* Parallel Runtime Model with Execution Domains;
+* Parallel Runtime Model with Host/Device Model (TALP);
 * Parallel Runtime Model with I/O Analysis;
-* Execution Domains with Scaling; or
+* Host/Device Model (TALP) with Scaling; or
 * Execution Overview with a detailed analytical view.
 
 The two views remain analytically independent. The split layout is intended to
@@ -464,7 +517,11 @@ The export control provides several ways to save analysis results.
 
 Depending on the active analysis, efficiency tables can be exported as PNG
 images. Multiple tables can also be exported together, and all available
-efficiency tables can be saved in a ZIP archive.
+efficiency tables can be saved in a ZIP archive. In the GPU Hardware
+Counters view, the exported table includes the indicators below SM
+Utilization and its factors. The exported tables keep the trace
+identifiers of the columns (``[T1]``, ``[T2]``, ...), so that they can be
+referenced in papers and slides.
 
 :numref:`fig-report-export-menu` shows the export menu for saving an efficiency
 table from the Parallel Runtime Model view as a PNG image.
@@ -524,7 +581,7 @@ Host.
 
 Each programming-model tab contains the complete report of the traces of that
 model, analyzed as an independent set: Execution Overview, Parallel Runtime
-Model, Execution Domains, I/O Analysis, and, when the tab contains several
+Model, Host/Device Model (TALP), I/O Analysis, and, when the tab contains several
 traces, Scaling. The report of each tab is the same report that BasicAnalysis
 generates when those traces are analyzed alone, and it provides its own
 navigation, Metric Details, and export functions.
@@ -567,8 +624,8 @@ The Execution Overview establishes the context of the experiment. The
 hierarchical performance model identifies whether a significant performance
 loss exists and which broad factor dominates. The Parallel Runtime Model and
 Runtime-Specific Analysis attribute and explain parallel-runtime losses.
-Execution Domains localize accelerator-related inefficiencies to the Host or
-Device side. I/O Analysis independently characterizes the contribution and
+The Host/Device Model (TALP) localizes accelerator-related inefficiencies to
+the Device or Host side. I/O Analysis independently characterizes the contribution and
 distribution of File I/O activity. Finally, the Scaling view shows how these
 relevant performance characteristics evolve as the execution configuration
 changes.

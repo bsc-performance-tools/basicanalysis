@@ -75,7 +75,12 @@ interpretation:
   low: Meaning of a low value
   high: Meaning of a high value
   above_100: Meaning of a value above 100 percent
+  reading: How to read the metric (optional)
 ```
+
+`reading` is used for indicators whose low and high values are not good or
+bad on their own (e.g. the GPU hardware counter indicators). The Metric
+Details of the report show it instead of the efficiency verdict.
 
 ## Analysis levels
 
@@ -85,6 +90,8 @@ interpretation:
 - `runtime_specific`
 - `execution_domain`
 - `scalability`
+- `io`
+- `hardware_counters`
 
 These levels prevent a derived runtime contribution from being presented as an
 isolated runtime-specific metric.

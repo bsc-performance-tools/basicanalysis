@@ -17,6 +17,8 @@ from report import build_analysis_context, build_report_model
 import html_to_pdf
 import os
 from tracemetadata import is_host_gpu_mode
+from nsys2prvmetrics import create_device_hwc_factors
+from scaling import describe_detected, describe_scaling
 from comparison import (
     get_programming_model,
     is_comparison_mode,
@@ -162,6 +164,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
             "device_factors": device_factors,
             "host_factors": host_factors,
             "omp_talp_factors": omp_talp_factors,
+            "device_hwc_factors": create_device_hwc_factors(raw_data, trace_list),
             "scaling_info": scaling_info,
         }
 
@@ -188,6 +191,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
         "mod_factors_scale_plus_io": mod_factors_scale_plus_io,
         "other_metrics": other_metrics,
         "omp_talp_factors": omp_talp_factors,
+        "device_hwc_factors": create_device_hwc_factors(raw_data, trace_list),
         "scaling_info": scaling_info,
     }
 
@@ -200,26 +204,33 @@ def print_scaling_info(scaling_info):
     ):
         return
 
-    detected = (
-        scaling_info.detected.capitalize()
-        if scaling_info.detected
-        else "Non-Avail"
-    )
+    detected = describe_detected(scaling_info)
 
-    selected = scaling_info.selected.capitalize()
-
-    if scaling_info.selection_mode == "auto":
-        selection = "Automatic"
-    elif scaling_info.selection_mode == "manual":
-        selection = "Manual"
-    else:
-        selection = "Implicit"
+    selected, selection = describe_scaling(scaling_info)
 
     ##print("")
     print("Scaling model:")
     print("  Detected scaling : {}".format(detected))
     print("  Scaling used     : {}".format(selected))
     print("  Selection        : {}".format(selection))
+
+    if scaling_info.workload_ratios is not None:
+        print("  Workload per trace (reference: first trace):")
+        width = max(len(trace) for trace in scaling_info.workload_ratios)
+        for trace, ratio in scaling_info.workload_ratios.items():
+            print("    {:<{w}}  workload {:>10g}  ratio {:>10g}".format(
+                trace, scaling_info.workload_values[trace], ratio, w=width))
+
+        for domain, ratios in scaling_info.domain_workload_ratios.items():
+            print("  {} workload per trace ({}):".format(
+                domain.capitalize(),
+                scaling_info.domain_workload_options[domain]))
+            for trace, ratio in ratios.items():
+                print("    {:<{w}}  workload {:>10g}  ratio {:>10g}".format(
+                    trace,
+                    scaling_info.domain_workload_values[domain][trace],
+                    ratio, w=width))
+
     print("")
 
 def generate_reports(metrics_result, analysis_result, trace_list, trace_processes,
@@ -309,6 +320,28 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
                 trace_mode,
                 raw_data,
             )
+
+            # GPU hardware counters (nsys2prv traces with GPU metrics).
+            device_hwc_factors = metrics_result.get("device_hwc_factors")
+            if hybridmetrics.has_device_hwc_metrics(device_hwc_factors, trace_list):
+                hybridmetrics.print_device_hwc_table(
+                    device_hwc_factors,
+                    trace_list,
+                    trace_processes,
+                    trace_tasks,
+                    trace_threads,
+                    trace_mode,
+                    raw_data,
+                )
+                hybridmetrics.print_device_hwc_metrics_csv(
+                    device_hwc_factors,
+                    trace_list,
+                    trace_processes,
+                    trace_tasks,
+                    trace_threads,
+                    trace_mode,
+                    raw_data,
+                )
         else:
             hybridmetrics.print_mod_factors_table(
                 mod_factors, other_metrics, mod_factors_scale_plus_io,
@@ -448,6 +481,17 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
             hybridmetrics.plots_talp_efficiency_table_matplot(
                 trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, raw_data, cmdl_args
             )
+
+            device_hwc_factors = metrics_result.get("device_hwc_factors")
+            if hybridmetrics.has_device_hwc_metrics(device_hwc_factors, trace_list):
+                hybridmetrics.plots_device_hwc_table_matplot(
+                    device_hwc_factors, trace_list, trace_processes, trace_tasks,
+                    trace_threads, trace_mode, raw_data
+                )
+                hybridmetrics.plots_device_hwc_indicators_matplot(
+                    device_hwc_factors, trace_list, trace_processes, trace_tasks,
+                    trace_threads, trace_mode, raw_data
+                )
         else:
             hybridmetrics.plots_efficiency_table_matplot(
                 trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, cmdl_args

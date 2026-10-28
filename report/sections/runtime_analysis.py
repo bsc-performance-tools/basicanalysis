@@ -340,7 +340,7 @@ class RuntimeAnalysisBuilder:
     ) -> MetricAnalysisData:
         """Build the single-runtime or composed hybrid runtime model."""
 
-        if self._is_hybrid(context):
+        if self._uses_hybrid_runtime_model(context):
             return self._build_hybrid_runtime_model(
                 context
             )
@@ -505,7 +505,7 @@ class RuntimeAnalysisBuilder:
                 )
 
         if (
-            self._is_hybrid(context)
+            self._uses_hybrid_runtime_model(context)
             and self._has_accelerator(context)
         ):
             accelerator_component = (
@@ -1156,6 +1156,25 @@ class RuntimeAnalysisBuilder:
             or self._has_runtime(
                 context,
                 "HIP",
+            )
+        )
+
+    def _uses_hybrid_runtime_model(
+        self,
+        context: AnalysisContext,
+    ) -> bool:
+        """Return whether the composed MPI+X Parallel Runtime Model applies.
+
+        It needs an MPI level. GPU applications without MPI (e.g. CUDA with a
+        serial host) use the single-runtime model over host threads and GPU
+        streams, even when the hybrid metrics are computed.
+        """
+
+        return (
+            self._is_hybrid(context)
+            and self._has_runtime(
+                context,
+                "MPI",
             )
         )
 

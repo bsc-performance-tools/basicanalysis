@@ -152,7 +152,7 @@ A standard BasicAnalysis execution can produce:
 
 The performance report organizes the analysis into complementary views such
 as Execution Overview, Parallel Runtime Model, Runtime-Specific Analysis, 
-Execution Domains when applicable, and Scaling when several configurations 
+Host/Device Model (TALP) when applicable, and Scaling when several configurations 
 are available.
 
 The interactive report can also be exported as a printable PDF when the

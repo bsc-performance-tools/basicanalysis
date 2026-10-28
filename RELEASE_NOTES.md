@@ -78,6 +78,65 @@
   each metric. The I/O efficiencies use the same thresholds as the other
   efficiencies (Critical below 60%, Good from 85%); stricter thresholds for
   I/O can be set this way.
+- Add Device metrics for traces generated with nsys2prv from NVIDIA Nsight
+  Systems reports (CUDA). These traces are detected automatically and
+  analyzed with their own configurations, without changing the analysis of
+  Extrae traces. Following the TALP device model, useful Device time is
+  taken from the kernel events, and Device communication from the memory
+  operations (copies and `memset`) and NCCL kernel events.
+  nsys2prv does not record the node of each process: in traces merged from
+  several nodes, every process is on the same node and the device numbers
+  repeat. When the trace has more GPU metrics threads than GPUs identified by
+  node and device number, each process is assumed to use its own GPUs, so
+  GPUs of different nodes are not merged (a multi-node trace of 32 GPUs was
+  analyzed as 4 GPUs before). Without GPU metrics threads this cannot be
+  checked, and a warning is printed.
+  The execution time is the end declared in the trace header: nsys2prv can
+  write GPU metric samples after it, and Paraver then extends the trace to
+  the last event, which made the period without application activity count
+  as idle Device time and as useful Host time.
+- Add Host metrics for nsys2prv traces: Device Offload efficiency, Host
+  Parallel efficiency and Host Computation scalability. Since these traces
+  have no state records, the useful host time is the elapsed time minus the
+  time in CUDA calls. Only the processes with GPU streams are analyzed.
+- Show the configuration of nsys2prv traces with the same format as
+  MPI+GPU traces, `units (processes x streams per process) [devices]`
+  (e.g. `5 (1x4) [1D]`), and report the devices, GPU streams, streams per
+  process and host threads in the standard output.
+- Compute the Parallel Runtime Model of nsys2prv traces over host threads
+  and GPU streams, as for GPU applications without MPI in Extrae traces, and
+  show their processes, streams per process and execution mapping in the
+  Execution Overview of the interactive report.
+- Add GPU hardware counter metrics for nsys2prv traces whose Nsight Systems
+  report includes GPU metrics: SM Utilization and its factors SM Coverage
+  and SM Issue Efficiency, and the indicators GPU Active, Achieved Occupancy
+  (run average over all kernels), Tensor Core Activity, DRAM Read and Write
+  Bandwidth and GPC Clock. They are averages over the whole execution
+  weighted by the GPU activity, are complementary to the Host/Device model
+  (not part of it), and are shown in the standard output, in
+  `device_hwc_metrics.csv`, in the `efficiency_table_device_hwc_matplot`
+  heatmap, in the `table_device_hwc_indicators_matplot` table of
+  indicators, and in the new *GPU Hardware Counters* view of the interactive
+  report, whose PNG export includes the indicators below the efficiency
+  table. The metrics of Extrae traces do not change.
+  `rawdata.csv` contains the integrals of the counters, including the DRAM
+  read and write bandwidth without the GR Active weighting, which are
+  proportional to the amount of data read and written (for comparing
+  executions on the same GPU model).
+- User-defined workload scaling: `--workload W1,W2,...` (workload sizes, for
+  example batch sizes) or `--ratios-workload R1,R2,...` (workload ratios
+  relative to the reference trace), one value per trace in command-line
+  order. The scalability metrics, Speedup, and Scaling Efficiency use the
+  weak-scaling formulas with the workload ratio in place of the ratio of
+  processes, Host threads, or devices. This covers experiments in which the
+  workload changes but the resources do not, such as several batch sizes on
+  the same GPU. In the Host/Device model, the Host and the device can have
+  their own workload (`--host-workload`, `--device-workload`, and their
+  ratio forms), which default to that of the application; the Application
+  Computation Scalability uses the ideal useful time of both domains. The
+  workload and ratio of each trace are printed in the scaling model summary
+  and shown in the Scaling section of the report; the automatic detection
+  of weak or strong scaling is not used.
 
 ### Changes
 
@@ -115,6 +174,23 @@
 
 ### Improvements
 
+- Label the columns of the static plots (efficiency tables, Speedup and
+  Efficiency) with the trace identifier of the interactive report (`[T1]`,
+  `[T2]`, ...), so that each trace can be referenced in papers and slides,
+  also when several traces have the same configuration. The PNG export of
+  the interactive report also keeps the trace identifiers. The CSV files
+  and the standard output do not change.
+- Static efficiency tables no longer show the metrics that have no value
+  for any trace (e.g. IPC, Instruction and Frequency scalability when the
+  traces have no hardware counters).
+- Add Host-only and Device-only efficiency tables of the Host/Device model
+  (`efficiency_table_talp_host_matplot` and
+  `efficiency_table_talp_device_matplot`), in addition to the combined
+  `efficiency_table_talp_matplot`, e.g. for presentations that focus on one
+  execution domain.
+- Interactive report: rename the *Execution Domains* view to *Host/Device
+  Model (TALP)*, show the Device metrics before the Host metrics, and
+  collapse the *How to read this view* notes by default (click to expand).
 - Identify useful Device computation by the *Running* state on the GPU
   streams, which corresponds to kernel execution, for CUDA and HIP. A single
   configuration now serves both runtimes and does not depend on the kernel
@@ -123,6 +199,16 @@
 
 ### Fixes
 
+- Fixed the Parallel Runtime Model of the interactive report for GPU
+  applications without MPI: it showed an empty *MPI + X* model instead of
+  the CUDA (or HIP) Parallel Runtime Model. Serialization and Transfer
+  efficiency are now reported as not applicable (`N/A`) for these
+  applications instead of 0.
+- Fixed the reading of trace headers without CPU information, such as those
+  written by nsys2prv (0 nodes), which stopped the analysis.
+- Fixed the automatic scaling detection when some indicators are not
+  available (e.g. useful time or instructions), which stopped the analysis
+  of several traces. Unavailable indicators no longer vote.
 - Fixed the hardware-counter metrics of GPU traces, which also counted the
   rows of the GPU streams. Extrae writes a few counter values on the stream
   rows when it closes them (the counters of the host thread), and the

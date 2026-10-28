@@ -26,7 +26,7 @@ The main analytical views provided by BasicAnalysis are:
 * **Runtime-Specific Analysis**, which provides additional metrics for the
   active parallel runtimes when runtime-specific information is available.
 
-* **Execution Domains**, which provides complementary Host and Device views for
+* **Host/Device Model (TALP)**, which provides complementary Device and Host views for
   accelerator applications and helps identify where accelerator-related
   inefficiencies manifest.
 

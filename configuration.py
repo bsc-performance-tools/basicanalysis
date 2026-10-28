@@ -128,6 +128,26 @@ def format_configuration_label(
             )
 
     # --------------------------------------------------
+    # Processes + GPU without MPI (nsys2prv traces)
+    #
+    # Same format as MPI+GPU, e.g. 5 (1x4) [1D]: execution units
+    # (processes x streams per process) [devices]. The units are given,
+    # since a process may have several host threads.
+    # --------------------------------------------------
+
+    elif model_key == "tasks_gpu":
+        if streams_per_rank == -1 or streams_per_rank == "var":
+            streams_per_rank = "var"
+
+        label = "{} ({}{}{}) [{}D]".format(
+            processes,
+            mpi_ranks,
+            separator,
+            streams_per_rank,
+            devices,
+        )
+
+    # --------------------------------------------------
     # Fallback
     # --------------------------------------------------
 
@@ -138,6 +158,30 @@ def format_configuration_label(
         label += " [{}]".format(trace_id)
 
     return label
+
+
+def add_plot_trace_ids(labels):
+    """Add the trace ID of the interactive report ([T1], [T2], ...) to the
+    configuration labels of the static plots.
+
+    The labels are in trace order. The numeric ID that
+    disambiguate_configuration_labels adds to duplicated labels is
+    replaced, so that every column can be referenced as in the report
+    (e.g. in a paper or in slides), even with the same parallel units.
+    """
+
+    result = []
+
+    for index, label in enumerate(labels):
+        label = str(label)
+        suffix = " [{}]".format(index + 1)
+
+        if label.endswith(suffix):
+            label = label[:-len(suffix)]
+
+        result.append("{} [T{}]".format(label, index + 1))
+
+    return result
 
 
 def disambiguate_configuration_labels(

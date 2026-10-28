@@ -23,7 +23,7 @@ The methodology is organized around the following perspectives:
   the active parallel runtimes.
 * **Runtime-Specific Analysis**, which provides additional metrics describing
   the behavior of individual parallel runtimes.
-* **Execution Domains**, which provides a complementary Host/Device analysis
+* **Host/Device Model (TALP)**, which provides a complementary Host/Device analysis
   for accelerator applications.
 * **I/O Analysis**, which provides complementary metrics characterizing the
   contribution and distribution of File I/O activity.
@@ -594,8 +594,8 @@ be represented as:
 .. graphviz:: graphs/05_openmp_efficiency_hierarchy.dot
    :align: center
 
-Execution Domains
-=================
+Host/Device Model (TALP)
+========================
 
 Accelerator applications involve execution across two distinct but interacting
 domains: the **Host**, where the CPU-side execution takes place and work is
@@ -614,7 +614,7 @@ mechanisms used to supply work to the accelerator, while other losses may
 manifest on the Device through insufficient available work, data movement,
 workload imbalance, or computation scalability.
 
-The **Execution Domains** analysis separates these two perspectives in order
+The **Host/Device Model (TALP)** analysis separates these two perspectives in order
 to identify where accelerator-related inefficiencies manifest:
 
 * **Host**, characterizing CPU-side execution and the interaction with the
@@ -841,7 +841,7 @@ accelerator.
    Host Global Efficiency and Device Global Efficiency must not be multiplied
    to obtain application Global Efficiency.
 
-The Execution Domains analysis should therefore be interpreted as a
+The Host/Device Model (TALP) analysis should therefore be interpreted as a
 localization view: it helps determine **where** accelerator-related
 inefficiency manifests. The Parallel Runtime Model provides a different,
 complementary perspective by attributing efficiency losses to the participating
@@ -939,6 +939,50 @@ automatically detected one, BasicAnalysis reports the discrepancy.
 The detected scaling model, the model finally used for the analysis, and
 whether the selection was automatic or manual are included in the scaling
 information reported by BasicAnalysis.
+
+User-defined workload
+---------------------
+
+Strong and weak scaling are two particular cases of a more general
+experiment, in which the workload and the resources change independently. In
+strong scaling the workload is constant; in weak scaling it grows with the
+resources. Experiments in which the workload changes while the resources do
+not, for example the batch size of an inference run on the same GPU, are
+neither.
+
+For these experiments, the workload of each execution can be given with
+``--workload`` or ``--ratios-workload`` (see :doc:`03_running_basicanalysis`).
+BasicAnalysis then uses the weak-scaling formulas of the scalability metrics,
+replacing the resource ratio of each metric (processes, Host threads,
+devices, or processes with instructions) with the workload ratio
+
+.. math::
+
+   w(n) = \frac{W(n)}{W_{ref}}
+
+where :math:`W(n)` is the workload of execution :math:`n`. In the execution
+models with a single domain (MPI, MPI+OpenMP, OpenMP or pthreads, Burst
+mode) the same ratio is used for all metrics, because it describes the size
+of the whole problem, not one type of resource: if the workload doubles, the
+ideal is twice the useful computation time and twice the instructions. With
+:math:`w(n) = 1` the metrics are those of strong scaling, and with
+:math:`w(n) = P(n)/P_{ref}` they are those of weak scaling.
+
+In the Host/Device model, the Host and the device are two execution domains
+whose work can grow differently. In an inference run, for example, the GPU
+work grows with the batch size, while the Host performs about the same steps
+and kernel launches for every batch. Each domain therefore has its own
+workload ratio, :math:`w_H(n)` for the Host metrics and :math:`w_D(n)` for
+the device metrics, which are the ratio of the application, :math:`w(n)`,
+unless the user gives them (``--host-workload``, ``--device-workload``).
+The Application Computation Scalability compares the useful time with the
+ideal useful time of both domains, and Speedup and Scaling Efficiency use
+the ratio of the application (see :doc:`06_metrics`). The resource ratios of
+weak scaling follow the same pattern: processes for the application, Host
+threads for the Host, and devices for the device.
+
+The automatic detection is not used in this case: the report shows it as
+*Not used*.
 
 Reference execution
 -------------------
@@ -1116,7 +1160,7 @@ A useful way to interpret them is:
    Which behavior within the identified runtime helps explain the observed
    inefficiency?
 
-**Execution Domains**
+**Host/Device Model (TALP)**
 
    For accelerator applications, where does the inefficiency manifest: Host,
    offload path, or Device?

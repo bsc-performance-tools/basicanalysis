@@ -8,9 +8,10 @@ import math
 
 from rawdata import *
 from collections import OrderedDict
-from scaling import get_scaling_info
+from scaling import get_scaling_info, warn_unused_domain_workloads
 from iometrics import IO_FACTORS_DOC, io_useful_time, print_io_tables
-from tracemetadata import is_host_gpu_mode
+from tracemetadata import is_host_gpu_mode, is_nsys2prv_mode
+from nsys2prvmetrics import mod_device_hwc_factors_doc
 from comparison import (
     NOT_APPLICABLE,
     build_comparison_device_rows,
@@ -21,6 +22,7 @@ from comparison import (
     is_comparison_mode,
 )
 from configuration import (
+    add_plot_trace_ids,
     format_configuration_label,
     disambiguate_configuration_labels,
 )
@@ -357,11 +359,21 @@ def _build_hybrid_xaxis_label(
         for index, label in enumerate(configuration_labels)
     )
 
-    trace_id_suffix = (
-        ' [Trace ID]'
-        if show_trace_id
-        else ''
+    # Static plots label every column with the trace ID of the
+    # interactive report: [T1], [T2], ...
+    show_report_trace_id = any(
+        label.endswith(
+            '[T{}]'.format(index + 1)
+        )
+        for index, label in enumerate(configuration_labels)
     )
+
+    if show_report_trace_id:
+        trace_id_suffix = ' [Tn = trace ID]'
+    elif show_trace_id:
+        trace_id_suffix = ' [Trace ID]'
+    else:
+        trace_id_suffix = ''
 
     # --------------------------------------------------
     # MPI + GPU
@@ -410,6 +422,19 @@ def _build_hybrid_xaxis_label(
         )
 
     return 'Parallel units'
+
+
+def _nsys2prv_configuration_label(trace, trace_processes, trace_tasks,
+                                  raw_data, separator='x'):
+    """Configuration label of an nsys2prv trace, e.g. 5 (1x4) [1D]."""
+    return format_configuration_label(
+        model_key="tasks_gpu",
+        processes=trace_processes[trace],
+        mpi_ranks=trace_tasks[trace],
+        streams_per_rank=int(raw_data['gpu_streams_per_rank'][trace]),
+        devices=int(raw_data['count_devices'][trace]),
+        separator=separator,
+    )
 
 
 def _build_hybrid_configuration_labels(
@@ -465,6 +490,14 @@ def _build_hybrid_configuration_labels(
                 devices=devices,
                 separator=separator,
             )
+
+        # --------------------------------------------------
+        # GPU traces generated with nsys2prv
+        # --------------------------------------------------
+
+        elif is_nsys2prv_mode(trace_mode[trace]):
+            label = _nsys2prv_configuration_label(
+                trace, trace_processes, trace_tasks, raw_data, separator)
 
         # --------------------------------------------------
         # MPI + other runtime
@@ -555,6 +588,23 @@ def _format_heatmap_metric_labels(labels, output_name):
     return formatted_labels, indent_levels
 
 
+def _drop_unavailable_rows(df, separator_row=None):
+    """Remove the metrics without a value for any trace.
+
+    E.g. IPC, Instruction and Frequency scalability without hardware
+    counters are not plotted. The HOST/DEVICE separator row is moved
+    accordingly, and dropped if one side becomes empty.
+    """
+    available = df.notna().any(axis=1).tolist()
+
+    if separator_row is not None:
+        separator_row = sum(available[:separator_row])
+        if separator_row in (0, sum(available)):
+            separator_row = None
+
+    return df[available], separator_row
+
+
 def _plot_efficiency_heatmap(df, output_name, separator_row=None):
     """
     Render an efficiency table as a publication-quality heatmap.
@@ -566,6 +616,15 @@ def _plot_efficiency_heatmap(df, output_name, separator_row=None):
     the actual text so that long metric names and configuration
     headers are not clipped or overlapped.
     """
+
+    # Columns are referenced with the trace ID of the report.
+    df = df.copy()
+    df.columns = add_plot_trace_ids(list(df.columns))
+
+    df, separator_row = _drop_unavailable_rows(df, separator_row)
+
+    if df.empty:
+        return
 
     nrows, ncols = df.shape
 
@@ -878,10 +937,24 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
     scaling = scaling_info.selected
 
+    # Host and device workloads apply to the Host/Device model only.
+    warn_unused_domain_workloads(
+        scaling_info,
+        has_domains=any(
+            trace_mode[trace] in ('Detailed+MPI+CUDA', 'Detailed+MPI+HIP')
+            or (is_host_gpu_mode(trace_mode[trace])
+                and cmdl_args.pop_model_to_apply == 'talp')
+            for trace in trace_list
+        ),
+    )
+
     # Loop over all traces
     for trace in trace_list:
 
         proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
+        # Multiplier of the weak-scaling formulas: the process ratio, or the
+        # user workload ratio in workload mode.
+        work_ratio = scaling_info.work_ratio(trace, proc_ratio)
    
         total_procs = trace_processes[trace]
 
@@ -1077,9 +1150,16 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         else:
                             mod_factors['comp_scale'][trace] = raw_data['burst_useful_tot'][trace_list[0]] \
                                                    / raw_data['burst_useful_tot'][trace] \
-                                                   * proc_ratio * 100.0
+                                                   * work_ratio * 100.0
                     else:
                         mod_factors['comp_scale'][trace] = 100.0
+                elif host_device_measures and 'Non-Avail' in (
+                        raw_data['useful_host'][trace],
+                        raw_data['useful_host'][trace_list[0]]):
+                    # nsys2prv traces: no state records to measure host
+                    # useful, so no host (or application) scalability.
+                    host_factors['host_comp_scale'][trace] = 'Non-Avail'
+                    mod_factors['comp_scale'][trace] = 'Non-Avail'
                 elif host_device_measures:
                     # --------------------------------------------------
                     # Host Computation Scalability
@@ -1111,7 +1191,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         host_factors['host_comp_scale'][trace] = (
                             float(raw_data['useful_host'][reference])
                             / float(raw_data['useful_host'][trace])
-                            * host_ratio
+                            * scaling_info.work_ratio(
+                                trace, host_ratio, domain='host')
                             * 100.0
                         )
 
@@ -1137,6 +1218,22 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                             / useful_app
                             * 100.0
                         )
+                    elif scaling == 'workload':
+                        # Ideal useful time: the useful time of each
+                        # domain in the reference, scaled by the workload
+                        # ratio of the domain.
+                        mod_factors['comp_scale'][trace] = (
+                            (
+                                float(raw_data['useful_host'][reference])
+                                * scaling_info.work_ratio(
+                                    trace, None, domain='host')
+                                + float(raw_data['useful_device'][reference])
+                                * scaling_info.work_ratio(
+                                    trace, None, domain='device')
+                            )
+                            / useful_app
+                            * 100.0
+                        )
                     else:
                         app_units_ref = (
                             int(raw_data['count_host_threads'][reference])
@@ -1156,7 +1253,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         mod_factors['comp_scale'][trace] = (
                             useful_app_ref
                             / useful_app
-                            * app_ratio
+                            * scaling_info.work_ratio(trace, app_ratio)
                             * 100.0
                         )
 
@@ -1181,7 +1278,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                    / float(raw_data['useful_tot'][trace]) * 100.0
                     else:
                         mod_factors['comp_scale'][trace] = float(raw_data['useful_tot'][trace_list[0]]) \
-                                                   / float(raw_data['useful_tot'][trace]) * proc_ratio * 100.0
+                                                   / float(raw_data['useful_tot'][trace]) * work_ratio * 100.0
             else:
                 mod_factors['comp_scale'][trace] = 'Non-Avail'
                 host_factors['host_comp_scale'][trace] = 'Non-Avail'
@@ -1207,7 +1304,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         mod_factors_scale_plus_io['comp_scale'][trace] = (float(raw_data['useful_tot'][trace_list[0]])
                                                                           + io_serial_0) \
                                                                      / (float(raw_data['useful_tot'][trace])
-                                                                        + io_serial_n) * proc_ratio * 100.0
+                                                                        + io_serial_n) * work_ratio * 100.0
                 else:
                     mod_factors_scale_plus_io['comp_scale'][trace] = float(mod_factors['comp_scale'][trace])
             else:
@@ -1255,6 +1352,9 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 hybrid_factors['serial_eff'][trace] = 'Non-Avail'
                 if trace_mode[trace] == "Detailed+MPI":
                     mod_factors['serial_eff'][trace] = 'Non-Avail'
+                elif is_host_gpu:
+                    # GPU without MPI: no MPI communication to simulate.
+                    mod_factors['serial_eff'][trace] = 'N/A'
             elif trace_mode[trace] == "Detailed+MPI+OpenMP" and cmdl_args.hyb_mpiomp:
                 mod_factors['serial_eff'][trace] = float(raw_data['hybrid_useful_dim'][trace]) \
                                                    / float(raw_data['hybrid_runtime_dim'][trace]) * 100.0
@@ -1292,6 +1392,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 hybrid_factors['transfer_eff'][trace] = 'Non-Avail'
                 if trace_mode[trace] == "Detailed+MPI":
                     mod_factors['transfer_eff'][trace] = 'Non-Avail'
+                elif is_host_gpu:
+                    mod_factors['transfer_eff'][trace] = 'N/A'
             elif hybrid_factors['serial_eff'][trace] == 'Warning!':
                 hybrid_factors['transfer_eff'][trace] = 'Warning!'            
             else:
@@ -1588,7 +1690,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         
         ### Offloading
         try:  # except NaN
-            if is_host_gpu:
+            if is_host_gpu and raw_data['useful_host'][trace] == 'Non-Avail':
+                # nsys2prv traces: no state records to measure host useful.
+                host_factors['dev_offload_eff'][trace] = 'Non-Avail'
+            elif is_host_gpu:
                 # Without MPI, the host time available for useful
                 # computation is the whole execution of the host threads.
                 host_factors['dev_offload_eff'][trace] = 100 * (
@@ -1687,7 +1792,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     device_factors['dev_comp_scale'][trace] = (
                         float(raw_data['useful_device'][reference])
                         / float(raw_data['useful_device'][trace])
-                        * device_ratio
+                        * scaling_info.work_ratio(
+                            trace, device_ratio, domain='device')
                         * 100.0
                     )
 
@@ -1969,10 +2075,16 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                             / float(raw_data['procs_ins'][trace_list[0]])
                         )
 
+                        # The instructions are those of the host units
+                        # (Host Instruction Scalability in the Host/Device
+                        # model).
                         mod_factors['inst_scale'][trace] = (
                             float(raw_data['useful_ins'][trace_list[0]])
                             / float(raw_data['useful_ins'][trace])
-                            * procs_ratio_ins
+                            * scaling_info.work_ratio(
+                                trace, procs_ratio_ins,
+                                domain='host' if host_device_measures
+                                else None)
                             * 100.0
                         )
 
@@ -2016,7 +2128,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                           / float(raw_data['procs_ins'][trace_list[0]])
                         mod_factors_scale_plus_io['inst_scale'][trace] = float(useful_ins_plus_io_0) \
                                                                          / float(useful_ins_plus_io_n)\
-                                                                         * procs_ratio_ins * 100.0
+                                                                         * scaling_info.work_ratio(trace, procs_ratio_ins) * 100.0
                 else:
                     mod_factors_scale_plus_io['inst_scale'][trace] = float(mod_factors['inst_scale'][trace])
             else:
@@ -2026,7 +2138,11 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
        
         try:  # except NaN
-            if host_device_measures:
+            if (host_device_measures
+                    and raw_data['useful_host'][trace] == 'Non-Avail'):
+                # nsys2prv traces: no host useful time.
+                host_factors['host_global_eff'][trace] = 'Non-Avail'
+            elif host_device_measures:
                 if len(trace_list) > 1:
                     host_factors['host_global_eff'][trace] = (host_factors['host_parallel_eff'][trace]/100) \
                 * (host_factors['host_comp_scale'][trace]/100) * 100
@@ -2044,7 +2160,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                             / raw_data['runtime'][trace])
                 else:
                     other_metrics['speedup'][trace] = float(raw_data['runtime'][trace_list[0]]
-                                                            / raw_data['runtime'][trace] * proc_ratio)
+                                                            / raw_data['runtime'][trace] * work_ratio)
             else:
                 other_metrics['speedup'][trace] = 'Non-Avail'
         except:
@@ -2063,7 +2179,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                         / (raw_data['runtime'][trace] * proc_ratio)
                 else:
                     other_metrics['efficiency'][trace] = raw_data['runtime'][trace_list[0]] \
-                                                        / raw_data['runtime'][trace]
+                                                        / raw_data['runtime'][trace] \
+                                                        * (work_ratio / proc_ratio)
             else:
                 other_metrics['efficiency'][trace] = 'Non-Avail'
         except:
@@ -2191,6 +2308,8 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         elif trace_mode[trace][0:len("Burst")] == "Burst":
             mode_string = trace_mode[trace]
         elif trace_mode[trace] == "Sampling":
+            mode_string = trace_mode[trace]
+        elif trace_mode[trace].startswith("nsys2prv"):
             mode_string = trace_mode[trace]
 
         line_trace_mode += mode_string.rjust(value_to_adjust)
@@ -2392,6 +2511,8 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
         elif trace_mode[trace][0:len("Burst")] == "Burst":
             mode_string = trace_mode[trace]
         elif trace_mode[trace] == "Sampling":
+            mode_string = trace_mode[trace]
+        elif trace_mode[trace].startswith("nsys2prv"):
             mode_string = trace_mode[trace]
 
         line_trace_mode += mode_string.rjust(value_to_adjust)
@@ -3617,14 +3738,14 @@ def plots_speedup_matplot(
     # Canonical configuration labels
     # --------------------------------------------------
 
-    configuration_labels = _build_hybrid_configuration_labels(
+    configuration_labels = add_plot_trace_ids(_build_hybrid_configuration_labels(
         trace_list,
         trace_processes,
         trace_tasks,
         trace_threads,
         trace_mode,
         raw_data,
-    )
+    ))
 
     x_axis_label = _build_hybrid_xaxis_label(
         trace_list,
@@ -4059,6 +4180,262 @@ def plots_talp_efficiency_table_matplot(
         'efficiency_table_talp_matplot',
         separator_row=host_rows
     )
+
+    # Host-only and Device-only tables, e.g. for presentations that
+    # focus on one execution domain.
+    if 0 < host_rows < len(df_plot):
+        _plot_efficiency_heatmap(
+            df_plot.iloc[host_rows:],
+            'efficiency_table_talp_device_matplot'
+        )
+        _plot_efficiency_heatmap(
+            df_plot.iloc[:host_rows],
+            'efficiency_table_talp_host_matplot'
+        )
+
+
+# --------------------------------------------------------------
+# Device hardware counter metrics (nsys2prv GPU metrics)
+#
+# Complementary view of the Device: how the GPU resources are exercised
+# while the device is active. These metrics are not part of the
+# multiplicative Host/Device model.
+# --------------------------------------------------------------
+
+# Rows of the efficiency heatmap: the multiplicative SM chain. The other
+# metrics are indicators (higher is not always better): they are plotted
+# in a separate table without the efficiency colour scale.
+DEVICE_HWC_HEATMAP_KEYS = (
+    'dev_hwc_sm_utilization',
+    'dev_hwc_sm_coverage',
+    'dev_hwc_sm_issue_eff',
+)
+
+DEVICE_HWC_INDICATOR_KEYS = tuple(
+    key for key in mod_device_hwc_factors_doc
+    if key not in DEVICE_HWC_HEATMAP_KEYS
+)
+
+# Neutral colours of the indicator values, as in the interactive report.
+DEVICE_HWC_INDICATOR_FACE = '#e7f0fb'
+DEVICE_HWC_INDICATOR_TEXT = '#245887'
+
+
+def has_device_hwc_metrics(device_hwc_factors, trace_list):
+    """True if any trace has GPU hardware counter metrics."""
+    if not device_hwc_factors:
+        return False
+    return any(
+        device_hwc_factors[key].get(trace, 'Non-Avail') != 'Non-Avail'
+        for key in device_hwc_factors
+        for trace in trace_list
+    )
+
+
+def format_device_hwc_value(mod_key, value):
+    """Text of a hardware counter metric: % or MHz for the clock."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return '{}'.format(value)
+    if math.isnan(number):
+        return 'NaN'
+    if mod_key == 'dev_hwc_gpc_clock':
+        return '{0:.0f}'.format(number)
+    return '{0:.2f}%'.format(number)
+
+
+def print_device_hwc_table(device_hwc_factors, trace_list, trace_processes,
+                           trace_tasks, trace_threads, trace_mode, raw_data):
+    """Print the Device hardware counter metrics on stdout."""
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
+
+    longest_name = max(len(label) for label in mod_device_hwc_factors_doc.values())
+    longest_name = max(longest_name, len('Configuration'))
+    value_to_adjust = max(14, max(len(label) for label in configuration_labels) + 1)
+
+    line = 'Configuration'.rjust(longest_name)
+    for label in configuration_labels:
+        line += ' | ' + label.rjust(value_to_adjust)
+
+    print('\n Overview of the Device hardware counter metrics (GPU metrics sampled '
+          'by Nsight Systems,')
+    print(' averages weighted by the GPU activity; not part of the Host/Device model):')
+    print(''.ljust(len(line), '='))
+    print(line)
+    print(''.ljust(len(line), '='))
+
+    for mod_key, label in mod_device_hwc_factors_doc.items():
+        row = label.ljust(longest_name)
+        for trace in trace_list:
+            row += ' | ' + format_device_hwc_value(
+                mod_key, device_hwc_factors[mod_key][trace]
+            ).rjust(value_to_adjust)
+        print(row)
+        if mod_key == 'dev_hwc_gpu_active':
+            print(''.ljust(len(line), '-'))
+
+    print(''.ljust(len(line), '='))
+    print('')
+
+
+def print_device_hwc_metrics_csv(device_hwc_factors, trace_list, trace_processes,
+                                 trace_tasks, trace_threads, trace_mode, raw_data):
+    """Write the Device hardware counter metrics to device_hwc_metrics.csv.
+
+    The clock is written in MHz; the other metrics in %.
+    """
+    delimiter = ','
+    file_path = os.path.join(os.getcwd(), 'device_hwc_metrics.csv')
+
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
+
+    with open(file_path, 'w') as output:
+        output.write('"Metric"' + ''.join(
+            delimiter + label for label in configuration_labels) + '\n')
+
+        for mod_key, label in mod_device_hwc_factors_doc.items():
+            line = '"' + label + '"'
+            for trace in trace_list:
+                value = device_hwc_factors[mod_key][trace]
+                line += delimiter
+                try:
+                    line += '{0:.6f}'.format(value)
+                except (TypeError, ValueError):
+                    line += '{}'.format(value)
+            output.write(line + '\n')
+
+    print('======== Output File: Device Hardware Counter Metrics ========')
+    print('Device hardware counter metrics written to ' + file_path)
+    print('')
+
+
+def plots_device_hwc_table_matplot(device_hwc_factors, trace_list, trace_processes,
+                                   trace_tasks, trace_threads, trace_mode, raw_data):
+    """Heatmap of the SM efficiency chain (efficiency_table_device_hwc_matplot)."""
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
+
+    data = [
+        [safe_float_for_plot(device_hwc_factors[key][trace]) for trace in trace_list]
+        for key in DEVICE_HWC_HEATMAP_KEYS
+    ]
+
+    df_plot = pd.DataFrame(
+        np.array(data, dtype=float),
+        index=[mod_device_hwc_factors_doc[key] for key in DEVICE_HWC_HEATMAP_KEYS],
+        columns=configuration_labels,
+    )
+
+    _plot_efficiency_heatmap(df_plot, 'efficiency_table_device_hwc_matplot')
+
+
+def plots_device_hwc_indicators_matplot(device_hwc_factors, trace_list,
+                                        trace_processes, trace_tasks,
+                                        trace_threads, trace_mode, raw_data):
+    """Table of the hardware counter indicators (table_device_hwc_indicators_matplot).
+
+    Same layout as the efficiency heatmaps, but with a single neutral
+    colour: the indicators are not good or bad on their own.
+    """
+    configuration_labels = _build_hybrid_configuration_labels(
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        raw_data,
+    )
+
+    configuration_labels = add_plot_trace_ids(configuration_labels)
+
+    # Indicators without a value for any trace are not plotted.
+    indicator_keys = [
+        key for key in DEVICE_HWC_INDICATOR_KEYS
+        if any(not np.isnan(safe_float_for_plot(device_hwc_factors[key][trace]))
+               for trace in trace_list)
+    ]
+    if not indicator_keys:
+        return
+
+    labels = [mod_device_hwc_factors_doc[key] for key in indicator_keys]
+    nrows = len(labels)
+    ncols = len(configuration_labels)
+
+    label_width = max(3.4, max(len(label) for label in labels) * 0.12)
+    max_header_chars = max(len(label) for label in configuration_labels)
+    column_width = max(1.25, max_header_chars * 0.105)
+
+    fig = plt.figure(figsize=(label_width + ncols * column_width + 0.35,
+                              max(3.0, nrows * 0.54)))
+    grid = fig.add_gridspec(nrows=1, ncols=2,
+                            width_ratios=[label_width, ncols * column_width],
+                            wspace=0.04)
+    label_ax = fig.add_subplot(grid[0, 0])
+    ax = fig.add_subplot(grid[0, 1])
+
+    for row, key in enumerate(indicator_keys):
+        for col, trace in enumerate(trace_list):
+            ax.add_patch(plt.Rectangle(
+                (col, row), 1, 1,
+                facecolor=DEVICE_HWC_INDICATOR_FACE,
+                edgecolor='white',
+                linewidth=0.6,
+            ))
+            ax.text(
+                col + 0.5, row + 0.5,
+                format_device_hwc_value(key, device_hwc_factors[key][trace]),
+                ha='center', va='center', fontsize=12,
+                color=DEVICE_HWC_INDICATOR_TEXT,
+            )
+
+    ax.set_xlim(0, ncols)
+    ax.set_ylim(nrows, 0)
+    ax.set_xticks([col + 0.5 for col in range(ncols)])
+    ax.set_xticklabels(configuration_labels)
+    ax.set_yticks([])
+    ax.xaxis.tick_top()
+    if max_header_chars > 24:
+        header_fontsize = 9
+    elif max_header_chars > 18:
+        header_fontsize = 10
+    else:
+        header_fontsize = 11
+    ax.tick_params(axis='x', labelsize=header_fontsize, rotation=0, pad=6, length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    label_ax.set_ylim(nrows, 0)
+    label_ax.set_xlim(0, 1)
+    label_ax.axis('off')
+    for row, label in enumerate(labels):
+        label_ax.text(0.01, row + 0.5, label, fontsize=12, ha='left',
+                      va='center', clip_on=False)
+
+    fig.savefig('table_device_hwc_indicators_matplot.png', dpi=400,
+                bbox_inches='tight')
+    fig.savefig('table_device_hwc_indicators_matplot.pdf', bbox_inches='tight')
+    plt.close(fig)
 
 
 def print_omp_talp_metrics_csv(omp_talp_factors, trace_list, trace_processes,
