@@ -72,13 +72,12 @@
   are made?* (volume, mean request size, and the request-size histograms),
   and *Which files are accessed?* (file diagnostics and the I/O time of the
   files with the most I/O time).
-- The I/O efficiencies (I/O, Data Access, and File Management Efficiency)
-  are classified with stricter thresholds than the other efficiencies:
-  Critical below 90% (I/O takes 10% or more of the useful plus I/O time),
-  Attention 90%-95%, Good from 95%. The cell colors and the efficiency scale
-  of the report follow the thresholds of each metric, so the colors of the
-  other metrics do not change. Thresholds can be set per metric in
-  `metrics/definitions.yaml`.
+- Classification thresholds can be set per metric in
+  `metrics/definitions.yaml` (`thresholds: critical, attention`); the cell
+  colors and the efficiency scale of the report follow the thresholds of
+  each metric. The I/O efficiencies use the same thresholds as the other
+  efficiencies (Critical below 60%, Good from 85%); stricter thresholds for
+  I/O can be set this way.
 
 ### Changes
 

@@ -2808,30 +2808,26 @@ I/O Efficiency compares I/O time with useful time, not with the execution
 time. The fraction of the execution time spent in I/O is given by the I/O
 time fractions below.
 
-The I/O efficiencies are classified with **stricter thresholds** than the
-other efficiencies, because I/O that takes 10% of the time is already a
-significant cost:
+.. _io-efficiency-thresholds:
 
-.. list-table::
-   :header-rows: 1
-   :widths: 25 35 40
+The I/O efficiencies are classified with the same thresholds as the other
+efficiencies: Critical below 60%, Attention from 60% to 85%, and Good from
+85%. An I/O Efficiency of 85%, for example, means that I/O takes 15% of the
+useful plus I/O time. For applications where such an I/O cost already
+matters, the analyst can use stricter thresholds for the I/O efficiencies.
+The thresholds are defined per metric in ``metrics/definitions.yaml``; for
+example, to classify I/O Efficiency as Critical below 90% and Good from
+95%, add to its entry (``io_eff``):
 
-   * - Classification
-     - I/O efficiencies
-     - I/O share of the useful plus I/O time
-   * - Good
-     - :math:`\geq 95\%`
-     - less than 5%
-   * - Attention
-     - 90% -- 95%
-     - 5% -- 10%
-   * - Critical
-     - :math:`< 90\%`
-     - 10% or more
+.. code-block:: yaml
 
-The other efficiencies keep the default thresholds (Critical below 60%,
-Good from 85%). The thresholds are defined per metric in
-``metrics/definitions.yaml``.
+   thresholds:
+     critical: 90.0
+     attention: 95.0
+
+The cell colors and the efficiency scale of the report follow the
+thresholds of each metric, so the colors of the other metrics do not
+change.
 
 The metrics are reported as ``Non-Avail`` when no File I/O is detected.
 
@@ -2885,7 +2881,7 @@ hardly changes (68.26% and 65.19%): the writes become unbalanced (Write Load
 Balance 61.48% and 21.39%). The model predicts 0.38 s more waiting per rank,
 and the measured MPI time per rank grows by 0.44 s.
 
-All the I/O efficiencies use the stricter thresholds given above.
+All the I/O efficiencies use the thresholds given above.
 
 
 .. _io-diagnostics:

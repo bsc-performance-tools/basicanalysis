@@ -360,35 +360,34 @@ if __name__ == '__main__':
 
 class IoThresholdTests(unittest.TestCase):
 
-    def test_io_efficiencies_use_stricter_thresholds(self):
+    def test_io_efficiencies_use_the_default_thresholds(self):
         from interactiveplots import KNOWLEDGE_PROVIDER
 
-        for key in ('io_eff', 'io_da_eff', 'io_fm_eff'):
+        for key in ('io_cp_eff', 'io_eff', 'io_da_eff', 'io_fm_eff',
+                    'io_lb'):
             thresholds = KNOWLEDGE_PROVIDER.get(key).thresholds
-            self.assertEqual(thresholds.critical, 90.0)
-            self.assertEqual(thresholds.attention, 95.0)
-
-        thresholds = KNOWLEDGE_PROVIDER.get('global_eff').thresholds
-        self.assertEqual(thresholds.critical, 60.0)
-        self.assertEqual(thresholds.attention, 85.0)
+            self.assertEqual(thresholds.critical, 60.0)
+            self.assertEqual(thresholds.attention, 85.0)
 
     def test_colors_follow_the_thresholds_of_the_metric(self):
+        from metrics.provider import MetricThresholds
         from interactiveplots import (
             KNOWLEDGE_PROVIDER,
             _efficiency_scale_position,
             _metric_value_color,
         )
 
-        io = KNOWLEDGE_PROVIDER.get('io_eff').thresholds
+        # Thresholds set for one metric in metrics/definitions.yaml.
+        strict = MetricThresholds(critical=90.0, attention=95.0)
         default = KNOWLEDGE_PROVIDER.get('global_eff').thresholds
 
-        # The I/O thresholds fall on the positions of the default ones.
-        self.assertAlmostEqual(_efficiency_scale_position(90.0, io), 60.0)
-        self.assertAlmostEqual(_efficiency_scale_position(95.0, io), 85.0)
-        self.assertEqual(_metric_value_color(90.0, io),
+        # They fall on the positions of the default ones.
+        self.assertAlmostEqual(_efficiency_scale_position(90.0, strict), 60.0)
+        self.assertAlmostEqual(_efficiency_scale_position(95.0, strict), 85.0)
+        self.assertEqual(_metric_value_color(90.0, strict),
                          _metric_value_color(60.0, default))
 
-        # The other metrics keep their colors.
+        # The metrics with the default thresholds keep their colors.
         for value in (0.0, 30.0, 60.0, 72.5, 85.0, 99.0, 100.0):
             self.assertAlmostEqual(
                 _efficiency_scale_position(value, default), value)

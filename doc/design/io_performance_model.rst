@@ -268,6 +268,13 @@ Management Efficiency) use stricter thresholds than the other efficiencies:
 thresholds of each metric (the I/O thresholds are mapped to the positions of
 the default ones on the color scale).
 
+*Decision (2026-10-29), replaces the previous one:* the I/O efficiencies use
+the **same thresholds as the other efficiencies** (Critical below 60%,
+Attention 60--85%, Good from 85%). Stricter thresholds are a choice of the
+analyst, who can set them per metric in ``metrics/definitions.yaml``
+(``thresholds: critical: 90.0, attention: 95.0``); the per-metric
+thresholds and the color mapping are kept for that purpose.
+
 The two criteria do not measure the same quantity. I/O Efficiency compares
 I/O time with **useful** time, not with the execution time:
 
@@ -1826,6 +1833,11 @@ for the first I/O report.
 
 Review Log
 ----------
+
+*2026-10-29* -- Decision (thresholds): the I/O efficiencies go back to the
+default thresholds of the other efficiencies (60% and 85%); stricter
+thresholds are left to the analyst, per metric, in
+``metrics/definitions.yaml``. Replaces the decision of 2026-10-19.
 
 *2026-10-29* -- Access pattern per file (user: the totals add all the
 files): the classes are also counted per file (and for the descriptors

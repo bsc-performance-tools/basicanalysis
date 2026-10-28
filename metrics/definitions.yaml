@@ -1389,12 +1389,6 @@ metrics:
     analysis_level: io
     metric_type: efficiency
 
-    # Stricter than the default efficiency thresholds, as the other I/O
-    # efficiencies.
-    thresholds:
-      critical: 90.0
-      attention: 95.0
-
     definition: >
       Measures the cost of File I/O on the critical path of the execution:
       the fraction of the useful computation plus I/O time of a unit that is
@@ -1451,12 +1445,6 @@ metrics:
     family: io
     analysis_level: io
     metric_type: efficiency
-
-    # Stricter than the default efficiency thresholds: I/O that takes 10%
-    # of the useful plus I/O time is already a significant cost.
-    thresholds:
-      critical: 90.0
-      attention: 95.0
 
     definition: >
       Measures the cost of File I/O relative to useful computation: the
@@ -1519,12 +1507,6 @@ metrics:
     analysis_level: io
     metric_type: efficiency
 
-    # Stricter than the default efficiency thresholds: I/O that takes 10%
-    # of the useful plus I/O time is already a significant cost.
-    thresholds:
-      critical: 90.0
-      attention: 95.0
-
     definition: >
       Measures the cost of reading and writing application data: the
       fraction of the useful computation plus Data Access time that is not
@@ -1581,12 +1563,6 @@ metrics:
     analysis_level: io
     metric_type: efficiency
 
-    # Stricter than the default efficiency thresholds: I/O that takes 10%
-    # of the useful plus I/O time is already a significant cost.
-    thresholds:
-      critical: 90.0
-      attention: 95.0
-
     definition: >
       Measures the additional cost of managing the files, which moves no
       application data: the fraction of the useful computation plus I/O
@@ -1641,10 +1617,6 @@ metrics:
     family: io
     analysis_level: io
     metric_type: efficiency
-
-    thresholds:
-      critical: 90.0
-      attention: 95.0
 
     definition: >
       Measures the cost of the uneven distribution of the I/O time across

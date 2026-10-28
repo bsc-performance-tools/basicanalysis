@@ -245,9 +245,10 @@ execution, which is the product of:
   I/O time across the units.
 
 The lowest factor identifies the aspect of the I/O to investigate. The I/O
-efficiencies use stricter thresholds than the other efficiencies (Critical
-below 90%, Attention 90%--95%, Good from 95%); the efficiency scale of the
-view shows them.
+efficiencies use the same thresholds as the other efficiencies, unless
+others are set for them in ``metrics/definitions.yaml`` (see :ref:`I/O
+Efficiency <io-efficiency-thresholds>`); the efficiency scale of the view
+shows the thresholds in use.
 
 With several executions, the **I/O Efficiency Trends** plot follows the
 efficiency table. Below them, the **I/O diagnostics** are shown in four
