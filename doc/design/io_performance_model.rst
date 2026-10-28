@@ -745,11 +745,54 @@ The position of each descriptor can therefore be rebuilt per process: an
 each read or write starts at the current position and advances it by its
 size. The offset of each request is the position at its start.
 
+Offset event only in recent traces
+""""""""""""""""""""""""""""""""""
+
+The ``I/O offset`` event (``40000075``) is recent: it was added to Extrae
+at our request (version to be confirmed), so only recent traces have it.
+Of the traces used in this design, the VTKHDF traces (July 2026) have it
+in all of their 417,596 seeks; the cfdem trace (April 2025) does not
+define it. Without the offset, the position is lost at the first seek of
+a stream. Rule:
+
+* the position stays known from an ``open`` while the stream only reads
+  and writes (cfdem makes no seeks, so all its requests to regular files
+  are classified);
+* a seek without an offset (or any seek in a trace whose ``.pcf`` does not
+  define ``40000075``) makes the position unknown until the next ``open``
+  of the descriptor;
+* the share of requests with an unknown offset is always reported, so a
+  trace from an older Extrae shows a low coverage instead of a wrong
+  pattern.
+
+Association with the files
+""""""""""""""""""""""""""
+
+Every read, write, and seek carries the descriptor (``40000010``), and
+every ``open``/``fopen`` records the descriptor it returns together with
+the file name (``40000059``). Each call is therefore attributed to a file
+through its descriptor, from the ``open`` until the ``close``, after which
+the descriptor number can be reused for another file. This is the
+mechanism already used for the files and processes per file (`File Sharing
+and Overlap`_), so the access pattern can also be given per file.
+
+Descriptors are shared by the threads of a process, and so is the file
+position: the position and the file are kept per process and descriptor,
+not per thread.
+
+Coverage in VTKHDF 100k (reads and writes): 99.6% of the calls and 94.9%
+of the bytes have both the file and the offset; 0.4% of the calls and
+5.1% of the bytes have a known offset (after a seek) but no file name.
+These are the writes of 12 processes through a descriptor without a
+traced ``open`` (descriptors 69, 70, 72): they are classified, and they
+are attributed to the unnamed group of the files diagnostics. All 38,954
+``open`` calls of this trace record a file name.
+
 Definitions
 ^^^^^^^^^^^
 
-A *stream* is a descriptor of a process (task and thread) between its
-``open`` and its ``close``. Each read is compared with the previous read
+A *stream* is a descriptor of a process between its ``open`` and its
+``close`` (the threads of the process share it). Each read is compared with the previous read
 of the same stream, and each write with the previous write, through the
 gap between the start of the request and the end of the previous one:
 
@@ -765,9 +808,11 @@ gap between the start of the request and the end of the previous one:
 * **Forward**: :math:`gap_i > 0` and not strided; a jump ahead.
 * **Backward**: :math:`gap_i < 0` and not strided; a jump back, including
   rereading or rewriting a region.
-* **Unknown offset**: ``pread``/``pwrite`` family, MPI-IO, and streams
-  without a traced ``open`` (descriptors opened before tracing starts,
-  standard output, ``openat``/``dup`` not instrumented).
+* **Unknown offset**: ``pread``/``pwrite`` family, MPI-IO, streams
+  without a traced ``open`` until their first seek with an offset
+  (descriptors opened before tracing starts, standard output,
+  ``openat``/``dup`` not instrumented), and streams after a seek without
+  an offset (traces from Extrae versions without the offset event).
 
 *Sequential* (consecutive, positive strided, and forward requests) is the
 term used by Darshan, and *consecutive* is the subset without gaps; using
@@ -817,6 +862,13 @@ Assumptions and limitations
   event ``40000013``) have no position and are excluded from the
   classification; the coverage is computed over the requests to regular
   files.
+* **Open flags not recorded.** A file opened with ``O_APPEND`` writes at
+  its end whatever the position, so its writes would be misplaced; the
+  open flags are not in the trace.
+* **Descriptors not followed.** ``dup``/``dup2``, ``openat``, ``creat``,
+  and descriptors inherited through ``fork`` are not instrumented: their
+  calls have no traced ``open``, so they get neither a position (until a
+  seek) nor a file name.
 * **Per process.** The classification compares the requests of one
   process. How the regions of several processes fit together in a shared
   file (partitioned blocks, interleaved records) is a separate analysis
@@ -828,6 +880,8 @@ Prototype results
 Prototype script over the original traces (one pass, about 7 s per
 VTKHDF trace; in BasicAnalysis it would be one more pass over the
 filtered trace, which would also keep the offset event ``40000075``).
+The prototype kept the positions per thread; the VTKHDF and cfdem traces
+have one I/O thread per process, so the results are the same per process.
 
 VTKHDF uGrid, 112 processes, 100k and 2M chunks (shares in %):
 
@@ -1344,9 +1398,10 @@ Current Raw-Data Coverage
 | Offset-based access pattern        | Reconstructable for          |
 |                                    | read/write/fread/fwrite from |
 |                                    | open and seek (event         |
-|                                    | 40000075); not for pread/    |
-|                                    | pwrite or MPI-IO; proposed   |
-|                                    | (see `Access Pattern`_)      |
+|                                    | 40000075, recent Extrae      |
+|                                    | only); not for pread/pwrite  |
+|                                    | or MPI-IO; proposed (see     |
+|                                    | `Access Pattern`_)           |
 +------------------------------------+------------------------------+
 | Alignment analysis                 | Offsets in the trace;        |
 |                                    | needs file-system context    |
@@ -1681,6 +1736,8 @@ Open Formal and Design Questions
      reported, and where (requests card, File Management)?
    * Should the Extrae developers be asked to record the offset of
      ``pread``/``pwrite`` and the ``whence`` of the seeks?
+   * Which Extrae version introduced the offset event ``40000075``? The
+     User Guide should state the minimum version for the access pattern.
    * Shared files: is the per-process classification enough for a first
      version, leaving partitioned versus interleaved regions for later?
 
@@ -1757,6 +1814,15 @@ for the first I/O report.
 
 Review Log
 ----------
+
+*2026-10-29* -- Access-pattern proposal completed: the offset event is
+recent (added to Extrae at our request; the cfdem trace of April 2025 does
+not have it), so a seek without an offset makes the position unknown until
+the next ``open`` and the coverage is always reported; calls are attributed
+to files through the descriptor of the traced ``open`` (VTKHDF 100k: 99.6%
+of the calls with file and offset, 0.4% with offset but no file name);
+positions kept per process, not per thread; ``O_APPEND`` and descriptors
+not followed (``dup``, ``openat``, ``fork``) added to the limitations.
 
 *2026-10-28* -- Proposal (access pattern): offsets of ``read``/``write``/
 ``fread``/``fwrite`` rebuilt per process and descriptor from ``open``
