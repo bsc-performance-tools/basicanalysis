@@ -15,6 +15,8 @@ from plotly.subplots import make_subplots
 from configuration import format_configuration_label
 from tracemetadata import is_host_gpu_mode
 from iometrics import (
+    ACCESS_PATTERN_CLASSES as IO_ACCESS_PATTERN_CLASSES,
+    ACCESS_PATTERN_QUANTITIES as IO_ACCESS_PATTERN_QUANTITIES,
     BINARY_UNITS,
     FILE_DIAGNOSTICS,
     IO_DIAGNOSTICS_DOC,
@@ -984,6 +986,18 @@ _IO_CALL_COLORS = {
 }
 
 
+# Colors of the access-pattern classes: sequential classes in green and
+# blue, jumps back in orange, no comparison in grey.
+_IO_ACCESS_PATTERN_COLORS = {
+    'first': '#c9c9c9',
+    'consecutive': '#3a9a5b',
+    'strided': '#8cc084',
+    'forward': '#5a9bd5',
+    'backward': '#e07b39',
+    'unknown': '#8a8a8a',
+}
+
+
 def _io_execution_color(position):
     return _IO_EXECUTION_COLORS[position % len(_IO_EXECUTION_COLORS)]
 
@@ -1368,6 +1382,17 @@ def _build_io_operations_card_html(other_metrics, trace_list, trace_labels,
                 'text': lambda number: '{0:,.1f} \u00b5s'.format(number),
                 'log': True,
             },
+            {
+                'title': 'Redundant seeks',
+                'categories': _io_used_categories(
+                    other_metrics, trace_list, [
+                        ('To current position', 'io_seek_to_current'),
+                    ]),
+                'value': value,
+                'text': lambda number: '{0:.2f}% of the seeks'.format(
+                    number),
+                'percentage': True,
+            },
         ],
         trace_list,
         trace_labels,
@@ -1381,10 +1406,22 @@ def _build_io_operations_card_html(other_metrics, trace_list, trace_labels,
         "rather than to the application I/O pattern."
     )
 
+    seek_table_html = _build_io_diagnostics_table_html(
+        other_metrics, trace_list, trace_labels,
+        [(None, ['io_seek_to_current'])])
+
+    if seek_table_html:
+        note += (
+            " <em>Redundant seeks</em>: seeks to the current position, "
+            "whose offset is the position the descriptor already has; they "
+            "move nothing, so their time is File Management time that could "
+            "be avoided."
+        )
+
     return _build_io_card_html(
         "Which calls take the time?", note,
-        plot_html + _io_values_html(table_html, printable), printable,
-        "io-operations", trace_column_description)
+        plot_html + _io_values_html(table_html + seek_table_html, printable),
+        printable, "io-operations", trace_column_description)
 
 
 def _build_io_request_size_plot_html(other_metrics, trace_list,
@@ -1507,6 +1544,98 @@ def _build_io_request_size_plot_html(other_metrics, trace_list,
     )
 
 
+def _build_io_access_pattern_plot_html(other_metrics, trace_list,
+                                       trace_labels, operation,
+                                       printable=False):
+    """Share of the requests, of the bytes, and of the time of each
+    access-pattern class of one operation: one stacked bar per execution
+    and quantity. Returns an empty string when no trace has an access
+    pattern for that operation."""
+    patterns = other_metrics.get('io_access_pattern', {})
+    executions = [
+        (trace, label,
+         {row['class']: row
+          for row in (patterns.get(trace) or {}).get(operation, [])})
+        for trace, label in zip(trace_list, trace_labels)
+    ]
+    executions = [execution for execution in executions if execution[2]]
+
+    if not executions:
+        return ""
+
+    quantities = (('requests', 'Requests'), ('bytes', 'Bytes'),
+                  ('time', 'Time'))
+    categories = [
+        '{} · {}'.format(label, quantity_label)
+        for _, label, _ in executions
+        for _, quantity_label in quantities
+    ]
+
+    fig = go.Figure()
+
+    for name, class_label in IO_ACCESS_PATTERN_CLASSES.items():
+        shares = []
+        customdata = []
+
+        for _, _, rows in executions:
+            row = rows.get(name)
+
+            for quantity, _ in quantities:
+                share = row[quantity + '_pct'] if row else 0.0
+                shares.append(share if isinstance(share, float) else 0.0)
+                customdata.append([
+                    '{0:,.0f}'.format(row['requests']) if row else '-',
+                    format_bytes(row['bytes']) if row else '-',
+                    '{0:,.3f}'.format(row['time'] / 1e6) if row else '-',
+                ])
+
+        if not any(shares):
+            continue
+
+        fig.add_trace(go.Bar(
+            y=categories,
+            x=shares,
+            orientation='h',
+            name=class_label,
+            marker_color=_IO_ACCESS_PATTERN_COLORS[name],
+            customdata=customdata,
+            hovertemplate=(
+                '<b>' + html.escape(class_label) + '</b> %{y}<br>'
+                + '%{x:.1f}%<br>'
+                + 'Requests: %{customdata[0]}<br>'
+                + 'Bytes: %{customdata[1]}<br>'
+                + 'Time: %{customdata[2]} s<extra></extra>'
+            ),
+        ))
+
+    height = 100 + 24 * len(categories)
+    fig.update_layout(
+        height=height,
+        autosize=True,
+        barmode='stack',
+        bargap=0.3,
+        margin=dict(l=20, r=20, t=45, b=35),
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.0 + 25.0 / height,
+            xanchor='left',
+            x=0.0,
+            traceorder='normal',
+        ),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+    )
+    fig.update_xaxes(range=[0, 100], ticksuffix='%', showgrid=True,
+                     gridcolor='#d9d9d9')
+    fig.update_yaxes(autorange='reversed', automargin=True,
+                     categoryorder='array', categoryarray=categories)
+
+    return '<h4 class="io-plot-title">{} access pattern</h4>{}'.format(
+        IO_OPERATION_LABELS[operation],
+        _io_plot_html(fig))
+
+
 def _build_io_request_sizes_card_html(other_metrics, trace_list,
                                       trace_labels, printable=False):
     """Card with the volume and mean size of the requests of the read and
@@ -1525,8 +1654,18 @@ def _build_io_request_sizes_card_html(other_metrics, trace_list,
         '<div class="io-request-size-plot">{}</div>'.format(plot)
         for plot in plots if plot
     )
+    pattern_table_html = _build_io_call_table_html(
+        other_metrics, trace_list, trace_labels, REQUEST_SIZE_OPERATIONS,
+        list(zip(IO_ACCESS_PATTERN_QUANTITIES,
+                 ('Consecutive volume', 'Re-accessed volume',
+                  'Offset coverage'))))
+    pattern_html = ''.join(
+        _build_io_access_pattern_plot_html(
+            other_metrics, trace_list, trace_labels, operation, printable)
+        for operation in REQUEST_SIZE_OPERATIONS
+    )
 
-    if not table_html and not plots_html:
+    if not table_html and not plots_html and not pattern_html:
         return ""
 
     def value(key, trace):
@@ -1581,9 +1720,29 @@ def _build_io_request_sizes_card_html(other_metrics, trace_list,
         "values are also in <code>io_request_sizes.csv</code>."
     )
 
+    if pattern_html:
+        note += (
+            " <em>Access pattern</em> (POSIX and ANSI C on regular files): "
+            "each read or write is compared with the previous one of the "
+            "same kind on the same file descriptor. <em>Consecutive</em> "
+            "starts where the previous one ended; <em>strided</em> jumps "
+            "by the same gap as the previous one; <em>forward</em> and "
+            "<em>backward</em> jump ahead or back; <em>first</em> has no "
+            "previous request. Offsets are rebuilt from the opens, the "
+            "seeks (taken as absolute), and the request sizes; "
+            "<em>unknown offset</em> covers pread/pwrite, descriptors "
+            "without a traced open, and seeks without an offset (older "
+            "Extrae versions). Many jumps that move few bytes usually come "
+            "from metadata accesses; the re-accessed volume, in the values, "
+            "is the share of the bytes a process reads or writes again in "
+            "the same file. The values are also in "
+            "<code>io_access_pattern.csv</code>."
+        )
+
     return _build_io_card_html(
         "What requests are made?", note,
-        panels_html + _io_values_html(table_html, printable) + plots_html,
+        panels_html + _io_values_html(table_html, printable) + plots_html
+        + pattern_html + _io_values_html(pattern_table_html, printable),
         printable)
 
 

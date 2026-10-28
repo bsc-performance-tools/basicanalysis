@@ -913,3 +913,191 @@ class FileAccessTests(unittest.TestCase):
         self.assertIn('83.3%', card)
         self.assertEqual(
             _build_io_files_card_html({}, ['t1'], ['2 [T1]']), '')
+
+
+# Filtered trace with offsets: task 1 writes a file through descriptor 5;
+# task 2 reads through descriptor 7, which has no traced open. Times in ns.
+ACCESS_PATTERN_TRACE = (
+    '#Paraver (28/10/2026 at 10:00):100000_ns:1(2):1:2(1:1,1:1),0\n'
+    # open of /data/out.dat as descriptor 5: position 0
+    '2:1:1:1:1:1000:40000004:11:40000010:5:40000059:1\n'
+    '2:1:1:1:1:2000:40000004:0\n'
+    # write 100 B at 0: first (1 us)
+    '2:1:1:1:1:3000:40000004:2:40000010:5:40000011:100:40000013:1\n'
+    '2:1:1:1:1:4000:40000004:0\n'
+    # write 100 B at 100: consecutive (2 us)
+    '2:1:1:1:1:5000:40000004:2:40000010:5:40000011:100:40000013:1\n'
+    '2:1:1:1:1:7000:40000004:0\n'
+    # seek to 300, write 100 B: forward, gap 100
+    '2:1:1:1:1:8000:40000004:16:40000010:5:40000075:300\n'
+    '2:1:1:1:1:9000:40000004:0\n'
+    '2:1:1:1:1:10000:40000004:2:40000010:5:40000011:100:40000013:1\n'
+    '2:1:1:1:1:11000:40000004:0\n'
+    # seek to 500, write 100 B: strided, gap 100 again
+    '2:1:1:1:1:12000:40000004:16:40000010:5:40000075:500\n'
+    '2:1:1:1:1:13000:40000004:0\n'
+    '2:1:1:1:1:14000:40000004:2:40000010:5:40000011:100:40000013:1\n'
+    '2:1:1:1:1:15000:40000004:0\n'
+    # seek to 600, the current position (2 us)
+    '2:1:1:1:1:16000:40000004:16:40000010:5:40000075:600\n'
+    '2:1:1:1:1:18000:40000004:0\n'
+    # seek to 0, write 50 B: backward (rewrites 50 B)
+    '2:1:1:1:1:19000:40000004:16:40000010:5:40000075:0\n'
+    '2:1:1:1:1:20000:40000004:0\n'
+    '2:1:1:1:1:21000:40000004:2:40000010:5:40000011:50:40000013:1\n'
+    '2:1:1:1:1:22000:40000004:0\n'
+    # pwrite of 10 B: offset not recorded
+    '2:1:1:1:1:23000:40000004:6:40000010:5:40000011:10:40000013:1\n'
+    '2:1:1:1:1:24000:40000004:0\n'
+    # write to the terminal: not classified
+    '2:1:1:1:1:25000:40000004:2:40000010:1:40000011:8:40000013:4\n'
+    '2:1:1:1:1:26000:40000004:0\n'
+    # seek without offset (older Extrae), write 10 B: unknown
+    '2:1:1:1:1:27000:40000004:16:40000010:5\n'
+    '2:1:1:1:1:28000:40000004:0\n'
+    '2:1:1:1:1:29000:40000004:2:40000010:5:40000011:10:40000013:1\n'
+    '2:1:1:1:1:30000:40000004:0\n'
+    '2:1:1:1:1:31000:40000004:14:40000010:5\n'
+    '2:1:1:1:1:32000:40000004:0\n'
+    # task 2: read without a traced open (unknown), then seek to 40 and
+    # read 20 B (first)
+    '2:1:2:1:1:1000:40000004:1:40000010:7:40000011:20:40000013:1\n'
+    '2:1:2:1:1:2000:40000004:0\n'
+    '2:1:2:1:1:3000:40000004:16:40000010:7:40000075:40\n'
+    '2:1:2:1:1:4000:40000004:0\n'
+    '2:1:2:1:1:5000:40000004:1:40000010:7:40000011:20:40000013:1\n'
+    '2:1:2:1:1:6000:40000004:0\n'
+)
+
+ACCESS_PATTERN_PCF = (
+    'EVENT_TYPE\n'
+    '6    40000059    I/O file name\n'
+    'VALUES\n'
+    '1      /data/out.dat\n'
+    '\n'
+)
+
+
+class AccessPatternTests(unittest.TestCase):
+
+    def _parse(self):
+        from rawdata import parse_io_access_pattern_trace
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.io_requests.prv')
+            with open(path, 'w') as f:
+                f.write(ACCESS_PATTERN_TRACE)
+            with open(path[:-4] + '.pcf', 'w') as f:
+                f.write(ACCESS_PATTERN_PCF)
+            return parse_io_access_pattern_trace(path)
+
+    def test_classes(self):
+        pattern = self._parse()
+        write = pattern['write']
+
+        self.assertEqual(write['first'],
+                         {'requests': 1.0, 'bytes': 100.0, 'time': 1.0})
+        self.assertEqual(write['consecutive'],
+                         {'requests': 1.0, 'bytes': 100.0, 'time': 2.0})
+        self.assertEqual(write['forward']['bytes'], 100.0)
+        self.assertEqual(write['strided']['bytes'], 100.0)
+        self.assertEqual(write['backward']['bytes'], 50.0)
+        # The pwrite and the write after a seek without offset.
+        self.assertEqual(write['unknown']['requests'], 2.0)
+        self.assertEqual(write['unknown']['bytes'], 20.0)
+        # The terminal write is not classified.
+        self.assertEqual(pattern['non_file'], {'read': 0.0, 'write': 1.0})
+
+        read = pattern['read']
+        self.assertEqual(read['unknown']['requests'], 1.0)
+        self.assertEqual(read['first']['requests'], 1.0)
+
+    def test_seeks_and_reaccess(self):
+        pattern = self._parse()
+
+        self.assertEqual(pattern['seeks'], {
+            'calls': 6.0, 'with_offset': 5.0, 'to_current': 1.0,
+            'to_current_time': 2.0, 'time': 7.0})
+        # 450 B written with a known offset over 400 distinct bytes.
+        self.assertEqual(pattern['reaccess']['write'],
+                         {'bytes': 450.0, 'distinct': 400.0})
+        self.assertEqual(pattern['reaccess']['read'],
+                         {'bytes': 20.0, 'distinct': 20.0})
+
+    def test_diagnostics(self):
+        from iometrics import access_pattern_diagnostics, io_access_pattern
+
+        data = {'access_pattern': self._parse()}
+        rows = {row['class']: row for row in io_access_pattern(data)['write']}
+
+        self.assertAlmostEqual(rows['consecutive']['bytes_pct'],
+                               100.0 / 470.0 * 100.0)
+        self.assertEqual(rows['first']['label'], 'First')
+
+        metrics = access_pattern_diagnostics(data)
+
+        self.assertAlmostEqual(metrics['io_write_consecutive_volume'],
+                               100.0 / 470.0 * 100.0)
+        self.assertAlmostEqual(metrics['io_write_offset_coverage'],
+                               5.0 / 7.0 * 100.0)
+        self.assertAlmostEqual(metrics['io_write_reaccessed_volume'],
+                               50.0 / 450.0 * 100.0)
+        self.assertEqual(metrics['io_read_offset_coverage'], 50.0)
+        self.assertEqual(metrics['io_seek_to_current'], 20.0)
+
+    def test_no_access_pattern(self):
+        from iometrics import access_pattern_diagnostics, io_access_pattern
+
+        self.assertEqual(io_access_pattern({'access_pattern': None}), {})
+        self.assertTrue(all(
+            value == NON_AVAIL
+            for value in access_pattern_diagnostics({}).values()))
+
+    def test_distinct_bytes(self):
+        from rawdata import _distinct_bytes
+
+        self.assertEqual(_distinct_bytes([(0, 10), (5, 15), (20, 30)]), 25)
+        self.assertEqual(_distinct_bytes([(0, 10), (2, 4)]), 10)
+        self.assertEqual(_distinct_bytes([]), 0)
+
+    def test_tables_csv_and_report(self):
+        from iometrics import (io_access_pattern,
+                               print_io_access_pattern_csv,
+                               print_io_access_pattern_tables)
+        from interactiveplots import _build_io_access_pattern_plot_html
+
+        other_metrics = {'io_access_pattern': {
+            't1': io_access_pattern({'access_pattern': self._parse()}),
+            't2': {},
+        }}
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            print_io_access_pattern_tables(
+                other_metrics, ['t1', 't2'], ['2[1]', '2[2]'], 20)
+        text = output.getvalue()
+        self.assertIn('Write access pattern', text)
+        self.assertIn('Unknown offset', text)
+
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                with redirect_stdout(io.StringIO()):
+                    print_io_access_pattern_csv(other_metrics, ['t1', 't2'])
+                with open('io_access_pattern.csv') as f:
+                    lines = f.read().splitlines()
+            finally:
+                os.chdir(cwd)
+
+        # Header, and six classes of the reads and of the writes of t1.
+        self.assertEqual(len(lines), 13)
+        self.assertTrue(lines[1].startswith('"t1";"read";"First";1;20;'))
+
+        plot = _build_io_access_pattern_plot_html(
+            other_metrics, ['t1', 't2'], ['2 [T1]', '2 [T2]'], 'write')
+        self.assertIn('Write access pattern', plot)
+        self.assertIn('2 [T1] \\u00b7 Bytes', plot)
+        self.assertNotIn('2 [T2]', plot)
+        self.assertEqual(_build_io_access_pattern_plot_html(
+            {}, ['t1'], ['2 [T1]'], 'read'), '')

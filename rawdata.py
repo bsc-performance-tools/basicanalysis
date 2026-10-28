@@ -123,6 +123,20 @@ IO_FILE_NAME_EVENT = 40000059
 IO_OPEN_CALLS = (11, 12)       # open, fopen
 IO_CLOSE_CALLS = (14, 15)      # close, fclose
 
+# Access pattern of the POSIX and ANSI C reads and writes. Extrae records
+# the offset argument of the seeks (40000075, without whence; only recent
+# Extrae versions) and the descriptor type of the reads and writes
+# (40000013), but not the offset of the reads and writes: it is rebuilt
+# from the open (position 0), the seeks, and the request sizes. The
+# pread/pwrite family does not record its offset argument.
+IO_OFFSET_EVENT = 40000075
+IO_DESCRIPTOR_TYPE_EVENT = 40000013
+IO_SEEK_CALLS = (16, 17)                 # lseek, fseek
+IO_POSITIONED_CALLS = (5, 6, 9, 10)      # pread, pwrite, preadv, pwritev
+IO_NON_FILE_DESCRIPTOR_TYPES = (2, 3, 4)  # socket, FIFO or pipe, terminal
+IO_ACCESS_PATTERN_CLASSES = (
+    'first', 'consecutive', 'strided', 'forward', 'backward', 'unknown')
+
 
 SUMMARY_KEYS = {"Total", "Average", "Maximum", "Minimum", "StDev", "Num.", "Avg/Max", "Num. Cells"}
 
@@ -1188,8 +1202,8 @@ def parse_io_call_table(path):
 
 
 def io_requests_trace_path(trace_name):
-    """Temporary trace with only the I/O call, size, descriptor, and file
-    name events."""
+    """Temporary trace with only the I/O call, size, descriptor, descriptor
+    type, file name, and offset events."""
     return trace_name + '.io_requests.prv'
 
 
@@ -1211,9 +1225,10 @@ def trace_has_io_call_events(trace_name_control):
 def filter_io_request_events(trace, trace_name, trace_name_control, cfgs,
                              cmdl_args):
     """Write a temporary trace that keeps only the I/O call and size events
-    of POSIX/ANSI C and MPI-IO, and the descriptor and file name of the
-    POSIX/ANSI C calls (cfgs/io-requests-filter.xml), for the request-size
-    distribution and the files accessed. Paraver reads the full trace; the
+    of POSIX/ANSI C and MPI-IO, and the descriptor, descriptor type, file
+    name, and seek offset of the POSIX/ANSI C calls
+    (cfgs/io-requests-filter.xml), for the request-size distribution, the
+    files accessed, and the access pattern. Paraver reads the full trace; the
     requests and files are then taken from the much smaller filtered
     trace."""
     if not trace_has_io_call_events(trace_name_control):
@@ -1650,6 +1665,248 @@ def parse_io_files_trace(path):
     }
 
 
+def _distinct_bytes(regions):
+    """Bytes covered by the union of the regions [start, end)."""
+    distinct = 0
+    end = None
+
+    for start, stop in sorted(regions):
+        if end is None or start >= end:
+            distinct += stop - start
+            end = stop
+        elif stop > end:
+            distinct += stop - end
+            end = stop
+
+    return distinct
+
+
+def parse_io_access_pattern_trace(path):
+    """Access pattern of the POSIX and ANSI C reads and writes, from the
+    filtered trace.
+
+    The position of each descriptor of a process (the threads share it) is
+    rebuilt: an open or fopen sets it to 0, a seek to the recorded offset
+    (SEEK_SET assumed: Extrae does not record whence), and a read or write
+    starts at the position and advances it by its requested size. A seek
+    without an offset (Extrae versions without the offset event) makes the
+    position unknown until the next open; a descriptor without a traced
+    open has no position until its first seek with an offset.
+
+    Each request is compared with the previous request of the same kind on
+    the descriptor, through gap = offset - end of the previous request:
+    'first' (no previous request), 'consecutive' (gap 0), 'strided' (gap
+    not 0 and equal to the previous gap), 'forward' (gap > 0), 'backward'
+    (gap < 0), or 'unknown' (no position, or a call of the pread/pwrite
+    family, whose offset is not recorded; these calls do not move the
+    position). Requests on sockets, pipes, and terminals have no position
+    and are not classified. Requests of size 0 are not counted. Times are
+    counted when the call ends; a call that starts before the previous call
+    of the same thread has ended replaces it, as in
+    parse_io_requests_trace.
+
+    Returns:
+        dict: {
+            'read'/'write': {class: {'requests', 'bytes', 'time'}},
+            'non_file': {'read'/'write': requests on non-file descriptors},
+            'seeks': {'calls', 'with_offset', 'to_current',
+                      'to_current_time', 'time'},
+            'reaccess': {'read'/'write': {'bytes', 'distinct'}},
+        }
+        with the time in microseconds. 'reaccess' compares, per process
+        and file, the bytes moved by the requests with a known offset with
+        the distinct bytes they cover.
+    """
+    names = parse_pcf_event_values(path[:-4] + '.pcf', IO_FILE_NAME_EVENT)
+    operations = {
+        value: operation
+        for operation, values in IO_REQUEST_SIZE_FAMILIES.items()
+        for value in values
+    }
+    call_event = str(IO_CALL_EVENT)
+    size_event = str(IO_SIZE_EVENT)
+    descriptor_event = str(IO_DESCRIPTOR_EVENT)
+    name_event = str(IO_FILE_NAME_EVENT)
+    offset_event = str(IO_OFFSET_EVENT)
+    type_event = str(IO_DESCRIPTOR_TYPE_EVENT)
+
+    pattern = {
+        operation: {
+            name: {'requests': 0.0, 'bytes': 0.0, 'time': 0.0}
+            for name in IO_ACCESS_PATTERN_CLASSES
+        }
+        for operation in IO_REQUEST_SIZE_OPERATIONS
+    }
+    non_file = {operation: 0.0 for operation in IO_REQUEST_SIZE_OPERATIONS}
+    seeks = {'calls': 0.0, 'with_offset': 0.0, 'to_current': 0.0,
+             'to_current_time': 0.0, 'time': 0.0}
+
+    # State of each descriptor of a process, (application, task,
+    # descriptor): 'position' (None when unknown), 'file' (key of the
+    # accessed regions), and per operation the end and the gap of the last
+    # request.
+    streams = {}
+    # Regions [start, end) of the requests with a known offset, per
+    # operation and (application, task, file).
+    regions = {operation: {} for operation in IO_REQUEST_SIZE_OPERATIONS}
+    # Descriptors without a file name are told apart by a counter.
+    unnamed_files = [0]
+    # Call in progress of each thread: (stats of the request or None, its
+    # size, whether a seek goes to the current position or None, start).
+    open_calls = {}
+    time_to_us = 1.0
+
+    def new_stream(position, file_key):
+        return {'position': position, 'file': file_key,
+                'end': {}, 'gap': {}}
+
+    def unnamed_file():
+        unnamed_files[0] += 1
+        return ('unnamed', unnamed_files[0])
+
+    with open(path) as f:
+        for line_number, line in enumerate(f):
+            if line_number == 0:
+                time_to_us = _trace_time_to_us(line)
+                continue
+
+            if not line.startswith('2:'):
+                continue
+
+            fields = line.rstrip('\n').split(':')
+            events = dict(zip(fields[6::2], fields[7::2]))
+
+            if call_event not in events:
+                continue
+
+            thread = (fields[2], fields[3], fields[4])
+            timestamp = int(fields[5])
+            value = int(events[call_event])
+
+            if value == 0:
+                call = open_calls.pop(thread, None)
+
+                if call is None:
+                    continue
+
+                stats, size, to_current, start = call
+                duration = (timestamp - start) * time_to_us
+
+                if stats is not None:
+                    stats['requests'] += 1
+                    stats['bytes'] += size
+                    stats['time'] += duration
+                elif to_current is not None:
+                    seeks['time'] += duration
+
+                    if to_current:
+                        seeks['to_current_time'] += duration
+
+                continue
+
+            descriptor = events.get(descriptor_event)
+            key = (fields[2], fields[3], descriptor)
+            stats = None
+            size = 0
+            to_current = None
+
+            if value in IO_OPEN_CALLS:
+                if _valid_descriptor(descriptor):
+                    if name_event in events:
+                        name = names.get(int(events[name_event]),
+                                         events[name_event])
+                        file_key = ('file', name)
+                    else:
+                        file_key = unnamed_file()
+
+                    streams[key] = new_stream(0, file_key)
+            elif value in IO_CLOSE_CALLS:
+                streams.pop(key, None)
+            elif value in IO_SEEK_CALLS:
+                seeks['calls'] += 1
+                stream = streams.get(key)
+
+                if stream is None:
+                    stream = streams[key] = new_stream(None, unnamed_file())
+
+                if offset_event in events:
+                    offset = int(events[offset_event])
+                    seeks['with_offset'] += 1
+                    to_current = stream['position'] == offset
+                    stream['position'] = offset
+
+                    if to_current:
+                        seeks['to_current'] += 1
+                else:
+                    to_current = False
+                    stream['position'] = None
+            elif value in operations:
+                operation = operations[value]
+                size = int(events.get(size_event, 0))
+
+                if size > 0 and int(events.get(type_event, 0)) in (
+                        IO_NON_FILE_DESCRIPTOR_TYPES):
+                    non_file[operation] += 1
+                elif size > 0:
+                    stream = streams.get(key)
+
+                    if (value in IO_POSITIONED_CALLS or stream is None
+                            or stream['position'] is None):
+                        name = 'unknown'
+                    else:
+                        offset = stream['position']
+                        previous_end = stream['end'].get(operation)
+
+                        if previous_end is None:
+                            name = 'first'
+                        else:
+                            gap = offset - previous_end
+
+                            if gap == 0:
+                                name = 'consecutive'
+                            elif gap == stream['gap'].get(operation):
+                                name = 'strided'
+                            elif gap > 0:
+                                name = 'forward'
+                            else:
+                                name = 'backward'
+
+                            stream['gap'][operation] = gap
+
+                        stream['end'][operation] = offset + size
+                        stream['position'] = offset + size
+                        regions[operation].setdefault(
+                            (fields[2], fields[3], stream['file']), []
+                        ).append((offset, offset + size))
+
+                    stats = pattern[operation][name]
+
+            # Counted when the call ends; a call that starts before the
+            # previous one of the thread has ended replaces it.
+            open_calls[thread] = (stats, size, to_current, timestamp)
+
+    reaccess = {}
+
+    for operation in IO_REQUEST_SIZE_OPERATIONS:
+        moved = 0
+        distinct = 0
+
+        for accessed in regions[operation].values():
+            moved += sum(stop - start for start, stop in accessed)
+            distinct += _distinct_bytes(accessed)
+
+        reaccess[operation] = {'bytes': float(moved),
+                               'distinct': float(distinct)}
+
+    result = {operation: pattern[operation]
+              for operation in IO_REQUEST_SIZE_OPERATIONS}
+    result['non_file'] = non_file
+    result['seeks'] = seeks
+    result['reaccess'] = reaccess
+
+    return result
+
+
 def flushing_stats_has_data(path):
     with open(path) as f:
         for line in f:
@@ -1712,6 +1969,10 @@ def create_io_raw_data():
         # Files accessed by the POSIX and ANSI C calls (see
         # parse_io_files_trace). None when the trace was not filtered.
         'file_access': None,
+        # Access pattern of the POSIX and ANSI C reads and writes (see
+        # parse_io_access_pattern_trace). None when the trace was not
+        # filtered.
+        'access_pattern': None,
         # Per-unit time and count of every traced I/O call, by API
         # (see parse_io_call_table). Empty when the trace has no calls of
         # that API.
@@ -3205,6 +3466,10 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
 
         # Files accessed by the POSIX and ANSI C calls
         trace_io_data['file_access'] = parse_io_files_trace(
+            io_requests_trace_path(trace_name))
+
+        # Access pattern of the POSIX and ANSI C reads and writes
+        trace_io_data['access_pattern'] = parse_io_access_pattern_trace(
             io_requests_trace_path(trace_name))
 
         if not cmdl_args.debug:

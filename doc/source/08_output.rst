@@ -71,9 +71,11 @@ The main files include:
    and the I/O diagnostics: time fractions, participation, contributions,
    load balance, the time, count, and mean duration of each group of I/O
    calls, the read and write volume, mean request size, and
-   request-size coverage, and the files accessed, maximum processes per
+   request-size coverage, the files accessed, maximum processes per
    file, volume moved by the main process of each file, and file-name
-   coverage.
+   coverage, and the volume in consecutive requests, volume re-accessed,
+   and offset coverage of the reads and writes, and the share of redundant
+   seeks.
 
 ``io_request_sizes.csv``
    Written when the traces have read or write requests. One row per
@@ -90,6 +92,12 @@ The main files include:
    shares of the I/O time and of the bytes. The row *(descriptors without a
    traced open)* collects the calls on descriptors without an open in the
    trace.
+
+``io_access_pattern.csv``
+   Written when the traces have POSIX or ANSI C reads or writes to regular
+   files. One row per execution, operation, and access-pattern class
+   (first, consecutive, strided, forward, backward, unknown offset), with
+   the number of requests, bytes, time, and their shares of the operation.
 
 ``modelfactors.csv``
    Contains the application-level hierarchical efficiency and scalability

@@ -109,7 +109,8 @@ The following assumptions and limitations apply:
   application computation and counts as useful time. A library that spends
   more CPU time therefore increases I/O Efficiency.
 * **Descriptor types.** Calls on non-file descriptors (standard output,
-  sockets, pipes) are counted as File I/O.
+  sockets, pipes) are counted as File I/O; only the access pattern
+  excludes them.
 * **I/O not visible in the trace.** Memory-mapped I/O, asynchronous I/O,
   and I/O performed by threads that are not instrumented are not measured.
 * **Whole-execution aggregation.** The metrics describe the whole execution;
@@ -139,6 +140,21 @@ The following assumptions and limitations apply:
   are identified by the name passed to ``open``: the same file opened with
   different paths (relative and absolute, or through links) appears as
   several files. A failed ``open`` counts as an open of the file.
+* **Access pattern.** The offset of the reads and writes is rebuilt from
+  the ``open`` calls, the seeks, and the request sizes. Extrae records the
+  seek offset without its origin (``whence``): every seek is taken as
+  absolute (``SEEK_SET``), so a relative seek (``SEEK_CUR``, ``SEEK_END``)
+  misplaces the following requests of the descriptor. The seek offset is
+  recorded only by recent Extrae versions; with older versions, the
+  position is unknown after the first seek. The size is the requested size,
+  so a short read advances the position too far. The open flags are not
+  recorded: the writes to a file opened with ``O_APPEND`` go to its end,
+  whatever the position. The ``pread``/``pwrite`` family, MPI-IO, and
+  descriptors without a traced ``open`` (until their first seek) have no
+  known offset (see the offset coverage). ``fread``/``fwrite`` show the
+  pattern presented to the C library, before its buffering. The pattern is
+  given per process: how the regions of several processes fit together in a
+  shared file is not analyzed.
 
 These metrics do not characterize achieved I/O bandwidth, storage-system
 utilization, or filesystem contention. They identify whether File I/O has a

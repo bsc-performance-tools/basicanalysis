@@ -702,7 +702,7 @@ intervals (see `Interval boundaries`_) provide it directly.
 Access Pattern
 ~~~~~~~~~~~~~~
 
-*Proposal (2026-10-28), under discussion.* The access pattern describes
+*Decided (2026-10-29) and implemented.* The access pattern describes
 where each request falls in the file with respect to the previous request
 of the same process: one after the other, with regular jumps, or anywhere.
 The same volume and request sizes can cost very different times depending
@@ -748,8 +748,10 @@ size. The offset of each request is the position at its start.
 Offset event only in recent traces
 """"""""""""""""""""""""""""""""""
 
-The ``I/O offset`` event (``40000075``) is recent: it was added to Extrae
-at our request (version to be confirmed), so only recent traces have it.
+The ``I/O offset`` event (``40000075``) is recent: Extrae added it at our
+request and delivered it first in a special installation; the first public
+Extrae version that includes it is still to be confirmed with the Extrae
+team. Only recent traces have it.
 Of the traces used in this design, the VTKHDF traces (July 2026) have it
 in all of their 417,596 seeks; the cfdem trace (April 2025) does not
 define it. Without the offset, the position is lost at the first seek of
@@ -1395,13 +1397,13 @@ Current Raw-Data Coverage
 | Per-rank detailed workload         | Counts per unit in the CSV;  |
 |                                    | bytes per unit to be checked |
 +------------------------------------+------------------------------+
-| Offset-based access pattern        | Reconstructable for          |
+| Offset-based access pattern        | Implemented for              |
 |                                    | read/write/fread/fwrite from |
 |                                    | open and seek (event         |
 |                                    | 40000075, recent Extrae      |
 |                                    | only); not for pread/pwrite  |
-|                                    | or MPI-IO; proposed (see     |
-|                                    | `Access Pattern`_)           |
+|                                    | or MPI-IO (see `Access       |
+|                                    | Pattern`_)                   |
 +------------------------------------+------------------------------+
 | Alignment analysis                 | Offsets in the trace;        |
 |                                    | needs file-system context    |
@@ -1726,6 +1728,16 @@ Open Formal and Design Questions
 
 #. **Access pattern** (proposal of 2026-10-28, see `Access Pattern`_)
 
+   *Decided (2026-10-29):* the classes and the Darshan meaning of
+   *sequential* as proposed, strided when the gap equals the previous gap;
+   ``SEEK_SET`` assumed and documented, without detection of relative
+   seeks; redundant seeks reported in the *Which calls take the time?*
+   card and the re-accessed volume in the *What requests are made?* card;
+   the Extrae team is asked to record the ``pread``/``pwrite`` offset and
+   the seek ``whence``, and which public version includes the offset
+   event; shared files (partitioned versus interleaved regions) left for
+   later.
+
    * Are the classes (consecutive, strided, forward, backward) and the
      Darshan meaning of *sequential* the right ones? Should a strided
      pattern need more than two equal gaps?
@@ -1814,6 +1826,20 @@ for the first I/O report.
 
 Review Log
 ----------
+
+*2026-10-29* -- Access pattern decided and implemented (recommendations
+accepted; see the open question). ``rawdata.parse_io_access_pattern_trace``
+reads the filtered trace, which also keeps the descriptor type
+(``40000013``) and the seek offset (``40000075``); positions per process
+and descriptor; requests counted when the call ends, as the requests and
+files. Diagnostics: volume in consecutive requests, volume re-accessed,
+and offset coverage of the reads and writes, and redundant seeks;
+``io_access_pattern.csv``; access-pattern plots in the requests card and
+the redundant seeks in the calls card. Validated: VTKHDF 100k and 2M
+identical to the prototype through the filtered trace (9.22% and 9.24%
+redundant seeks, 0.032 s of 0.296 s of seek time in 100k); cfdem: 40,084
+terminal writes excluded, the 19,738 writes to descriptor 3 (no traced
+open) with an unknown offset.
 
 *2026-10-29* -- Access-pattern proposal completed: the offset event is
 recent (added to Extrae at our request; the cfdem trace of April 2025 does

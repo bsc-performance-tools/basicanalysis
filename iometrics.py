@@ -197,6 +197,35 @@ FILE_DIAGNOSTICS = [
     'io_file_name_coverage',
 ]
 
+# Access pattern of the POSIX and ANSI C reads and writes to regular files
+# (see rawdata.parse_io_access_pattern_trace): each request is compared
+# with the previous request of the same kind on the same descriptor.
+ACCESS_PATTERN_CLASSES = OrderedDict([
+    ('first', 'First'),
+    ('consecutive', 'Consecutive'),
+    ('strided', 'Strided'),
+    ('forward', 'Forward'),
+    ('backward', 'Backward'),
+    ('unknown', 'Unknown offset'),
+])
+
+for _operation in REQUEST_SIZE_OPERATIONS:
+    _label = OPERATION_LABELS[_operation]
+    IO_DIAGNOSTICS_DOC['io_{}_consecutive_volume'.format(_operation)] = (
+        '{} volume in consecutive requests (%)'.format(_label), '%')
+    IO_DIAGNOSTICS_DOC['io_{}_reaccessed_volume'.format(_operation)] = (
+        '{} volume re-accessed (%)'.format(_label), '%')
+    IO_DIAGNOSTICS_DOC['io_{}_offset_coverage'.format(_operation)] = (
+        '{} offset coverage (%)'.format(_label), '%')
+
+IO_DIAGNOSTICS_DOC['io_seek_to_current'] = (
+    'Seeks to the current position (%)', '%')
+
+# Diagnostics of the access pattern of each operation in
+# REQUEST_SIZE_OPERATIONS (io_<operation>_<quantity>).
+ACCESS_PATTERN_QUANTITIES = (
+    'consecutive_volume', 'reaccessed_volume', 'offset_coverage')
+
 # Name of the calls on descriptors without an open in the trace.
 UNNAMED_FILE_LABEL = '(descriptors without a traced open)'
 
@@ -552,6 +581,85 @@ def io_file_access_rows(trace_io_data):
     return rows
 
 
+def io_access_pattern(trace_io_data):
+    """Access pattern of the reads and writes of a trace.
+
+    Returns {operation: [row, ...]} for the operations with requests to
+    regular files, one row per class of ACCESS_PATTERN_CLASSES with the
+    'class', its 'label', the 'requests', 'bytes', and 'time' (us), and
+    their shares of the operation (requests_pct, bytes_pct, time_pct).
+    """
+    distribution = OrderedDict()
+    pattern = (trace_io_data or {}).get('access_pattern') or {}
+
+    for operation in REQUEST_SIZE_OPERATIONS:
+        classes = pattern.get(operation) or {}
+        totals = {
+            key: sum(stats[key] for stats in classes.values())
+            for key in ('requests', 'bytes', 'time')
+        }
+
+        if totals['requests'] <= 0.0:
+            continue
+
+        rows = []
+
+        for name, label in ACCESS_PATTERN_CLASSES.items():
+            stats = classes.get(
+                name, {'requests': 0.0, 'bytes': 0.0, 'time': 0.0})
+            row = OrderedDict([('class', name), ('label', label)])
+
+            for key in ('requests', 'bytes', 'time'):
+                row[key] = stats[key]
+                row[key + '_pct'] = _percentage(stats[key], totals[key])
+
+            rows.append(row)
+
+        distribution[operation] = rows
+
+    return distribution
+
+
+def access_pattern_diagnostics(trace_io_data):
+    """Diagnostics of the access pattern: per operation, the share of the
+    volume in consecutive requests, the share of the volume re-accessed by
+    the same process in the same file, and the share of the requests to
+    regular files with a known offset; and the share of the seeks (with an
+    offset) that go to the current position."""
+    keys = [
+        'io_{}_{}'.format(operation, quantity)
+        for operation in REQUEST_SIZE_OPERATIONS
+        for quantity in ACCESS_PATTERN_QUANTITIES
+    ] + ['io_seek_to_current']
+    metrics = OrderedDict((key, NON_AVAIL) for key in keys)
+    pattern = (trace_io_data or {}).get('access_pattern') or {}
+
+    if not pattern:
+        return metrics
+
+    for operation, rows in io_access_pattern(trace_io_data).items():
+        by_class = {row['class']: row for row in rows}
+        requests = sum(row['requests'] for row in rows)
+
+        metrics['io_{}_consecutive_volume'.format(operation)] = (
+            by_class['consecutive']['bytes_pct'])
+        metrics['io_{}_offset_coverage'.format(operation)] = _percentage(
+            requests - by_class['unknown']['requests'], requests)
+
+        reaccess = (pattern.get('reaccess') or {}).get(operation) or {}
+
+        if reaccess.get('bytes', 0.0) > 0.0:
+            metrics['io_{}_reaccessed_volume'.format(operation)] = (
+                _percentage(reaccess['bytes'] - reaccess['distinct'],
+                            reaccess['bytes']))
+
+    seeks = pattern.get('seeks') or {}
+    metrics['io_seek_to_current'] = _percentage(
+        seeks.get('to_current', 0.0), seeks.get('with_offset', 0.0))
+
+    return metrics
+
+
 def file_diagnostics(rows):
     """Diagnostics of the files accessed (FILE_DIAGNOSTICS) from the rows of
     io_file_access_rows."""
@@ -721,6 +829,9 @@ def compute_trace_io_metrics(useful_tot, runtime, io_units, trace_io_data):
     # Files (POSIX and ANSI C).
     metrics.update(file_diagnostics(io_file_access_rows(trace_io_data)))
 
+    # Access pattern (POSIX and ANSI C).
+    metrics.update(access_pattern_diagnostics(trace_io_data))
+
     return metrics, aggregate
 
 
@@ -751,6 +862,12 @@ def add_io_metrics(other_metrics, raw_data, io_data, trace_list):
     # for the report and io_files.csv.
     other_metrics['io_file_access'] = {
         trace: io_file_access_rows((io_data or {}).get(trace))
+        for trace in trace_list
+    }
+    # Internal key: access pattern of each trace (see io_access_pattern),
+    # for the report and io_access_pattern.csv.
+    other_metrics['io_access_pattern'] = {
+        trace: io_access_pattern((io_data or {}).get(trace))
         for trace in trace_list
     }
 
@@ -916,6 +1033,12 @@ def print_io_tables(other_metrics, trace_list, column_labels,
             longest_name,
             value_to_adjust,
         )
+        print_io_access_pattern_tables(
+            other_metrics,
+            trace_list,
+            column_labels,
+            longest_name,
+        )
         print_io_file_tables(other_metrics, trace_list, column_labels)
 
 
@@ -972,6 +1095,56 @@ def print_io_request_size_tables(other_metrics, trace_list, column_labels,
                 else:
                     cell = '{0:.1f} / {1:.1f}'.format(
                         bin_['count_pct'], bin_['time_pct'])
+
+                line += ' | ' + cell.rjust(width)
+
+            print(line)
+
+        print(''.ljust(len(line_head), '-'))
+
+
+def print_io_access_pattern_tables(other_metrics, trace_list, column_labels,
+                                   longest_name):
+    """Print the share of the requests, of the bytes, and of the time of
+    each access-pattern class of the reads and writes."""
+    patterns = other_metrics.get('io_access_pattern', {})
+
+    for operation in REQUEST_SIZE_OPERATIONS:
+        if not any((patterns.get(trace) or {}).get(operation)
+                   for trace in trace_list):
+            continue
+
+        # Cells hold three shares ('100.0 / 100.0 / 100.0').
+        width = 21
+        line_head = 'Access pattern'.ljust(longest_name)
+
+        for label in column_labels:
+            line_head += ' | ' + label.strip().rjust(width)
+
+        print('{} access pattern, POSIX and ANSI C on regular files '
+              '(% of requests / % of bytes / % of time):'.format(
+                  OPERATION_LABELS[operation]))
+        print(''.ljust(len(line_head), '-'))
+        print(line_head)
+        print(''.ljust(len(line_head), '-'))
+
+        for name, label in ACCESS_PATTERN_CLASSES.items():
+            line = label.ljust(longest_name)
+
+            for trace in trace_list:
+                rows = {
+                    row['class']: row
+                    for row in (patterns.get(trace) or {}).get(operation, [])
+                }
+                row = rows.get(name)
+
+                if row is None:
+                    cell = '-'
+                else:
+                    cell = ' / '.join(
+                        '-' if row[key] == NON_AVAIL
+                        else '{0:.1f}'.format(row[key])
+                        for key in ('requests_pct', 'bytes_pct', 'time_pct'))
 
                 line += ' | ' + cell.rjust(width)
 
@@ -1092,6 +1265,50 @@ def print_io_files_csv(other_metrics, trace_list):
 
     print('======== Output File: I/O Files ========')
     print('Files accessed written to ' + file_path)
+    print('')
+
+
+def print_io_access_pattern_csv(other_metrics, trace_list):
+    """Write the access pattern of the reads and writes to
+    io_access_pattern.csv, one row per trace, operation, and class."""
+    patterns = other_metrics.get('io_access_pattern', {})
+
+    if not any(patterns.get(trace) for trace in trace_list):
+        return
+
+    delimiter = ';'
+    file_path = os.path.join(os.getcwd(), 'io_access_pattern.csv')
+
+    columns = [
+        'Trace', 'Operation', 'Class', 'Requests', 'Bytes', 'Time (us)',
+        'Requests (%)', 'Bytes (%)', 'Time (%)',
+    ]
+
+    with open(file_path, 'w') as output:
+        output.write(delimiter.join('"' + c + '"' for c in columns) + '\n')
+
+        for trace in trace_list:
+            for operation, rows in (patterns.get(trace) or {}).items():
+                for row in rows:
+                    values = [
+                        '"' + trace + '"',
+                        '"' + operation + '"',
+                        '"' + row['label'] + '"',
+                        '{0:.0f}'.format(row['requests']),
+                        '{0:.0f}'.format(row['bytes']),
+                        '{0:.3f}'.format(row['time']),
+                    ]
+
+                    for key in ('requests_pct', 'bytes_pct', 'time_pct'):
+                        value = row[key]
+                        values.append(
+                            '{0:.6f}'.format(value)
+                            if isinstance(value, float) else str(value))
+
+                    output.write(delimiter.join(values) + '\n')
+
+    print('======== Output File: I/O Access Pattern ========')
+    print('Access pattern written to ' + file_path)
     print('')
 
 

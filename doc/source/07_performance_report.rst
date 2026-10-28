@@ -263,7 +263,8 @@ table of the plotted values:
   maximum I/O time fractions, the participation, and the load balance of
   Data Access, read, write, File Management, and open.
 * **Which calls take the time?** The time, number of operations, and mean
-  duration (logarithmic scale) of each kind of call.
+  duration (logarithmic scale) of each kind of call, and the share of
+  redundant seeks (seeks to the position the descriptor already has).
 * **What requests are made?** The volume and the mean request size
   (logarithmic scale) of the read and write calls; the request-size
   coverage is in the values. The *request-size histograms* below show, for
@@ -272,7 +273,13 @@ table of the plotted values:
   size interval. Compare the two panels: an interval with few requests and
   much of the time holds the expensive requests. Hovering over a bar shows
   the number of requests, the time, and the bytes. See
-  :ref:`requests <io-request-sizes>`.
+  :ref:`requests <io-request-sizes>`. The *access pattern* plots show, for
+  the reads and the writes of the POSIX and ANSI C calls to regular files,
+  the share of the requests, of the bytes, and of the time that are
+  consecutive, strided, forward, backward, first, or with an unknown
+  offset, as one stacked bar per execution and quantity; the values add the
+  volume in consecutive requests, the volume re-accessed, and the offset
+  coverage. See :ref:`access pattern <io-access-pattern>`.
 * **Which files are accessed?** A table with the files accessed, maximum
   processes per file, volume moved by the main process of each file, and
   file-name coverage. Then, for each execution, the I/O time of the ten

@@ -47,6 +47,18 @@
   execution), the standard output, `io_metrics.csv`, and the new
   `io_files.csv` (every file). The temporary trace of the requests also
   keeps the descriptor and file name events.
+- Access pattern of the POSIX and ANSI C reads and writes to regular files:
+  each request is first, consecutive, strided, forward, backward, or with
+  an unknown offset with respect to the previous request of the same kind
+  on the same descriptor, as shares of the requests, bytes, and time. The
+  offsets are rebuilt from the opens, the seek offsets (recorded only by
+  recent Extrae versions; taken as absolute), and the request sizes. New
+  diagnostics: volume in consecutive requests, volume re-accessed, and
+  offset coverage of the reads and writes, and redundant seeks (seeks to
+  the current position). Shown in the *What requests are made?* and *Which
+  calls take the time?* cards, the standard output, `io_metrics.csv`, and
+  the new `io_access_pattern.csv`. The temporary trace of the requests also
+  keeps the descriptor type and seek offset events.
 - The I/O Analysis view shows, after the efficiency table and its trends,
   four cards in reading order, each with a short note on how to read it and
   the diagnostics as plots (the values in a collapsible table): *Where is

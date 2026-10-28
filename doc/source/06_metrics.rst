@@ -3043,6 +3043,59 @@ In a cfdem execution, 80% of the POSIX I/O time is spent in one probe file
 of 61 KiB, written by one process in 223 writes of about 280 bytes (12 ms
 per write).
 
+.. _io-access-pattern:
+
+**Access pattern** of the POSIX and ANSI C reads and writes to regular
+files. Each request is compared with the previous request of the same kind
+(read or write) on the same descriptor of the same process, through the gap
+between its offset and the end of the previous request:
+
+* **first**: no previous request of that kind on the descriptor;
+* **consecutive**: the request starts where the previous one ended (gap 0);
+* **strided**: a gap that is not 0 and equals the previous gap (a regular
+  jump, repeated);
+* **forward** and **backward**: a jump ahead or back (a backward jump
+  includes reading or writing a region again);
+* **unknown offset**: the offset of the request is not known (see below).
+
+Consecutive, positive strided, and forward requests are *sequential* in the
+sense used by Darshan. For each class, BasicAnalysis gives the share of the
+requests, of the bytes, and of the time of the reads and of the writes: the
+classes that hold most requests may move few bytes. In a VTKHDF execution of
+112 processes, 78% of the read requests jump forward or backward, but 93% of
+the bytes read are consecutive: the jumps are small reads, consistent with
+HDF5 metadata lookups, and they take 74% of the read time.
+
+Extrae does not record the offset of the reads and writes. BasicAnalysis
+rebuilds it from the position of each descriptor: an ``open`` or ``fopen``
+sets it to 0, a seek (``lseek``, ``fseek``) to the offset recorded by
+Extrae, and each read or write starts at the position and advances it by its
+request size. The offset is unknown for the ``pread``/``pwrite`` family (the
+offset argument is not recorded), for descriptors without a traced
+``open`` until their first seek, and after a seek without a recorded offset.
+The seek offset is recorded only by recent Extrae versions; with older
+versions, the position is lost at the first seek of each descriptor. The
+**offset coverage** is the share of the requests to regular files with a
+known offset. Requests on sockets, pipes, and terminals (the descriptor type
+recorded by Extrae) have no position and are not classified. MPI-IO records
+no offset, so its requests are not classified.
+
+Two more diagnostics come from the same positions:
+
+* the **volume re-accessed**: the share of the bytes read (written) with a
+  known offset that the same process had already read (written) in the same
+  file. In the VTKHDF execution, 2.5% of the bytes read are re-read
+  (metadata read again after each open of a file);
+* the **redundant seeks**: the share of the seeks with an offset that go to
+  the position the descriptor already has. They move nothing, so their time
+  is File Management time that the application or the I/O library could
+  avoid. In the VTKHDF execution, 9.2% of the 417,596 seeks are redundant.
+
+The **volume in consecutive requests** of the reads and of the writes is
+reported with the I/O diagnostics. With chunks of 2M instead of 100k, the
+VTKHDF writes go from 94% to 29% of the bytes in consecutive requests: most
+writes then follow a forward gap.
+
 The I/O diagnostics are shown in the cards of the I/O Analysis view of the
 report and printed in the standard output (in both, rows that are zero for
 all the executions are omitted), and written to ``io_metrics.csv``. The
@@ -3050,7 +3103,10 @@ request-size distribution is shown in the histograms of the view and in the
 standard output (share of the requests and of the time), and written to
 ``io_request_sizes.csv`` (requests, time, bytes, and their shares). The
 files with the most I/O time are shown in the view and in the standard
-output, and all the files are written to ``io_files.csv``.
+output, and all the files are written to ``io_files.csv``. The access
+pattern is shown in the view and in the standard output (share of the
+requests, of the bytes, and of the time of each class), and written to
+``io_access_pattern.csv``.
 
 These metrics quantify the time of the File I/O captured in the trace. They
 do not measure achieved bandwidth or storage-system utilization. When File
