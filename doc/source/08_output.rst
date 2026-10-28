@@ -119,6 +119,23 @@ also writes ``device_hwc_metrics.csv`` with the GPU hardware counter metrics
 (percentages, and the GPC clock in MHz) and adds the integrals of the
 counters to ``rawdata.csv``.
 
+For GPU traces, ``talp_metrics.csv`` also contains the Device Work and
+Throughput Scalability (and, for *nsys2prv* traces with GPU metrics, the
+Device Issue and Frequency Scalability) when two or more traces are analyzed
+(see :ref:`device-work-throughput`). ``rawdata.csv`` adds the number of
+kernels executed on the devices and the GPU threads launched, and, for
+*nsys2prv* traces with GPU metrics, the integral of SM Issue multiplied by
+the GPC clock. With two or more GPU traces, BasicAnalysis also writes:
+
+``device_kernels.csv``
+   One row per execution other than the reference and kernel (or kernel
+   family), in decreasing change of the kernel time, with the work ratio of
+   the scaling model, the share of the kernel in the change of the device
+   time from the ideal, and the calls, time (us), and GPU threads launched of
+   the kernel in the reference and in the execution (see
+   :ref:`device-kernel-contributions`). The kernel column has the full name
+   recorded in the trace.
+
 When the analyzed traces use different programming models, BasicAnalysis
 also writes:
 

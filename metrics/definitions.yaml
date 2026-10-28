@@ -1329,11 +1329,153 @@ metrics:
     next_steps:
     - Compare device kernel execution and hardware-efficiency characteristics with the reference execution, including kernel
       durations, occupancy or available parallelism, SIMD/SIMT execution behavior, memory-system behavior, and instruction mix.
+    - Inspect Device Work and Throughput Scalability.
 
-    children: []
+    children:
+    - dev_work_scale
+    - dev_throughput_scale
 
     sources:
     - basicanalysis_host_device
+  dev_work_scale:
+    name: Device Work Scalability
+    short_name: Dev Work
+    family: device
+    analysis_level: execution_domain
+    metric_type: scalability
+    definition: >
+      Measures how the work done by the devices changes relative to the work
+      expected by the scaling model. The work is measured as the instructions
+      issued by the GPU (SM Issue x GPC clock) in nsys2prv traces with GPU
+      metrics, and as the GPU threads launched (blocks per grid x threads per
+      block) in the other traces.
+    formula:
+      text: DevWorkScale = W_ref * r / W, with r the work ratio of the scaling model (1 in strong scaling)
+      latex: DevWorkScale = \frac{W_{ref} \cdot r}{W}
+      variables:
+        W: Work of all devices (issued instructions or GPU threads launched)
+        r: Work ratio of the scaling model (devices or device workload ratio)
+    interpretation:
+      low: >
+        Low values indicate that the devices do more work than expected by the
+        scaling model, e.g. replicated or redundant work, halo exchanges, or
+        more kernels.
+      high: >
+        Values near 100% indicate that the devices do the work expected by the
+        scaling model.
+      above_100: >
+        Values above 100% indicate that the devices do less work than expected
+        by the scaling model.
+    typical_causes:
+    - Replicated or redundant device work
+    - Halo or boundary kernels that grow with the decomposition
+    - Different algorithms or library kernels for different problem sizes
+    next_steps:
+    - Inspect the kernel contribution table.
+    children: []
+    sources:
+    - basicanalysis_host_device
+  dev_throughput_scale:
+    name: Device Throughput Scalability
+    short_name: Dev Throughput
+    family: device
+    analysis_level: execution_domain
+    metric_type: compound_scalability
+    definition: >
+      Measures how the work done per unit of useful device time changes
+      relative to the reference execution. Device Computation Scalability =
+      Device Work Scalability x Device Throughput Scalability.
+    formula:
+      text: DevThroughputScale = (W / U) / (W_ref / U_ref) = DevCompScale / DevWorkScale
+      latex: DevThroughputScale = \frac{W / U}{W_{ref} / U_{ref}}
+      variables:
+        W: Work of all devices
+        U: Useful device time of all devices
+    interpretation:
+      low: >
+        Low values indicate that the devices do the same work more slowly than
+        in the reference execution.
+      high: >
+        Values near 100% indicate that the device throughput is preserved.
+      above_100: >
+        Values above 100% indicate that the devices do the work faster than in
+        the reference execution, e.g. larger kernels that use the GPU better.
+    typical_causes:
+    - Smaller kernels with lower occupancy
+    - Kernel launch latency
+    - Lower clock frequency
+    - Memory-system pressure
+    next_steps:
+    - Inspect Device Issue and Frequency Scalability (nsys2prv traces with GPU metrics).
+    - Inspect the kernel contribution table.
+    children:
+    - dev_issue_scale
+    - dev_freq_scale
+    sources:
+    - basicanalysis_host_device
+  dev_issue_scale:
+    name: Device Issue Scalability
+    short_name: Dev Issue
+    family: device
+    analysis_level: execution_domain
+    metric_type: scalability
+    definition: >
+      Measures how the mean SM Issue during the kernels changes relative to the
+      reference execution. Available for nsys2prv traces with GPU metrics.
+    formula:
+      text: DevIssueScale = (I_SMIssue / U) / (I_SMIssue_ref / U_ref)
+      latex: DevIssueScale = \frac{I_{SMIssue} / U}{I_{SMIssue,ref} / U_{ref}}
+      variables:
+        I_SMIssue: Integral of SM Issue over the trace (0 without kernels)
+        U: Useful device time of all devices
+    interpretation:
+      low: >
+        Low values indicate that the SMs issue fewer instructions per cycle
+        during the kernels than in the reference execution.
+      high: >
+        Values near 100% indicate that the instruction issue rate is preserved.
+      above_100: >
+        Values above 100% indicate that the SMs issue more instructions per
+        cycle than in the reference execution.
+    typical_causes:
+    - Occupancy changes
+    - Memory stalls
+    - Kernel size and launch overhead
+    next_steps:
+    - Inspect the GPU Hardware Counters view.
+    children: []
+    sources:
+    - basicanalysis_gpu_hwc
+  dev_freq_scale:
+    name: Device Frequency Scalability
+    short_name: Dev Freq
+    family: device
+    analysis_level: execution_domain
+    metric_type: scalability
+    definition: >
+      Measures how the mean GPC clock while the SMs issue instructions changes
+      relative to the reference execution. Available for nsys2prv traces with
+      GPU metrics.
+    formula:
+      text: DevFreqScale = (I_SMIssue_x_clock / I_SMIssue) / (I_SMIssue_x_clock_ref / I_SMIssue_ref)
+      latex: DevFreqScale = \frac{\overline{f}}{\overline{f}_{ref}}, \quad \overline{f} = \frac{I_{SMIssue \cdot f}}{I_{SMIssue}}
+    interpretation:
+      low: >
+        Low values indicate that the GPU runs at a lower clock than in the
+        reference execution, e.g. because of power or thermal limits.
+      high: >
+        Values near 100% indicate that the clock is preserved.
+      above_100: >
+        Values above 100% indicate a higher clock than in the reference
+        execution.
+    typical_causes:
+    - Power capping
+    - Thermal throttling
+    next_steps:
+    - Inspect the GPC Clock in the GPU Hardware Counters view.
+    children: []
+    sources:
+    - basicanalysis_gpu_hwc
   avg_frequency:
     name: Average Frequency
     short_name: Avg Frequency

@@ -2148,6 +2148,131 @@ Under ideal weak scaling, aggregate useful device computation grows
 proportionally with the number of physical devices, resulting in a value
 close to 100%.
 
+.. _device-work-throughput:
+
+Device Work and Throughput Scalability
+""""""""""""""""""""""""""""""""""""""
+
+A low Device Computation Scalability can mean that the devices do more work
+or that they do the same work more slowly. With a measure :math:`W_n` of the
+work done by all the devices in configuration :math:`n`, BasicAnalysis splits
+it exactly into two factors, as Host Computation Scalability is split into
+Instruction, IPC, and Frequency Scalability:
+
+.. math::
+
+   Device\_CompScale_n = Device\_WorkScale_n \cdot Device\_ThroughputScale_n
+
+.. math::
+
+   Device\_WorkScale_n = \frac{W_0 \cdot r_n}{W_n},
+   \qquad
+   Device\_ThroughputScale_n =
+   \frac{W_n / UsefulDevice_n}{W_0 / UsefulDevice_0}
+
+where :math:`r_n` is the work ratio of the scaling model: 1 in strong
+scaling, :math:`D_n/D_0` in weak scaling, and the device workload ratio in the
+user-defined workload mode (see :ref:`cha:running-basicanalysis`). Device
+Throughput Scalability is computed as Device Computation Scalability divided
+by Device Work Scalability, so the product is exact.
+
+* **Device Work Scalability** below 100% means that the devices do more work
+  than the scaling model expects: replicated or redundant work, halo or
+  boundary kernels that grow with the decomposition, or different kernels for
+  different problem sizes.
+* **Device Throughput Scalability** below 100% means that the same work is
+  done more slowly: smaller kernels with lower occupancy, launch latency, a
+  lower clock, or more pressure on the memory system.
+
+The work measure depends on the trace source, and the same measure is used for
+all the traces of an analysis:
+
+Issued instructions (nsys2prv traces with GPU metrics)
+   .. math::
+
+      W_n = \sum_{d} \int SMIssue_d(t) \cdot f_{GPC,d}(t)\, dt
+
+   SM Issue is the percentage of cycles in which the SMs issue an
+   instruction, averaged over the SMs, and :math:`f_{GPC}` the GPC clock. The
+   product is proportional to the instructions issued; the constant (number of
+   SMs, issue width) cancels when the GPU model is the same. SM Issue is 0
+   outside the kernels.
+
+GPU threads launched (all other traces)
+   .. math::
+
+      W_n = \sum_{kernels} blocks \cdot threads\ per\ block
+
+   from the blocks per grid and threads per block recorded with each kernel
+   (Extrae events ``63000011`` and ``63000012`` for CUDA, ``63500011`` and
+   ``63500012`` for HIP; grid and block dimensions ``9101``–``9106`` in
+   nsys2prv traces). It measures the work when each GPU thread processes a
+   fixed amount of data.
+
+If one trace of the analysis has no GPU metrics, all traces use the GPU
+threads launched. The work measure is printed under the Host/Device table.
+
+With the issued instructions, the throughput is split once more:
+
+.. math::
+
+   Device\_ThroughputScale_n = Device\_IssueScale_n \cdot Device\_FreqScale_n
+
+.. math::
+
+   Device\_IssueScale_n =
+   \frac{\overline{Issue}_n}{\overline{Issue}_0},
+   \quad
+   \overline{Issue} = \frac{\sum_d \int SMIssue_d\, dt}{UsefulDevice}
+
+.. math::
+
+   Device\_FreqScale_n = \frac{\overline{f}_n}{\overline{f}_0},
+   \quad
+   \overline{f} =
+   \frac{\sum_d \int SMIssue_d \cdot f_{GPC,d}\, dt}{\sum_d \int SMIssue_d\, dt}
+
+:math:`\overline{Issue}` is the mean SM Issue during the kernels and
+:math:`\overline{f}` the mean clock while the SMs issue instructions. Without
+GPU metrics, these two rows are not shown.
+
+The submetrics are shown when at least two traces are analyzed and every
+trace has the work measure. The limitations of the two measures are described
+in :doc:`09_limitations`.
+
+.. _device-kernel-contributions:
+
+Kernel contributions
+""""""""""""""""""""
+
+To identify the kernels that change the device time, the kernels are grouped
+by name and, for each execution :math:`n` other than the reference, the share
+of each kernel :math:`k` in the change from the ideal of the scaling model is:
+
+.. math::
+
+   Share_{k,n} =
+   \frac{U_{k,n} - U_{k,0} \cdot r_n}{U_n - U_0 \cdot r_n}
+
+where :math:`U_{k,n}` is the time of kernel :math:`k`, and :math:`U_n` the time
+of all kernels (the sum of the kernel durations, which counts kernels that
+overlap on different streams of a device twice). The shares add up to 100%.
+When the execution is faster than the ideal (:math:`U_n < U_0 \cdot r_n`), a
+positive share is a contribution to the gain.
+
+Libraries such as cuBLAS select a different kernel for each problem size; the
+name ends with the tile configuration
+(``nvjet_sm90_tst_192x192_64x4_2x1_v_bz_coopB_TNN``). These kernels are
+grouped by family: the name up to the first ``_<n>x<m>``
+(``nvjet_sm90_tst``).
+
+For each kernel, the table also gives the calls, the time, the ratio of GPU
+threads launched, and the ratio of the time per thread; a ratio of the time per
+thread above 1 means that the kernel does its work more slowly. The ten
+kernels with the largest change are printed on the standard output and shown in
+the report; all kernels are written to ``device_kernels.csv``
+(see :doc:`08_output`).
+
 
 Device Global Efficiency
 ^^^^^^^^^^^^^^^^^^^^^^^^

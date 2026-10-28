@@ -91,6 +91,26 @@ configurations for which the stream-to-device mapping cannot be established
 correctly, cannot be fully characterized by the Device execution-domain
 metrics.
 
+**Device Work and Throughput Scalability** (see :ref:`device-work-throughput`)
+depend on the work measure:
+
+* *GPU threads launched.* Kernels launched with a fixed grid (grid-stride
+  loops, reductions) launch the same threads whatever the data size, and
+  libraries (cuBLAS, cuDNN, attention kernels) change the tile size and the
+  work per thread with the problem size; in these kernels the threads
+  launched do not follow the work. In a vLLM inference on one GPU (batch size
+  1 and 256), the threads launched grow 14.8 times when the issued
+  instructions grow 26.9 times.
+* *Issued instructions.* They are estimated from SM Issue and the GPC clock
+  sampled by Nsight Systems (every 100 µs by default); kernels shorter than
+  the sampling period are averaged with their neighbours.
+* Both measures compare executions on the same GPU model.
+* Kernels that overlap on different streams of a device count once in the
+  useful device time and fully in the work, so the overlap appears as
+  throughput.
+* Kernels still running at the end of a cut trace are not counted in the
+  kernel contributions and in the GPU threads launched.
+
 
 GPU Trace Sources: Extrae and nsys2prv
 --------------------------------------

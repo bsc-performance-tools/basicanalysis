@@ -14,6 +14,7 @@ from plotly.subplots import make_subplots
 
 from configuration import format_configuration_label
 from tracemetadata import is_host_gpu_mode
+from devicework import kernel_display_names, top_kernel_rows
 from iometrics import (
     ACCESS_PATTERN_CLASSES as IO_ACCESS_PATTERN_CLASSES,
     ACCESS_PATTERN_DESCRIPTIONS as IO_ACCESS_PATTERN_DESCRIPTIONS,
@@ -354,6 +355,22 @@ def _build_talp_metric_info():
             "label": "-- Device Computation scalability",
             "short_label": "-- Dev scale",
         },
+        "dev_work_scale": {
+            "label": "   == Device Work scalability",
+            "short_label": "Work",
+        },
+        "dev_throughput_scale": {
+            "label": "   == Device Throughput scalability",
+            "short_label": "Throughput",
+        },
+        "dev_issue_scale": {
+            "label": "      -- Device Issue scalability",
+            "short_label": "Issue",
+        },
+        "dev_freq_scale": {
+            "label": "      -- Device Frequency scalability",
+            "short_label": "Freq",
+        },
     }
 
     metric_info = METRIC_PROVIDER.build(presentation)
@@ -362,6 +379,9 @@ def _build_talp_metric_info():
     # host-side sub-metrics in the Host execution-domain view.
     for metric_key in ("host_ipc_scale", "host_inst_scale", "host_freq_scale"):
         metric_info[metric_key]["type"] = "Host scalability sub-metric"
+    for metric_key in ("dev_work_scale", "dev_throughput_scale",
+                       "dev_issue_scale", "dev_freq_scale"):
+        metric_info[metric_key]["type"] = "Device scalability sub-metric"
 
     return metric_info
 
@@ -610,7 +630,13 @@ TALP_TREE = [
             _tree_node("dev_comm_eff"),
             _tree_node("dev_orches_eff"),
         ]),
-        _tree_node("dev_comp_scale"),
+        _tree_node("dev_comp_scale", [
+            _tree_node("dev_work_scale"),
+            _tree_node("dev_throughput_scale", [
+                _tree_node("dev_issue_scale"),
+                _tree_node("dev_freq_scale"),
+            ]),
+        ]),
     ]),
 ]
 
@@ -641,7 +667,13 @@ DEVICE_TREE = [
             _tree_node("dev_comm_eff"),
             _tree_node("dev_orches_eff"),
         ]),
-        _tree_node("dev_comp_scale"),
+        _tree_node("dev_comp_scale", [
+            _tree_node("dev_work_scale"),
+            _tree_node("dev_throughput_scale", [
+                _tree_node("dev_issue_scale"),
+                _tree_node("dev_freq_scale"),
+            ]),
+        ]),
     ])
 ]
 
@@ -2031,6 +2063,101 @@ def _build_io_files_card_html(other_metrics, trace_list, trace_labels,
         summary_html + ''.join(sections), printable)
 
 
+def _build_device_kernels_card_html(other_metrics, trace_list, trace_labels,
+                                    printable=False):
+    """Card with the contribution of each kernel to the change of the
+    device time, one table per execution compared with the reference."""
+    contributions = other_metrics.get('device_kernel_contributions') or {}
+    sections = []
+
+    for trace, label in zip(trace_list[1:], trace_labels[1:]):
+        result = contributions.get(trace)
+        if not result:
+            continue
+
+        display = kernel_display_names(
+            [row['kernel'] for row in result['rows']])
+        body = []
+        for row in top_kernel_rows(result['rows']):
+            name = display.get(row['kernel'], row['kernel'])
+            share = ('{:.1f}%'.format(row['share'])
+                     if row['share'] != 'NaN' else '\u2013')
+            body.append(
+                '<tr><td title="{title}">{name}</td><td>{share}</td>'
+                '<td>{count_ref} \u2192 {count}</td>'
+                '<td>{time_ref:.3f} \u2192 {time:.3f}</td>'
+                '<td>{time_x}</td><td>{threads_x}</td><td>{per_thread_x}</td>'
+                '</tr>'.format(
+                    title=html.escape(row['kernel'], quote=True),
+                    name=html.escape(
+                        name if len(name) <= 60 else name[:57] + '...'),
+                    share=share,
+                    count_ref=row['count_ref'],
+                    count=row['count'],
+                    time_ref=row['time_ref'] / 1e6,
+                    time=row['time'] / 1e6,
+                    time_x=_kernel_ratio_text(row['time'], row['time_ref']),
+                    threads_x=_kernel_ratio_text(row['threads'],
+                                                 row['threads_ref']),
+                    per_thread_x=_kernel_time_per_thread_text(row),
+                ))
+
+        gap = result['gap'] / 1e6
+        sections.append(
+            '<div class="io-files-execution"><h4>{label} vs {reference} '
+            '(r = {ratio:.4g}): {gap:+.3f} s from the ideal ({direction})'
+            '</h4><div class="io-files-table-wrap">'
+            '<table class="metric-table io-diagnostics-table">'
+            '<thead><tr><th>Kernel</th><th>Share</th><th>Calls</th>'
+            '<th>Time (s)</th><th>Time \u00d7</th><th>Threads \u00d7</th>'
+            '<th>Time per thread \u00d7</th></tr></thead>'
+            '<tbody>{body}</tbody></table></div></div>'.format(
+                label=html.escape(label),
+                reference=html.escape(trace_labels[0]),
+                ratio=result['ratio'],
+                gap=gap,
+                direction='slower' if gap > 0 else 'faster',
+                body=''.join(body),
+            ))
+
+    if not sections:
+        return ""
+
+    note = (
+        "Contribution of each kernel to the change of the useful device "
+        "time from the ideal of the scaling model: <em>Share</em> = "
+        "(U<sub>k</sub> \u2212 U<sub>k,ref</sub>\u00b7r) / "
+        "(U \u2212 U<sub>ref</sub>\u00b7r), where U is the kernel time and "
+        "r the work ratio of the scaling model (1 in strong scaling). The "
+        "shares add up to 100%; when the execution is faster than the ideal, "
+        "a positive share is a contribution to the gain. Kernels of "
+        "libraries whose name ends with a tile configuration (e.g. cuBLAS "
+        "<code>nvjet_*_192x192_...</code>) are grouped by family. "
+        "<em>Threads \u00d7</em>: ratio of the GPU threads launched; "
+        "<em>Time per thread \u00d7</em> above 1 means that the kernel does "
+        "its work more slowly. Kernels with a fixed grid launch the same "
+        "threads whatever the data size. Hover over a name for the full "
+        "name; all kernels are in <code>device_kernels.csv</code>."
+    )
+
+    return _build_io_card_html(
+        "Which kernels change the device time?", note,
+        ''.join(sections), printable)
+
+
+def _kernel_ratio_text(numerator, denominator):
+    if not denominator:
+        return 'new' if numerator else '\u2013'
+    return '{:.2f}'.format(numerator / denominator)
+
+
+def _kernel_time_per_thread_text(row):
+    if not (row['threads'] and row['threads_ref'] and row['time_ref']):
+        return '\u2013'
+    return '{:.2f}'.format((row['time'] / row['threads'])
+                           / (row['time_ref'] / row['threads_ref']))
+
+
 def _has_device_hwc_metrics(metrics_result, trace_list):
     """Return whether any execution has GPU hardware counter metrics."""
 
@@ -3197,6 +3324,44 @@ def _build_scaling_trends_html(
     """.format(
         speedup_html=speedup_html,
         efficiency_html=efficiency_html,
+    )
+
+
+def _build_device_computation_trend_html(device_factors, trace_list,
+                                         trace_labels, x_axis_title,
+                                         printable=False):
+    """Trend plot of the Device Computation Scalability and its submetrics
+    (Work, Throughput, Issue, Frequency). Empty without the submetrics."""
+    if not any(
+        _clean_value(_read_metric(device_factors, "dev_work_scale", trace)) is not None
+        for trace in trace_list
+    ):
+        return ""
+
+    keys = [
+        "dev_comp_scale",
+        "dev_work_scale",
+        "dev_throughput_scale",
+        "dev_issue_scale",
+        "dev_freq_scale",
+    ]
+    return _build_metric_trend_plot_html(
+        metric_keys=keys,
+        metric_info=TALP_METRIC_INFO,
+        metric_sources={key: device_factors for key in keys},
+        trace_list=trace_list,
+        trace_labels=trace_labels,
+        title="Device Computation Scalability",
+        description=(
+            "Device Computation Scalability = Device Work Scalability x "
+            "Device Throughput Scalability; with the GPU hardware counters, "
+            "Device Throughput Scalability = Device Issue Scalability x "
+            "Device Frequency Scalability."
+        ),
+        x_axis_title=x_axis_title,
+        y_axis_title="Scalability (%)",
+        bounded_percentage=False,
+        printable=printable,
     )
 
 
@@ -5905,6 +6070,9 @@ def _build_printable_scaling_section(
                 printable=True,
             )
         )
+        device_global_trend_html += _build_device_computation_trend_html(
+            device_factors, trace_list, trace_labels,
+            trace_column_description, printable=True)
 
         # Device Parallel Efficiency
 
@@ -12237,6 +12405,10 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             "dev_comm_eff",
             "dev_orches_eff",
             "dev_comp_scale",
+            "dev_work_scale",
+            "dev_throughput_scale",
+            "dev_issue_scale",
+            "dev_freq_scale",
         ]
 
         host_sources = {}
@@ -12290,6 +12462,8 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             trace_header_note=trace_header_note,
             trace_column_description=trace_column_description,
         )
+        device_html += _build_device_kernels_card_html(
+            other_metrics, trace_list, trace_labels)
 
         execution_domains_html = _build_execution_domains_section(
             host_metric_keys=host_filtered_keys,
@@ -12909,6 +13083,9 @@ def build_basicanalysis_interactive_report_html(metrics_result,
                         bounded_percentage=False,
                     )
                 )
+                device_global_trend_html += _build_device_computation_trend_html(
+                    device_factors, trace_list, trace_labels,
+                    trace_column_description)
 
 
                 device_parallel_keys = [
@@ -14057,6 +14234,10 @@ def _build_basicanalysis_printable_report_html(
             "dev_comm_eff",
             "dev_orches_eff",
             "dev_comp_scale",
+            "dev_work_scale",
+            "dev_throughput_scale",
+            "dev_issue_scale",
+            "dev_freq_scale",
         ]
 
         host_sources = {}

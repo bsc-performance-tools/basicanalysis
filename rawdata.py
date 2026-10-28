@@ -12,6 +12,7 @@ import json
 from utils import which
 from collections import OrderedDict, defaultdict
 from nsys2prvmetrics import process_one_nsys2prv_trace, hwc_raw_data_doc
+from devicework import add_device_kernels, device_work_raw_data_doc, DEVICE_KERNELS_KEY
 from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label, is_host_gpu_mode, is_nsys2prv_mode, CUDA_LEGACY_LABEL_RE
 from utils import run_command, move_files,remove_files, create_temp_folder
 
@@ -1954,6 +1955,11 @@ def create_raw_data(trace_list):
     for key in hwc_raw_data_doc:
         raw_data[key] = {trace_name: 'Non-Avail' for trace_name in trace_list}
 
+    # Optional raw data (kernels of GPU traces).
+    for key in device_work_raw_data_doc:
+        raw_data[key] = {trace_name: 'Non-Avail' for trace_name in trace_list}
+    raw_data[DEVICE_KERNELS_KEY] = {trace_name: None for trace_name in trace_list}
+
     return raw_data
 
 # Functions to extract GPU IDs
@@ -1962,6 +1968,8 @@ def create_trace_raw_data():
     """Create flat raw-data dict for a single trace."""
     trace_raw_data = {key: 0.0 for key in raw_data_doc}
     trace_raw_data.update({key: 'Non-Avail' for key in hwc_raw_data_doc})
+    trace_raw_data.update({key: 'Non-Avail' for key in device_work_raw_data_doc})
+    trace_raw_data[DEVICE_KERNELS_KEY] = None
     return trace_raw_data
 
 
@@ -3682,6 +3690,9 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
                 print('==WARNING== Unknown memtransfer thread ids: ' +
                       ', '.join(gpu_agg['unknown_memtransfer_threads'][:10]))
 
+        # Kernels and GPU threads launched, for the Device Work Scalability.
+        add_device_kernels(trace_raw_data, trace, trace_name_control)
+
 
         ## host_useful_values = []
 
@@ -4064,6 +4075,9 @@ def merge_trace_results(results, trace_list):
         # Optional raw data, absent in results saved by older versions.
         for key in hwc_raw_data_doc:
             raw_data[key][trace] = trace_raw_data.get(key, 'Non-Avail')
+        for key in device_work_raw_data_doc:
+            raw_data[key][trace] = trace_raw_data.get(key, 'Non-Avail')
+        raw_data[DEVICE_KERNELS_KEY][trace] = trace_raw_data.get(DEVICE_KERNELS_KEY)
 
         io_data[trace] = result["io_data"]
 
@@ -4380,13 +4394,15 @@ def print_raw_data_csv(raw_data, trace_list, trace_processes):
         output.write(line + '\n')
 
         # Optional raw data is only written when a trace has it.
+        optional_doc = OrderedDict(hwc_raw_data_doc)
+        optional_doc.update(device_work_raw_data_doc)
         optional_keys = [
-            key for key in hwc_raw_data_doc
+            key for key in optional_doc
             if any(raw_data.get(key, {}).get(trace, 'Non-Avail') != 'Non-Avail'
                    for trace in trace_list)
         ]
         raw_labels = OrderedDict(raw_data_doc)
-        raw_labels.update((key, hwc_raw_data_doc[key]) for key in optional_keys)
+        raw_labels.update((key, optional_doc[key]) for key in optional_keys)
 
         for raw_key in raw_labels:
             line = '#' + raw_labels[raw_key]

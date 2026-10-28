@@ -31,6 +31,7 @@ B1_INTEGRALS = {
     'gpc_clock': 1543387258012957147136.0,
     'dram_read_unweighted': 537330952012.0,
     'dram_write_unweighted': 23523783757.0,
+    'sm_issue_clock': 40065889799354343424.0,
 }
 B1_RUNTIME_US = 53664645.850
 

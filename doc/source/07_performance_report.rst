@@ -198,7 +198,16 @@ execution-domain analysis.
 
 The Device domain characterizes accelerator execution through Device Parallel
 Efficiency and its Load Balance, Communication, and Orchestration components,
-together with Device Computation Scalability.
+together with Device Computation Scalability. With two or more traces, Device
+Computation Scalability is split into Device Work and Throughput Scalability
+(and, for *nsys2prv* traces with GPU metrics, Throughput into Issue and
+Frequency Scalability), shown in the Device table and in the *Device
+Computation Scalability* plot of the Scaling view (see
+:ref:`device-work-throughput`). The Device view also contains the card
+**Which kernels change the device time?**, with the ten kernels with the
+largest share in the change of the device time from the ideal of the scaling
+model, for each execution compared with the reference (see
+:ref:`device-kernel-contributions`); hover over a kernel for its full name.
 
 The Host domain characterizes CPU-side execution, including Host Parallel
 Efficiency, accelerator offload behavior, and Host Computation Scalability.

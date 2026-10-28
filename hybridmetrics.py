@@ -12,6 +12,13 @@ from scaling import get_scaling_info, warn_unused_domain_workloads
 from iometrics import IO_FACTORS_DOC, io_useful_time, print_io_tables
 from tracemetadata import is_host_gpu_mode, is_nsys2prv_mode
 from nsys2prvmetrics import mod_device_hwc_factors_doc
+from devicework import (
+    mod_device_work_factors_doc,
+    compute_device_work_factors,
+    device_work_measure,
+    kernel_contributions,
+    WORK_MEASURE_LABELS,
+)
 from comparison import (
     NOT_APPLICABLE,
     build_comparison_device_rows,
@@ -121,7 +128,8 @@ mod_device_factors_doc = OrderedDict([
                                ('dev_load_balance', '   == Device Load balance'),
                                ('dev_comm_eff', '   == Device Communication efficiency'),
                                ('dev_orches_eff', '   == Device Orchestration efficiency'),
-                               ('dev_comp_scale', '-- Device Computation scalability')])
+                               ('dev_comp_scale', '-- Device Computation scalability')]
+                               + list(mod_device_work_factors_doc.items()))
 
 mod_host_factors_doc = OrderedDict([
                                ('host_global_eff', 'HOST Global efficiency'),
@@ -230,6 +238,36 @@ def create_mod_device_factors(trace_list):
         device_factors[key] = trace_dict
 
     return device_factors
+
+def device_work_ratio(scaling_info, raw_data, trace, reference):
+    """Work ratio r of the Device Computation Scalability: 1 in strong
+    scaling, the device ratio in weak scaling, and the device workload ratio
+    in the workload mode."""
+    if scaling_info.selected == 'strong':
+        return 1.0
+    device_ratio = (float(raw_data['count_devices'][trace])
+                    / float(raw_data['count_devices'][reference]))
+    return scaling_info.work_ratio(trace, device_ratio, domain='device')
+
+
+def add_device_work_factors(device_factors, other_metrics, raw_data,
+                            trace_list, scaling_info):
+    """Device Work, Throughput, Issue and Frequency Scalability, and the
+    contribution of each kernel to the change of the device time."""
+    reference = trace_list[0]
+
+    def work_ratio(trace):
+        return device_work_ratio(scaling_info, raw_data, trace, reference)
+
+    work_factors, _measure = compute_device_work_factors(
+        raw_data, trace_list, device_factors['dev_comp_scale'], work_ratio)
+    device_factors.update(work_factors)
+
+    # Internal key: kernel contributions of each trace (see
+    # devicework.kernel_contributions), for the report and device_kernels.csv.
+    other_metrics['device_kernel_contributions'] = kernel_contributions(
+        raw_data, trace_list, work_ratio)
+
 
 def create_mod_host_factors(trace_list):
     """Creates 2D dictionary of the host factors at host level and initializes with an empty
@@ -2186,6 +2224,14 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             other_metrics['efficiency'][trace] = 'NaN'
 
+    # Device Computation Scalability = Device Work Scalability x Device
+    # Throughput Scalability (see devicework).
+    if comparison:
+        other_metrics['device_kernel_contributions'] = {}
+    else:
+        add_device_work_factors(device_factors, other_metrics, raw_data,
+                                trace_list, scaling_info)
+
     if comparison:
         clear_reference_metrics(trace_list, {
             'mod_factors': mod_factors,
@@ -2419,6 +2465,24 @@ def _talp_host_keys(host_factors, trace_list):
     ]
 
 
+def _talp_device_keys(device_factors, trace_list):
+    """Device metrics shown in the Host/Device table.
+
+    The Device Computation Scalability submetrics are omitted when they do
+    not apply to any trace, e.g. with a single trace, or Issue and
+    Frequency Scalability without GPU hardware counters.
+    """
+    return [
+        mod_key
+        for mod_key in mod_device_factors_doc
+        if mod_key not in mod_device_work_factors_doc
+        or not all(
+            device_factors[mod_key][trace] in ('Non-Avail', 'N/A')
+            for trace in trace_list
+        )
+    ]
+
+
 def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_plus_io, hybrid_factors,device_factors, host_factors , trace_list,
                             trace_processes, trace_tasks, trace_threads, trace_mode, raw_data):
     """Prints the model factors table in human readable form on stdout."""  
@@ -2567,7 +2631,7 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
         print(line)
 ## TO Devices metrics
     print(''.ljust(len(line_procs_factors), '-'))
-    for mod_key in mod_device_factors_doc:
+    for mod_key in _talp_device_keys(device_factors, trace_list):
         line = mod_device_factors_doc[mod_key].ljust(longest_name)
         for trace in trace_list:
             line += ' | '
@@ -2584,6 +2648,10 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
 
 #####
     print(''.ljust(len(line_procs_factors), '='))
+    if 'dev_work_scale' in _talp_device_keys(device_factors, trace_list):
+        measure = device_work_measure(raw_data, trace_list)
+        print('Device Work scalability: work measured as '
+              + WORK_MEASURE_LABELS[measure] + '.')
     if len(warning_simulation) > 0:
         print("===> Warning! Metrics obtained from simulated traces exceed 100%. "
               "Please review original and simulated traces.")
@@ -4096,7 +4164,7 @@ def print_talp_metrics_csv(
 
 
         # DEVICE metrics
-        for mod_key in mod_device_factors_doc:
+        for mod_key in _talp_device_keys(device_factors, trace_list):
             line = "\"" + mod_device_factors_doc[mod_key] + "\""
             for trace in trace_list:
                 line += delimiter

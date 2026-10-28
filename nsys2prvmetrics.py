@@ -48,6 +48,7 @@ from tracemetadata import (
     NSYS2PRV_METRICS_LABEL_RE,
 )
 from utils import run_command, move_files
+from devicework import add_device_kernels
 
 
 # Values of the CUDA memcpy event (63000001) in nsys2prv traces.
@@ -78,6 +79,9 @@ NSYS2PRV_STREAM_LABEL_RE = re.compile(
 # GPU activity. The DRAM counters are also integrated as they are: these
 # integrals are not used by the metrics, but are written to rawdata.csv as
 # the amount of data read and written relative to the peak bandwidth.
+# SM Issue is also integrated multiplied by the clock: it is proportional
+# to the instructions issued, the work measure of the Device Work
+# Scalability (see devicework).
 HWC_COUNTERS = (
     # key, event, nsys2prv label
     ('gr_active', 9402, 'GR Active [Throughput %]'),
@@ -91,13 +95,16 @@ HWC_COUNTERS = (
     ('gpc_clock', 9400, 'GPC Clock Frequency x GR Active'),
     ('dram_read_unweighted', 9418, 'DRAM Read Bandwidth [Throughput %]'),
     ('dram_write_unweighted', 9419, 'DRAM Write Bandwidth [Throughput %]'),
+    ('sm_issue_clock', 9404, 'SM Issue [Throughput %] x GPC Clock Frequency'),
 )
 
 HWC_KEYS = tuple(key for key, _event, _label in HWC_COUNTERS)
 
-# Integrals that are only written to rawdata.csv. The metrics do not need
-# them, so results saved before they existed still give the metrics.
-HWC_RAW_ONLY_KEYS = ('dram_read_unweighted', 'dram_write_unweighted')
+# Integrals that the hardware counter metrics do not need, so that results
+# saved before they existed still give the metrics. SM Issue x clock is
+# used by the Device Work Scalability.
+HWC_RAW_ONLY_KEYS = ('dram_read_unweighted', 'dram_write_unweighted',
+                     'sm_issue_clock')
 
 # Raw data of the hardware counters. They are only printed in rawdata.csv
 # when a trace has them, so that the raw data of Extrae traces is unchanged.
@@ -862,6 +869,9 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     trace_raw_data['useful_device_max'] = gpu_agg['useful_device_max']
     trace_raw_data['useful_memtransf_device'] = gpu_agg['useful_memtransf_device_total']
     trace_raw_data['useful_memtransf_device_max'] = gpu_agg['useful_memtransf_device_max']
+
+    # Kernels and GPU threads launched, for the Device Work Scalability.
+    add_device_kernels(trace_raw_data, trace, trace_name_control)
 
     for path in stats.values():
         move_files(path, local_path_dest, cmdl_args)

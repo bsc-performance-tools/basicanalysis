@@ -149,6 +149,30 @@ _DEVICE_METRICS = (
         "device",
         1,
     ),
+    (
+        "dev_work_scale",
+        "Device Work scalability",
+        "device",
+        2,
+    ),
+    (
+        "dev_throughput_scale",
+        "Device Throughput scalability",
+        "device",
+        2,
+    ),
+    (
+        "dev_issue_scale",
+        "Device Issue scalability",
+        "device",
+        3,
+    ),
+    (
+        "dev_freq_scale",
+        "Device Frequency scalability",
+        "device",
+        3,
+    ),
 )
 
 
@@ -515,6 +539,22 @@ class ResourceAnalysisBuilder:
                     ),
                     MetricAnalysisTreeNode(
                         metric_id="dev_comp_scale",
+                        children=(
+                            MetricAnalysisTreeNode(
+                                metric_id="dev_work_scale",
+                            ),
+                            MetricAnalysisTreeNode(
+                                metric_id="dev_throughput_scale",
+                                children=(
+                                    MetricAnalysisTreeNode(
+                                        metric_id="dev_issue_scale",
+                                    ),
+                                    MetricAnalysisTreeNode(
+                                        metric_id="dev_freq_scale",
+                                    ),
+                                ),
+                            ),
+                        ),
                     ),
                 ),
             ),

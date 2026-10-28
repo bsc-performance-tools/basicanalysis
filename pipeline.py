@@ -18,6 +18,7 @@ import html_to_pdf
 import os
 from tracemetadata import is_host_gpu_mode
 from nsys2prvmetrics import create_device_hwc_factors
+from devicework import print_device_kernel_tables, print_device_kernels_csv
 from scaling import describe_detected, describe_scaling
 from comparison import (
     get_programming_model,
@@ -342,6 +343,11 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
                     trace_mode,
                     raw_data,
                 )
+
+            # Contribution of each kernel to the change of the device time.
+            kernel_contributions = other_metrics.get('device_kernel_contributions')
+            print_device_kernel_tables(kernel_contributions, trace_list)
+            print_device_kernels_csv(kernel_contributions, trace_list)
         else:
             hybridmetrics.print_mod_factors_table(
                 mod_factors, other_metrics, mod_factors_scale_plus_io,

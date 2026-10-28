@@ -137,6 +137,22 @@
   workload and ratio of each trace are printed in the scaling model summary
   and shown in the Scaling section of the report; the automatic detection
   of weak or strong scaling is not used.
+- Device Computation Scalability is split into **Device Work Scalability**
+  (the work done by the devices relative to the work expected by the
+  scaling model) and **Device Throughput Scalability** (the work done per
+  unit of useful device time), whose product is the Device Computation
+  Scalability; the Host/Device model stays multiplicative. The work is the
+  instructions issued (SM Issue x GPC clock, with the new configuration
+  `cfgs/nsys2prv/hwc_sm_issue_clock.cfg`) for *nsys2prv* traces with GPU
+  metrics, where Throughput is split once more into **Device Issue
+  Scalability** and **Device Frequency Scalability**, and the GPU threads
+  launched (blocks per grid x threads per block) for the other GPU traces.
+  The kernels of the GPU streams are read from the trace; a new table gives
+  the share of each kernel in the change of the device time from the ideal
+  of the scaling model (library kernels such as cuBLAS `nvjet_*` grouped by
+  family), in the standard output, the Device view of the report, and the
+  new `device_kernels.csv`. `rawdata.csv` adds the kernels executed and the
+  GPU threads launched.
 
 ### Changes
 
