@@ -138,6 +138,11 @@ socket is currently counted as File I/O. The model should state whether it
 covers regular files only, and the time of the other descriptor types should
 be measured before deciding.
 
+Example (cfdem, 4 processes): 40,086 ``fwrite`` calls to the terminal and
+19,738 ``write`` calls to a descriptor opened before tracing starts are
+94.9% of the write calls but 2.9% of the write time (see `Access
+Pattern`_).
+
 Terminology note
 ~~~~~~~~~~~~~~~~
 
@@ -697,44 +702,212 @@ intervals (see `Interval boundaries`_) provide it directly.
 Access Pattern
 ~~~~~~~~~~~~~~
 
-Fine-grained analysis should eventually classify access behavior such as:
+*Proposal (2026-10-28), under discussion.* The access pattern describes
+where each request falls in the file with respect to the previous request
+of the same process: one after the other, with regular jumps, or anywhere.
+The same volume and request sizes can cost very different times depending
+on this pattern, because file systems and their caches favor sequential
+access.
 
-* contiguous/sequential;
-* strided;
-* irregular/non-contiguous;
-* backward access.
+Information in the trace
+^^^^^^^^^^^^^^^^^^^^^^^^
 
-A useful per-operation representation is:
+Extrae does not record the offset of the reads and writes. It records the
+descriptor and the requested size of each call, and the offset argument of
+the seek calls (Extrae 5.1.3 source, ``wrappers/IO/io_probe.c``):
+
++------------------------------------+--------------------+------------------+
+| Calls                              | Recorded           | Offset           |
++====================================+====================+==================+
+| ``read``, ``write``, ``fread``,    | descriptor,        | reconstructed    |
+| ``fwrite``, ``readv``, ``writev``  | requested size     | (current         |
+|                                    |                    | position)        |
++------------------------------------+--------------------+------------------+
+| ``lseek``, ``fseek``               | descriptor, offset | seek argument;   |
+|                                    | argument (no       | ``SEEK_SET``     |
+|                                    | ``whence``)        | assumed          |
++------------------------------------+--------------------+------------------+
+| ``pread``, ``pwrite``, ``preadv``, | descriptor,        | not available    |
+| ``pwritev``                        | requested size     | (argument not    |
+|                                    |                    | recorded)        |
++------------------------------------+--------------------+------------------+
+| ``open``, ``fopen``                | returned           | position 0       |
+|                                    | descriptor, file   |                  |
+|                                    | name               |                  |
++------------------------------------+--------------------+------------------+
+| MPI-IO                             | requested size     | not available    |
+|                                    | (no handle, no     |                  |
+|                                    | offset)            |                  |
++------------------------------------+--------------------+------------------+
+
+The position of each descriptor can therefore be rebuilt per process: an
+``open``/``fopen`` sets it to 0, a seek sets it to the recorded offset, and
+each read or write starts at the current position and advances it by its
+size. The offset of each request is the position at its start.
+
+Definitions
+^^^^^^^^^^^
+
+A *stream* is a descriptor of a process (task and thread) between its
+``open`` and its ``close``. Each read is compared with the previous read
+of the same stream, and each write with the previous write, through the
+gap between the start of the request and the end of the previous one:
 
 .. math::
 
-   (rank, file, operation, offset, size, time)
+   gap_i = offset_i - (offset_{i-1} + size_{i-1})
 
-For consecutive operations by the same rank on the same file, contiguous
-access can be detected when:
+* **First**: no previous request of the same kind on the stream.
+* **Consecutive**: :math:`gap_i = 0`; the request starts where the
+  previous one ended.
+* **Strided**: :math:`gap_i \ne 0` and :math:`gap_i = gap_{i-1}`; a
+  regular jump, repeated.
+* **Forward**: :math:`gap_i > 0` and not strided; a jump ahead.
+* **Backward**: :math:`gap_i < 0` and not strided; a jump back, including
+  rereading or rewriting a region.
+* **Unknown offset**: ``pread``/``pwrite`` family, MPI-IO, and streams
+  without a traced ``open`` (descriptors opened before tracing starts,
+  standard output, ``openat``/``dup`` not instrumented).
 
-.. math::
+*Sequential* (consecutive, positive strided, and forward requests) is the
+term used by Darshan, and *consecutive* is the subset without gaps; using
+the same meanings allows comparing with Darshan reports. ``Random`` is not
+used as a class, because jumps can be regular at a scale the per-request
+comparison does not see (for example HDF5 metadata lookups); the
+backward and forward shares describe the pattern without that judgment.
 
-   offset_{i+1} = offset_i + size_i
+Each class is reported as a share of the **requests**, the **bytes**, and
+the **time** of the reads and of the writes, since a pattern that covers
+most requests may move few bytes, as in the VTKHDF reads below.
 
-Regular non-zero gaps can indicate a strided pattern; varying gaps can indicate
-irregular/non-contiguous behavior. ``Random`` should be used only when
-randomness is actually established.
+Two related quantities come out of the same reconstruction:
 
-This information is not yet available in the current BasicAnalysis raw-data
-model and is therefore a future extension.
+* **Seeks to the current position**: seeks whose offset is the position
+  the stream already has. The call moves nothing, so its time is a File
+  Management cost that the application or the library can avoid.
+* **Re-accessed volume**: bytes read (written) by a process more than
+  once in the same file, as a share of its read (write) volume: the
+  bytes moved minus the distinct bytes (union of the accessed regions per
+  process and file).
 
-The traces contain part of it: Extrae records the ``I/O descriptor``
-(event ``40000010``) and the request size of each call, but the ``I/O
-offset`` (event ``40000075``) only for ``lseek``/``fseek`` calls (the seek
-argument, verified in the Extrae 5.1.3 merger). The offset of a
-``read``/``write`` can be reconstructed from the last seek and the sizes of
-the following calls on the same descriptor, but the offsets of
-``pread``/``pwrite`` and of MPI-IO calls are not recorded. A complete
-access-pattern analysis therefore needs either this reconstruction or an
-extension of the instrumentation, and the cost of extracting the data per
-call (466,000 reads in a single VTKHDF execution of 112 ranks) remains an
-open question.
+Assumptions and limitations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* **Seek origin not recorded.** The ``whence`` of the seeks is not
+  recorded: a seek with ``SEEK_CUR`` or ``SEEK_END`` is read as an
+  absolute position, and the following requests of the stream are
+  misplaced until the next ``SEEK_SET``. In the VTKHDF traces
+  the seeks to 0 after an access (38,636, about one per ``open``) are
+  HDF5 rereading the superblock: an
+  8-byte read of the signature, a seek to 0, and a 48-byte read of the
+  superblock, consistent with ``SEEK_SET``. The assumption holds for HDF5
+  (``sec2`` driver) but has to be stated, and the Extrae developers could
+  be asked to record ``whence``.
+* **Requested size.** The size is the request, not the bytes returned: a
+  short read (end of file) advances the reconstructed position too far.
+* **Library buffering.** ``fread``/``fwrite``/``fseek`` describe the
+  pattern presented to the C library, not what reaches the file system
+  after the stream buffering.
+* **Offsets not recorded.** ``pread``/``pwrite`` and MPI-IO (including the
+  MPI-IO explicit-offset calls) cannot be classified; their share is
+  reported as *unknown offset* so that the coverage is visible. Recording
+  the offset argument of ``pread``/``pwrite`` would need a change in
+  Extrae.
+* **Regular files only.** Terminals, sockets, and pipes (descriptor type,
+  event ``40000013``) have no position and are excluded from the
+  classification; the coverage is computed over the requests to regular
+  files.
+* **Per process.** The classification compares the requests of one
+  process. How the regions of several processes fit together in a shared
+  file (partitioned blocks, interleaved records) is a separate analysis
+  (`File Sharing and Overlap`_).
+
+Prototype results
+^^^^^^^^^^^^^^^^^
+
+Prototype script over the original traces (one pass, about 7 s per
+VTKHDF trace; in BasicAnalysis it would be one more pass over the
+filtered trace, which would also keep the offset event ``40000075``).
+
+VTKHDF uGrid, 112 processes, 100k and 2M chunks (shares in %):
+
+.. table::
+   :widths: 22 10 7 13 9 9 10
+
+   +------------------------+------------+---------+---------------+-----------+-----------+------------+
+   | Calls                  | Share of   | First   | Consecutive   | Strided   | Forward   | Backward   |
+   +========================+============+=========+===============+===========+===========+============+
+   | Reads 100k             | requests   | 8.0     | 14.2          | 0.0       | 40.2      | 37.7       |
+   |                        +------------+---------+---------------+-----------+-----------+------------+
+   | (482,706 calls)        | bytes      | 0.0     | **93.3**      | 0.0       | 4.3       | 2.3        |
+   |                        +------------+---------+---------------+-----------+-----------+------------+
+   |                        | time       | 8.6     | 17.6          | 0.0       | 38.9      | 34.9       |
+   +------------------------+------------+---------+---------------+-----------+-----------+------------+
+   | Writes 100k            | requests   | 0.6     | **83.2**      | 0.0       | 12.7      | 3.5        |
+   |                        +------------+---------+---------------+-----------+-----------+------------+
+   | (19,320 calls)         | bytes      | 0.0     | 94.3          | 0.0       | 5.7       | 0.0        |
+   |                        +------------+---------+---------------+-----------+-----------+------------+
+   |                        | time       | 1.6     | 62.7          | 0.0       | 35.4      | 0.3        |
+   +------------------------+------------+---------+---------------+-----------+-----------+------------+
+   | Reads 2M               | requests   | 8.2     | 11.4          | 0.0       | 41.5      | 38.9       |
+   |                        +------------+---------+---------------+-----------+-----------+------------+
+   | (466,866 calls)        | bytes      | 0.0     | **94.7**      | 0.0       | 3.9       | 1.4        |
+   |                        +------------+---------+---------------+-----------+-----------+------------+
+   |                        | time       | 5.6     | 11.3          | 0.0       | 61.5      | 21.7       |
+   +------------------------+------------+---------+---------------+-----------+-----------+------------+
+   | Writes 2M              | requests   | 3.2     | 19.0          | 3.1       | 58.8      | 15.9       |
+   |                        +------------+---------+---------------+-----------+-----------+------------+
+   | (3,556 calls)          | bytes      | 0.0     | 28.8          | 8.3       | **62.9**  | 0.0        |
+   |                        +------------+---------+---------------+-----------+-----------+------------+
+   |                        | time       | 10.8    | 2.6           | 0.7       | **85.9**  | 0.0        |
+   +------------------------+------------+---------+---------------+-----------+-----------+------------+
+
+No request has an unknown offset (the traces have only ``read``,
+``write``, ``open``, ``close``, and ``lseek``). Observations:
+
+* **Reads**: most read requests jump forward or backward (78%), but they
+  move little data: 93--95% of the bytes are read consecutively. In the
+  call sequence of one process the jumps are small reads after a seek
+  (mostly 512 bytes), consistent with HDF5 metadata lookups, while the
+  bulk data is read sequentially. The jumps take 74% (100k) and 83% (2M)
+  of the read time, so the read time is dominated by small scattered
+  requests, not by the data.
+* **Writes**: with 100k chunks the data is written consecutively (83% of
+  the requests, 94% of the bytes); with 2M chunks most writes jump ahead
+  (63% of the bytes, 86% of the write time): the regions written by
+  successive requests are separated by gaps. The cause (chunk allocation
+  in the file) has not been checked.
+* **Seeks to the current position**: 38,511 of 417,596 seeks (9.2%) in
+  100k, 38,476 of 416,440 in 2M.
+* **Re-accessed volume**: 2.5% of the read bytes (metadata reread after
+  each of the 3--11 opens of the same file by a process), 0.0% of the
+  written bytes.
+
+cfdem 4 processes (Ticket 570, ANSI C and POSIX):
+
+* Reads: 1,150 requests, 96.6% consecutive (97.5% of the bytes).
+* Writes: 63,047 requests, but 94.9% have an unknown offset: 40,086
+  ``fwrite`` to the terminal (descriptor 1) and 19,738 ``write`` to
+  descriptor 3, opened before tracing starts (descriptor type unknown).
+  They are 6.4% of the bytes and 2.9% of the write time. The writes to
+  regular files are consecutive (96.5% of the write time). This trace
+  motivates excluding non-file descriptors and reporting the coverage.
+
+SPH-EXA (64 ranks) uses only ``MPI_File_read_at``: all its requests have
+an unknown offset, and the access pattern is not available.
+
+Presentation
+^^^^^^^^^^^^
+
+Proposed for the *What requests are made?* card of the I/O Analysis view
+and for ``io_metrics.csv``: for reads and writes, the consecutive,
+strided, forward, and backward shares of the requests, bytes, and time
+(one stacked bar per execution and quantity), the share of seeks to the
+current position, the re-accessed volume, and the offset coverage
+(requests with a known offset over the requests to regular files). These
+are diagnostics, not efficiency factors: a backward or forward pattern can
+be what the data layout requires, and its cost is already in Data Access
+Efficiency.
 
 Alignment
 ~~~~~~~~~
@@ -1168,8 +1341,12 @@ Current Raw-Data Coverage
 | Per-rank detailed workload         | Counts per unit in the CSV;  |
 |                                    | bytes per unit to be checked |
 +------------------------------------+------------------------------+
-| Offset-based access pattern        | In the trace (event          |
-|                                    | 40000075); not extracted     |
+| Offset-based access pattern        | Reconstructable for          |
+|                                    | read/write/fread/fwrite from |
+|                                    | open and seek (event         |
+|                                    | 40000075); not for pread/    |
+|                                    | pwrite or MPI-IO; proposed   |
+|                                    | (see `Access Pattern`_)      |
 +------------------------------------+------------------------------+
 | Alignment analysis                 | Offsets in the trace;        |
 |                                    | needs file-system context    |
@@ -1464,6 +1641,11 @@ Open Formal and Design Questions
    Should the model cover regular files only? How much time do non-file
    descriptors (standard output, sockets, pipes) take in typical traces?
 
+   *Partial answer (2026-10-28):* in cfdem the non-file and untraced
+   descriptors take 94.9% of the write calls and 2.9% of the write time.
+   The access-pattern proposal excludes them; the efficiencies still
+   include them.
+
 #. **Relation with the existing I/O metrics**
 
    How should the new factors relate to the current I/O Efficiency (which
@@ -1486,6 +1668,21 @@ Open Formal and Design Questions
    Should the I/O metrics be computed per phase (delimited by
    synchronization or user events)? See `Measurement Scope and
    Limitations`_.
+
+#. **Access pattern** (proposal of 2026-10-28, see `Access Pattern`_)
+
+   * Are the classes (consecutive, strided, forward, backward) and the
+     Darshan meaning of *sequential* the right ones? Should a strided
+     pattern need more than two equal gaps?
+   * Is the ``SEEK_SET`` assumption acceptable, or should seeks that
+     look like ``SEEK_CUR``/``SEEK_END`` be detected and their stream
+     marked as unknown until the next seek?
+   * Should seeks to the current position and the re-accessed volume be
+     reported, and where (requests card, File Management)?
+   * Should the Extrae developers be asked to record the offset of
+     ``pread``/``pwrite`` and the ``whence`` of the seeks?
+   * Shared files: is the per-process classification enough for a first
+     version, leaving partitioned versus interleaved regions for later?
 
 Design Principles to Preserve
 -----------------------------
@@ -1560,6 +1757,19 @@ for the first I/O report.
 
 Review Log
 ----------
+
+*2026-10-28* -- Proposal (access pattern): offsets of ``read``/``write``/
+``fread``/``fwrite`` rebuilt per process and descriptor from ``open``
+(position 0), seeks (recorded offset, ``SEEK_SET`` assumed), and request
+sizes; ``pread``/``pwrite`` and MPI-IO have no recorded offset (Extrae
+5.1.3 source). Classes consecutive, strided, forward, backward, and
+unknown offset, as shares of requests, bytes, and time; seeks to the
+current position and re-accessed volume. Prototype on VTKHDF uGrid
+100k/2M (reads: 78% of the requests jump, but 93--95% of the bytes are
+consecutive; writes 2M: 63% of the bytes after a forward gap; 9.2% of the
+seeks to the current position), cfdem (95% of the writes on terminal or
+untraced descriptors, 2.9% of the write time), and SPH-EXA (MPI-IO only,
+no offsets). Not implemented; open questions added.
 
 *2026-10-20* -- Report plots (user: plots instead of tables): each card
 shows its diagnostics as bar plots, one bar per execution, with the table of
