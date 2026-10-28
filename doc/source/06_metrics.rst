@@ -3050,13 +3050,19 @@ files. Each request is compared with the previous request of the same kind
 (read or write) on the same descriptor of the same process, through the gap
 between its offset and the end of the previous request:
 
-* **first**: no previous request of that kind on the descriptor;
-* **consecutive**: the request starts where the previous one ended (gap 0);
-* **strided**: a gap that is not 0 and equals the previous gap (a regular
-  jump, repeated);
-* **forward** and **backward**: a jump ahead or back (a backward jump
-  includes reading or writing a region again);
-* **unknown offset**: the offset of the request is not known (see below).
+* **first**: the first read (write) on the descriptor after it is opened;
+  there is no previous request to compare with;
+* **consecutive**: starts exactly where the previous read (write) ended
+  (gap 0): the file is read (written) in order, without gaps;
+* **strided**: leaves the same gap after the previous request as that
+  request left after the one before it: a regular pattern, such as one
+  record every N bytes;
+* **forward**: jumps ahead, skipping part of the file, by a gap different
+  from the previous one;
+* **backward**: jumps back to an earlier offset, by a gap different from the
+  previous one; it includes reading (writing) the same region again;
+* **unknown offset**: the offset cannot be rebuilt from the trace (see
+  below).
 
 Consecutive, positive strided, and forward requests are *sequential* in the
 sense used by Darshan. For each class, BasicAnalysis gives the share of the

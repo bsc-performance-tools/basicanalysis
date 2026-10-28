@@ -1078,6 +1078,9 @@ class AccessPatternTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn('Write access pattern', text)
         self.assertIn('Unknown offset', text)
+        # The classes are explained once, after the tables.
+        self.assertEqual(text.count('Access pattern classes:'), 1)
+        self.assertIn('- Consecutive: Starts exactly where', text)
 
         cwd = os.getcwd()
         with tempfile.TemporaryDirectory() as tmp:
@@ -1101,3 +1104,21 @@ class AccessPatternTests(unittest.TestCase):
         self.assertNotIn('2 [T2]', plot)
         self.assertEqual(_build_io_access_pattern_plot_html(
             {}, ['t1'], ['2 [T1]'], 'read'), '')
+
+    def test_report_card_explains_the_classes(self):
+        from iometrics import ACCESS_PATTERN_CLASSES, io_access_pattern
+        from interactiveplots import _build_io_request_sizes_card_html
+
+        other_metrics = {'io_access_pattern': {
+            't1': io_access_pattern({'access_pattern': self._parse()})}}
+        card = _build_io_request_sizes_card_html(
+            other_metrics, ['t1'], ['2 [T1]'])
+
+        self.assertIn('class="io-access-pattern-legend"', card)
+        self.assertEqual(card.count('class="io-access-pattern-swatch"'),
+                         len(ACCESS_PATTERN_CLASSES))
+        self.assertIn('<strong>Backward</strong>: Jumps back', card)
+        # No legend without an access pattern.
+        self.assertNotIn('io-access-pattern-legend',
+                         _build_io_request_sizes_card_html(
+                             {}, ['t1'], ['2 [T1]']))

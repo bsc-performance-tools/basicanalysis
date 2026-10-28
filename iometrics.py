@@ -32,6 +32,7 @@ Times in the raw data are in microseconds.
 from __future__ import print_function, division
 
 import os
+import textwrap
 from collections import OrderedDict
 
 
@@ -208,6 +209,35 @@ ACCESS_PATTERN_CLASSES = OrderedDict([
     ('backward', 'Backward'),
     ('unknown', 'Unknown offset'),
 ])
+
+# Meaning of each class, for the report and the standard output.
+ACCESS_PATTERN_DESCRIPTIONS = OrderedDict([
+    ('first', 'The first read (write) on the descriptor after it is '
+              'opened: there is no previous request to compare with.'),
+    ('consecutive', 'Starts exactly where the previous read (write) '
+                    'ended: the file is read (written) in order, without '
+                    'gaps.'),
+    ('strided', 'Leaves the same gap after the previous request as that '
+                'request left after the one before it: a regular pattern, '
+                'such as one record every N bytes.'),
+    ('forward', 'Jumps ahead, skipping part of the file, by a gap '
+                'different from the previous one.'),
+    ('backward', 'Jumps back to an earlier offset, by a gap different from '
+                 'the previous one; includes reading (writing) the same '
+                 'region again.'),
+    ('unknown', 'The offset cannot be rebuilt from the trace: '
+                'pread/pwrite calls, descriptors without a traced open '
+                '(until their first seek), and requests after a seek '
+                'without a recorded offset (older Extrae versions).'),
+])
+
+# How the classes are obtained, for the report and the standard output.
+ACCESS_PATTERN_METHOD = (
+    'Each read (write) is compared with the previous read (write) of the '
+    'same process on the same file descriptor. The offsets are rebuilt from '
+    'the opens (offset 0), the seeks (taken as absolute), and the request '
+    'sizes.'
+)
 
 for _operation in REQUEST_SIZE_OPERATIONS:
     _label = OPERATION_LABELS[_operation]
@@ -1108,6 +1138,7 @@ def print_io_access_pattern_tables(other_metrics, trace_list, column_labels,
     """Print the share of the requests, of the bytes, and of the time of
     each access-pattern class of the reads and writes."""
     patterns = other_metrics.get('io_access_pattern', {})
+    printed = False
 
     for operation in REQUEST_SIZE_OPERATIONS:
         if not any((patterns.get(trace) or {}).get(operation)
@@ -1151,6 +1182,30 @@ def print_io_access_pattern_tables(other_metrics, trace_list, column_labels,
             print(line)
 
         print(''.ljust(len(line_head), '-'))
+        printed = True
+
+    if printed:
+        print_access_pattern_legend()
+
+
+def print_access_pattern_legend(width=79):
+    """Print the meaning of the access-pattern classes."""
+    print('Access pattern classes:')
+
+    for line in textwrap.wrap(ACCESS_PATTERN_METHOD, width - 2):
+        print('  ' + line)
+
+    for name, label in ACCESS_PATTERN_CLASSES.items():
+        lines = textwrap.wrap(
+            '{}: {}'.format(label, ACCESS_PATTERN_DESCRIPTIONS[name]),
+            width - 4)
+
+        print('  - ' + lines[0])
+
+        for line in lines[1:]:
+            print('    ' + line)
+
+    print('')
 
 
 def shorten_file_name(name, width):

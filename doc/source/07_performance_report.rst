@@ -273,7 +273,8 @@ table of the plotted values:
   size interval. Compare the two panels: an interval with few requests and
   much of the time holds the expensive requests. Hovering over a bar shows
   the number of requests, the time, and the bytes. See
-  :ref:`requests <io-request-sizes>`. The *access pattern* plots show, for
+  :ref:`requests <io-request-sizes>`. Above the *access pattern* plots, a
+  legend explains each class with the color of its bars. The plots show, for
   the reads and the writes of the POSIX and ANSI C calls to regular files,
   the share of the requests, of the bytes, and of the time that are
   consecutive, strided, forward, backward, first, or with an unknown

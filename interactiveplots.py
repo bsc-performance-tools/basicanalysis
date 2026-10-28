@@ -16,6 +16,8 @@ from configuration import format_configuration_label
 from tracemetadata import is_host_gpu_mode
 from iometrics import (
     ACCESS_PATTERN_CLASSES as IO_ACCESS_PATTERN_CLASSES,
+    ACCESS_PATTERN_DESCRIPTIONS as IO_ACCESS_PATTERN_DESCRIPTIONS,
+    ACCESS_PATTERN_METHOD as IO_ACCESS_PATTERN_METHOD,
     ACCESS_PATTERN_QUANTITIES as IO_ACCESS_PATTERN_QUANTITIES,
     BINARY_UNITS,
     FILE_DIAGNOSTICS,
@@ -1636,6 +1638,28 @@ def _build_io_access_pattern_plot_html(other_metrics, trace_list,
         _io_plot_html(fig))
 
 
+def _build_io_access_pattern_legend_html():
+    """Meaning of each access-pattern class, with the color of its bars."""
+    items = ''.join(
+        '<li><span class="io-access-pattern-swatch" '
+        'style="background:{color}"></span><strong>{label}</strong>: '
+        '{description}</li>'.format(
+            color=_IO_ACCESS_PATTERN_COLORS[name],
+            label=html.escape(label),
+            description=html.escape(IO_ACCESS_PATTERN_DESCRIPTIONS[name]),
+        )
+        for name, label in IO_ACCESS_PATTERN_CLASSES.items()
+    )
+
+    return (
+        '<div class="io-access-pattern-legend">'
+        '<h4 class="io-plot-title">Access pattern (POSIX and ANSI C, '
+        'regular files)</h4>'
+        '<p>{}</p><ul>{}</ul></div>'.format(
+            html.escape(IO_ACCESS_PATTERN_METHOD), items)
+    )
+
+
 def _build_io_request_sizes_card_html(other_metrics, trace_list,
                                       trace_labels, printable=False):
     """Card with the volume and mean size of the requests of the read and
@@ -1722,22 +1746,16 @@ def _build_io_request_sizes_card_html(other_metrics, trace_list,
 
     if pattern_html:
         note += (
-            " <em>Access pattern</em> (POSIX and ANSI C on regular files): "
-            "each read or write is compared with the previous one of the "
-            "same kind on the same file descriptor. <em>Consecutive</em> "
-            "starts where the previous one ended; <em>strided</em> jumps "
-            "by the same gap as the previous one; <em>forward</em> and "
-            "<em>backward</em> jump ahead or back; <em>first</em> has no "
-            "previous request. Offsets are rebuilt from the opens, the "
-            "seeks (taken as absolute), and the request sizes; "
-            "<em>unknown offset</em> covers pread/pwrite, descriptors "
-            "without a traced open, and seeks without an offset (older "
-            "Extrae versions). Many jumps that move few bytes usually come "
-            "from metadata accesses; the re-accessed volume, in the values, "
-            "is the share of the bytes a process reads or writes again in "
-            "the same file. The values are also in "
+            " The <em>access pattern</em> shows where each read or write "
+            "falls in the file with respect to the previous one (the "
+            "classes are explained above the plots). Compare the requests "
+            "with the bytes and the time: many jumps that move few bytes "
+            "usually come from metadata accesses. The re-accessed volume, "
+            "in the values, is the share of the bytes a process reads or "
+            "writes again in the same file. The values are also in "
             "<code>io_access_pattern.csv</code>."
         )
+        pattern_html = _build_io_access_pattern_legend_html() + pattern_html
 
     return _build_io_card_html(
         "What requests are made?", note,
@@ -6601,6 +6619,32 @@ def _build_interactive_report_document(workspace_html,
 
         .io-values {
             margin-top: 8px;
+        }
+
+        .io-access-pattern-legend p,
+        .io-access-pattern-legend li {
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .io-access-pattern-legend ul {
+            list-style: none;
+            margin: 6px 0 4px;
+            padding: 0;
+        }
+
+        .io-access-pattern-legend li {
+            margin: 3px 0;
+        }
+
+        .io-access-pattern-swatch {
+            display: inline-block;
+            width: 11px;
+            height: 11px;
+            margin-right: 6px;
+            border-radius: 2px;
+            vertical-align: -1px;
         }
 
         .io-values summary {
