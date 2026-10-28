@@ -8,7 +8,7 @@ import math
 
 from rawdata import *
 from collections import OrderedDict
-from scaling import get_scaling_info
+from scaling import get_scaling_info, warn_unused_domain_workloads
 from tracemetadata import is_host_gpu_mode, is_nsys2prv_mode
 from nsys2prvmetrics import mod_device_hwc_factors_doc
 from comparison import (
@@ -933,10 +933,24 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
     scaling = scaling_info.selected
 
+    # Host and device workloads apply to the Host/Device model only.
+    warn_unused_domain_workloads(
+        scaling_info,
+        has_domains=any(
+            trace_mode[trace] in ('Detailed+MPI+CUDA', 'Detailed+MPI+HIP')
+            or (is_host_gpu_mode(trace_mode[trace])
+                and cmdl_args.pop_model_to_apply == 'talp')
+            for trace in trace_list
+        ),
+    )
+
     # Loop over all traces
     for trace in trace_list:
 
         proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
+        # Multiplier of the weak-scaling formulas: the process ratio, or the
+        # user workload ratio in workload mode.
+        work_ratio = scaling_info.work_ratio(trace, proc_ratio)
    
         total_procs = trace_processes[trace]
 
@@ -1236,7 +1250,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         else:
                             mod_factors['comp_scale'][trace] = raw_data['burst_useful_tot'][trace_list[0]] \
                                                    / raw_data['burst_useful_tot'][trace] \
-                                                   * proc_ratio * 100.0
+                                                   * work_ratio * 100.0
                     else:
                         mod_factors['comp_scale'][trace] = 100.0
                 elif host_device_measures and 'Non-Avail' in (
@@ -1277,7 +1291,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         host_factors['host_comp_scale'][trace] = (
                             float(raw_data['useful_host'][reference])
                             / float(raw_data['useful_host'][trace])
-                            * host_ratio
+                            * scaling_info.work_ratio(
+                                trace, host_ratio, domain='host')
                             * 100.0
                         )
 
@@ -1303,6 +1318,22 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                             / useful_app
                             * 100.0
                         )
+                    elif scaling == 'workload':
+                        # Ideal useful time: the useful time of each
+                        # domain in the reference, scaled by the workload
+                        # ratio of the domain.
+                        mod_factors['comp_scale'][trace] = (
+                            (
+                                float(raw_data['useful_host'][reference])
+                                * scaling_info.work_ratio(
+                                    trace, None, domain='host')
+                                + float(raw_data['useful_device'][reference])
+                                * scaling_info.work_ratio(
+                                    trace, None, domain='device')
+                            )
+                            / useful_app
+                            * 100.0
+                        )
                     else:
                         app_units_ref = (
                             int(raw_data['count_host_threads'][reference])
@@ -1322,7 +1353,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         mod_factors['comp_scale'][trace] = (
                             useful_app_ref
                             / useful_app
-                            * app_ratio
+                            * scaling_info.work_ratio(trace, app_ratio)
                             * 100.0
                         )
 
@@ -1347,7 +1378,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                    / float(raw_data['useful_tot'][trace]) * 100.0
                     else:
                         mod_factors['comp_scale'][trace] = float(raw_data['useful_tot'][trace_list[0]]) \
-                                                   / float(raw_data['useful_tot'][trace]) * proc_ratio * 100.0
+                                                   / float(raw_data['useful_tot'][trace]) * work_ratio * 100.0
             else:
                 mod_factors['comp_scale'][trace] = 'Non-Avail'
                 host_factors['host_comp_scale'][trace] = 'Non-Avail'
@@ -1373,7 +1404,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         mod_factors_scale_plus_io['comp_scale'][trace] = (float(raw_data['useful_tot'][trace_list[0]])
                                                                           + io_serial_0) \
                                                                      / (float(raw_data['useful_tot'][trace])
-                                                                        + io_serial_n) * proc_ratio * 100.0
+                                                                        + io_serial_n) * work_ratio * 100.0
                 else:
                     mod_factors_scale_plus_io['comp_scale'][trace] = float(mod_factors['comp_scale'][trace])
             else:
@@ -1861,7 +1892,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     device_factors['dev_comp_scale'][trace] = (
                         float(raw_data['useful_device'][reference])
                         / float(raw_data['useful_device'][trace])
-                        * device_ratio
+                        * scaling_info.work_ratio(
+                            trace, device_ratio, domain='device')
                         * 100.0
                     )
 
@@ -2143,10 +2175,16 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                             / float(raw_data['procs_ins'][trace_list[0]])
                         )
 
+                        # The instructions are those of the host units
+                        # (Host Instruction Scalability in the Host/Device
+                        # model).
                         mod_factors['inst_scale'][trace] = (
                             float(raw_data['useful_ins'][trace_list[0]])
                             / float(raw_data['useful_ins'][trace])
-                            * procs_ratio_ins
+                            * scaling_info.work_ratio(
+                                trace, procs_ratio_ins,
+                                domain='host' if host_device_measures
+                                else None)
                             * 100.0
                         )
 
@@ -2190,7 +2228,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                           / float(raw_data['procs_ins'][trace_list[0]])
                         mod_factors_scale_plus_io['inst_scale'][trace] = float(useful_ins_plus_io_0) \
                                                                          / float(useful_ins_plus_io_n)\
-                                                                         * procs_ratio_ins * 100.0
+                                                                         * scaling_info.work_ratio(trace, procs_ratio_ins) * 100.0
                 else:
                     mod_factors_scale_plus_io['inst_scale'][trace] = float(mod_factors['inst_scale'][trace])
             else:
@@ -2222,7 +2260,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                             / raw_data['runtime'][trace])
                 else:
                     other_metrics['speedup'][trace] = float(raw_data['runtime'][trace_list[0]]
-                                                            / raw_data['runtime'][trace] * proc_ratio)
+                                                            / raw_data['runtime'][trace] * work_ratio)
             else:
                 other_metrics['speedup'][trace] = 'Non-Avail'
         except:
@@ -2241,7 +2279,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                         / (raw_data['runtime'][trace] * proc_ratio)
                 else:
                     other_metrics['efficiency'][trace] = raw_data['runtime'][trace_list[0]] \
-                                                        / raw_data['runtime'][trace]
+                                                        / raw_data['runtime'][trace] \
+                                                        * (work_ratio / proc_ratio)
             else:
                 other_metrics['efficiency'][trace] = 'Non-Avail'
         except:

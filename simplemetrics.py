@@ -7,7 +7,7 @@ import sys
 
 from rawdata import *
 from collections import OrderedDict
-from scaling import get_scaling_info
+from scaling import get_scaling_info, warn_unused_domain_workloads
 
 # error import variables
 error_import_pandas = False
@@ -518,10 +518,16 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
     scaling = scaling_info.selected
 
+    # The simple metrics have a single execution domain.
+    warn_unused_domain_workloads(scaling_info, has_domains=False)
+
     # Loop over all traces
     for trace in trace_list:
 
         proc_ratio = float(trace_processes[trace]) / float(trace_processes[trace_list[0]])
+        # Multiplier of the weak-scaling formulas: the process ratio, or the
+        # user workload ratio in workload mode.
+        work_ratio = scaling_info.work_ratio(trace, proc_ratio)
 
         # Flushing measurements
         try:  # except NaN
@@ -816,7 +822,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     else:
                         mod_factors['comp_scale'][trace] = raw_data['burst_useful_tot'][trace_list[0]] \
                                                    / raw_data['burst_useful_tot'][trace] \
-                                                   * proc_ratio * 100.0
+                                                   * work_ratio * 100.0
                 else:
                     if scaling == 'strong':
                         mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] \
@@ -824,7 +830,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     else:
                         mod_factors['comp_scale'][trace] = raw_data['useful_tot'][trace_list[0]] \
                                                    / raw_data['useful_tot'][trace] \
-                                                   * proc_ratio * 100.0
+                                                   * work_ratio * 100.0
             else:
                 mod_factors['comp_scale'][trace] = 'Non-Avail'
         except:
@@ -866,7 +872,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         ) / (
                             raw_data['useful_tot'][trace]
                             + io_serial_n
-                        ) * proc_ratio * 100.0
+                        ) * work_ratio * 100.0
 
                 else:
                     mod_factors_scale_plus_io['comp_scale'][trace] = (
@@ -1032,7 +1038,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                           / float(raw_data['procs_ins'][trace_list[0]])
                         mod_factors['inst_scale'][trace] = float(raw_data['useful_ins'][trace_list[0]]) \
                                                    / float(raw_data['useful_ins'][trace]) \
-                                                       * procs_ratio_ins * 100.0
+                                                       * scaling_info.work_ratio(trace, procs_ratio_ins) * 100.0
                 else:
                     mod_factors['inst_scale'][trace] = 'Non-Avail'
             else:
@@ -1059,7 +1065,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                         procs_ratio_ins = float(raw_data['procs_ins'][trace]) \
                                           / float(raw_data['procs_ins'][trace_list[0]])
                         mod_factors_scale_plus_io['inst_scale'][trace] = useful_ins_plus_io_0 / useful_ins_plus_io_n \
-                                                     * procs_ratio_ins * 100.0
+                                                     * scaling_info.work_ratio(trace, procs_ratio_ins) * 100.0
                 else:
                     mod_factors_scale_plus_io['inst_scale'][trace] = mod_factors['inst_scale'][trace]
             else:
@@ -1075,7 +1081,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                 / raw_data['runtime'][trace]
                 else:
                     other_metrics['speedup'][trace] = raw_data['runtime'][trace_list[0]] \
-                                                      / raw_data['runtime'][trace] * proc_ratio
+                                                      / raw_data['runtime'][trace] * work_ratio
             else:
                 other_metrics['speedup'][trace] = 'Non-Avail'
         except:
@@ -1094,7 +1100,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                                                      / (raw_data['runtime'][trace] * proc_ratio)
                 else:
                     other_metrics['efficiency'][trace] = raw_data['runtime'][trace_list[0]] \
-                                                         / raw_data['runtime'][trace]
+                                                         / raw_data['runtime'][trace] \
+                                                         * (work_ratio / proc_ratio)
             else:
                 other_metrics['efficiency'][trace] = 'Non-Avail'
         except:

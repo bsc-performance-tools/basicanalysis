@@ -6,6 +6,19 @@
 import sys
 
 
+# Execution domains with their own workload ratio in the Host/Device model:
+# (domain, size option, ratio option). Their ratios default to the workload
+# ratio of the application (--workload or --ratios-workload).
+WORKLOAD_DOMAINS = (
+    ("host", "--host-workload", "--host-ratios-workload"),
+    ("device", "--device-workload", "--device-ratios-workload"),
+)
+
+
+def _option_attribute(option):
+    return option.lstrip("-").replace("-", "_")
+
+
 class ScalingInfo:
     """Stores information about the scaling model used in an analysis.
 
@@ -22,13 +35,17 @@ class ScalingInfo:
 
     selected : str
         Scaling type finally used by BasicAnalysis for metric computation.
-        The value is always "strong" or "weak".
+        The value is "strong", "weak" or "workload". "workload" means that
+        the user gave the workload of each trace (--workload or
+        --ratios-workload); the weak-scaling formulas are then used with the
+        user workload ratio in place of the resource ratios.
 
     selection_mode : str
         Indicates how the selected scaling type was obtained.
         Possible values are:
             - "auto": automatically detected.
             - "manual": explicitly selected by the user.
+            - "workload": user-defined workload ratios.
             - "implicit": internal compatibility choice when scaling analysis
               is not applicable.
 
@@ -50,6 +67,19 @@ class ScalingInfo:
 
     status_message : str or None
         Additional information describing the scaling-analysis status.
+
+    workload_values : dict or None
+        Workload value given by the user for each trace, in workload mode.
+
+    workload_ratios : dict or None
+        Workload of each trace divided by the workload of the reference
+        trace, in workload mode.
+
+    domain_workload_values, domain_workload_ratios, domain_workload_options
+        : dict
+        Per execution domain ("host", "device"), the workload values,
+        ratios, and option given by the user, in workload mode. A domain
+        without its own workload uses the workload of the application.
     """
 
     def __init__(
@@ -64,6 +94,8 @@ class ScalingInfo:
         normalized_useful_avg_ratio=None,
         threshold=0.9,
         status_message=None,
+        workload_values=None,
+        workload_ratios=None,
     ):
         self.has_scaling_analysis = has_scaling_analysis
 
@@ -81,6 +113,32 @@ class ScalingInfo:
 
         self.threshold = threshold
         self.status_message = status_message
+
+        self.workload_values = workload_values
+        self.workload_ratios = workload_ratios
+        self.workload_option = None
+        self.domain_workload_values = {}
+        self.domain_workload_ratios = {}
+        self.domain_workload_options = {}
+
+    def work_ratio(self, trace, resource_ratio, domain=None):
+        """Return the multiplier of the weak-scaling formulas for a trace.
+
+        In workload mode it is the user workload ratio of the trace: the
+        ratio of the execution domain ("host" or "device") when the user
+        gave one, and the ratio of the application otherwise. Outside the
+        workload mode it is the resource ratio of the metric (processes,
+        host threads, devices, ...).
+        """
+        if self.workload_ratios is None:
+            return resource_ratio
+
+        ratios = self.domain_workload_ratios.get(domain)
+
+        if ratios is not None:
+            return ratios[trace]
+
+        return self.workload_ratios[trace]
 
 
 def _compute_scaling_detection(
@@ -232,7 +290,13 @@ def get_scaling_info(
     The automatic detector first determines whether the analyzed executions
     resemble strong or weak scaling.
 
-    The command-line scaling option is then applied:
+    When the user gives the workload of each trace (--workload or
+    --ratios-workload), the selected scaling is "workload" and the
+    workload ratio of each trace relative to the reference trace is
+    stored in ``workload_ratios``. The detected scaling is kept only for
+    information.
+
+    Otherwise the command-line scaling option is applied:
 
         auto
             Use the automatically detected scaling type.
@@ -264,6 +328,31 @@ def get_scaling_info(
     # inspecting cmdl_args.scaling. Therefore no manual override is applied
     # for a single execution.
     if not scaling_info.has_scaling_analysis:
+        return scaling_info
+
+    workload_map = getattr(cmdl_args, "workload_map", None)
+
+    if workload_map:
+        scaling_info.selected = "workload"
+        scaling_info.selection_mode = "workload"
+        scaling_info.overridden = False
+        # The user gave the workload: the detection is not used.
+        scaling_info.detected = None
+        scaling_info.workload_values, scaling_info.workload_ratios = (
+            _workload_ratios(workload_map, trace_list,
+                             cmdl_args.workload_option)
+        )
+        scaling_info.workload_option = cmdl_args.workload_option
+
+        domain_maps = getattr(cmdl_args, "domain_workload_maps", None) or {}
+
+        for domain, (option, values) in domain_maps.items():
+            (
+                scaling_info.domain_workload_values[domain],
+                scaling_info.domain_workload_ratios[domain],
+            ) = _workload_ratios(values, trace_list, option)
+            scaling_info.domain_workload_options[domain] = option
+
         return scaling_info
 
     if cmdl_args.scaling == "auto":
@@ -321,6 +410,75 @@ def get_scaling_info(
     sys.exit(1)
 
 
+def _workload_ratios(workload_map, trace_list, option):
+    """Workload values and ratios to the reference (first) trace. The
+    ratio forms warn when the reference ratio is not 1."""
+    reference_value = workload_map[trace_list[0]]
+
+    if "ratios" in option and reference_value != 1.0:
+        print(
+            "==Warning== The reference trace has {} ratio {:g}; all "
+            "ratios are divided by it.".format(option, reference_value)
+        )
+        print("")
+
+    values = {trace: workload_map[trace] for trace in trace_list}
+    ratios = {
+        trace: workload_map[trace] / reference_value
+        for trace in trace_list
+    }
+
+    return values, ratios
+
+
+def warn_unused_domain_workloads(scaling_info, has_domains):
+    """Warn when host or device workloads were given but the execution
+    model has a single domain: the workload of the application is then
+    used for all the metrics."""
+    options = getattr(scaling_info, "domain_workload_options", None)
+
+    if options and not has_domains:
+        print(
+            "==Warning== {} ignored: the execution model has no Host/Device "
+            "domains, so the workload of the application is used for all "
+            "the metrics.".format(", ".join(options.values()))
+        )
+        print("")
+
+
+def describe_detected(scaling_info):
+    """Return the label of the detected scaling shown to the user."""
+
+    if scaling_info.selected == "workload":
+        return "Not used (workload given)"
+
+    if scaling_info.detected:
+        return scaling_info.detected.capitalize()
+
+    return "Non-Avail"
+
+
+def describe_scaling(scaling_info):
+    """Return the (scaling used, selection) labels shown to the user."""
+
+    if scaling_info.selected == "workload":
+        return (
+            "User-defined workload",
+            "Manual ({})".format(scaling_info.workload_option),
+        )
+
+    selected = scaling_info.selected.capitalize()
+
+    if scaling_info.selection_mode == "auto":
+        selection = "Automatic"
+    elif scaling_info.selection_mode == "manual":
+        selection = "Manual"
+    else:
+        selection = "Implicit"
+
+    return selected, selection
+
+
 def get_scaling_type(
     raw_data,
     trace_list,
@@ -349,3 +507,114 @@ def get_scaling_type(
     )
 
     return scaling_info.selected
+
+
+def parse_workload_values(text, option):
+    """Parse a comma-separated list of positive workload values."""
+
+    values = []
+
+    for item in text.split(","):
+        item = item.strip()
+
+        try:
+            value = float(item)
+        except ValueError:
+            print(
+                "==Error== {} expects comma-separated numbers, "
+                "got '{}'.".format(option, item)
+            )
+            sys.exit(1)
+
+        if not value > 0.0:
+            print(
+                "==Error== {} values must be greater than zero, "
+                "got '{}'.".format(option, item)
+            )
+            sys.exit(1)
+
+        values.append(value)
+
+    return values
+
+
+def build_workload_map(cmdl_args, trace_list):
+    """Store on cmdl_args the workload value of each trace, if given.
+
+    The values of --workload or --ratios-workload are matched, in order,
+    with ``trace_list``: the traces as given on the command line, before
+    any size filtering or sorting. The result is stored as
+    ``cmdl_args.workload_map`` (trace -> value), or None when neither
+    option is used. The workloads of the execution domains (--host-workload,
+    --device-workload, and their ratio forms) are matched in the same way
+    and stored as ``cmdl_args.domain_workload_maps`` (domain -> (option,
+    map)); they need the workload of the application.
+    """
+
+    cmdl_args.workload_map = None
+    cmdl_args.domain_workload_maps = {}
+
+    domain_options = {}
+
+    for domain, size_option, ratio_option in WORKLOAD_DOMAINS:
+        for domain_option in (size_option, ratio_option):
+            text = getattr(cmdl_args, _option_attribute(domain_option), None)
+
+            if text:
+                domain_options[domain] = (domain_option, text)
+
+    if getattr(cmdl_args, "workload", None):
+        option = "--workload"
+        text = cmdl_args.workload
+    elif getattr(cmdl_args, "ratios_workload", None):
+        option = "--ratios-workload"
+        text = cmdl_args.ratios_workload
+    else:
+        if domain_options:
+            print(
+                "==Error== {} needs the workload of the application "
+                "(--workload or --ratios-workload).".format(
+                    ", ".join(o for o, _ in domain_options.values())
+                )
+            )
+            sys.exit(1)
+
+        return None
+
+    if cmdl_args.scaling != "auto":
+        print(
+            "==Error== {} cannot be combined with --scaling {}.".format(
+                option, cmdl_args.scaling
+            )
+        )
+        sys.exit(1)
+
+    values = parse_workload_values(text, option)
+
+    if len(values) != len(trace_list):
+        print(
+            "==Error== {} has {} values but {} traces were given.".format(
+                option, len(values), len(trace_list)
+            )
+        )
+        sys.exit(1)
+
+    cmdl_args.workload_map = dict(zip(trace_list, values))
+    cmdl_args.workload_option = option
+
+    for domain, (domain_option, domain_text) in domain_options.items():
+        domain_values = parse_workload_values(domain_text, domain_option)
+
+        if len(domain_values) != len(trace_list):
+            print(
+                "==Error== {} has {} values but {} traces were "
+                "given.".format(
+                    domain_option, len(domain_values), len(trace_list)
+                )
+            )
+            sys.exit(1)
+
+        cmdl_args.domain_workload_maps[domain] = (
+            domain_option, dict(zip(trace_list, domain_values)))
+
+    return cmdl_args.workload_map

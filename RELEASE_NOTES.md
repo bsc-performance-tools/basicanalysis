@@ -49,6 +49,20 @@
   read and write bandwidth without the GR Active weighting, which are
   proportional to the amount of data read and written (for comparing
   executions on the same GPU model).
+- User-defined workload scaling: `--workload W1,W2,...` (workload sizes, for
+  example batch sizes) or `--ratios-workload R1,R2,...` (workload ratios
+  relative to the reference trace), one value per trace in command-line
+  order. The scalability metrics, Speedup, and Scaling Efficiency use the
+  weak-scaling formulas with the workload ratio in place of the ratio of
+  processes, Host threads, or devices. This covers experiments in which the
+  workload changes but the resources do not, such as several batch sizes on
+  the same GPU. In the Host/Device model, the Host and the device can have
+  their own workload (`--host-workload`, `--device-workload`, and their
+  ratio forms), which default to that of the application; the Application
+  Computation Scalability uses the ideal useful time of both domains. The
+  workload and ratio of each trace are printed in the scaling model summary
+  and shown in the Scaling section of the report; the automatic detection
+  of weak or strong scaling is not used.
 
 ### Improvements
 

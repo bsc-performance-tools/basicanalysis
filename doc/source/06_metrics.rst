@@ -372,6 +372,44 @@ For weak scaling:
 where :math:`P` is the number of parallel execution units and the ``ref``
 subscript denotes the reference execution.
 
+When the workload of each execution is given with ``--workload`` or
+``--ratios-workload`` (see :doc:`05_methodology`), the weak-scaling formulas of
+this chapter are used with the resource ratio (:math:`P/P_{ref}`, or the
+ratio of Host threads, devices, Host threads plus devices, or processes with
+instructions) replaced by the workload ratio :math:`w = W/W_{ref}`. In the
+models with a single domain it is the same for all metrics:
+
+.. math::
+
+   CompScale =
+   \frac{
+      Useful_{tot,ref}
+   }{
+      Useful_{tot}
+   }
+   \cdot
+   w
+
+In the Host/Device model, the Host metrics (Host Computation Scalability and
+Instruction Scalability) use the Host ratio :math:`w_H`, and Device
+Computation Scalability the device ratio :math:`w_D`; both are :math:`w`
+unless given with ``--host-workload`` or ``--device-workload``. The
+Application Computation Scalability compares the useful time of the
+application with the ideal useful time of each domain:
+
+.. math::
+
+   AppCompScale =
+   \frac{
+      U^H_{ref} \cdot w_H + U^D_{ref} \cdot w_D
+   }{
+      U^H + U^D
+   }
+
+where :math:`U^H` and :math:`U^D` are the Host and device useful times. With
+:math:`w_H = w_D = w` it is the formula above applied to the application
+useful time, and with ratios of 1 the strong-scaling formula.
+
 In strong scaling, the problem size is assumed to remain constant, so changes
 in total useful-computation time characterize the scalability of the
 computation.
@@ -3762,6 +3800,25 @@ For weak scaling, BasicAnalysis computes:
 
    Efficiency(n) =
    \frac{T(0)}{T(n)}
+
+With a user-defined workload ratio :math:`w(n)`, BasicAnalysis computes:
+
+.. math::
+
+   Speedup(n) =
+   \frac{T(0)}{T(n)}
+   \cdot
+   w(n)
+
+.. math::
+
+   Efficiency(n) =
+   \frac{T(0)}{T(n)}
+   \cdot
+   \frac{w(n)}{P(n)/P(0)}
+
+Both reduce to the strong-scaling formulas when :math:`w(n) = 1` and to the
+weak-scaling formulas when :math:`w(n) = P(n)/P(0)`.
 
 For both scaling models, a value of 1 represents ideal scaling behavior
 relative to the reference execution. Values below 1 indicate increasing loss

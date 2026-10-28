@@ -18,6 +18,8 @@ import re
 from collections import defaultdict, Counter
 from typing import Dict, Tuple, List, Optional
 
+from scaling import build_workload_map
+
 
 TARGET_PAIR_BURST = "40000018:2"
 # Byte markers used in PCF files
@@ -61,6 +63,9 @@ def get_traces_from_args(cmdl_args):
     if not trace_list:
         print('==Error== could not find any traces matching "', ' '.join(cmdl_args.trace_list))
         sys.exit(1)
+
+    # Workload values are matched with the traces as given by the user.
+    build_workload_map(cmdl_args, trace_list)
 
     trace_processes = dict()
     trace_tasks = dict()

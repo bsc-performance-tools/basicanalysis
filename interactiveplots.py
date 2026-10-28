@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 
 from configuration import format_configuration_label
 from tracemetadata import is_host_gpu_mode
+from scaling import describe_detected, describe_scaling
 
 from report.renderer.html import (
     build_analysis_catalogue,
@@ -1477,25 +1478,60 @@ def _build_scaling_model_html(scaling_model):
     if scaling_model is None:
         return ""
 
-    detected = (
-        scaling_model.detected.capitalize()
-        if scaling_model.detected
-        else "Non-Avail"
-    )
+    detected = describe_detected(scaling_model)
 
-    selected = scaling_model.selected.capitalize()
-
-    if scaling_model.selection_mode == "auto":
-        selection = "Automatic"
-    elif scaling_model.selection_mode == "manual":
-        selection = "Manual"
-    else:
-        selection = "Implicit"
+    selected, selection = describe_scaling(scaling_model)
 
     warning_html = ""
 
-    if scaling_model.overridden:
+    if scaling_model.workload_ratios is not None:
+        domains = list(scaling_model.domain_workload_ratios)
+        header = "<tr><th>Trace</th><th>Workload</th><th>Ratio</th>{}</tr>".format(
+            "".join(
+                "<th>{0} workload</th><th>{0} ratio</th>".format(
+                    domain.capitalize())
+                for domain in domains
+            )
+        )
+        rows = "".join(
+            "<tr><td>{}</td><td>{:g}</td><td>{:g}</td>{}</tr>".format(
+                html.escape(os.path.basename(trace)),
+                scaling_model.workload_values[trace],
+                ratio,
+                "".join(
+                    "<td>{:g}</td><td>{:g}</td>".format(
+                        scaling_model.domain_workload_values[domain][trace],
+                        scaling_model.domain_workload_ratios[domain][trace],
+                    )
+                    for domain in domains
+                ),
+            )
+            for trace, ratio in scaling_model.workload_ratios.items()
+        )
+        if domains:
+            domain_text = (
+                " The {} metrics of the Host/Device model use their own "
+                "ratio.".format(
+                    " and ".join(domain.capitalize() for domain in domains))
+            )
+        else:
+            domain_text = ""
+
         warning_html = """
+        <div class="scaling-model-warning">
+            <strong>User-defined workload:</strong>
+            the weak-scaling formulas use the workload ratio of each trace
+            relative to the first trace instead of the ratio of processes,
+            threads or devices.{domain_text}
+            <table class="scaling-model-workload">
+                {header}
+                {rows}
+            </table>
+        </div>
+        """.format(header=header, rows=rows, domain_text=domain_text)
+
+    if scaling_model.overridden:
+        warning_html += """
         <div class="scaling-model-warning">
             <strong>Manual override:</strong>
             the scaling model used to compute the metrics differs from
@@ -9663,6 +9699,17 @@ def _build_interactive_report_document(workspace_html,
             color: #5c4b1c;
 
             font-size: 12px;
+        }
+
+        .scaling-model-workload {
+            margin-top: 6px;
+            border-collapse: collapse;
+        }
+
+        .scaling-model-workload th,
+        .scaling-model-workload td {
+            padding: 2px 10px 2px 0;
+            text-align: left;
         }
 
         @media (max-width: 700px) {

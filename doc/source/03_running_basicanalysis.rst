@@ -108,6 +108,79 @@ The available modes are:
 
 The default is ``auto``.
 
+User-defined workload
+---------------------
+
+When the workload of each execution is known, for example the batch size of
+an inference or training run, it can be given instead of a scaling model:
+
+.. code-block:: text
+
+   --workload W1,W2,...
+   --ratios-workload R1,R2,...
+
+``--workload``
+   Workload sizes, one per trace. The workload ratio of each trace is its
+   size divided by the size of the reference trace.
+
+``--ratios-workload``
+   Workload ratios, one per trace, already relative to the reference trace
+   (the reference trace has ratio 1). If the ratio of the reference trace is
+   not 1, all ratios are divided by it and a warning is printed.
+
+The values are matched, in order, with the ``.prv`` traces as they are given
+on the command line, before the traces are filtered by size or sorted; each
+trace keeps its value after sorting. Shell wildcards expand in alphabetical
+order (``b1``, ``b128``, ``b16``, ``b2``, ...), so the traces should be
+listed explicitly in the same order as the values. The trace, workload, and
+ratio used for each execution are printed in the scaling model summary and
+shown in the **Scaling** section of the report. With
+``compute_metrics_from_merged.py``, the values are matched with the trace
+list of the merged file.
+
+The two options cannot be combined with each other or with
+``--scaling weak`` or ``--scaling strong``, and the number of values must be
+the same as the number of traces. All values must be greater than zero.
+
+For example, four vLLM runs on the same GPU with batch sizes 1, 8, 64, and
+256:
+
+.. code-block:: bash
+
+   modelfactors.py --workload 1,8,64,256 \
+       vllm_b1.prv vllm_b8.prv vllm_b64.prv vllm_b256.prv
+
+In the Host/Device model (MPI+GPU, GPU without MPI, and nsys2prv traces), the
+Host and the device can have their own workload, when the work of one of
+them does not grow like the workload of the application:
+
+.. code-block:: text
+
+   --host-workload W1,W2,...     --host-ratios-workload R1,R2,...
+   --device-workload W1,W2,...   --device-ratios-workload R1,R2,...
+
+Each pair has the same size and ratio forms as ``--workload`` and
+``--ratios-workload``, with one value per trace in the same order. They need
+``--workload`` or ``--ratios-workload``: the Host or device workload that is
+not given is that of the application. For example, if the Host does about
+the same work for every batch size (the same number of steps and kernel
+launches) while the GPU work grows with the batch:
+
+.. code-block:: bash
+
+   modelfactors.py --workload 1,8,64,256 --host-ratios-workload 1,1,1,1 \
+       vllm_b1.prv vllm_b8.prv vllm_b64.prv vllm_b256.prv
+
+In execution models with a single domain (MPI, MPI+OpenMP, OpenMP or
+pthreads, Burst mode), the Host and device workloads are ignored with a
+warning. The Host and device values are printed and shown with the
+workload of the application.
+
+With a user-defined workload, the automatic detection of weak or strong
+scaling is not used, and the report shows it as *Not used*. The reference
+is the first execution, as in weak and strong scaling (see
+:doc:`05_methodology`).
+
 The scaling model affects the computation and interpretation of scalability
 metrics. The detected and selected scaling models are reported in the
 **Scaling** section of the performance report.
