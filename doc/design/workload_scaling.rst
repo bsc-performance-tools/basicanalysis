@@ -524,8 +524,17 @@ Validation (2026-10-28, branch ``feature/workload-scaling``):
   1,2,4`` identical to ``-s weak``; constant ``--workload`` with Host and
   device options identical to ``-s strong``, with the warning that the
   Host and device workloads are ignored.
-* The vLLM case (nsys2prv traces) is to be run after the merge into
-  ``feature/nsys2prv``.
+* vLLM b1/b256 (nsys2prv traces), after the merge into
+  ``feature/nsys2prv`` (984acc5): ``--workload 1,256`` gives the same
+  values as before (Host Computation Scalability 20364%, Device 3033%,
+  Application 11562%). With ``--workload 1,256 --host-ratios-workload
+  1,1.11`` (the ratio of kernel launches as the Host workload): Host
+  Computation Scalability 88.30%, Device Computation Scalability 3033.25%,
+  Application Computation Scalability 1583.97%, Global Efficiency 340.33%,
+  Speedup 131.84, as predicted in `Applicability to all execution
+  models`_. nsys2prv traces are Host/Device traces, so the Host and device
+  options are used; the GPU hardware counter metrics have no scaling
+  ratio.
 
 
 Open questions
