@@ -3102,6 +3102,18 @@ reported with the I/O diagnostics. With chunks of 2M instead of 100k, the
 VTKHDF writes go from 94% to 29% of the bytes in consecutive requests: most
 writes then follow a forward gap.
 
+Each request is classified within its own file, but the shares of the
+execution add the requests of all the files and processes, so a file with a
+different pattern can be hidden by the others. The pattern is therefore
+also given **per file**: the share of the bytes read and written in
+consecutive requests of each file is shown with the files (see
+:ref:`files <io-files>`), and ``io_files.csv`` has the shares of the
+requests and of the bytes of every class for each file. In the VTKHDF
+execution with chunks of 100k, the part files have 93% of the bytes read
+and 94% of the bytes written in consecutive requests, while the common
+file has 84% and 55%: its accesses jump more, although they are hidden in
+the totals because the part files hold 99% of the requests.
+
 The I/O diagnostics are shown in the cards of the I/O Analysis view of the
 report and printed in the standard output (in both, rows that are zero for
 all the executions are omitted), and written to ``io_metrics.csv``. The

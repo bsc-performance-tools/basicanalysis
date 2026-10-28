@@ -1782,7 +1782,9 @@ def _build_io_files_table_html(rows):
         body.append(
             '<tr><td title="{title}">{name}</td><td>{processes}</td>'
             '<td>{read}</td><td>{written}</td><td>{main}</td>'
-            '<td>{time:.3f}</td><td>{time_pct}</td></tr>'.format(
+            '<td>{time:.3f}</td><td>{time_pct}</td>'
+            '<td>{consecutive_read}</td><td>{consecutive_write}</td>'
+            '</tr>'.format(
                 title=html.escape(name, quote=True),
                 name=html.escape(shorten_file_name(name, 52)),
                 processes=row['processes'],
@@ -1791,6 +1793,10 @@ def _build_io_files_table_html(rows):
                 main=percentage(row['main_process_pct']),
                 time=row['time'] / 1e6,
                 time_pct=percentage(row['time_pct']),
+                consecutive_read=percentage(
+                    row.get('read_consecutive_volume', IO_NON_AVAIL)),
+                consecutive_write=percentage(
+                    row.get('write_consecutive_volume', IO_NON_AVAIL)),
             ))
 
     return (
@@ -1798,7 +1804,8 @@ def _build_io_files_table_html(rows):
         "<table class='metric-table io-diagnostics-table io-files-table'>"
         "<thead><tr><th>File</th><th>Processes</th><th>Read</th>"
         "<th>Written</th><th>Main process</th><th>I/O time (s)</th>"
-        "<th>I/O time (%)</th></tr></thead>"
+        "<th>I/O time (%)</th><th>Consecutive read</th>"
+        "<th>Consecutive write</th></tr></thead>"
         "<tbody>{}</tbody></table></div>".format(''.join(body))
     )
 
@@ -1820,6 +1827,14 @@ def _build_io_files_plot_html(rows, printable=False):
             return '\u2013'
         return '{0:.1f}%'.format(row['main_process_pct'])
 
+    def consecutive(row, operation):
+        value = row.get('{}_consecutive_volume'.format(operation),
+                        IO_NON_AVAIL)
+
+        if value == IO_NON_AVAIL:
+            return '\u2013'
+        return '{0:.1f}%'.format(value)
+
     customdata = [
         [
             row['name'],
@@ -1829,6 +1844,8 @@ def _build_io_files_plot_html(rows, printable=False):
             main_process(row),
             row['time'] / 1e6,
             row['time_pct'],
+            consecutive(row, 'read'),
+            consecutive(row, 'write'),
         ]
         for row in shown
     ]
@@ -1858,7 +1875,9 @@ def _build_io_files_plot_html(rows, printable=False):
                 + '(%{customdata[6]:.1f}%)<br>'
                 + 'Processes: %{customdata[1]}<br>'
                 + 'Read: %{customdata[2]}, written: %{customdata[3]}<br>'
-                + 'Main process: %{customdata[4]}<extra></extra>'
+                + 'Main process: %{customdata[4]}<br>'
+                + 'Consecutive read: %{customdata[7]}, '
+                + 'write: %{customdata[8]}<extra></extra>'
             ),
         ))
 
@@ -1952,7 +1971,13 @@ def _build_io_files_card_html(other_metrics, trace_list, trace_labels,
         "descriptors without an open in the trace (standard output, files "
         "opened before the tracing starts). Hover over a bar for the full "
         "path, the processes, and the bytes; all the files are in "
-        "<code>io_files.csv</code>."
+        "<code>io_files.csv</code>. "
+        "<em>Consecutive read</em> and <em>write</em>, in the hover and the "
+        "values: the share of the bytes of the file read or written in "
+        "consecutive requests (see the access pattern in <em>What requests "
+        "are made?</em>); a file much lower than the others is accessed "
+        "differently. <code>io_files.csv</code> has every class of the "
+        "access pattern of each file."
     )
 
     return _build_io_card_html(

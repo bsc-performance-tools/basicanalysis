@@ -58,7 +58,10 @@
   the current position). Shown in the *What requests are made?* and *Which
   calls take the time?* cards, the standard output, `io_metrics.csv`, and
   the new `io_access_pattern.csv`. The report (above the plots) and the
-  standard output (after the tables) explain the meaning of each class. The temporary trace of the requests also
+  standard output (after the tables) explain the meaning of each class.
+  The pattern is also given per file: the share of the bytes read and
+  written in consecutive requests in the files table of the report and of
+  the standard output, and every class in `io_files.csv`. The temporary trace of the requests also
   keeps the descriptor type and seek offset events.
 - The I/O Analysis view shows, after the efficiency table and its trends,
   four cards in reading order, each with a short note on how to read it and

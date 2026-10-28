@@ -288,8 +288,11 @@ table of the plotted values:
   write, and the other calls, with the share of the bytes moved by the main
   process of the file at the end of each bar. The last bar collects the
   calls on descriptors without an open in the trace. Hovering over a bar
-  shows the full path, the processes, and the bytes read and written; all
-  the files are in ``io_files.csv``. See :ref:`files <io-files>`.
+  shows the full path, the processes, the bytes read and written, and the
+  share of the bytes read and written in consecutive requests (the access
+  pattern of the file; also in the values); all the files are in
+  ``io_files.csv``. See :ref:`files <io-files>` and :ref:`access pattern
+  <io-access-pattern>`.
 
 The printable report shows the plots without the tables of values.
 These values are not efficiencies, so they have no color scale; rows of

@@ -1708,14 +1708,18 @@ def parse_io_access_pattern_trace(path):
     Returns:
         dict: {
             'read'/'write': {class: {'requests', 'bytes', 'time'}},
+            'files': {name: {'read'/'write': {class: {...}}}},
+            'unnamed': {'read'/'write': {class: {...}}},
             'non_file': {'read'/'write': requests on non-file descriptors},
             'seeks': {'calls', 'with_offset', 'to_current',
                       'to_current_time', 'time'},
             'reaccess': {'read'/'write': {'bytes', 'distinct'}},
         }
-        with the time in microseconds. 'reaccess' compares, per process
-        and file, the bytes moved by the requests with a known offset with
-        the distinct bytes they cover.
+        with the time in microseconds. 'files' has the classes of the
+        requests of each file, and 'unnamed' those of the descriptors
+        without a file name (the groups of parse_io_files_trace). 'reaccess'
+        compares, per process and file, the bytes moved by the requests
+        with a known offset with the distinct bytes they cover.
     """
     names = parse_pcf_event_values(path[:-4] + '.pcf', IO_FILE_NAME_EVENT)
     operations = {
@@ -1730,13 +1734,20 @@ def parse_io_access_pattern_trace(path):
     offset_event = str(IO_OFFSET_EVENT)
     type_event = str(IO_DESCRIPTOR_TYPE_EVENT)
 
-    pattern = {
-        operation: {
-            name: {'requests': 0.0, 'bytes': 0.0, 'time': 0.0}
-            for name in IO_ACCESS_PATTERN_CLASSES
+    def new_pattern():
+        return {
+            operation: {
+                name: {'requests': 0.0, 'bytes': 0.0, 'time': 0.0}
+                for name in IO_ACCESS_PATTERN_CLASSES
+            }
+            for operation in IO_REQUEST_SIZE_OPERATIONS
         }
-        for operation in IO_REQUEST_SIZE_OPERATIONS
-    }
+
+    pattern = new_pattern()
+    # Classes of the requests of each file name, and of the descriptors
+    # without a file name.
+    file_patterns = {}
+    unnamed_pattern = new_pattern()
     non_file = {operation: 0.0 for operation in IO_REQUEST_SIZE_OPERATIONS}
     seeks = {'calls': 0.0, 'with_offset': 0.0, 'to_current': 0.0,
              'to_current_time': 0.0, 'time': 0.0}
@@ -1751,8 +1762,9 @@ def parse_io_access_pattern_trace(path):
     regions = {operation: {} for operation in IO_REQUEST_SIZE_OPERATIONS}
     # Descriptors without a file name are told apart by a counter.
     unnamed_files = [0]
-    # Call in progress of each thread: (stats of the request or None, its
-    # size, whether a seek goes to the current position or None, start).
+    # Call in progress of each thread: (stats of the request, of all the
+    # files and of its file, or None; its size; whether a seek goes to the
+    # current position or None; start).
     open_calls = {}
     time_to_us = 1.0
 
@@ -1793,9 +1805,10 @@ def parse_io_access_pattern_trace(path):
                 duration = (timestamp - start) * time_to_us
 
                 if stats is not None:
-                    stats['requests'] += 1
-                    stats['bytes'] += size
-                    stats['time'] += duration
+                    for class_stats in stats:
+                        class_stats['requests'] += 1
+                        class_stats['bytes'] += size
+                        class_stats['time'] += duration
                 elif to_current is not None:
                     seeks['time'] += duration
 
@@ -1879,7 +1892,14 @@ def parse_io_access_pattern_trace(path):
                             (fields[2], fields[3], stream['file']), []
                         ).append((offset, offset + size))
 
-                    stats = pattern[operation][name]
+                    if stream is not None and stream['file'][0] == 'file':
+                        file_pattern = file_patterns.setdefault(
+                            stream['file'][1], new_pattern())
+                    else:
+                        file_pattern = unnamed_pattern
+
+                    stats = (pattern[operation][name],
+                             file_pattern[operation][name])
 
             # Counted when the call ends; a call that starts before the
             # previous one of the thread has ended replaces it.
@@ -1900,6 +1920,8 @@ def parse_io_access_pattern_trace(path):
 
     result = {operation: pattern[operation]
               for operation in IO_REQUEST_SIZE_OPERATIONS}
+    result['files'] = file_patterns
+    result['unnamed'] = unnamed_pattern
     result['non_file'] = non_file
     result['seeks'] = seeks
     result['reaccess'] = reaccess

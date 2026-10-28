@@ -1122,3 +1122,97 @@ class AccessPatternTests(unittest.TestCase):
         self.assertNotIn('io-access-pattern-legend',
                          _build_io_request_sizes_card_html(
                              {}, ['t1'], ['2 [T1]']))
+
+
+class FileAccessPatternTests(unittest.TestCase):
+
+    def _data(self):
+        from rawdata import (parse_io_access_pattern_trace,
+                             parse_io_files_trace)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'trace.io_requests.prv')
+            with open(path, 'w') as f:
+                f.write(ACCESS_PATTERN_TRACE)
+            with open(path[:-4] + '.pcf', 'w') as f:
+                f.write(ACCESS_PATTERN_PCF)
+            return {
+                'file_access': parse_io_files_trace(path),
+                'access_pattern': parse_io_access_pattern_trace(path),
+            }
+
+    def test_classes_per_file(self):
+        pattern = self._data()['access_pattern']
+
+        write = pattern['files']['/data/out.dat']['write']
+        self.assertEqual(write['consecutive']['bytes'], 100.0)
+        self.assertEqual(write['unknown']['requests'], 2.0)
+        # Task 2 reads through a descriptor without a traced open.
+        self.assertEqual(pattern['unnamed']['read']['first']['requests'], 1.0)
+        self.assertEqual(
+            pattern['unnamed']['read']['unknown']['requests'], 1.0)
+        # The terminal write is not classified in any file.
+        self.assertEqual(
+            sum(stats['requests']
+                for stats in pattern['unnamed']['write'].values()), 0.0)
+
+    def test_rows_and_csv(self):
+        from iometrics import (UNNAMED_FILE_LABEL, io_file_access_rows,
+                               print_io_files_csv, print_io_file_tables)
+
+        rows = {row['name']: row
+                for row in io_file_access_rows(self._data())}
+        out = rows['/data/out.dat']
+
+        self.assertAlmostEqual(out['write_consecutive_volume'],
+                               100.0 / 470.0 * 100.0)
+        self.assertAlmostEqual(out['write_backward_requests_pct'],
+                               100.0 / 7.0)
+        # No reads of the file.
+        self.assertEqual(out['read_consecutive_volume'], NON_AVAIL)
+        self.assertEqual(
+            rows[UNNAMED_FILE_LABEL]['read_first_bytes_pct'], 50.0)
+
+        other_metrics = {'io_file_access': {
+            't1': io_file_access_rows(self._data())}}
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            print_io_file_tables(other_metrics, ['t1'], ['2[1]'])
+        self.assertIn('Consec. write', output.getvalue())
+        self.assertIn('21.28%', output.getvalue())
+
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                with redirect_stdout(io.StringIO()):
+                    print_io_files_csv(other_metrics, ['t1'])
+                with open('io_files.csv') as f:
+                    lines = f.read().splitlines()
+            finally:
+                os.chdir(cwd)
+
+        header = lines[0].split(';')
+        self.assertIn('"Write consecutive bytes (%)"', header)
+        self.assertIn('"Read unknown offset requests (%)"', header)
+        self.assertEqual(len(lines[1].split(';')), len(header))
+
+    def test_report_table(self):
+        from iometrics import io_file_access_rows
+        from interactiveplots import _build_io_files_table_html
+
+        table = _build_io_files_table_html(io_file_access_rows(self._data()))
+
+        self.assertIn('<th>Consecutive write</th>', table)
+        self.assertIn('<td>21.3%</td>', table)
+
+    def test_rows_without_access_pattern(self):
+        from iometrics import io_file_access_rows
+
+        data = self._data()
+        data['access_pattern'] = None
+        rows = io_file_access_rows(data)
+
+        self.assertTrue(all(row['write_consecutive_volume'] == NON_AVAIL
+                            for row in rows))

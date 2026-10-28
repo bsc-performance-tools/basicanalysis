@@ -540,6 +540,33 @@ def io_request_size_distribution_by_api(trace_io_data):
     return distribution
 
 
+def _add_file_access_pattern(row, pattern):
+    """Add to a file row the access pattern of its reads and writes:
+    for each operation and class, the shares of the requests and of the
+    bytes ('<operation>_<class>_requests_pct', '..._bytes_pct'), and the
+    share of the bytes in consecutive requests
+    ('<operation>_consecutive_volume'). NON_AVAIL when the file has no
+    classified request of the operation (no requests to a regular file, or
+    no access-pattern data)."""
+    for operation in REQUEST_SIZE_OPERATIONS:
+        classes = (pattern or {}).get(operation) or {}
+        totals = {
+            key: sum(stats[key] for stats in classes.values())
+            for key in ('requests', 'bytes')
+        }
+
+        for name in ACCESS_PATTERN_CLASSES:
+            stats = classes.get(name) or {'requests': 0.0, 'bytes': 0.0}
+
+            for key in ('requests', 'bytes'):
+                row['{}_{}_{}_pct'.format(operation, name, key)] = (
+                    _percentage(stats[key], totals[key])
+                    if totals['requests'] > 0.0 else NON_AVAIL)
+
+        row['{}_consecutive_volume'.format(operation)] = row[
+            '{}_consecutive_bytes_pct'.format(operation)]
+
+
 def _file_row(name, stats, unnamed=False):
     row = OrderedDict([
         ('name', name),
@@ -586,10 +613,16 @@ def io_file_access_rows(trace_io_data):
     if not file_access:
         return []
 
-    rows = [
-        _file_row(name, stats)
-        for name, stats in file_access['files'].items()
-    ]
+    pattern = (trace_io_data or {}).get('access_pattern') or {}
+    file_patterns = pattern.get('files') or {}
+
+    rows = []
+
+    for name, stats in file_access['files'].items():
+        row = _file_row(name, stats)
+        _add_file_access_pattern(row, file_patterns.get(name))
+        rows.append(row)
+
     rows.sort(key=lambda row: (-row['time'], row['name']))
 
     unnamed = file_access['unnamed']
@@ -599,6 +632,7 @@ def io_file_access_rows(trace_io_data):
         # Several descriptors of each process: no main process.
         row['main_process_bytes'] = NON_AVAIL
         row['main_process_pct'] = NON_AVAIL
+        _add_file_access_pattern(row, pattern.get('unnamed'))
         rows.append(row)
 
     total_time = sum(row['time'] for row in rows)
@@ -1216,9 +1250,18 @@ def shorten_file_name(name, width):
     return '...' + name[-(width - 3):]
 
 
+def _file_percentage_cell(value):
+    if value == NON_AVAIL:
+        return '-'
+
+    return format_io_value(value, '%')
+
+
 def print_io_file_tables(other_metrics, trace_list, column_labels,
                          name_width=48):
-    """Print, for every trace, the files with the most I/O time."""
+    """Print, for every trace, the files with the most I/O time. The
+    consecutive columns are the shares of the bytes read and written in
+    consecutive requests (see the access pattern)."""
     columns = [
         ('Processes', lambda row: '{0:d}'.format(row['processes'])),
         ('Read', lambda row: format_bytes(row['read_bytes'])),
@@ -1228,6 +1271,10 @@ def print_io_file_tables(other_metrics, trace_list, column_labels,
             else format_io_value(row['main_process_pct'], '%'))),
         ('I/O time (s)', lambda row: '{0:.3f}'.format(row['time'] / 1e6)),
         ('I/O time (%)', lambda row: format_io_value(row['time_pct'], '%')),
+        ('Consec. read', lambda row: _file_percentage_cell(
+            row.get('read_consecutive_volume', NON_AVAIL))),
+        ('Consec. write', lambda row: _file_percentage_cell(
+            row.get('write_consecutive_volume', NON_AVAIL))),
     ]
     width = max(len(title) for title, _ in columns)
 
@@ -1262,6 +1309,9 @@ def print_io_file_tables(other_metrics, trace_list, column_labels,
             print(line)
 
         print(''.ljust(len(line_head), '-'))
+        print('Consec. read / write: share of the bytes read / written in '
+              'consecutive requests (access pattern, regular files).')
+        print('')
 
 
 def print_io_files_csv(other_metrics, trace_list):
@@ -1294,6 +1344,14 @@ def print_io_files_csv(other_metrics, trace_list):
         ('I/O time (%)', 'time_pct'),
         ('Bytes (%)', 'bytes_pct'),
     ]
+    columns += [
+        ('{} {} {} (%)'.format(
+            OPERATION_LABELS[operation], label.lower(), key),
+         '{}_{}_{}_pct'.format(operation, name, key))
+        for operation in REQUEST_SIZE_OPERATIONS
+        for name, label in ACCESS_PATTERN_CLASSES.items()
+        for key in ('requests', 'bytes')
+    ]
 
     with open(file_path, 'w') as output:
         output.write(
@@ -1307,7 +1365,7 @@ def print_io_files_csv(other_metrics, trace_list):
                 ]
 
                 for _, key in columns[2:]:
-                    value = row[key]
+                    value = row.get(key, NON_AVAIL)
 
                     if not isinstance(value, (int, float)):
                         values.append(str(value))

@@ -1827,6 +1827,15 @@ for the first I/O report.
 Review Log
 ----------
 
+*2026-10-29* -- Access pattern per file (user: the totals add all the
+files): the classes are also counted per file (and for the descriptors
+without a file name); the files table of the report and of the standard
+output shows the share of the bytes read and written in consecutive
+requests, and ``io_files.csv`` the shares of the requests and bytes of every
+class. VTKHDF 100k: part files 93% (read) and 94% (write) of the bytes in
+consecutive requests, common file 84% and 55%, hidden in the totals (the
+part files hold 99% of the requests).
+
 *2026-10-29* -- Access pattern decided and implemented (recommendations
 accepted; see the open question). ``rawdata.parse_io_access_pattern_trace``
 reads the filtered trace, which also keeps the descriptor type

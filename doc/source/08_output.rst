@@ -88,8 +88,10 @@ The main files include:
    Written when the traces have POSIX or ANSI C calls. One row per
    execution and file accessed, in decreasing I/O time, with the processes,
    opens, I/O time, the requests, bytes, time, and processes of the reads
-   and writes, the bytes of the main process and their share, and the
-   shares of the I/O time and of the bytes. The row *(descriptors without a
+   and writes, the bytes of the main process and their share, the
+   shares of the I/O time and of the bytes, and the access pattern of the
+   reads and writes of the file (share of the requests and of the bytes of
+   each class). The row *(descriptors without a
    traced open)* collects the calls on descriptors without an open in the
    trace.
 
