@@ -822,7 +822,7 @@ class AnalysisCatalogueTests(unittest.TestCase):
 
         self.assertEqual(
             labels["execution-domains"],
-            "Host/Device Model (TALP)",
+            "Host/Device Model",
         )
 
         self.assertEqual(
@@ -985,7 +985,7 @@ class AnalysisCatalogueTests(unittest.TestCase):
 
         self.assertEqual(
             execution_domains.label,
-            "Host/Device Model (TALP)",
+            "Host/Device Model",
         )
 
     def test_execution_domains_is_available_for_single_trace_mpi_cuda(self):

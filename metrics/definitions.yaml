@@ -1985,7 +1985,7 @@ metrics:
         GPU kernels; a large discrepancy may indicate sampling,
         trace-conversion, or counter-interpretation issues.
       - >
-        Use the Device metrics of the Host/Device Model (TALP) to assess
+        Use the Device metrics of the Host/Device Model to assess
         GPU idle periods and their impact on application performance.
     children: []
     availability: >

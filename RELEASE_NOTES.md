@@ -205,8 +205,11 @@
   `efficiency_table_talp_matplot`, e.g. for presentations that focus on one
   execution domain.
 - Interactive report: rename the *Execution Domains* view to *Host/Device
-  Model (TALP)*, show the Device metrics before the Host metrics, and
-  collapse the *How to read this view* notes by default (click to expand).
+  Model*, show the Device metrics before the Host metrics, and
+  collapse the *How to read this view* notes and the *How to use this
+  report* note by default (click to expand). The hint on how to open the
+  Metric Details is now part of the *How to read this view* notes instead of
+  a line above each table.
 - Identify useful Device computation by the *Running* state on the GPU
   streams, which corresponds to kernel execution, for CUDA and HIP. A single
   configuration now serves both runtimes and does not depend on the kernel

@@ -10,7 +10,7 @@ The report is intended to support a hierarchical analysis workflow. Start with
 the Execution Overview to verify the analyzed configurations, then use the
 Parallel Runtime Model to identify the main sources of efficiency loss.
 Runtime-Specific Analysis provides a more detailed view of the active parallel
-runtimes, while the Host/Device Model (TALP) identifies where accelerator-related
+runtimes, while the Host/Device Model identifies where accelerator-related
 inefficiencies manifest. For *nsys2prv* traces with GPU metrics, GPU Hardware
 Counters shows how the GPU resources are exercised while the device is
 active. I/O Analysis provides a complementary view of the weight of File I/O
@@ -37,7 +37,7 @@ analysis views, shown when they apply to the analyzed traces:
 
 * **Execution Overview**
 * **Parallel Runtime Model**
-* **Host/Device Model (TALP)**
+* **Host/Device Model**
 * **GPU Hardware Counters** (*nsys2prv* traces with GPU metrics)
 * **I/O Analysis**
 * **Scaling**
@@ -62,6 +62,11 @@ Metric values in the interactive efficiency tables can be clicked to open the
 **Metric Details** view. This view provides the metric definition,
 interpretation of the observed value, and recommended next diagnostic steps.
 The Metric Details functionality is described later in this chapter.
+
+The Execution Overview starts with the note **How to use this report**, and
+the analytical views with the note **How to read this view**, which also
+recalls how to open the Metric Details. The notes are collapsed by default;
+click the title to expand them.
 
 The controls on the right side of the navigation bar provide access to the
 complementary split view and to the report export functions. These features
@@ -176,10 +181,10 @@ identified in the Parallel Runtime Model. Its metrics may therefore use a
 different analytical scope from the application-level metrics.
 
 
-Host/Device Model (TALP)
-------------------------
+Host/Device Model
+-----------------
 
-For accelerator applications, the **Host/Device Model (TALP)** view provides
+For accelerator applications, the **Host/Device Model** view provides
 a complementary analysis of where performance inefficiencies manifest by
 separating the execution into **Device** and **Host** domains, following the
 TALP model. The Device metrics are shown first.
@@ -220,7 +225,7 @@ and Device Global Efficiency must be interpreted independently and must not be
 multiplied to obtain the application Global Efficiency.
 
 Use the Parallel Runtime Model to determine **which runtime contributes to the
-efficiency loss**, and the Host/Device Model (TALP) view to determine **where
+efficiency loss**, and the Host/Device Model view to determine **where
 accelerator-related inefficiencies manifest**.
 
 A low execution-domain metric identifies where a performance loss becomes
@@ -234,7 +239,7 @@ GPU Hardware Counters
 For *nsys2prv* traces whose Nsight Systems report includes GPU metrics, the
 **GPU Hardware Counters** view characterizes how the GPU resources are
 exercised while the device is active. It complements the Device metrics of
-the Host/Device Model (TALP), which characterize how effectively the
+the Host/Device Model, which characterize how effectively the
 accelerator is kept supplied with useful work over the execution.
 
 .. _fig-report-gpu-hardware-counters:
@@ -505,9 +510,9 @@ This is useful when evidence from two analytical perspectives should be
 compared directly, for example:
 
 * Parallel Runtime Model with Scaling;
-* Parallel Runtime Model with Host/Device Model (TALP);
+* Parallel Runtime Model with Host/Device Model;
 * Parallel Runtime Model with I/O Analysis;
-* Host/Device Model (TALP) with Scaling; or
+* Host/Device Model with Scaling; or
 * Execution Overview with a detailed analytical view.
 
 The two views remain analytically independent. The split layout is intended to
@@ -595,7 +600,7 @@ Host.
 
 Each programming-model tab contains the complete report of the traces of that
 model, analyzed as an independent set: Execution Overview, Parallel Runtime
-Model, Host/Device Model (TALP), I/O Analysis, and, when the tab contains several
+Model, Host/Device Model, I/O Analysis, and, when the tab contains several
 traces, Scaling. The report of each tab is the same report that BasicAnalysis
 generates when those traces are analyzed alone, and it provides its own
 navigation, Metric Details, and export functions.
@@ -638,7 +643,7 @@ The Execution Overview establishes the context of the experiment. The
 hierarchical performance model identifies whether a significant performance
 loss exists and which broad factor dominates. The Parallel Runtime Model and
 Runtime-Specific Analysis attribute and explain parallel-runtime losses.
-The Host/Device Model (TALP) localizes accelerator-related inefficiencies to
+The Host/Device Model localizes accelerator-related inefficiencies to
 the Device or Host side. I/O Analysis independently characterizes the contribution and
 distribution of File I/O activity. Finally, the Scaling view shows how these
 relevant performance characteristics evolve as the execution configuration
