@@ -1,10 +1,12 @@
 Scaling Models: Strong, Weak, and User-Defined Workload
 =======================================================
 
-:Status: Under discussion. A first implementation exists (commit
-         ``30c7cf9``); the formulas may change after this discussion.
-:Date: 2026-10-24
-:Branch: ``feature/workload-scaling`` (from ``devel``)
+:Status: Implemented (option B, decision of 2026-10-28; see `Options`_).
+         The choice of the workload measure, especially for the host, is
+         still open (see `Open questions`_).
+:Date: 2026-10-24 (updated 2026-10-29)
+:Branch: in ``devel`` since ``08fc95b`` (developed on
+         ``feature/workload-scaling``)
 :Scope: Every metric that depends on the scaling model, for all trace
         sources (Extrae and nsys2prv)
 
