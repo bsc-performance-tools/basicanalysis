@@ -2130,7 +2130,7 @@ def _build_device_hwc_scope_note_html():
         <h3>Analysis focus</h3>
 
         <p>
-            The Device metrics of the Host/Device Model (TALP)
+            The Device metrics of the Host/Device Model
             characterize how effectively the accelerator is kept supplied
             with useful work over the execution, whereas these metrics
             characterize how the GPU resources are exercised while the
@@ -2261,6 +2261,7 @@ def _build_device_hwc_guidance_html():
             time with kernels running to check the consistency of the
             counters with the trace events.
         </p>
+    """ + _build_metric_interaction_hint_html() + """
     </details>
     """
 
@@ -2338,7 +2339,6 @@ def _build_device_hwc_section(metrics_result, trace_list, trace_labels,
 
         {trace_header_note}
 
-        {metric_interaction_hint_html}
 
         <div
             class="metric-table-card"
@@ -2426,7 +2426,6 @@ def _build_device_hwc_section(metrics_result, trace_list, trace_labels,
         info_json=info_json,
         guidance_html=_build_device_hwc_guidance_html(),
         trace_header_note=trace_header_note,
-        metric_interaction_hint_html=_build_metric_interaction_hint_html(),
         trace_column_description=html.escape(
             trace_column_description,
             quote=True,
@@ -2547,9 +2546,6 @@ def _build_io_metrics_section(
         metric_knowledge,
     )
 
-    metric_interaction_hint_html = (
-        _build_metric_interaction_hint_html()
-    )
 
     guidance_html = (
         _build_io_metrics_guidance_html()
@@ -2615,7 +2611,6 @@ def _build_io_metrics_section(
         
         {trace_header_note}
 
-        {metric_interaction_hint_html}
 
         <div
             class="metric-table-card"
@@ -2638,7 +2633,6 @@ def _build_io_metrics_section(
         info_json=info_json,
         guidance_html=guidance_html,
         trace_header_note=trace_header_note,
-        metric_interaction_hint_html=metric_interaction_hint_html,
         trace_column_description=html.escape(
             trace_column_description,
             quote=True,
@@ -3635,7 +3629,7 @@ def _build_hybrid_metric_info(inner_model):
             "parallel inefficiency to the complete MPI+{} execution."
         ).format(inner_model, inner_model)
         metric_info["omp_parallel_eff"]["action"] = (
-            "Continue the diagnosis in the Host/Device Model (TALP) view. Compare "
+            "Continue the diagnosis in the Host/Device Model view. Compare "
             "Host Global Efficiency, Device Offload Efficiency, and Device "
             "Global Efficiency to determine whether the dominant loss "
             "originates in the host-side accelerator execution path, "
@@ -4485,9 +4479,6 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
 
     guidance_html = _build_execution_domains_guidance_html()
 
-    metric_interaction_hint_html = (
-        _build_metric_interaction_hint_html()
-    )
 
     # --------------------------------------------------
     # Host table
@@ -4540,7 +4531,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         <h3>Analysis focus</h3>
 
         <p>
-            The Host/Device Model (TALP) view identifies where
+            The Host/Device Model view identifies where
             accelerator-related inefficiencies manifest across host
             execution, the accelerator offload path, and device execution.
         </p>
@@ -4556,7 +4547,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
     return """
     <section
         class="execution-domains-analysis"
-        aria-label="Host/Device Model (TALP)"
+        aria-label="Host/Device Model"
     >
         <script>
         window["metricInfo_execution-domains"] = {info_json};
@@ -4566,7 +4557,6 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
 
         {trace_header_note}
 
-        {metric_interaction_hint_html}
 
         <section
             class="execution-domain-block execution-domain-device"
@@ -4619,7 +4609,6 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         efficiency_scale_html=efficiency_scale_html,
         trace_header_note=trace_header_note,
         guidance_html=guidance_html,
-        metric_interaction_hint_html=metric_interaction_hint_html,
         trace_column_description=html.escape(trace_column_description, quote=True,),        
         host_table_html=host_table_html,
         device_table_html=device_table_html,
@@ -4644,9 +4633,6 @@ def _build_metric_tree_heatmap_section(
     # Global Metrics deliberately stop at Communication Efficiency. Keep this
     # invariant here even if a caller supplies runtime-level metrics.
     
-    metric_interaction_hint_html = (
-        _build_metric_interaction_hint_html()
-    )    
     
     if tree_kind in ("global", "global_gpu") or section_id == "global":
         excluded_runtime_metrics = {"serial_eff", "transfer_eff"}
@@ -4721,7 +4707,6 @@ def _build_metric_tree_heatmap_section(
 
     {trace_header_note}
 
-    {metric_interaction_hint_html}
 
     <div
         class="metric-table-card"
@@ -4738,7 +4723,6 @@ def _build_metric_tree_heatmap_section(
         info_json=info_json,
         efficiency_scale_html=efficiency_scale_html,
         trace_header_note=trace_header_note,
-        metric_interaction_hint_html=metric_interaction_hint_html,
         trace_column_description=html.escape(
             trace_column_description,
             quote=True,),        
@@ -5181,7 +5165,7 @@ def _build_printable_execution_domains_section(
     >
         <header class="print-section-header">
 
-            <h2>{section_number} Host/Device Model (TALP)</h2>
+            <h2>{section_number} Host/Device Model</h2>
         </header>
         
         {guidance_html}
@@ -6330,7 +6314,7 @@ def _build_execution_overview_guidance_html(
 
     if has_execution_domains:
         workflow_parts.append(
-            "<strong>Host/Device Model (TALP)</strong> to obtain a complementary "
+            "<strong>Host/Device Model</strong> to obtain a complementary "
             "Host/Device perspective and identify where accelerator-related "
             "inefficiencies manifest"
         )
@@ -6359,11 +6343,11 @@ def _build_execution_overview_guidance_html(
         )
 
     return """
-    <section
+    <details
         class="analysis-guide-note"
         aria-label="How to use the BasicAnalysis report"
     >
-        <h3>How to use this report</h3>
+        <summary>How to use this report</summary>
 
         <p>
             BasicAnalysis organizes the performance analysis into
@@ -6383,7 +6367,7 @@ def _build_execution_overview_guidance_html(
             for the analyzed traces. Use this information to verify the
             configurations before proceeding with the analytical views.
         </p>
-    </section>
+    </details>
     """.format(
         workflow_text=workflow_text,
     )
@@ -6471,6 +6455,7 @@ def _build_io_metrics_guidance_html():
             values are not efficiencies and have no color scale; they are
             also in <code>io_metrics.csv</code>.
         </p>
+    """ + _build_metric_interaction_hint_html() + """
     </details>
     """
 
@@ -6481,7 +6466,7 @@ def _build_execution_domains_guidance_html():
     return """
     <details
         class="analysis-guide-note"
-        aria-label="How to read the Host/Device Model (TALP) view"
+        aria-label="How to read the Host/Device Model view"
     >
         <summary>How to read this view</summary>
 
@@ -6517,6 +6502,7 @@ def _build_execution_domains_guidance_html():
             host-side parallel execution from losses in supplying work to the accelerator
             through Device Offload Efficiency.
         </p>
+    """ + _build_metric_interaction_hint_html() + """
     </details>
     """
 
@@ -6582,20 +6568,24 @@ def _build_parallel_runtime_model_guidance_html(
         </p>
 
         {model_note}
+
+        {metric_details}
     </details>
     """.format(
         model_note=model_note,
+        metric_details=_build_metric_interaction_hint_html(),
     )
 
 def _build_metric_interaction_hint_html():
-    """Explain how to access metric-specific guidance."""
+    """Explain how to access metric-specific guidance (a paragraph of the
+    "How to read this view" notes)."""
 
     return """
-    <div class="metric-interaction-hint">
-        <strong>Metric details:</strong>
-        Click any efficiency value to view its definition,
-        interpretation, and recommended next diagnostic step.
-    </div>
+        <p>
+            <strong>Metric details:</strong>
+            Click any efficiency value to view its definition,
+            interpretation, and recommended next diagnostic step.
+        </p>
     """
 
 def _build_parallel_runtime_model_views(
@@ -8242,19 +8232,6 @@ def _build_interactive_report_document(workspace_html,
             margin: 3px 0;
             font-size: 13px;
             line-height: 1.55;
-        }
-
-        .metric-interaction-hint {
-            margin: 6px 0 12px;
-
-            color: #40546b;
-
-            font-size: 13px;
-            line-height: 1.45;
-        }
-
-        .metric-interaction-hint strong {
-            color: var(--primary);
         }
 
         /* -------------------------------------------------- */
@@ -13016,7 +12993,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
 
             execution_domain_analysis_html = (
                 _build_scaling_analysis_group(
-                    title="Host/Device Model (TALP) Analysis",
+                    title="Host/Device Model Analysis",
                     description=(
                         "Examine accelerator-related scalability from complementary "
                         "Host and Device execution-domain perspectives."
@@ -13406,7 +13383,7 @@ def _build_printable_report_guidance_html(
 
     if has_execution_domains:
         workflow_parts.append(
-            "<strong>Host/Device Model (TALP)</strong> to obtain a complementary "
+            "<strong>Host/Device Model</strong> to obtain a complementary "
             "Host/Device perspective and identify where accelerator-related "
             "inefficiencies manifest"
         )

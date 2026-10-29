@@ -160,7 +160,7 @@ def build_analysis_catalogue(
             Starts from application-level efficiency and attributes
             parallel-efficiency losses to the active parallel runtimes.
 
-        Host/Device Model (TALP)
+        Host/Device Model
             For accelerator executions, identifies where inefficiencies
             manifest across host execution, the offload path, and
             device execution.
@@ -242,8 +242,8 @@ def build_analysis_catalogue(
         views.append(
             AnalysisCatalogueView(
                 view_id="execution-domains",
-                label="Host/Device Model (TALP)",
-                title="Host/Device Model (TALP)",
+                label="Host/Device Model",
+                title="Host/Device Model",
                 group="primary",
                 description=(
                     "Analyze where accelerator-related inefficiencies "
@@ -350,7 +350,7 @@ def build_analysis_catalogue(
 
     # Keep Host and Device as separate secondary views.
     #
-    # The primary Host/Device Model (TALP) view presents both together
+    # The primary Host/Device Model view presents both together
     # (Device first), while
     # these entries remain useful for future detailed inspection,
     # correlation, and export functionality.
