@@ -252,8 +252,9 @@ def device_work_ratio(scaling_info, raw_data, trace, reference):
 
 def add_device_work_factors(device_factors, other_metrics, raw_data,
                             trace_list, scaling_info):
-    """Device Work, Throughput, Issue and Frequency Scalability, and the
-    contribution of each kernel to the change of the device time."""
+    """Device Computation Scalability submetrics (IPC, Instruction and
+    Frequency, or Work and Throughput), and the contribution of each kernel
+    to the change of the device time."""
     reference = trace_list[0]
 
     def work_ratio(trace):
@@ -2224,8 +2225,8 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             other_metrics['efficiency'][trace] = 'NaN'
 
-    # Device Computation Scalability = Device Work Scalability x Device
-    # Throughput Scalability (see devicework).
+    # Device Computation Scalability = Device IPC x Instruction x Frequency
+    # Scalability, or Device Work x Throughput Scalability (see devicework).
     if comparison:
         other_metrics['device_kernel_contributions'] = {}
     else:
@@ -2469,8 +2470,8 @@ def _talp_device_keys(device_factors, trace_list):
     """Device metrics shown in the Host/Device table.
 
     The Device Computation Scalability submetrics are omitted when they do
-    not apply to any trace, e.g. with a single trace, or Issue and
-    Frequency Scalability without GPU hardware counters.
+    not apply to any trace, e.g. with a single trace, or IPC, Instruction
+    and Frequency Scalability without GPU hardware counters.
     """
     return [
         mod_key
@@ -2648,9 +2649,10 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
 
 #####
     print(''.ljust(len(line_procs_factors), '='))
-    if 'dev_work_scale' in _talp_device_keys(device_factors, trace_list):
+    if any(key in mod_device_work_factors_doc
+           for key in _talp_device_keys(device_factors, trace_list)):
         measure = device_work_measure(raw_data, trace_list)
-        print('Device Work scalability: work measured as '
+        print('Device Computation scalability split with: '
               + WORK_MEASURE_LABELS[measure] + '.')
     if len(warning_simulation) > 0:
         print("===> Warning! Metrics obtained from simulated traces exceed 100%. "

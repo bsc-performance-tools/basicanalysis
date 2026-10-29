@@ -150,6 +150,24 @@ _DEVICE_METRICS = (
         1,
     ),
     (
+        "dev_ipc_scale",
+        "Device IPC scalability",
+        "device",
+        2,
+    ),
+    (
+        "dev_inst_scale",
+        "Device Instruction scalability",
+        "device",
+        2,
+    ),
+    (
+        "dev_freq_scale",
+        "Device Frequency scalability",
+        "device",
+        2,
+    ),
+    (
         "dev_work_scale",
         "Device Work scalability",
         "device",
@@ -160,18 +178,6 @@ _DEVICE_METRICS = (
         "Device Throughput scalability",
         "device",
         2,
-    ),
-    (
-        "dev_issue_scale",
-        "Device Issue scalability",
-        "device",
-        3,
-    ),
-    (
-        "dev_freq_scale",
-        "Device Frequency scalability",
-        "device",
-        3,
     ),
 )
 
@@ -541,18 +547,19 @@ class ResourceAnalysisBuilder:
                         metric_id="dev_comp_scale",
                         children=(
                             MetricAnalysisTreeNode(
+                                metric_id="dev_ipc_scale",
+                            ),
+                            MetricAnalysisTreeNode(
+                                metric_id="dev_inst_scale",
+                            ),
+                            MetricAnalysisTreeNode(
+                                metric_id="dev_freq_scale",
+                            ),
+                            MetricAnalysisTreeNode(
                                 metric_id="dev_work_scale",
                             ),
                             MetricAnalysisTreeNode(
                                 metric_id="dev_throughput_scale",
-                                children=(
-                                    MetricAnalysisTreeNode(
-                                        metric_id="dev_issue_scale",
-                                    ),
-                                    MetricAnalysisTreeNode(
-                                        metric_id="dev_freq_scale",
-                                    ),
-                                ),
                             ),
                         ),
                     ),

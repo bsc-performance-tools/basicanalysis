@@ -166,7 +166,8 @@ class DecompositionTests(unittest.TestCase):
         self.assertAlmostEqual(factors['dev_work_scale']['b'], 100.0)
         self.assertAlmostEqual(factors['dev_throughput_scale']['b'],
                                comp_scale['b'])
-        self.assertEqual(factors['dev_issue_scale']['b'], 'Non-Avail')
+        for key in ('dev_ipc_scale', 'dev_inst_scale', 'dev_freq_scale'):
+            self.assertEqual(factors[key]['b'], 'Non-Avail')
 
     def test_product_is_the_computation_scalability(self):
         raw_data = _raw_data(
@@ -182,16 +183,17 @@ class DecompositionTests(unittest.TestCase):
             raw_data, ['a', 'b'], comp_scale, ratio.get)
 
         self.assertEqual(measure, WORK_MEASURE_INSTRUCTIONS)
-        work = factors['dev_work_scale']['b']
-        throughput = factors['dev_throughput_scale']['b']
-        self.assertAlmostEqual(work * throughput / 100.0, comp_scale['b'])
-        # W = 108000 vs 20000 (x5.4) with r = 4.
-        self.assertAlmostEqual(work, 100.0 * 4.0 / 5.4)
-        issue = factors['dev_issue_scale']['b']
+        instructions = factors['dev_inst_scale']['b']
+        ipc = factors['dev_ipc_scale']['b']
         frequency = factors['dev_freq_scale']['b']
-        self.assertAlmostEqual(issue, 100.0 * (60.0 / 150.0) / (10.0 / 100.0))
+        self.assertAlmostEqual(ipc * instructions * frequency / 100.0 ** 2,
+                               comp_scale['b'])
+        # W = 108000 vs 20000 (x5.4) with r = 4.
+        self.assertAlmostEqual(instructions, 100.0 * 4.0 / 5.4)
+        self.assertAlmostEqual(ipc, 100.0 * (60.0 / 150.0) / (10.0 / 100.0))
         self.assertAlmostEqual(frequency, 90.0)
-        self.assertAlmostEqual(issue * frequency / 100.0, throughput)
+        self.assertEqual(factors['dev_work_scale']['b'], 'Non-Avail')
+        self.assertEqual(factors['dev_throughput_scale']['b'], 'Non-Avail')
 
     def test_instructions_need_every_trace(self):
         raw_data = _raw_data(

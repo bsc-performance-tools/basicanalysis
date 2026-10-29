@@ -2150,14 +2150,93 @@ close to 100%.
 
 .. _device-work-throughput:
 
-Device Work and Throughput Scalability
+Device Computation Scalability factors
 """"""""""""""""""""""""""""""""""""""
 
 A low Device Computation Scalability can mean that the devices do more work
-or that they do the same work more slowly. With a measure :math:`W_n` of the
-work done by all the devices in configuration :math:`n`, BasicAnalysis splits
-it exactly into two factors, as Host Computation Scalability is split into
-Instruction, IPC, and Frequency Scalability:
+or that they do the same work more slowly. To indicate where a loss comes
+from, BasicAnalysis splits it exactly into factors, as the Computation
+Scalability of the CPU is split into IPC, Instruction, and Frequency
+Scalability. The factors depend on what the trace records about the work of
+the devices, and the same factors are used for all the traces of an
+analysis:
+
+* with the GPU hardware counters (*nsys2prv* traces with GPU metrics), the
+  issued instructions give the same factors as on the CPU: **Device IPC,
+  Instruction, and Frequency Scalability**;
+* without them (Extrae traces, *nsys2prv* traces without GPU metrics), the
+  work is counted as the GPU threads launched: **Device Work and Throughput
+  Scalability**.
+
+If one trace of the analysis has no GPU metrics, all traces use the GPU
+threads launched. The factors used are printed under the Host/Device table.
+In both cases, :math:`r_n` is the work ratio of the scaling model: 1 in
+strong scaling, :math:`D_n/D_0` in weak scaling, and the device workload
+ratio in the user-defined workload mode (see
+:ref:`cha:running-basicanalysis`).
+
+**With the GPU hardware counters: IPC, Instruction, and Frequency.** The
+instructions issued by all the devices are measured as
+
+.. math::
+
+   W_n = \sum_{d} \int SMIssue_d(t) \cdot f_{GPC,d}(t)\, dt
+
+SM Issue is the percentage of cycles in which the SMs issue an instruction,
+averaged over the SMs, and :math:`f_{GPC}` the GPC clock. The product is
+proportional to the instructions issued; the constant (number of SMs, issue
+width) cancels when the GPU model is the same. SM Issue is 0 outside the
+kernels. The useful device time is :math:`UsefulDevice_n = W_n /
+(\overline{Issue}_n \cdot \overline{f}_n)`, so
+
+.. math::
+
+   Device\_CompScale_n = Device\_IPCScale_n \cdot Device\_InstScale_n
+   \cdot Device\_FreqScale_n
+
+.. math::
+
+   Device\_IPCScale_n = \frac{\overline{Issue}_n}{\overline{Issue}_0},
+   \quad
+   \overline{Issue} = \frac{\sum_d \int SMIssue_d\, dt}{UsefulDevice}
+
+.. math::
+
+   Device\_InstScale_n = \frac{W_0 \cdot r_n}{W_n}
+
+.. math::
+
+   Device\_FreqScale_n = \frac{\overline{f}_n}{\overline{f}_0},
+   \quad
+   \overline{f} =
+   \frac{\sum_d \int SMIssue_d \cdot f_{GPC,d}\, dt}{\sum_d \int SMIssue_d\, dt}
+
+:math:`\overline{Issue}` is the mean SM Issue during the kernels, the issue
+rate per cycle that plays the role of the IPC, and :math:`\overline{f}` the
+mean clock while the SMs issue instructions.
+
+* **Device IPC Scalability** below 100% means that the SMs issue fewer
+  instructions per cycle: lower occupancy, memory stalls, or smaller kernels.
+* **Device Instruction Scalability** below 100% means that the devices issue
+  more instructions than the scaling model expects: replicated or redundant
+  work, halo or boundary kernels that grow with the decomposition, or
+  different kernels for different problem sizes.
+* **Device Frequency Scalability** below 100% means a lower clock, e.g.
+  because of power or thermal limits.
+
+**Without the GPU hardware counters: Work and Throughput.** The
+computational work of the devices is counted as the GPU threads launched,
+
+.. math::
+
+   W_n = \sum_{kernels} blocks \cdot threads\ per\ block
+
+from the blocks per grid and threads per block recorded with each kernel
+(Extrae events ``63000011`` and ``63000012`` for CUDA, ``63500011`` and
+``63500012`` for HIP; grid and block dimensions ``9101``–``9106`` in
+nsys2prv traces). Each GPU thread processes a part of the data, so the
+threads launched measure the work when each thread processes a fixed amount
+of data. Then
 
 .. math::
 
@@ -2170,75 +2249,21 @@ Instruction, IPC, and Frequency Scalability:
    Device\_ThroughputScale_n =
    \frac{W_n / UsefulDevice_n}{W_0 / UsefulDevice_0}
 
-where :math:`r_n` is the work ratio of the scaling model: 1 in strong
-scaling, :math:`D_n/D_0` in weak scaling, and the device workload ratio in the
-user-defined workload mode (see :ref:`cha:running-basicanalysis`). Device
-Throughput Scalability is computed as Device Computation Scalability divided
-by Device Work Scalability, so the product is exact.
+Device Throughput Scalability compares the GPU threads completed per second of
+kernel time, and is computed as Device Computation Scalability divided by
+Device Work Scalability, so the product is exact.
 
-* **Device Work Scalability** below 100% means that the devices do more work
-  than the scaling model expects: replicated or redundant work, halo or
-  boundary kernels that grow with the decomposition, or different kernels for
-  different problem sizes.
-* **Device Throughput Scalability** below 100% means that the same work is
-  done more slowly: smaller kernels with lower occupancy, launch latency, a
-  lower clock, or more pressure on the memory system.
+* **Device Work Scalability** below 100% means that the devices launch more
+  GPU threads than the scaling model expects: replicated or redundant work, or
+  halo or boundary kernels that grow with the decomposition.
+* **Device Throughput Scalability** below 100% means that each GPU thread
+  takes longer: smaller kernels with lower occupancy, launch latency, a lower
+  clock, or more pressure on the memory system. The kernel contribution table
+  shows which kernels, and their time per thread.
 
-The work measure depends on the trace source, and the same measure is used for
-all the traces of an analysis:
-
-Issued instructions (nsys2prv traces with GPU metrics)
-   .. math::
-
-      W_n = \sum_{d} \int SMIssue_d(t) \cdot f_{GPC,d}(t)\, dt
-
-   SM Issue is the percentage of cycles in which the SMs issue an
-   instruction, averaged over the SMs, and :math:`f_{GPC}` the GPC clock. The
-   product is proportional to the instructions issued; the constant (number of
-   SMs, issue width) cancels when the GPU model is the same. SM Issue is 0
-   outside the kernels.
-
-GPU threads launched (all other traces)
-   .. math::
-
-      W_n = \sum_{kernels} blocks \cdot threads\ per\ block
-
-   from the blocks per grid and threads per block recorded with each kernel
-   (Extrae events ``63000011`` and ``63000012`` for CUDA, ``63500011`` and
-   ``63500012`` for HIP; grid and block dimensions ``9101``–``9106`` in
-   nsys2prv traces). It measures the work when each GPU thread processes a
-   fixed amount of data.
-
-If one trace of the analysis has no GPU metrics, all traces use the GPU
-threads launched. The work measure is printed under the Host/Device table.
-
-With the issued instructions, the throughput is split once more:
-
-.. math::
-
-   Device\_ThroughputScale_n = Device\_IssueScale_n \cdot Device\_FreqScale_n
-
-.. math::
-
-   Device\_IssueScale_n =
-   \frac{\overline{Issue}_n}{\overline{Issue}_0},
-   \quad
-   \overline{Issue} = \frac{\sum_d \int SMIssue_d\, dt}{UsefulDevice}
-
-.. math::
-
-   Device\_FreqScale_n = \frac{\overline{f}_n}{\overline{f}_0},
-   \quad
-   \overline{f} =
-   \frac{\sum_d \int SMIssue_d \cdot f_{GPC,d}\, dt}{\sum_d \int SMIssue_d\, dt}
-
-:math:`\overline{Issue}` is the mean SM Issue during the kernels and
-:math:`\overline{f}` the mean clock while the SMs issue instructions. Without
-GPU metrics, these two rows are not shown.
-
-The submetrics are shown when at least two traces are analyzed and every
-trace has the work measure. The limitations of the two measures are described
-in :doc:`09_limitations`.
+The factors are shown when at least two traces are analyzed and every trace
+has the work measure. The limitations of the two measures are described in
+:doc:`09_limitations`.
 
 .. _device-kernel-contributions:
 

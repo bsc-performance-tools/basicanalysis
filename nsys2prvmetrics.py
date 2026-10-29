@@ -80,7 +80,7 @@ NSYS2PRV_STREAM_LABEL_RE = re.compile(
 # integrals are not used by the metrics, but are written to rawdata.csv as
 # the amount of data read and written relative to the peak bandwidth.
 # SM Issue is also integrated multiplied by the clock: it is proportional
-# to the instructions issued, the work measure of the Device Work
+# to the instructions issued, the measure of the Device Instruction
 # Scalability (see devicework).
 HWC_COUNTERS = (
     # key, event, nsys2prv label
@@ -102,7 +102,7 @@ HWC_KEYS = tuple(key for key, _event, _label in HWC_COUNTERS)
 
 # Integrals that the hardware counter metrics do not need, so that results
 # saved before they existed still give the metrics. SM Issue x clock is
-# used by the Device Work Scalability.
+# used by the Device Instruction Scalability.
 HWC_RAW_ONLY_KEYS = ('dram_read_unweighted', 'dram_write_unweighted',
                      'sm_issue_clock')
 
@@ -870,7 +870,8 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     trace_raw_data['useful_memtransf_device'] = gpu_agg['useful_memtransf_device_total']
     trace_raw_data['useful_memtransf_device_max'] = gpu_agg['useful_memtransf_device_max']
 
-    # Kernels and GPU threads launched, for the Device Work Scalability.
+    # Kernels and GPU threads launched, for the kernel table and the Device
+    # Work Scalability.
     add_device_kernels(trace_raw_data, trace, trace_name_control)
 
     for path in stats.values():

@@ -4,30 +4,41 @@
 Computation Scalability.
 
 The Device Computation Scalability compares the useful device time U (the
-kernel time of all devices) with the reference execution. With a measure W
-of the work done by the devices, it is split exactly into
+kernel time of all devices) with the reference execution, as the
+Computation Scalability compares the useful time on the CPU. It is split
+exactly into factors that say where a change of U comes from. The factors
+depend on the trace source, and are the same for all traces:
 
-  Device Computation Scalability = Device Work Scalability
-                                   x Device Throughput Scalability
+  - Issued instructions (nsys2prv traces with the GPU metrics), with the
+    names of the CPU factors:
 
-  Device Work Scalability       = W_ref * r / W
-  Device Throughput Scalability = (W / U) / (W_ref / U_ref)
+      Device Computation Scalability = Device IPC Scalability
+                                       x Device Instruction Scalability
+                                       x Device Frequency Scalability
 
-where r is the work ratio of the scaling model (1 in strong scaling). The
-work measure depends on the trace source, and is the same for all traces:
+      Device Instruction Scalability = W_ref * r / W
+      Device IPC Scalability         = IPC / IPC_ref
+      Device Frequency Scalability   = f / f_ref
 
-  - Issued instructions (nsys2prv traces with the GPU metrics):
-    W = integral of SM Issue x GPC clock, added over the devices. With it,
-    the throughput is split once more:
+    W = integral of SM Issue x GPC clock (the issued instructions, up to a
+    constant of the GPU model), added over the devices;
+    IPC = integral of SM Issue / U (mean SM Issue during kernels);
+    f = integral of SM Issue x clock / integral of SM Issue (mean clock
+    while issuing). U = W / (IPC x f).
 
-      Device Throughput Scalability = Device Issue Scalability
-                                      x Device Frequency Scalability
+  - GPU threads launched (all other traces), W = sum over the kernels of
+    blocks per grid x threads per block:
 
-      Issue     = integral of SM Issue / U  (mean SM Issue during kernels)
-      Frequency = integral of SM Issue x clock / integral of SM Issue
+      Device Computation Scalability = Device Work Scalability
+                                       x Device Throughput Scalability
 
-  - GPU threads launched (all other traces):
-    W = sum over the kernels of blocks per grid x threads per block.
+      Device Work Scalability       = W_ref * r / W
+      Device Throughput Scalability = (W / U) / (W_ref / U_ref)
+
+    The work is the number of GPU threads, and the throughput the threads
+    completed per second of kernel time.
+
+r is the work ratio of the scaling model (1 in strong scaling).
 
 The kernels are also grouped by name, for the contribution of each kernel
 to the change of the device time (see kernel_contributions).
@@ -85,12 +96,14 @@ device_work_raw_data_doc = OrderedDict([
 # written to rawdata.csv.
 DEVICE_KERNELS_KEY = 'device_kernel_families'
 
-# Device Computation Scalability submetrics.
+# Device Computation Scalability submetrics: IPC, Instruction and Frequency
+# with issued instructions, Work and Throughput with GPU threads launched.
 mod_device_work_factors_doc = OrderedDict([
+    ('dev_ipc_scale', '   == Device IPC scalability'),
+    ('dev_inst_scale', '   == Device Instruction scalability'),
+    ('dev_freq_scale', '   == Device Frequency scalability'),
     ('dev_work_scale', '   == Device Work scalability'),
     ('dev_throughput_scale', '   == Device Throughput scalability'),
-    ('dev_issue_scale', '      -- Device Issue scalability'),
-    ('dev_freq_scale', '      -- Device Frequency scalability'),
 ])
 
 # Kernels listed in the contribution table; the rest are added up.
@@ -243,7 +256,8 @@ def add_device_kernels(trace_raw_data, trace, trace_name_control):
     result = scan_device_kernels(trace, trace_name_control + '.pcf', row_path)
     if result is None:
         print('==WARNING== No kernels found on the GPU streams: the Device '
-              'Work and Throughput Scalability are not available.')
+              'Work and Throughput Scalability and the kernel table are not '
+              'available.')
         return
 
     trace_raw_data['device_kernels'] = result['kernels']
@@ -297,8 +311,9 @@ def compute_device_work_factors(raw_data, trace_list, comp_scale,
     work_ratio(trace) the work ratio r of the scaling model.
 
     Returns ({metric key: {trace: value}}, work measure). The values are
-    'Non-Avail' without a work measure or with a single trace; Issue and
-    Frequency Scalability only with issued instructions.
+    'Non-Avail' without a work measure or with a single trace; IPC,
+    Instruction and Frequency Scalability are given with issued
+    instructions, Work and Throughput Scalability with GPU threads launched.
     """
     factors = OrderedDict(
         (key, {trace: 'Non-Avail' for trace in trace_list})
@@ -310,6 +325,10 @@ def compute_device_work_factors(raw_data, trace_list, comp_scale,
 
     reference = trace_list[0]
     work_ref = device_work(raw_data, reference, measure)
+    if measure == WORK_MEASURE_INSTRUCTIONS:
+        keys = ('dev_inst_scale', 'dev_ipc_scale', 'dev_freq_scale')
+    else:
+        keys = ('dev_work_scale', 'dev_throughput_scale')
 
     def rate(trace):
         """Mean SM Issue during the kernels and mean clock while issuing."""
@@ -324,24 +343,18 @@ def compute_device_work_factors(raw_data, trace_list, comp_scale,
         try:
             work = device_work(raw_data, trace, measure)
             work_scale = work_ref * float(work_ratio(trace)) / work * 100.0
-            factors['dev_work_scale'][trace] = work_scale
-            factors['dev_throughput_scale'][trace] = (
-                float(comp_scale[trace]) / work_scale * 100.0)
+            if measure == WORK_MEASURE_INSTRUCTIONS:
+                issue_ref, clock_ref = rate(reference)
+                issue, clock = rate(trace)
+                values = (work_scale, issue / issue_ref * 100.0,
+                          clock / clock_ref * 100.0)
+            else:
+                values = (work_scale,
+                          float(comp_scale[trace]) / work_scale * 100.0)
         except (TypeError, ValueError, ZeroDivisionError):
-            factors['dev_work_scale'][trace] = 'NaN'
-            factors['dev_throughput_scale'][trace] = 'NaN'
-            continue
-
-        if measure != WORK_MEASURE_INSTRUCTIONS:
-            continue
-        try:
-            issue_ref, clock_ref = rate(reference)
-            issue, clock = rate(trace)
-            factors['dev_issue_scale'][trace] = issue / issue_ref * 100.0
-            factors['dev_freq_scale'][trace] = clock / clock_ref * 100.0
-        except (TypeError, ValueError, ZeroDivisionError):
-            factors['dev_issue_scale'][trace] = 'NaN'
-            factors['dev_freq_scale'][trace] = 'NaN'
+            values = ('NaN',) * len(keys)
+        for key, value in zip(keys, values):
+            factors[key][trace] = value
 
     return factors, measure
 

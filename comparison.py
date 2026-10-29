@@ -54,10 +54,11 @@ REFERENCE_METRIC_KEYS = {
     'device_factors': (
         'dev_global_eff',
         'dev_comp_scale',
+        'dev_ipc_scale',
+        'dev_inst_scale',
+        'dev_freq_scale',
         'dev_work_scale',
         'dev_throughput_scale',
-        'dev_issue_scale',
-        'dev_freq_scale',
     ),
     'other_metrics': (
         'efficiency',

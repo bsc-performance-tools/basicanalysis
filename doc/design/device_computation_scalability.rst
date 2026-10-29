@@ -1,10 +1,11 @@
 Device Computation Scalability: Work and Throughput
 ===================================================
 
-:Status: Implemented on ``feature/device-scalability`` (2026-10-28); the
-         definitions are in the User Guide (chapter 6, *Device Work and
-         Throughput Scalability* and *Kernel contributions*).
-:Date: 2026-10-28
+:Status: Implemented on ``feature/device-scalability`` (2026-10-28); names
+         changed on 2026-10-29 (see `Names (decision of 2026-10-29)`_). The
+         definitions are in the User Guide (chapter 6, *Device Computation
+         Scalability factors* and *Kernel contributions*).
+:Date: 2026-10-28 (updated 2026-10-29)
 :Branch: ``feature/device-scalability`` (from ``devel`` 08fc95b)
 :Scope: The Device side of the Host/Device (TALP) model, for Extrae
         (MPI+CUDA, MPI+HIP, GPU without MPI) and nsys2prv traces
@@ -61,6 +62,29 @@ analyst cannot tell the two apart from the time alone.
 * Kernel families: remove the tile suffix, for the moment (not
   configurable).
 * The Tensor indicator is left for later.
+
+Names (decision of 2026-10-29)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Jesús asked to keep the names of the CPU model. With the issued
+instructions, Work × (Issue × Frequency) is exactly the CPU split, so the
+Throughput level is removed and the three factors take the CPU names:
+
+* nsys2prv traces with GPU metrics: **Device IPC Scalability** (was Device
+  Issue Scalability), **Device Instruction Scalability** (was Device Work
+  Scalability) and **Device Frequency Scalability**, all children of the
+  Device Computation Scalability, in the order of the CPU table;
+* other GPU traces (GPU threads launched): **Device Work Scalability** and
+  **Device Throughput Scalability**, unchanged, because the threads
+  launched are not instructions. Work is the computational work counted as
+  GPU threads, and Throughput the threads completed per second of kernel
+  time; they say whether a loss comes from more work or from slower work.
+
+The values do not change (vLLM ``--workload 1,256``: 358.66 % × 953.05 % ×
+88.74 % = 3033.25 %; CloverLeaf 4 → 32 GPUs: 99.59 % × 75.56 % = 75.25 %).
+Metric keys: ``dev_ipc_scale``, ``dev_inst_scale``, ``dev_freq_scale``,
+``dev_work_scale``, ``dev_throughput_scale``. The rest of this document
+keeps the names of 2026-10-28.
 
 
 What the traces contain
@@ -125,7 +149,8 @@ Scalability is computed as :math:`DevCompScal / DevWorkScal`, so the
 product is exact also when :math:`U` excludes overlapping kernels.
 
 For nsys2prv traces with GPU metrics, the throughput is split once more
-(see `Third level (nsys2prv with GPU metrics)`_):
+(see `Third level (nsys2prv with GPU metrics)`_). With the names of
+2026-10-29, the table is:
 
 .. code-block:: text
 
@@ -135,10 +160,11 @@ For nsys2prv traces with GPU metrics, the throughput is split once more
       == Device Communication efficiency
       == Device Orchestration efficiency
    -- Device Computation scalability
-      == Device Work scalability
-      == Device Throughput scalability
-         -- Device Issue scalability       (nsys2prv with GPU metrics)
-         -- Device Frequency scalability   (nsys2prv with GPU metrics)
+      == Device IPC scalability          (nsys2prv with GPU metrics)
+      == Device Instruction scalability  (nsys2prv with GPU metrics)
+      == Device Frequency scalability    (nsys2prv with GPU metrics)
+      == Device Work scalability         (other GPU traces)
+      == Device Throughput scalability   (other GPU traces)
 
 
 Work measure

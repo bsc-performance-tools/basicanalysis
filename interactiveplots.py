@@ -14,7 +14,11 @@ from plotly.subplots import make_subplots
 
 from configuration import format_configuration_label
 from tracemetadata import is_host_gpu_mode
-from devicework import kernel_display_names, top_kernel_rows
+from devicework import (
+    kernel_display_names,
+    mod_device_work_factors_doc,
+    top_kernel_rows,
+)
 from iometrics import (
     ACCESS_PATTERN_CLASSES as IO_ACCESS_PATTERN_CLASSES,
     ACCESS_PATTERN_DESCRIPTIONS as IO_ACCESS_PATTERN_DESCRIPTIONS,
@@ -275,6 +279,10 @@ def _build_hybrid_base_metric_info(inner_model):
 
 
 
+# Device Computation Scalability submetrics, in table order.
+DEVICE_COMP_SCALE_SUBMETRICS = tuple(mod_device_work_factors_doc)
+
+
 def _build_talp_metric_info():
     """Build Host/Device metric metadata from the knowledge base.
 
@@ -355,6 +363,18 @@ def _build_talp_metric_info():
             "label": "-- Device Computation scalability",
             "short_label": "-- Dev scale",
         },
+        "dev_ipc_scale": {
+            "label": "   == Device IPC scalability",
+            "short_label": "IPC",
+        },
+        "dev_inst_scale": {
+            "label": "   == Device Instruction scalability",
+            "short_label": "Instr",
+        },
+        "dev_freq_scale": {
+            "label": "   == Device Frequency scalability",
+            "short_label": "Freq",
+        },
         "dev_work_scale": {
             "label": "   == Device Work scalability",
             "short_label": "Work",
@@ -362,14 +382,6 @@ def _build_talp_metric_info():
         "dev_throughput_scale": {
             "label": "   == Device Throughput scalability",
             "short_label": "Throughput",
-        },
-        "dev_issue_scale": {
-            "label": "      -- Device Issue scalability",
-            "short_label": "Issue",
-        },
-        "dev_freq_scale": {
-            "label": "      -- Device Frequency scalability",
-            "short_label": "Freq",
         },
     }
 
@@ -379,8 +391,7 @@ def _build_talp_metric_info():
     # host-side sub-metrics in the Host execution-domain view.
     for metric_key in ("host_ipc_scale", "host_inst_scale", "host_freq_scale"):
         metric_info[metric_key]["type"] = "Host scalability sub-metric"
-    for metric_key in ("dev_work_scale", "dev_throughput_scale",
-                       "dev_issue_scale", "dev_freq_scale"):
+    for metric_key in DEVICE_COMP_SCALE_SUBMETRICS:
         metric_info[metric_key]["type"] = "Device scalability sub-metric"
 
     return metric_info
@@ -631,11 +642,7 @@ TALP_TREE = [
             _tree_node("dev_orches_eff"),
         ]),
         _tree_node("dev_comp_scale", [
-            _tree_node("dev_work_scale"),
-            _tree_node("dev_throughput_scale", [
-                _tree_node("dev_issue_scale"),
-                _tree_node("dev_freq_scale"),
-            ]),
+            _tree_node(key) for key in DEVICE_COMP_SCALE_SUBMETRICS
         ]),
     ]),
 ]
@@ -668,11 +675,7 @@ DEVICE_TREE = [
             _tree_node("dev_orches_eff"),
         ]),
         _tree_node("dev_comp_scale", [
-            _tree_node("dev_work_scale"),
-            _tree_node("dev_throughput_scale", [
-                _tree_node("dev_issue_scale"),
-                _tree_node("dev_freq_scale"),
-            ]),
+            _tree_node(key) for key in DEVICE_COMP_SCALE_SUBMETRICS
         ]),
     ])
 ]
@@ -3354,20 +3357,16 @@ def _build_device_computation_trend_html(device_factors, trace_list,
                                          trace_labels, x_axis_title,
                                          printable=False):
     """Trend plot of the Device Computation Scalability and its submetrics
-    (Work, Throughput, Issue, Frequency). Empty without the submetrics."""
-    if not any(
-        _clean_value(_read_metric(device_factors, "dev_work_scale", trace)) is not None
-        for trace in trace_list
-    ):
+    (IPC, Instruction and Frequency, or Work and Throughput). Empty without
+    the submetrics."""
+    keys = ["dev_comp_scale"] + [
+        key for key in DEVICE_COMP_SCALE_SUBMETRICS
+        if any(_clean_value(_read_metric(device_factors, key, trace)) is not None
+               for trace in trace_list)
+    ]
+    if len(keys) == 1:
         return ""
 
-    keys = [
-        "dev_comp_scale",
-        "dev_work_scale",
-        "dev_throughput_scale",
-        "dev_issue_scale",
-        "dev_freq_scale",
-    ]
     return _build_metric_trend_plot_html(
         metric_keys=keys,
         metric_info=TALP_METRIC_INFO,
@@ -3376,10 +3375,11 @@ def _build_device_computation_trend_html(device_factors, trace_list,
         trace_labels=trace_labels,
         title="Device Computation Scalability",
         description=(
-            "Device Computation Scalability = Device Work Scalability x "
-            "Device Throughput Scalability; with the GPU hardware counters, "
-            "Device Throughput Scalability = Device Issue Scalability x "
-            "Device Frequency Scalability."
+            "With the GPU hardware counters, Device Computation Scalability "
+            "= Device IPC Scalability x Device Instruction Scalability x "
+            "Device Frequency Scalability, as on the CPU; without them, "
+            "Device Work Scalability (GPU threads launched) x Device "
+            "Throughput Scalability."
         ),
         x_axis_title=x_axis_title,
         y_axis_title="Scalability (%)",
@@ -12420,11 +12420,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             "dev_comm_eff",
             "dev_orches_eff",
             "dev_comp_scale",
-            "dev_work_scale",
-            "dev_throughput_scale",
-            "dev_issue_scale",
-            "dev_freq_scale",
-        ]
+        ] + list(DEVICE_COMP_SCALE_SUBMETRICS)
 
         host_sources = {}
         host_sources = {
@@ -14249,11 +14245,7 @@ def _build_basicanalysis_printable_report_html(
             "dev_comm_eff",
             "dev_orches_eff",
             "dev_comp_scale",
-            "dev_work_scale",
-            "dev_throughput_scale",
-            "dev_issue_scale",
-            "dev_freq_scale",
-        ]
+        ] + list(DEVICE_COMP_SCALE_SUBMETRICS)
 
         host_sources = {}
         host_sources = {

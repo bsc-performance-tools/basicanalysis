@@ -804,10 +804,13 @@ It complements Device Parallel Efficiency by separating changes in the
 computation itself from losses associated with workload distribution, data
 movement, and the availability of work on the accelerator.
 
-At present, BasicAnalysis provides Device Computation Scalability as the
-parent metric of the computation-scaling branch. A decomposition into
-lower-level Device computation-scaling factors is not currently defined in
-BasicAnalysis and is therefore not included in the metric hierarchy.
+When two or more traces are analyzed, Device Computation Scalability is
+split, as on the CPU, into Device IPC, Instruction, and Frequency
+Scalability when the trace has GPU hardware counters (*nsys2prv* traces with
+GPU metrics), or into Device Work and Throughput Scalability, with the work
+counted as GPU threads launched, in the other GPU traces (see
+:ref:`device-work-throughput`). These factors indicate whether a loss comes
+from more work on the devices or from slower work.
 
 With the Device Parallel Efficiency factors described above and Device
 Computation Scalability completing the second branch, the Device Global

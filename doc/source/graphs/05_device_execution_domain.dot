@@ -70,6 +70,38 @@ digraph DeviceExecutionDomain {
         color="#EF6C00"
     ];
 
+    device_ipc [
+        label="Device IPC\nScalability\n(GPU counters)",
+        fillcolor="#E3F2FD",
+        color="#EF6C00"
+    ];
+
+    device_inst [
+        label="Device Instruction\nScalability\n(GPU counters)",
+        fillcolor="#E3F2FD",
+        color="#EF6C00"
+    ];
+
+    device_freq [
+        label="Device Frequency\nScalability\n(GPU counters)",
+        fillcolor="#E3F2FD",
+        color="#EF6C00"
+    ];
+
+    device_work [
+        label="Device Work\nScalability\n(threads launched)",
+        fillcolor="#E3F2FD",
+        color="#EF6C00",
+        style="filled,dashed"
+    ];
+
+    device_tp [
+        label="Device Throughput\nScalability\n(threads launched)",
+        fillcolor="#E3F2FD",
+        color="#EF6C00",
+        style="filled,dashed"
+    ];
+
     /*
      * Device Global Efficiency decomposition
      */
@@ -86,9 +118,21 @@ digraph DeviceExecutionDomain {
     device_pe -> device_orch;
 
     /*
+     * Device Computation Scalability decomposition: with GPU hardware
+     * counters, or with the GPU threads launched
+     */
+
+    device_cs -> device_ipc;
+    device_cs -> device_inst;
+    device_cs -> device_freq;
+    device_cs -> device_work [style=dashed];
+    device_cs -> device_tp [style=dashed];
+
+    /*
      * Layout constraints
      */
 
     { rank=same; device_pe; device_cs; }
-    { rank=same; device_lb; device_ce; device_orch; }
+    { rank=same; device_lb; device_ce; device_orch; device_ipc; device_inst;
+      device_freq; device_work; device_tp; }
 }

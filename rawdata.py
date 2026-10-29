@@ -3690,7 +3690,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
                 print('==WARNING== Unknown memtransfer thread ids: ' +
                       ', '.join(gpu_agg['unknown_memtransfer_threads'][:10]))
 
-        # Kernels and GPU threads launched, for the Device Work Scalability.
+        # Kernels and GPU threads launched, for the kernel table and the
+        # Device Work Scalability.
         add_device_kernels(trace_raw_data, trace, trace_name_control)
 
 

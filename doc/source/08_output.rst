@@ -119,9 +119,10 @@ also writes ``device_hwc_metrics.csv`` with the GPU hardware counter metrics
 (percentages, and the GPC clock in MHz) and adds the integrals of the
 counters to ``rawdata.csv``.
 
-For GPU traces, ``talp_metrics.csv`` also contains the Device Work and
-Throughput Scalability (and, for *nsys2prv* traces with GPU metrics, the
-Device Issue and Frequency Scalability) when two or more traces are analyzed
+For GPU traces, ``talp_metrics.csv`` also contains the Device IPC,
+Instruction, and Frequency Scalability (*nsys2prv* traces with GPU metrics),
+or the Device Work and Throughput Scalability (other GPU traces), when two or
+more traces are analyzed
 (see :ref:`device-work-throughput`). ``rawdata.csv`` adds the number of
 kernels executed on the devices and the GPU threads launched, and, for
 *nsys2prv* traces with GPU metrics, the integral of SM Issue multiplied by

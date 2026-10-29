@@ -204,9 +204,10 @@ execution-domain analysis.
 The Device domain characterizes accelerator execution through Device Parallel
 Efficiency and its Load Balance, Communication, and Orchestration components,
 together with Device Computation Scalability. With two or more traces, Device
-Computation Scalability is split into Device Work and Throughput Scalability
-(and, for *nsys2prv* traces with GPU metrics, Throughput into Issue and
-Frequency Scalability), shown in the Device table and in the *Device
+Computation Scalability is split into Device IPC, Instruction, and Frequency
+Scalability (*nsys2prv* traces with GPU metrics), or into Device Work and
+Throughput Scalability (other GPU traces), shown in the Device table and in
+the *Device
 Computation Scalability* plot of the Scaling view (see
 :ref:`device-work-throughput`), followed by the card **Which kernels change
 the device time?** (see `Scaling`_).
