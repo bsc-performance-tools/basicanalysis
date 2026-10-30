@@ -2535,6 +2535,10 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
     print('\n Overview of the Efficiency metrics:')
 
     longest_name = len(sorted(mod_hybrid_factors_doc.values(), key=len)[-1])
+    # The Device submetrics shown can be longer (Active Issue Rate).
+    longest_name = max([longest_name] + [
+        len(mod_device_factors_doc[mod_key])
+        for mod_key in _talp_device_keys(device_factors, trace_list)])
     
     line = 'Configuration'.rjust(longest_name)
     line_trace_mode = 'Trace mode'.rjust(longest_name)

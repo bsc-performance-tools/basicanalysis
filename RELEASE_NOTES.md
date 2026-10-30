@@ -141,7 +141,9 @@
   Device Computation Scalability, so the Host/Device model stays
   multiplicative. For *nsys2prv* traces with GPU metrics, the factors have
   the names of the CPU ones: **Device IPC Scalability** (mean SM Issue
-  during the kernels), **Device Instruction Scalability** (instructions
+  during the kernels, split into **Device Coverage Scalability**, the mean
+  SMs Active during the kernels, and **Device Active Issue Rate
+  Scalability**, the issue rate of the active SMs), **Device Instruction Scalability** (instructions
   issued, SM Issue x GPC clock, with the new configuration
   `cfgs/nsys2prv/hwc_sm_issue_clock.cfg`, relative to those expected by the
   scaling model) and **Device Frequency Scalability**. For the other GPU

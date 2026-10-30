@@ -88,6 +88,18 @@ digraph DeviceExecutionDomain {
         color="#EF6C00"
     ];
 
+    device_cov [
+        label="Device Coverage\nScalability",
+        fillcolor="#F1F8FE",
+        color="#EF6C00"
+    ];
+
+    device_act [
+        label="Device Active Issue\nRate Scalability",
+        fillcolor="#F1F8FE",
+        color="#EF6C00"
+    ];
+
     device_work [
         label="Device Work\nScalability\n(threads launched)",
         fillcolor="#E3F2FD",
@@ -127,6 +139,9 @@ digraph DeviceExecutionDomain {
     device_cs -> device_freq;
     device_cs -> device_work [style=dashed];
     device_cs -> device_tp [style=dashed];
+
+    device_ipc -> device_cov;
+    device_ipc -> device_act;
 
     /*
      * Layout constraints

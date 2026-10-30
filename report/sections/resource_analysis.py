@@ -156,6 +156,18 @@ _DEVICE_METRICS = (
         2,
     ),
     (
+        "dev_cov_scale",
+        "Device Coverage scalability",
+        "device",
+        3,
+    ),
+    (
+        "dev_active_issue_scale",
+        "Device Active Issue Rate scalability",
+        "device",
+        3,
+    ),
+    (
         "dev_inst_scale",
         "Device Instruction scalability",
         "device",
@@ -548,6 +560,14 @@ class ResourceAnalysisBuilder:
                         children=(
                             MetricAnalysisTreeNode(
                                 metric_id="dev_ipc_scale",
+                                children=(
+                                    MetricAnalysisTreeNode(
+                                        metric_id="dev_cov_scale",
+                                    ),
+                                    MetricAnalysisTreeNode(
+                                        metric_id="dev_active_issue_scale",
+                                    ),
+                                ),
                             ),
                             MetricAnalysisTreeNode(
                                 metric_id="dev_inst_scale",

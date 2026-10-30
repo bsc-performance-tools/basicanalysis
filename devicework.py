@@ -26,6 +26,16 @@ depend on the trace source, and are the same for all traces:
     f = integral of SM Issue x clock / integral of SM Issue (mean clock
     while issuing). U = W / (IPC x f).
 
+    The IPC is split once more, with the SMs Active counter:
+
+      Device IPC Scalability = Device Coverage Scalability
+                               x Device Active Issue Rate Scalability
+
+      Coverage          = integral of SMs Active / U (mean SMs Active
+                          during kernels)
+      Active Issue Rate = integral of SM Issue / integral of SMs Active
+                          (issue rate of the active SMs)
+
   - GPU threads launched (all other traces), W = sum over the kernels of
     blocks per grid x threads per block:
 
@@ -96,10 +106,13 @@ device_work_raw_data_doc = OrderedDict([
 # written to rawdata.csv.
 DEVICE_KERNELS_KEY = 'device_kernel_families'
 
-# Device Computation Scalability submetrics: IPC, Instruction and Frequency
-# with issued instructions, Work and Throughput with GPU threads launched.
+# Device Computation Scalability submetrics: IPC (Coverage x Active Issue
+# Rate), Instruction and Frequency with issued instructions, Work and
+# Throughput with GPU threads launched.
 mod_device_work_factors_doc = OrderedDict([
     ('dev_ipc_scale', '   == Device IPC scalability'),
+    ('dev_cov_scale', '      -- Device Coverage scalability'),
+    ('dev_active_issue_scale', '      -- Device Active Issue Rate scalability'),
     ('dev_inst_scale', '   == Device Instruction scalability'),
     ('dev_freq_scale', '   == Device Frequency scalability'),
     ('dev_work_scale', '   == Device Work scalability'),
@@ -311,9 +324,11 @@ def compute_device_work_factors(raw_data, trace_list, comp_scale,
     work_ratio(trace) the work ratio r of the scaling model.
 
     Returns ({metric key: {trace: value}}, work measure). The values are
-    'Non-Avail' without a work measure or with a single trace; IPC,
-    Instruction and Frequency Scalability are given with issued
-    instructions, Work and Throughput Scalability with GPU threads launched.
+    'Non-Avail' without a work measure or with a single trace; IPC
+    (Coverage, Active Issue Rate), Instruction and Frequency Scalability are
+    given with issued instructions, Work and Throughput Scalability with GPU
+    threads launched. Coverage and Active Issue Rate also need the integral
+    of SMs Active in every trace.
     """
     factors = OrderedDict(
         (key, {trace: 'Non-Avail' for trace in trace_list})
@@ -327,6 +342,10 @@ def compute_device_work_factors(raw_data, trace_list, comp_scale,
     work_ref = device_work(raw_data, reference, measure)
     if measure == WORK_MEASURE_INSTRUCTIONS:
         keys = ('dev_inst_scale', 'dev_ipc_scale', 'dev_freq_scale')
+        coverage_keys = ('dev_cov_scale', 'dev_active_issue_scale')
+        with_coverage = all(
+            (_number(raw_data.get('hwc_sms_active_int', {}).get(trace)) or 0) > 0
+            for trace in trace_list)
     else:
         keys = ('dev_work_scale', 'dev_throughput_scale')
 
@@ -336,6 +355,14 @@ def compute_device_work_factors(raw_data, trace_list, comp_scale,
         issue_clock = _number(raw_data['hwc_sm_issue_clock_int'][trace])
         useful = _number(raw_data['useful_device'][trace])
         return issue / useful, issue_clock / issue
+
+    def coverage(trace):
+        """Mean SMs Active during the kernels and issue rate of the active
+        SMs."""
+        issue = _number(raw_data['hwc_sm_issue_int'][trace])
+        active = _number(raw_data['hwc_sms_active_int'][trace])
+        useful = _number(raw_data['useful_device'][trace])
+        return active / useful, issue / active
 
     for trace in trace_list:
         if _number(comp_scale.get(trace)) is None:
@@ -354,6 +381,18 @@ def compute_device_work_factors(raw_data, trace_list, comp_scale,
         except (TypeError, ValueError, ZeroDivisionError):
             values = ('NaN',) * len(keys)
         for key, value in zip(keys, values):
+            factors[key][trace] = value
+
+        if measure != WORK_MEASURE_INSTRUCTIONS or not with_coverage:
+            continue
+        try:
+            coverage_ref, active_ref = coverage(reference)
+            coverage_n, active_n = coverage(trace)
+            values = (coverage_n / coverage_ref * 100.0,
+                      active_n / active_ref * 100.0)
+        except (TypeError, ValueError, ZeroDivisionError):
+            values = ('NaN', 'NaN')
+        for key, value in zip(coverage_keys, values):
             factors[key][trace] = value
 
     return factors, measure

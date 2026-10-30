@@ -807,7 +807,8 @@ movement, and the availability of work on the accelerator.
 When two or more traces are analyzed, Device Computation Scalability is
 split, as on the CPU, into Device IPC, Instruction, and Frequency
 Scalability when the trace has GPU hardware counters (*nsys2prv* traces with
-GPU metrics), or into Device Work and Throughput Scalability, with the work
+GPU metrics), with the IPC split into Device Coverage and Active Issue Rate
+Scalability, or into Device Work and Throughput Scalability, with the work
 counted as GPU threads launched, in the other GPU traces (see
 :ref:`device-work-throughput`). These factors indicate whether a loss comes
 from more work on the devices or from slower work.

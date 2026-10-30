@@ -367,6 +367,14 @@ def _build_talp_metric_info():
             "label": "   == Device IPC scalability",
             "short_label": "IPC",
         },
+        "dev_cov_scale": {
+            "label": "      -- Device Coverage scalability",
+            "short_label": "Coverage",
+        },
+        "dev_active_issue_scale": {
+            "label": "      -- Device Active Issue Rate scalability",
+            "short_label": "Active issue",
+        },
         "dev_inst_scale": {
             "label": "   == Device Instruction scalability",
             "short_label": "Instr",
@@ -535,6 +543,21 @@ def _tree_node(metric_key, children=None):
     return {"metric": metric_key, "children": children or []}
 
 
+# Children of the IPC factor of the Device Computation Scalability.
+DEVICE_IPC_SUBMETRICS = ("dev_cov_scale", "dev_active_issue_scale")
+
+
+def _device_comp_scale_children():
+    """Device Computation Scalability submetrics, with Coverage and Active
+    Issue Rate under IPC."""
+    return [
+        _tree_node(key, [_tree_node(child) for child in DEVICE_IPC_SUBMETRICS]
+                   if key == "dev_ipc_scale" else None)
+        for key in DEVICE_COMP_SCALE_SUBMETRICS
+        if key not in DEVICE_IPC_SUBMETRICS
+    ]
+
+
 # Application-level POP view.  Global Metrics intentionally stop at
 # Communication Efficiency.  Serialization and Transfer are runtime-level
 # explanations and are therefore shown only in the Parallel Runtime Model.
@@ -641,9 +664,7 @@ TALP_TREE = [
             _tree_node("dev_comm_eff"),
             _tree_node("dev_orches_eff"),
         ]),
-        _tree_node("dev_comp_scale", [
-            _tree_node(key) for key in DEVICE_COMP_SCALE_SUBMETRICS
-        ]),
+        _tree_node("dev_comp_scale", _device_comp_scale_children()),
     ]),
 ]
 
@@ -674,9 +695,7 @@ DEVICE_TREE = [
             _tree_node("dev_comm_eff"),
             _tree_node("dev_orches_eff"),
         ]),
-        _tree_node("dev_comp_scale", [
-            _tree_node(key) for key in DEVICE_COMP_SCALE_SUBMETRICS
-        ]),
+        _tree_node("dev_comp_scale", _device_comp_scale_children()),
     ])
 ]
 
@@ -3357,8 +3376,8 @@ def _build_device_computation_trend_html(device_factors, trace_list,
                                          trace_labels, x_axis_title,
                                          printable=False):
     """Trend plot of the Device Computation Scalability and its submetrics
-    (IPC, Instruction and Frequency, or Work and Throughput). Empty without
-    the submetrics."""
+    (IPC with Coverage and Active Issue Rate, Instruction and Frequency, or
+    Work and Throughput). Empty without the submetrics."""
     keys = ["dev_comp_scale"] + [
         key for key in DEVICE_COMP_SCALE_SUBMETRICS
         if any(_clean_value(_read_metric(device_factors, key, trace)) is not None
@@ -3377,9 +3396,10 @@ def _build_device_computation_trend_html(device_factors, trace_list,
         description=(
             "With the GPU hardware counters, Device Computation Scalability "
             "= Device IPC Scalability x Device Instruction Scalability x "
-            "Device Frequency Scalability, as on the CPU; without them, "
-            "Device Work Scalability (GPU threads launched) x Device "
-            "Throughput Scalability."
+            "Device Frequency Scalability, as on the CPU, and Device IPC "
+            "Scalability = Device Coverage Scalability x Device Active Issue "
+            "Rate Scalability; without them, Device Work Scalability (GPU "
+            "threads launched) x Device Throughput Scalability."
         ),
         x_axis_title=x_axis_title,
         y_axis_title="Scalability (%)",

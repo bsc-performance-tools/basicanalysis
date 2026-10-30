@@ -55,6 +55,8 @@ REFERENCE_METRIC_KEYS = {
         'dev_global_eff',
         'dev_comp_scale',
         'dev_ipc_scale',
+        'dev_cov_scale',
+        'dev_active_issue_scale',
         'dev_inst_scale',
         'dev_freq_scale',
         'dev_work_scale',

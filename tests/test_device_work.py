@@ -195,6 +195,36 @@ class DecompositionTests(unittest.TestCase):
         self.assertEqual(factors['dev_work_scale']['b'], 'Non-Avail')
         self.assertEqual(factors['dev_throughput_scale']['b'], 'Non-Avail')
 
+    def test_ipc_is_coverage_times_active_issue_rate(self):
+        raw_data = _raw_data(
+            hwc_sm_issue_int={'a': 10.0, 'b': 60.0},
+            hwc_sm_issue_clock_int={'a': 10.0 * 2000.0, 'b': 60.0 * 1800.0},
+            hwc_sms_active_int={'a': 50.0, 'b': 120.0},
+        )
+        comp_scale = {'a': 100.0, 'b': 50.0}
+
+        factors, _measure = compute_device_work_factors(
+            raw_data, ['a', 'b'], comp_scale, lambda trace: 1.0)
+
+        coverage = factors['dev_cov_scale']['b']
+        active_issue = factors['dev_active_issue_scale']['b']
+        # SMs Active during kernels 0.5 -> 0.8; issue of active SMs 0.2 -> 0.5.
+        self.assertAlmostEqual(coverage, 160.0)
+        self.assertAlmostEqual(active_issue, 250.0)
+        self.assertAlmostEqual(coverage * active_issue / 100.0,
+                               factors['dev_ipc_scale']['b'])
+
+    def test_coverage_needs_sms_active(self):
+        raw_data = _raw_data(
+            hwc_sm_issue_int={'a': 10.0, 'b': 60.0},
+            hwc_sm_issue_clock_int={'a': 20.0, 'b': 108.0},
+        )
+        factors, _measure = compute_device_work_factors(
+            raw_data, ['a', 'b'], {'a': 100.0, 'b': 50.0}, lambda trace: 1.0)
+        self.assertNotEqual(factors['dev_ipc_scale']['b'], 'Non-Avail')
+        self.assertEqual(factors['dev_cov_scale']['b'], 'Non-Avail')
+        self.assertEqual(factors['dev_active_issue_scale']['b'], 'Non-Avail')
+
     def test_instructions_need_every_trace(self):
         raw_data = _raw_data(
             hwc_sm_issue_int={'a': 10.0, 'b': 'Non-Avail'},

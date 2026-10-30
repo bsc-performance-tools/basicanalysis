@@ -2,10 +2,11 @@ Device Computation Scalability: Work and Throughput
 ===================================================
 
 :Status: Implemented on ``feature/device-scalability`` (2026-10-28); names
-         changed on 2026-10-29 (see `Names (decision of 2026-10-29)`_). The
+         changed on 2026-10-29 (see `Names (decision of 2026-10-29)`_), IPC
+         split on 2026-10-30 (see `IPC split (decision of 2026-10-30)`_). The
          definitions are in the User Guide (chapter 6, *Device Computation
          Scalability factors* and *Kernel contributions*).
-:Date: 2026-10-28 (updated 2026-10-29)
+:Date: 2026-10-28 (updated 2026-10-30)
 :Branch: ``feature/device-scalability`` (from ``devel`` 08fc95b)
 :Scope: The Device side of the Host/Device (TALP) model, for Extrae
         (MPI+CUDA, MPI+HIP, GPU without MPI) and nsys2prv traces
@@ -86,6 +87,35 @@ Metric keys: ``dev_ipc_scale``, ``dev_inst_scale``, ``dev_freq_scale``,
 ``dev_work_scale``, ``dev_throughput_scale``. The rest of this document
 keeps the names of 2026-10-28.
 
+IPC split (decision of 2026-10-30)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Marc's first proposal split the Device Computation Scalability into
+Instruction, Coverage, Active Issue Rate, and Frequency Scalability. To keep
+the three CPU factors at the first level, Coverage and Active Issue Rate go
+one level down, as the two factors of the IPC:
+
+.. math::
+
+   \overline{Issue} = \frac{\int SM\,Issue\,dt}{U}
+   = \underbrace{\frac{\int SMs\,Active\,dt}{U}}_{Coverage}
+   \times
+   \underbrace{\frac{\int SM\,Issue\,dt}{\int SMs\,Active\,dt}}_{Active\ Issue\ Rate}
+
+so that Device IPC Scalability = Device Coverage Scalability × Device Active
+Issue Rate Scalability, exactly. Active Issue Rate is the SM Issue
+Efficiency of the GPU Hardware Counters view; Coverage is computed over the
+kernel time :math:`U` instead of GR Active (the view's SM Coverage), so that
+the product is exact. No new configuration is needed (the SMs Active
+integral is already computed). Metric keys: ``dev_cov_scale``,
+``dev_active_issue_scale``.
+
+vLLM ``rep0_full`` (b1 → b256): mean SMs Active during the kernels 52.03 %
+→ 96.41 % (Coverage 185.29 %), issue rate of the active SMs 5.31 % →
+10.69 % (Active Issue Rate 201.41 %), IPC 373.21 %. The gain of the IPC
+comes half from filling the SMs and half from the active SMs issuing more
+often.
+
 
 What the traces contain
 -----------------------
@@ -161,6 +191,8 @@ For nsys2prv traces with GPU metrics, the throughput is split once more
       == Device Orchestration efficiency
    -- Device Computation scalability
       == Device IPC scalability          (nsys2prv with GPU metrics)
+         -- Device Coverage scalability
+         -- Device Active Issue Rate scalability
       == Device Instruction scalability  (nsys2prv with GPU metrics)
       == Device Frequency scalability    (nsys2prv with GPU metrics)
       == Device Work scalability         (other GPU traces)

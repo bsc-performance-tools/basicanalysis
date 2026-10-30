@@ -1347,7 +1347,7 @@ metrics:
     short_name: Dev IPC
     family: device
     analysis_level: execution_domain
-    metric_type: scalability
+    metric_type: compound_scalability
     definition: >
       Measures how the instructions issued per cycle by the SMs during the
       kernels change relative to the reference execution. The issue rate is
@@ -1373,8 +1373,80 @@ metrics:
     - Memory stalls
     - Smaller kernels and launch overhead
     next_steps:
+    - Inspect Device Coverage and Active Issue Rate Scalability.
     - Inspect the GPU Hardware Counters view.
     - Inspect the kernel contribution table.
+    children:
+    - dev_cov_scale
+    - dev_active_issue_scale
+    sources:
+    - basicanalysis_gpu_hwc
+  dev_cov_scale:
+    name: Device Coverage Scalability
+    short_name: Dev Coverage
+    family: device
+    analysis_level: execution_domain
+    metric_type: scalability
+    definition: >
+      Measures how the mean fraction of SMs active during the kernels changes
+      relative to the reference execution.
+    formula:
+      text: DevCovScale = (I_SMsActive / U) / (I_SMsActive_ref / U_ref)
+      latex: DevCovScale = \frac{I_{SMsActive} / U}{I_{SMsActive,ref} / U_{ref}}
+      variables:
+        I_SMsActive: Integral of SMs Active over the trace
+        U: Useful device time of all devices
+    interpretation:
+      low: >
+        Low values indicate that fewer SMs are active during the kernels than
+        in the reference execution.
+      high: >
+        Values near 100% indicate that the fraction of active SMs is
+        preserved.
+      above_100: >
+        Values above 100% indicate that more SMs are active during the kernels
+        than in the reference execution, e.g. kernels with more blocks.
+    typical_causes:
+    - Kernels with fewer blocks than SMs
+    - Smaller problem per kernel
+    - Serialization of small kernels
+    next_steps:
+    - Inspect SM Coverage in the GPU Hardware Counters view.
+    - Inspect the kernel contribution table (threads of each kernel).
+    children: []
+    sources:
+    - basicanalysis_gpu_hwc
+  dev_active_issue_scale:
+    name: Device Active Issue Rate Scalability
+    short_name: Dev Active Issue
+    family: device
+    analysis_level: execution_domain
+    metric_type: scalability
+    definition: >
+      Measures how the instructions issued per cycle by the active SMs change
+      relative to the reference execution.
+    formula:
+      text: DevActiveIssueScale = (I_SMIssue / I_SMsActive) / (I_SMIssue_ref / I_SMsActive_ref)
+      latex: DevActiveIssueScale = \frac{I_{SMIssue} / I_{SMsActive}}{I_{SMIssue,ref} / I_{SMsActive,ref}}
+      variables:
+        I_SMIssue: Integral of SM Issue over the trace
+        I_SMsActive: Integral of SMs Active over the trace
+    interpretation:
+      low: >
+        Low values indicate that the active SMs issue fewer instructions per
+        cycle than in the reference execution.
+      high: >
+        Values near 100% indicate that the issue rate of the active SMs is
+        preserved.
+      above_100: >
+        Values above 100% indicate that the active SMs issue more instructions
+        per cycle than in the reference execution.
+    typical_causes:
+    - Memory stalls
+    - Lower achieved occupancy
+    - Changes in the instruction mix
+    next_steps:
+    - Inspect SM Issue Efficiency, Achieved Occupancy and DRAM bandwidth in the GPU Hardware Counters view.
     children: []
     sources:
     - basicanalysis_gpu_hwc

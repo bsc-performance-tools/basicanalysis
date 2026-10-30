@@ -2224,6 +2224,40 @@ mean clock while the SMs issue instructions.
 * **Device Frequency Scalability** below 100% means a lower clock, e.g.
   because of power or thermal limits.
 
+With the SMs Active counter, the IPC is split once more into how many SMs
+are active during the kernels and how often the active SMs issue
+instructions:
+
+.. math::
+
+   Device\_IPCScale_n = Device\_CovScale_n \cdot Device\_ActiveIssueScale_n
+
+.. math::
+
+   Device\_CovScale_n = \frac{\overline{Cov}_n}{\overline{Cov}_0},
+   \quad
+   \overline{Cov} = \frac{\sum_d \int SMsActive_d\, dt}{UsefulDevice}
+
+.. math::
+
+   Device\_ActiveIssueScale_n =
+   \frac{\overline{ActiveIssue}_n}{\overline{ActiveIssue}_0},
+   \quad
+   \overline{ActiveIssue} =
+   \frac{\sum_d \int SMIssue_d\, dt}{\sum_d \int SMsActive_d\, dt}
+
+* **Device Coverage Scalability** below 100% means that fewer SMs are
+  active during the kernels, e.g. kernels with fewer blocks than SMs.
+* **Device Active Issue Rate Scalability** below 100% means that the active
+  SMs issue fewer instructions per cycle: memory stalls, lower occupancy, or a
+  different instruction mix.
+
+:math:`\overline{ActiveIssue}` is the SM Issue Efficiency of the GPU
+Hardware Counters view (see :ref:`gpu-hardware-counter-metrics`).
+:math:`\overline{Cov}` is close to its SM Coverage, but is computed over the
+kernel time instead of the time in which the GPU is active (GR Active), so
+that the product with the Active Issue Rate is exactly the IPC.
+
 **Without the GPU hardware counters: Work and Throughput.** The
 computational work of the devices is counted as the GPU threads launched,
 
