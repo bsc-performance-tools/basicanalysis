@@ -3873,19 +3873,27 @@ classes that hold most requests may move few bytes. In a VTKHDF execution of
 the bytes read are consecutive: the jumps are small reads, consistent with
 HDF5 metadata lookups, and they take 74% of the read time.
 
-Extrae does not record the offset of the reads and writes. BasicAnalysis
-rebuilds it from the position of each descriptor: an ``open`` or ``fopen``
-sets it to 0, a seek (``lseek``, ``fseek``) to the offset recorded by
-Extrae, and each read or write starts at the position and advances it by its
-request size. The offset is unknown for the ``pread``/``pwrite`` family (the
-offset argument is not recorded), for descriptors without a traced
-``open`` until their first seek, and after a seek without a recorded offset.
-The seek offset is recorded only by recent Extrae versions; with older
-versions, the position is lost at the first seek of each descriptor. The
-**offset coverage** is the share of the requests to regular files with a
+Extrae records an offset only for the seek calls (``lseek``, ``fseek``), not
+for the reads and writes. BasicAnalysis therefore rebuilds the offset of each
+read and write from the position of its descriptor: an ``open`` or ``fopen``
+sets the position to 0, a seek sets it to the offset recorded for that seek,
+and each read or write starts at the position and advances it by its request
+size.
+
+The offset of a read or write is unknown in these cases:
+
+* The ``pread``/``pwrite`` family: these calls are traced, with their time,
+  descriptor, and request size, but Extrae does not record their offset
+  argument. They do not move the position of the descriptor.
+* Descriptors without a traced ``open``, until their first seek.
+* After a seek without a recorded offset: only recent Extrae versions record
+  the seek offset, so with older versions the position is lost at the first
+  seek of each descriptor.
+
+The **offset coverage** is the share of the requests to regular files with a
 known offset. Requests on sockets, pipes, and terminals (the descriptor type
-recorded by Extrae) have no position and are not classified. MPI-IO records
-no offset, so its requests are not classified.
+recorded by Extrae) have no position and are not classified. Extrae records
+no offset for the MPI-IO calls, so their requests are not classified either.
 
 Two more diagnostics come from the same positions:
 
