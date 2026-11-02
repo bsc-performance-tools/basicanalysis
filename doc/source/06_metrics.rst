@@ -3914,16 +3914,15 @@ file has 84% and 55%: its accesses jump more, although they are hidden in
 the totals because the part files hold 99% of the requests.
 
 The I/O diagnostics are shown in the cards of the I/O Analysis view of the
-report and printed in the standard output (in both, rows that are zero for
-all the executions are omitted), and written to ``io_metrics.csv``. The
-request-size distribution is shown in the histograms of the view and in the
-standard output (share of the requests and of the time), and written to
-``io_request_sizes.csv`` (requests, time, bytes, and their shares). The
-files with the most I/O time are shown in the view and in the standard
-output, and all the files are written to ``io_files.csv``. The access
-pattern is shown in the view and in the standard output (share of the
-requests, of the bytes, and of the time of each class), and written to
-``io_access_pattern.csv``.
+report (rows that are zero for all the executions are omitted), and written
+to ``io_metrics.csv``. The request-size distribution is shown in the
+histograms of the view, and written to ``io_request_sizes.csv`` (requests,
+time, bytes, and their shares). The files with the most I/O time are shown
+in the view, and all the files are written to ``io_files.csv``. The access
+pattern is shown in the view (share of the requests, of the bytes, and of
+the time of each class), and written to ``io_access_pattern.csv``. The
+standard output shows only the I/O efficiencies, followed by a message
+pointing to the view and to these files.
 
 These metrics quantify the time of the File I/O captured in the trace. They
 do not measure achieved bandwidth or storage-system utilization. When File

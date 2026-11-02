@@ -12,6 +12,7 @@ from iometrics import (
     compute_trace_io_metrics,
     io_useful_time,
     print_io_tables,
+    IO_REPORT_MESSAGE,
 )
 from rawdata import parse_io_call_table, parse_timings_stats
 
@@ -349,9 +350,19 @@ class PrintTests(unittest.TestCase):
         self.assertIn('I/O Critical-Path Efficiency (%)', text)
         self.assertIn('   -- Data Access Efficiency (%)', text)
         self.assertIn('-- I/O Load Balance (%)', text)
-        self.assertIn('Read Load Balance (%)', text)
+        # Only the efficiencies: the rest is in the report and the CSV files.
+        self.assertIn(IO_REPORT_MESSAGE, text)
+        self.assertNotIn('Read Load Balance (%)', text)
         self.assertNotIn('MPI-IO contribution', text)
         self.assertNotIn('Seek time', text)
+
+    def test_no_report_message_without_io_metrics(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            print_io_tables({}, ['t1'], ['2[1]'], 10)
+
+        self.assertIn('Non-Avail', output.getvalue())
+        self.assertNotIn(IO_REPORT_MESSAGE, output.getvalue())
 
 
 if __name__ == '__main__':
@@ -1059,27 +1070,14 @@ class AccessPatternTests(unittest.TestCase):
         self.assertEqual(_distinct_bytes([(0, 10), (2, 4)]), 10)
         self.assertEqual(_distinct_bytes([]), 0)
 
-    def test_tables_csv_and_report(self):
-        from iometrics import (io_access_pattern,
-                               print_io_access_pattern_csv,
-                               print_io_access_pattern_tables)
+    def test_csv_and_report(self):
+        from iometrics import io_access_pattern, print_io_access_pattern_csv
         from interactiveplots import _build_io_access_pattern_plot_html
 
         other_metrics = {'io_access_pattern': {
             't1': io_access_pattern({'access_pattern': self._parse()}),
             't2': {},
         }}
-
-        output = io.StringIO()
-        with redirect_stdout(output):
-            print_io_access_pattern_tables(
-                other_metrics, ['t1', 't2'], ['2[1]', '2[2]'], 20)
-        text = output.getvalue()
-        self.assertIn('Write access pattern', text)
-        self.assertIn('Unknown offset', text)
-        # The classes are explained once, after the tables.
-        self.assertEqual(text.count('Access pattern classes:'), 1)
-        self.assertIn('- Consecutive: Starts exactly where', text)
 
         cwd = os.getcwd()
         with tempfile.TemporaryDirectory() as tmp:
@@ -1157,7 +1155,7 @@ class FileAccessPatternTests(unittest.TestCase):
 
     def test_rows_and_csv(self):
         from iometrics import (UNNAMED_FILE_LABEL, io_file_access_rows,
-                               print_io_files_csv, print_io_file_tables)
+                               print_io_files_csv)
 
         rows = {row['name']: row
                 for row in io_file_access_rows(self._data())}
@@ -1174,12 +1172,6 @@ class FileAccessPatternTests(unittest.TestCase):
 
         other_metrics = {'io_file_access': {
             't1': io_file_access_rows(self._data())}}
-
-        output = io.StringIO()
-        with redirect_stdout(output):
-            print_io_file_tables(other_metrics, ['t1'], ['2[1]'])
-        self.assertIn('Consec. write', output.getvalue())
-        self.assertIn('21.28%', output.getvalue())
 
         cwd = os.getcwd()
         with tempfile.TemporaryDirectory() as tmp:

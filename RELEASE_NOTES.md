@@ -21,7 +21,7 @@
   duration of each group of calls. The factors are shown in the standard
   output, `other_metrics.csv`, and the I/O Analysis view of the report; the
   diagnostics in a table of the I/O Analysis view (without efficiency
-  colors), the standard output, and the new `io_metrics.csv`. The time
+  colors) and the new `io_metrics.csv`. The time
   and number of MPI-IO calls are obtained with two new Paraver
   configurations (`mpiio-calls-time.cfg`, `mpiio-calls-count.cfg`).
 - Request sizes of the read and write calls (POSIX, ANSI C, and MPI-IO;
@@ -44,7 +44,7 @@
   to its file through its descriptor and the file name of the open that
   returned it. They are shown in the I/O diagnostics, a new *Files* table
   of the I/O Analysis view (the ten files with the most I/O time of each
-  execution), the standard output, `io_metrics.csv`, and the new
+  execution), `io_metrics.csv`, and the new
   `io_files.csv` (every file). The temporary trace of the requests also
   keeps the descriptor and file name events.
 - Access pattern of the POSIX and ANSI C reads and writes to regular files:
@@ -56,12 +56,12 @@
   diagnostics: volume in consecutive requests, volume re-accessed, and
   offset coverage of the reads and writes, and redundant seeks (seeks to
   the current position). Shown in the *What requests are made?* and *Which
-  calls take the time?* cards, the standard output, `io_metrics.csv`, and
-  the new `io_access_pattern.csv`. The report (above the plots) and the
-  standard output (after the tables) explain the meaning of each class.
+  calls take the time?* cards, `io_metrics.csv`, and
+  the new `io_access_pattern.csv`. The report (above the plots) explains
+  the meaning of each class.
   The pattern is also given per file: the share of the bytes read and
-  written in consecutive requests in the files table of the report and of
-  the standard output, and every class in `io_files.csv`. The temporary trace of the requests also
+  written in consecutive requests in the files table of the report, and
+  every class in `io_files.csv`. The temporary trace of the requests also
   keeps the descriptor type and seek offset events.
 - The I/O Analysis view shows, after the efficiency table and its trends,
   four cards in reading order, each with a short note on how to read it and
@@ -140,6 +140,11 @@
 
 ### Changes
 
+- **Shorter I/O section in the standard output.** It now shows only the I/O
+  efficiencies, followed by a message saying that the other I/O metrics
+  (diagnostics, request sizes, access pattern, and files) are in the I/O
+  Analysis view of the interactive report and in the `io_*.csv` files. The
+  report and the CSV files do not change.
 - **I/O metrics replaced.** MPI I/O Efficiency, MPI I/O Load Balance, POSIX
   I/O Efficiency, and POSIX I/O Load Balance are no longer reported; they
   are replaced by Data Access and File Management Efficiency and the I/O
