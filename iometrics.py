@@ -32,7 +32,6 @@ Times in the raw data are in microseconds.
 from __future__ import print_function, division
 
 import os
-import textwrap
 from collections import OrderedDict
 
 
@@ -121,7 +120,8 @@ IO_FACTORS_DOC = OrderedDict([
     ('io_cp_eff', 'I/O Critical-Path Efficiency (%)'),
 ])
 
-# Hierarchy of the I/O efficiencies, as printed and in io_metrics.csv.
+# Hierarchy of the I/O efficiencies, in the standard output and in
+# io_metrics.csv.
 IO_EFFICIENCY_TREE = [
     ('io_cp_eff', 'I/O Critical-Path Efficiency (%)'),
     ('io_eff', '-- I/O Efficiency (%)'),
@@ -130,8 +130,15 @@ IO_EFFICIENCY_TREE = [
     ('io_lb', '-- I/O Load Balance (%)'),
 ]
 
-# Diagnostics: (label, unit). Reported in io_metrics.csv and in the
-# standard output.
+# Shown after the I/O efficiencies in the standard output.
+IO_REPORT_MESSAGE = (
+    'The other I/O metrics (diagnostics, request sizes, access pattern, and '
+    'files)\nare in the I/O Analysis view of the interactive report and in '
+    'the io_*.csv files.'
+)
+
+# Diagnostics: (label, unit). Reported in io_metrics.csv and in the I/O
+# Analysis view of the report.
 IO_DIAGNOSTICS_DOC = OrderedDict([
     ('io_fraction_avg', ('I/O time fraction, average (%)', '%')),
     ('io_fraction_max', ('I/O time fraction, maximum (%)', '%')),
@@ -210,7 +217,7 @@ ACCESS_PATTERN_CLASSES = OrderedDict([
     ('unknown', 'Unknown offset'),
 ])
 
-# Meaning of each class, for the report and the standard output.
+# Meaning of each class, for the report.
 ACCESS_PATTERN_DESCRIPTIONS = OrderedDict([
     ('first', 'The first read (write) on the descriptor after it is '
               'opened: there is no previous request to compare with.'),
@@ -231,7 +238,7 @@ ACCESS_PATTERN_DESCRIPTIONS = OrderedDict([
                 'without a recorded offset (older Extrae versions).'),
 ])
 
-# How the classes are obtained, for the report and the standard output.
+# How the classes are obtained, for the report.
 ACCESS_PATTERN_METHOD = (
     'Each read (write) is compared with the previous read (write) of the '
     'same process on the same file descriptor. The offsets are rebuilt from '
@@ -259,7 +266,7 @@ ACCESS_PATTERN_QUANTITIES = (
 # Name of the calls on descriptors without an open in the trace.
 UNNAMED_FILE_LABEL = '(descriptors without a traced open)'
 
-# Files shown in the standard output and in the report.
+# Files shown in the report.
 TOP_FILES = 10
 
 NON_AVAIL = 'Non-Avail'
@@ -1003,65 +1010,10 @@ def has_io_metrics(other_metrics, trace_list):
     )
 
 
-def format_io_value(value, unit):
-    """Format an I/O metric value for the standard output."""
-    if not isinstance(value, (int, float)):
-        return '{}'.format(value)
-
-    if unit == '%':
-        return '{0:.2f}%'.format(value)
-
-    if unit == 's':
-        return '{0:.3f}'.format(value)
-
-    if unit == 'count':
-        return '{0:.0f}'.format(value)
-
-    if unit == 'bytes':
-        return format_bytes(value)
-
-    return '{0:.1f}'.format(value)
-
-
-def print_io_diagnostics_table(other_metrics, trace_list, column_labels,
-                               longest_name, value_to_adjust):
-    """Print the I/O diagnostics that have a value for some trace."""
-    line_head = 'I/O diagnostics'.ljust(longest_name)
-
-    for label in column_labels:
-        line_head += ' | ' + label.rjust(value_to_adjust)
-
-    print('Overview of File I/O diagnostics:')
-    print(''.ljust(len(line_head), '-'))
-
-    for key, (label, unit) in IO_DIAGNOSTICS_DOC.items():
-        values = [other_metrics[key][trace] for trace in trace_list]
-
-        # Calls or APIs not used by any trace (io_metrics.csv keeps them).
-        if is_unused_diagnostic(values):
-            continue
-
-        line = label.ljust(longest_name)
-
-        for value in values:
-            line += ' | ' + format_io_value(value, unit).rjust(value_to_adjust)
-
-        print(line)
-
-    print(''.ljust(len(line_head), '-'))
-
-
-def io_diagnostics_label_width():
-    """Width of the longest diagnostic label."""
-    return max(len(label) for label, _ in IO_DIAGNOSTICS_DOC.values())
-
-
 def print_io_tables(other_metrics, trace_list, column_labels,
                     value_to_adjust):
-    """Print the I/O efficiencies, and the I/O diagnostics."""
-    rows = IO_EFFICIENCY_TREE
-
-    longest_name = io_diagnostics_label_width()
+    """Print the I/O efficiencies, and where the other I/O metrics are."""
+    longest_name = max(len(label) for _, label in IO_EFFICIENCY_TREE)
 
     line_head = ''.ljust(longest_name)
 
@@ -1071,175 +1023,23 @@ def print_io_tables(other_metrics, trace_list, column_labels,
     print('Overview of File I/O Efficiency:')
     print(''.ljust(len(line_head), '-'))
 
-    for key, label in rows:
+    for key, label in IO_EFFICIENCY_TREE:
         line = label.ljust(longest_name)
 
         for trace in trace_list:
             value = other_metrics.get(key, {}).get(trace, NON_AVAIL)
-            line += ' | ' + format_io_value(value, '%').rjust(value_to_adjust)
+
+            if isinstance(value, (int, float)):
+                value = '{0:.2f}%'.format(value)
+
+            line += ' | ' + str(value).rjust(value_to_adjust)
 
         print(line)
 
     print(''.ljust(len(line_head), '-'))
 
     if has_io_metrics(other_metrics, trace_list):
-        print_io_diagnostics_table(
-            other_metrics,
-            trace_list,
-            column_labels,
-            longest_name,
-            value_to_adjust,
-        )
-        print_io_request_size_tables(
-            other_metrics,
-            trace_list,
-            column_labels,
-            longest_name,
-            value_to_adjust,
-        )
-        print_io_access_pattern_tables(
-            other_metrics,
-            trace_list,
-            column_labels,
-            longest_name,
-        )
-        print_io_file_tables(other_metrics, trace_list, column_labels)
-
-
-def _request_size_rows(other_metrics, trace_list, operation):
-    """Intervals with requests in some trace, in increasing size, and the
-    bin of each trace in each interval ({trace: bin})."""
-    intervals = OrderedDict()
-
-    for trace in trace_list:
-        distribution = (
-            other_metrics.get('io_request_sizes', {}).get(trace) or {})
-
-        for bin_ in distribution.get(operation, []):
-            intervals.setdefault(bin_['min'], {})[trace] = bin_
-
-    return [
-        (low, intervals[low]) for low in sorted(intervals)
-    ]
-
-
-def print_io_request_size_tables(other_metrics, trace_list, column_labels,
-                                 longest_name, value_to_adjust):
-    """Print the share of the requests and of the time of each
-    power-of-two request-size interval."""
-    for operation in REQUEST_SIZE_OPERATIONS:
-        rows = _request_size_rows(other_metrics, trace_list, operation)
-
-        if not rows:
-            continue
-
-        # Cells hold two shares ('100.0 / 100.0').
-        width = max(value_to_adjust, 13)
-        line_head = 'Request size'.ljust(longest_name)
-
-        for label in column_labels:
-            line_head += ' | ' + label.rjust(width)
-
-        print('{} requests per size interval '
-              '(% of requests / % of time):'.format(
-                  OPERATION_LABELS[operation]))
-        print(''.ljust(len(line_head), '-'))
-        print(line_head)
-        print(''.ljust(len(line_head), '-'))
-
-        for _, bins in rows:
-            any_bin = next(iter(bins.values()))
-            line = any_bin['label'].ljust(longest_name)
-
-            for trace in trace_list:
-                bin_ = bins.get(trace)
-
-                if bin_ is None:
-                    cell = '-'
-                else:
-                    cell = '{0:.1f} / {1:.1f}'.format(
-                        bin_['count_pct'], bin_['time_pct'])
-
-                line += ' | ' + cell.rjust(width)
-
-            print(line)
-
-        print(''.ljust(len(line_head), '-'))
-
-
-def print_io_access_pattern_tables(other_metrics, trace_list, column_labels,
-                                   longest_name):
-    """Print the share of the requests, of the bytes, and of the time of
-    each access-pattern class of the reads and writes."""
-    patterns = other_metrics.get('io_access_pattern', {})
-    printed = False
-
-    for operation in REQUEST_SIZE_OPERATIONS:
-        if not any((patterns.get(trace) or {}).get(operation)
-                   for trace in trace_list):
-            continue
-
-        # Cells hold three shares ('100.0 / 100.0 / 100.0').
-        width = 21
-        line_head = 'Access pattern'.ljust(longest_name)
-
-        for label in column_labels:
-            line_head += ' | ' + label.strip().rjust(width)
-
-        print('{} access pattern, POSIX and ANSI C on regular files '
-              '(% of requests / % of bytes / % of time):'.format(
-                  OPERATION_LABELS[operation]))
-        print(''.ljust(len(line_head), '-'))
-        print(line_head)
-        print(''.ljust(len(line_head), '-'))
-
-        for name, label in ACCESS_PATTERN_CLASSES.items():
-            line = label.ljust(longest_name)
-
-            for trace in trace_list:
-                rows = {
-                    row['class']: row
-                    for row in (patterns.get(trace) or {}).get(operation, [])
-                }
-                row = rows.get(name)
-
-                if row is None:
-                    cell = '-'
-                else:
-                    cell = ' / '.join(
-                        '-' if row[key] == NON_AVAIL
-                        else '{0:.1f}'.format(row[key])
-                        for key in ('requests_pct', 'bytes_pct', 'time_pct'))
-
-                line += ' | ' + cell.rjust(width)
-
-            print(line)
-
-        print(''.ljust(len(line_head), '-'))
-        printed = True
-
-    if printed:
-        print_access_pattern_legend()
-
-
-def print_access_pattern_legend(width=79):
-    """Print the meaning of the access-pattern classes."""
-    print('Access pattern classes:')
-
-    for line in textwrap.wrap(ACCESS_PATTERN_METHOD, width - 2):
-        print('  ' + line)
-
-    for name, label in ACCESS_PATTERN_CLASSES.items():
-        lines = textwrap.wrap(
-            '{}: {}'.format(label, ACCESS_PATTERN_DESCRIPTIONS[name]),
-            width - 4)
-
-        print('  - ' + lines[0])
-
-        for line in lines[1:]:
-            print('    ' + line)
-
-    print('')
+        print(IO_REPORT_MESSAGE)
 
 
 def shorten_file_name(name, width):
@@ -1248,70 +1048,6 @@ def shorten_file_name(name, width):
         return name
 
     return '...' + name[-(width - 3):]
-
-
-def _file_percentage_cell(value):
-    if value == NON_AVAIL:
-        return '-'
-
-    return format_io_value(value, '%')
-
-
-def print_io_file_tables(other_metrics, trace_list, column_labels,
-                         name_width=48):
-    """Print, for every trace, the files with the most I/O time. The
-    consecutive columns are the shares of the bytes read and written in
-    consecutive requests (see the access pattern)."""
-    columns = [
-        ('Processes', lambda row: '{0:d}'.format(row['processes'])),
-        ('Read', lambda row: format_bytes(row['read_bytes'])),
-        ('Written', lambda row: format_bytes(row['write_bytes'])),
-        ('Main process', lambda row: (
-            '-' if row['main_process_pct'] == NON_AVAIL
-            else format_io_value(row['main_process_pct'], '%'))),
-        ('I/O time (s)', lambda row: '{0:.3f}'.format(row['time'] / 1e6)),
-        ('I/O time (%)', lambda row: format_io_value(row['time_pct'], '%')),
-        ('Consec. read', lambda row: _file_percentage_cell(
-            row.get('read_consecutive_volume', NON_AVAIL))),
-        ('Consec. write', lambda row: _file_percentage_cell(
-            row.get('write_consecutive_volume', NON_AVAIL))),
-    ]
-    width = max(len(title) for title, _ in columns)
-
-    for trace, label in zip(trace_list, column_labels):
-        rows = other_metrics.get('io_file_access', {}).get(trace) or []
-
-        if not rows:
-            continue
-
-        files = [row for row in rows if not row['unnamed']]
-        shown = files[:TOP_FILES] + [row for row in rows if row['unnamed']]
-
-        line_head = 'File'.ljust(name_width)
-
-        for title, _ in columns:
-            line_head += ' | ' + title.rjust(width)
-
-        print('Files with the most I/O time, POSIX and ANSI C ({0}, {1} of '
-              '{2} files):'.format(label.strip(), min(len(files), TOP_FILES),
-                                    len(files)))
-        print(''.ljust(len(line_head), '-'))
-        print(line_head)
-        print(''.ljust(len(line_head), '-'))
-
-        for row in shown:
-            line = shorten_file_name(row['name'], name_width).ljust(
-                name_width)
-
-            for _, cell in columns:
-                line += ' | ' + cell(row).rjust(width)
-
-            print(line)
-
-        print(''.ljust(len(line_head), '-'))
-        print('Consec. read / write: share of the bytes read / written in '
-              'consecutive requests (access pattern, regular files).')
-        print('')
 
 
 def print_io_files_csv(other_metrics, trace_list):

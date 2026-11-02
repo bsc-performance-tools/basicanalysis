@@ -356,8 +356,9 @@ table of the plotted values:
 The printable report shows the plots without the tables of values.
 These values are not efficiencies, so they have no color scale; rows of
 calls or APIs that no execution uses are omitted. The same diagnostics are
-printed in the standard output and written to ``io_metrics.csv``; see
-:ref:`I/O diagnostics <io-diagnostics>`.
+written to ``io_metrics.csv``; see :ref:`I/O diagnostics <io-diagnostics>`.
+The standard output shows only the I/O efficiencies, followed by a message
+pointing to this view and to the ``io_*.csv`` files.
 
 The I/O metrics are reported independently from the hierarchical
 performance-efficiency model and must not be interpreted as additional
