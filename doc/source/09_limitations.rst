@@ -227,6 +227,8 @@ far, but they should be considered when comparing Extrae and *nsys2prv*
 traces of the same application.
 
 
+.. _limitations-io:
+
 I/O Analysis
 ------------
 
@@ -239,6 +241,13 @@ The following assumptions and limitations apply:
 * **Nested calls.** Extrae does not trace, by default, the POSIX calls
   performed inside MPI-IO calls. BasicAnalysis assumes this default; if the
   internal POSIX calls were traced, their time would be counted twice.
+* **MPI_File_open in Fortran.** Extrae does not instrument the Fortran
+  ``mpi_file_open``. In Fortran applications that use MPI-IO, the time of the
+  opens counts as useful time, which increases I/O Efficiency, File
+  Management Efficiency, and the useful time of the execution, and the Open
+  metrics do not include it. BasicAnalysis prints a warning, and adds a note
+  to the *Which calls take the time?* card of the report, when a trace has
+  ``MPI_File_close`` calls but no ``MPI_File_open`` calls.
 * **I/O library computation.** The CPU work of I/O libraries (for example
   HDF5 compression or metadata handling) is not distinguished from the
   application computation and counts as useful time. A library that spends

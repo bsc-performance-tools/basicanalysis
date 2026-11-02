@@ -13,6 +13,7 @@ from iometrics import (
     io_useful_time,
     print_io_tables,
     IO_REPORT_MESSAGE,
+    MPIIO_OPEN_MISSING_MESSAGE,
 )
 from rawdata import parse_io_call_table, parse_timings_stats
 
@@ -252,6 +253,25 @@ class AddIoMetricsTests(unittest.TestCase):
         self.assertAlmostEqual(other_metrics['io_other_contribution']['t1'],
                                100.0)
 
+    def test_warns_about_mpiio_closes_without_opens(self):
+        for calls, missing in (
+                ({'MPI_File_close': [2.0, 2.0]}, True),
+                ({'MPI_File_open': [2.0, 2.0],
+                  'MPI_File_close': [2.0, 2.0]}, False),
+                ({'MPI_File_write_at_all': [2.0, 2.0]}, False)):
+            other_metrics = {'io_units': {'t1': 2}}
+            io_data = {'t1': _io_data(mpiio_count=_table(UNITS, calls))}
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                add_io_metrics(other_metrics, self._raw_data(0.0), io_data,
+                               ['t1'])
+
+            self.assertEqual(
+                other_metrics['io_mpiio_open_missing']['t1'], missing)
+            self.assertEqual(
+                MPIIO_OPEN_MISSING_MESSAGE in output.getvalue(), missing)
+
     def test_warns_when_call_time_differs_from_io_time(self):
         other_metrics = {'io_units': {'t1': 2}}
 
@@ -445,6 +465,17 @@ class IoDiagnosticsReportTests(unittest.TestCase):
             _build_io_diagnostics_card_html,
             _build_io_operations_card_html,
         )
+
+        other_metrics = self._other_metrics()
+        self.assertNotIn(
+            'MPI_File_open is not in the trace',
+            _build_io_operations_card_html(
+                other_metrics, ['t1'], ['2 [T1]']))
+        other_metrics['io_mpiio_open_missing'] = {'t1': True}
+        self.assertIn(
+            'MPI_File_open is not in the trace',
+            _build_io_operations_card_html(
+                other_metrics, ['t1'], ['2 [T1]']))
 
         for build in (_build_io_diagnostics_card_html,
                       _build_io_operations_card_html):
