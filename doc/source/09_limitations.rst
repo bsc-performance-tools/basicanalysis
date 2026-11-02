@@ -255,8 +255,24 @@ The following assumptions and limitations apply:
 * **Descriptor types.** Calls on non-file descriptors (standard output,
   sockets, pipes) are counted as File I/O; only the access pattern
   excludes them.
-* **I/O not visible in the trace.** Memory-mapped I/O, asynchronous I/O,
-  and I/O performed by threads that are not instrumented are not measured.
+* **I/O not visible in the trace.** Extrae instruments only some of the I/O
+  calls (checked in Extrae 5.1.3 and 5.1.10). The time of the other calls
+  counts as useful time, which increases I/O Efficiency:
+
+  * Calls that flush data: ``fsync``, ``fdatasync``, ``fflush``, and
+    ``MPI_File_sync``. A write can return as soon as the data is in the
+    page cache, so these calls can hold most of the cost of writing.
+  * Metadata calls: ``stat``, ``unlink``, ``rename``, ``mkdir``,
+    ``ftruncate``, and ``MPI_File_delete``.
+  * Other calls: ``creat``, ``openat``, ``dup``, ``MPI_File_seek``, and
+    ``MPI_File_set_view``.
+  * Formatted C I/O: ``fprintf``, ``fscanf``, ``fgets``, and similar calls
+    are not instrumented, and the reads and writes that they perform may not
+    be visible either.
+  * Memory-mapped I/O (``mmap``), asynchronous I/O (``aio_*``), the
+    nonblocking MPI-IO calls (``MPI_File_iread``, ``MPI_File_iwrite``), and
+    I/O performed by threads that are not instrumented.
+
 * **Whole-execution aggregation.** The metrics describe the whole execution;
   applications with distinct I/O phases (for example, a write phase and a
   read phase) should be inspected per phase in Paraver.
@@ -288,7 +304,8 @@ The following assumptions and limitations apply:
   the ``open`` calls, the seeks, and the request sizes. Extrae records the
   seek offset without its origin (``whence``): every seek is taken as
   absolute (``SEEK_SET``), so a relative seek (``SEEK_CUR``, ``SEEK_END``)
-  misplaces the following requests of the descriptor. The seek offset is
+  misplaces the following requests of the descriptor, and so does
+  ``rewind``, which is not instrumented. The seek offset is
   recorded only by recent Extrae versions; with older versions, the
   position is unknown after the first seek. The size is the requested size,
   so a short read advances the position too far. The open flags are not
