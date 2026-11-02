@@ -145,6 +145,12 @@
   (diagnostics, request sizes, access pattern, and files) are in the I/O
   Analysis view of the interactive report and in the `io_*.csv` files. The
   report and the CSV files do not change.
+- **Warning for the MPI_File_open calls that are not traced.** Extrae does
+  not instrument the Fortran `mpi_file_open`, so its time counts as useful
+  time and the Open metrics do not include it. When a trace has
+  `MPI_File_close` calls but no `MPI_File_open` calls, BasicAnalysis prints a
+  warning and adds a note to the *Which calls take the time?* card of the
+  report. The limitation is documented in the User Guide.
 - **I/O metrics replaced.** MPI I/O Efficiency, MPI I/O Load Balance, POSIX
   I/O Efficiency, and POSIX I/O Load Balance are no longer reported; they
   are replaced by Data Access and File Management Efficiency and the I/O

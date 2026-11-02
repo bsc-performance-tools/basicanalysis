@@ -23,6 +23,7 @@ from iometrics import (
     FILE_DIAGNOSTICS,
     IO_DIAGNOSTICS_DOC,
     IO_TIME_DIAGNOSTIC_GROUPS,
+    MPIIO_OPEN_MISSING_MESSAGE,
     NON_AVAIL as IO_NON_AVAIL,
     OPERATIONS as IO_OPERATIONS,
     OPERATION_LABELS as IO_OPERATION_LABELS,
@@ -1465,6 +1466,11 @@ def _build_io_operations_card_html(other_metrics, trace_list, trace_labels,
             "move nothing, so their time is File Management time that could "
             "be avoided."
         )
+
+    if any(other_metrics.get('io_mpiio_open_missing', {}).get(trace)
+           for trace in trace_list):
+        note += " <strong>Note:</strong> " + html.escape(
+            MPIIO_OPEN_MISSING_MESSAGE)
 
     return _build_io_card_html(
         "Which calls take the time?", note,

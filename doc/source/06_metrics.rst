@@ -3531,7 +3531,9 @@ instrumented by a future Extrae version) is counted as File Management, and
 BasicAnalysis prints a warning naming it.
 
 By default, Extrae does not trace the POSIX calls performed inside MPI-IO
-calls. The MPI-IO and POSIX times are therefore not counted twice.
+calls. The MPI-IO and POSIX times are therefore not counted twice. Extrae does
+not instrument the Fortran ``mpi_file_open`` either; see the limitations of
+the :ref:`I/O analysis <limitations-io>`.
 
 
 Notation

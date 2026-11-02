@@ -130,6 +130,14 @@ IO_EFFICIENCY_TREE = [
     ('io_lb', '-- I/O Load Balance (%)'),
 ]
 
+# Why a trace can have MPI-IO closes and no opens, for the warning and the
+# report.
+MPIIO_OPEN_MISSING_MESSAGE = (
+    'MPI_File_open is not in the trace, although MPI_File_close is (Extrae '
+    'does not instrument it in Fortran applications): its time counts as '
+    'useful time, and the Open metrics do not include it.'
+)
+
 # Shown after the I/O efficiencies in the standard output.
 IO_REPORT_MESSAGE = (
     'The other I/O metrics (diagnostics, request sizes, access pattern, and '
@@ -419,6 +427,19 @@ def aggregate_io_calls(trace_io_data):
                     aggregate['api_time'][api][position] += value
 
     return aggregate
+
+
+def mpiio_open_missing(trace_io_data):
+    """Return whether a trace has MPI_File_close calls but no MPI_File_open
+    calls, which are then not traced (see MPIIO_OPEN_MISSING_MESSAGE)."""
+    table = ((trace_io_data or {}).get('calls') or {}).get('mpiio') or {}
+    calls = (table.get('count') or {}).get('calls') or {}
+    counts = {
+        call.lower(): sum(values) for call, values in calls.items()
+    }
+
+    return (counts.get('mpi_file_close', 0.0) > 0.0
+            and counts.get('mpi_file_open', 0.0) <= 0.0)
 
 
 def io_useful_time(raw_data, trace):
@@ -942,6 +963,12 @@ def add_io_metrics(other_metrics, raw_data, io_data, trace_list):
         for trace in trace_list
     }
 
+    # Internal key: traces without the MPI_File_open calls, for the report.
+    other_metrics['io_mpiio_open_missing'] = {
+        trace: mpiio_open_missing((io_data or {}).get(trace))
+        for trace in trace_list
+    }
+
     unknown_calls = []
 
     for trace in trace_list:
@@ -1000,6 +1027,9 @@ def add_io_metrics(other_metrics, raw_data, io_data, trace_list):
                 for api, call in unknown_calls
             )
         )
+
+    if any(other_metrics['io_mpiio_open_missing'].values()):
+        print('==WARNING== ' + MPIIO_OPEN_MISSING_MESSAGE)
 
 
 def has_io_metrics(other_metrics, trace_list):
