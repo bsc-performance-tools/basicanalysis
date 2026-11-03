@@ -119,38 +119,8 @@ _HYBRID_RUNTIME_METRICS = (
         2,
     ),
     (
-        "omp_outside_mpi_eff",
-        "{runtime} Parallel efficiency outside MPI",
-        "inner-runtime",
-        2,
-    ),
-    (
         "useful_during_mpi",
-        "Useful work during MPI",
-        "inner-runtime",
-        2,
-    ),
-    (
-        "outer_parallel_eff",
-        "Outer Parallel efficiency",
-        "mpi",
-        1,
-    ),
-    (
-        "process_load_balance",
-        "Process Load balance",
-        "mpi",
-        2,
-    ),
-    (
-        "inner_parallel_eff",
-        "Inner Parallel efficiency",
-        "inner-runtime",
-        1,
-    ),
-    (
-        "thread_load_balance",
-        "Thread Load balance",
+        "of which, useful work during MPI",
         "inner-runtime",
         2,
     ),
@@ -937,26 +907,7 @@ class RuntimeAnalysisBuilder:
                                 ),
                             ),
                             MetricAnalysisTreeNode(
-                                metric_id="omp_outside_mpi_eff",
-                            ),
-                            MetricAnalysisTreeNode(
                                 metric_id="useful_during_mpi",
-                            ),
-                        ),
-                    ),
-                    MetricAnalysisTreeNode(
-                        metric_id="outer_parallel_eff",
-                        children=(
-                            MetricAnalysisTreeNode(
-                                metric_id="process_load_balance",
-                            ),
-                        ),
-                    ),
-                    MetricAnalysisTreeNode(
-                        metric_id="inner_parallel_eff",
-                        children=(
-                            MetricAnalysisTreeNode(
-                                metric_id="thread_load_balance",
                             ),
                         ),
                     ),

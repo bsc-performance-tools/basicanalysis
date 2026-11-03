@@ -1,15 +1,16 @@
-Views of the Hybrid Parallel Runtime Model
-==========================================
+Child Metrics of the Hybrid Parallel Runtime Model
+==================================================
 
-:Status: Implemented on this branch (option A); open questions below
+:Status: Implemented on this branch, not merged into ``devel`` until tested
 :Date: 2026-11-02 (updated 2026-11-03)
 :Branch: ``feature/runtime-model-views``
 :Scope: Parallel Runtime Model of the interactive report for MPI+X traces
 
-The report should present the hybrid multiplicative model from four
-perspectives: Application, Outer level, Inner level, and Other. Other isolates
-the useful work that runs during MPI, and the report explains why the inner
-level can exceed 100%.
+The model is simple: every performance issue is Load Balance or Communication.
+Users find it unclear that it blames MPI first, and the inner level can exceed 100%.
+The nine metrics keep their names, values, and multiplications, and the new metrics
+are children of existing metrics, like the decomposition of Device Computation
+Scalability.
 
 
 Current model
@@ -99,170 +100,107 @@ Efficiency cannot exceed 100%. An Inner LB above 100% then requires Inner
 Communication Efficiency below 100%.
 
 
-Decision: option A
-------------------
+Decision
+--------
 
-.. list-table::
-   :header-rows: 1
-   :widths: 24 38 38
+An earlier version added Outer and Inner Parallel Efficiency, Process and Thread Load
+Balance, and an Other table (commits ``adba48d`` and ``01f6eac``). They were removed
+on 2026-11-03: Jesús does not want new names in the main tree, and the model must
+stay simple. Separate classic models for CPU and GPU hybrids were also considered and
+rejected, because one model keeps the comparison between programming models.
 
-   * -
-     - A: keep MPI, add Other (**chosen**)
-     - B: change what MPI is blamed for
-   * - Idea
-     - MPI PE as in the paper; overlap has its own factor
-     - Overlapped useful time is not blamed on MPI
-   * - MPI PE values
-     - Unchanged
-     - Change for codes with overlap
-   * - Product
-     - Application = Outer x Inner x Other
-     - Application = Outer x Inner
-   * - Published results
-     - Comparable
-     - Not comparable for codes with overlap
+.. code-block:: text
 
-Option A is exact and measurable, and shows the amount of overlap. Option B needs
-a formulation for the time other threads wait for MPI, and could be a later step.
+   Global efficiency                      47.12    (BT-MZ A)
+   -- Parallel efficiency                 47.12
+      -- Load balance                     48.52
+         -- between processes             60.53    new
+         -- inside processes              80.17    new
+      -- Communication efficiency         97.10
 
+   MPI Parallel efficiency                68.23
+      -- MPI Load balance                 69.37
+      -- MPI Communication efficiency     98.36
 
-Definition of the views
------------------------
-
-Let :math:`U^{M}_{i,j}` be the useful time of thread :math:`j` of process
-:math:`i` while the first thread of the process is in MPI, and
-:math:`U^{O}_{i,j} = U_{i,j} - U^{M}_{i,j}`.
-
-.. math::
-
-   \text{Inner PE (outside MPI)} =
-       \frac{\sum_{i,j} U^{O}_{i,j}}{\sum_i O_i t_i} \le 100\%
-
-   \text{Other} =
-       \frac{\sum_{i,j} U_{i,j}}{\sum_{i,j} U^{O}_{i,j}} \ge 100\%
-
-   \text{Hybrid PE} = \text{MPI PE}
-       \times \text{Inner PE (outside MPI)} \times \text{Other}
-
-.. list-table::
-   :header-rows: 1
-   :widths: 18 52 30
-
-   * - View
-     - Shows
-     - Above 100%
-   * - Application
-     - Hybrid Parallel Efficiency, Load Balance, Communication
-     - No
-   * - Outer
-     - MPI Parallel Efficiency and its factors
-     - No
-   * - Inner
-     - Inner PE (outside MPI), and the Load Balance and Communication ratios
-     - PE no; Load Balance can
-   * - Other
-     - Useful work during MPI
-     - Always 100% or more
-
-In MPI+GPU, a unit is a Host thread or a physical device, and
-:math:`U^{M}` of a device is its flattened useful time during the MPI calls of
-the first thread of its process. Other does not depend on the number of units.
-The limit of 100% for Inner PE (outside MPI) assumes the same number of units in
-every process, because the MPI metrics are computed over the ranks.
-
-Other applies to Parallel Efficiency only. The Inner Load Balance and
-Communication ratios keep their current definition, so with overlap their product
-is Inner PE (outside MPI) x Other, not Inner PE (outside MPI). The view must
-say so.
-
-The table with the nine metrics stays, because the paper recommends both paths.
-Reading the signals together:
-
-.. list-table::
-   :header-rows: 1
-
-   * - Inner LB
-     - Inner Comm
-     - Other
-     - Meaning
-   * - Above 100%
-     - Below 100%
-     - 100%
-     - Compensation: non-useful time inside some processes causes MPI imbalance
-   * - Above 100%
-     - About 100%
-     - Above 100%
-     - Useful work continues during MPI
+   OpenMP Parallel efficiency             69.06
+      -- OpenMP Load balance              69.95
+      -- OpenMP Communication efficiency  98.72
+      -- of which, useful work during MPI 100.00   new, neutral color
 
 
-Load Balance by the distribution of useful time
------------------------------------------------
+Definitions
+-----------
 
-Users find it unclear that the model blames MPI first and assigns the rest to the
-inner level. In CPU-based traces Other is 100%, so it does not help. Load Balance is
-the only factor affected, so it is split by useful time (decision of 2026-11-03):
+All the multiplications of the model stay: Hybrid PE = MPI PE x Inner PE, Hybrid LB
+= MPI LB x Inner LB, Hybrid Comm = MPI Comm x Inner Comm, and each PE = LB x Comm.
+The new metrics are a second split of the same parents, and they do not pair with
+the first.
+
+Let :math:`\overline{U_i}` be the mean useful time of the threads of process
+:math:`i`, with the threads that have useful time.
 
 .. math::
 
-   ProcessLB = \frac{\overline{U}}{\max_i \overline{U_i}}
+   LB_{between} = \frac{\overline{U}}{\max_i \overline{U_i}}
    \qquad
-   ThreadLB = \frac{\max_i \overline{U_i}}{\max_{i,j} U_{i,j}}
+   LB_{inside} = \frac{\max_i \overline{U_i}}{\max_{i,j} U_{i,j}}
+
+Neither exceeds 100%, and :math:`LB_{between} \cdot LB_{inside}` is Hybrid LB, so
 
 .. math::
 
-   \text{Hybrid PE} = (ProcessLB \cdot MPI\_Comm) \cdot
-   (ThreadLB \cdot Inner\_Comm)
+   \text{Hybrid PE} = LB_{between} \cdot LB_{inside} \cdot
+   MPI\_Comm \cdot Inner\_Comm
 
-Implemented on this branch, for CPU-based hybrid executions only; not merged into
-``devel`` until tested. The traces of the paper give:
+These are computed for CPU-based hybrid executions only: *inside processes* has no
+clear meaning for Host threads and devices.
+
+Let :math:`U^{M}` be the useful time of a unit while the first thread of its process
+is in MPI. In MPI+GPU, a unit is a Host thread or a physical device with its streams
+flattened.
+
+.. math::
+
+   \text{Useful work during MPI} = \frac{\sum U}{\sum (U - U^{M})} \ge 100\%
+
+It does not multiply with the inner LB and Comm. Dividing the inner PE by it gives the
+efficiency outside MPI, in the metric details and not as a row of the tree: as a
+sibling of LB and Comm, a reader could multiply all four.
+
+Results of the Load Balance split on the traces of the paper:
 
 .. list-table::
    :header-rows: 1
 
    * - Trace
-     - MPI / Inner
-     - MPI LB / Inner LB
-     - Process LB / Thread LB
-     - Outer / Inner
+     - MPI LB / OpenMP LB
+     - between / inside
    * - serialOMP
-     - 95.97 / 49.04
      - 98.9 / 52.7
      - 98.20 / 53.04
-     - 95.31 / 49.38
    * - unbalancedOMP
-     - 99.43 / 71.19
      - 99.9 / 81.7
      - 98.68 / 82.75
-     - 98.23 / 72.07
    * - unbalancedMPI
-     - 59.90 / 93.26
      - 61.3 / 96.0
      - 60.39 / 97.38
-     - 59.03 / 94.63
    * - unbalancedMPI_serialOMP
-     - 69.12 / 63.19
      - 70.1 / 69.1
      - 65.60 / 73.86
-     - 64.68 / 67.53
    * - hybrid_UM_BO
-     - 98.60 / 37.62
      - 99.5 / 39.5
      - 89.17 / 44.11
-     - 88.38 / 41.97
    * - hybrid_weird (preempted)
-     - 38.17 / 47.27
      - 45.5 / 93.3
      - 53.28 / 79.72
-     - 44.65 / 40.40
    * - BT-MZ A
-     - 68.23 / 69.05
      - 69.4 / 70.0
      - 60.53 / 80.16
-     - 59.53 / 79.13
 
-The clear cases point to the same level. BT-MZ A moves to the distribution between
-processes, and hybrid_UM_BO shows an imbalance that MPI LB hides. Preemption is not
-reassigned to the inner level, because a preempted thread appears as running.
+The clear cases point to the same place. BT-MZ A shows that work between processes is
+the larger issue, and hybrid_UM_BO shows an imbalance that MPI LB hides. Preemption
+is not moved to the threads, because a preempted thread appears as running.
+
 
 Text for values above 100%
 --------------------------
@@ -277,7 +215,7 @@ the imbalance:
     can be better balanced than the time outside MPI. This does not by itself
     mean that {runtime} improves load balance. The same loss usually appears in
     {runtime} Communication Efficiency, so read the two together. If useful work
-    runs while the first thread is in MPI, see the Other view.
+    runs while the first thread is in MPI, see Useful Work during MPI.
 
 
 Validation so far
@@ -294,10 +232,10 @@ unit was intersected with the MPI intervals of its task.
    * - Trace
      - Application
      - Outer
-     - Inner today
-     - Inner (outside MPI)
-     - Other
-     - Useful during MPI
+     - Inner
+     - Inner outside MPI
+     - Useful during MPI (%)
+     - Share of useful time
    * - BT-MZ A, MPI+OpenMP
      - 47.12
      - 68.23
@@ -362,7 +300,7 @@ unit was intersected with the MPI intervals of its task.
      - 100.00
      - 0.00%
 
-Application, Outer, and Inner today match BasicAnalysis for BT-MZ, XSHELLS,
+Application, Outer, and Inner match BasicAnalysis for BT-MZ, XSHELLS,
 Tsunami-HySEA, SOD2D, and the CloverLeaf runs with 4 and 8 processes, and the useful
 times match the raw data. In all the traces, the overlap comes from the devices:
 Host threads have no useful time during MPI.
@@ -372,33 +310,16 @@ overlap above 1% appeared in only 3, and no trace had Inner PE above 100%. The h
 (``lmp_mpi_omp-mn4``). So the mechanism is measured, but no real trace has been
 seen where overlap takes Inner PE above 100%.
 
-The isolated OpenMP metrics are not suitable for the Inner view: on BT-MZ A they
-give 27.30% against 69.06%, which would leave a residual of 253%.
-
-
-Implementation
---------------
-
-1. **Raw data.** Obtain :math:`U^{M}`, preferably with a paramedir
-   configuration. Otherwise, from a filtered trace, as the I/O requests already
-   do. To be evaluated: the control window is at task level (``Thread i``) and
-   the data at thread level, and MPI+GPU needs the flattened intervals.
-2. **Metrics.** Inner PE (outside MPI) and Other in ``hybridmetrics.py``,
-   ``definitions.yaml``, the CSV files, and tests. Non-Avail outside MPI+X.
-3. **Report.** The four views in the Runtime Analysis section
-   (``report/sections/runtime_analysis.py``), keeping the nine metrics.
-4. **Documentation.** User Guide chapters 5, 6, and 7, and the new text.
+The isolated OpenMP metrics measure something else: on BT-MZ A they give 27.30%
+against 69.06%, so they are not a split of the inner PE.
 
 
 Open questions
 --------------
 
 1. **Was the formulation of Section III.B of the paper finished?** If so, read it
-   before fixing the definition of Other.
+   before fixing the definition of Useful Work during MPI.
 2. **MPI called from other threads.** The definition uses the first thread, like
    the current model. Task-based codes may call MPI from any thread.
-3. **Labels.** How are the views labelled for each runtime?
-4. **What was hybrid_UM_BO designed to show?** Its name suggests unbalanced MPI.
-5. **MPI+GPU.** Should it have an equivalent of Process and Thread Load Balance?
-6. **Name of the view.** "Other" is general. Should the report use a descriptive
-   label such as "Useful work during MPI"?
+3. **What was hybrid_UM_BO designed to show?** Its name suggests unbalanced MPI.
+4. **MPI+GPU.** Is there a useful equivalent of the Load Balance split?

@@ -1241,42 +1241,38 @@ Load Balance by the distribution of useful time
 
 The MPI metrics blame MPI first: MPI Load Balance compares the time outside MPI,
 which also includes serial waits, runtime overhead, and I/O, and the inner
-contribution is the ratio that remains. For CPU-based hybrid executions,
-BasicAnalysis also splits Hybrid Load Balance using only useful time. Let
-:math:`\overline{U_i}` be the mean useful time of the threads of process
-:math:`i`, considering the threads with useful time:
+contribution is the ratio that remains. For CPU-based hybrid executions, Load Balance
+has two children that use only useful time. Let :math:`\overline{U_i}` be the mean
+useful time of the threads of process :math:`i`, considering the threads with useful
+time:
 
 .. math::
 
-   Process\_LB = \frac{\overline{U}}{\max_i \overline{U_i}}
+   LB_{between} = \frac{\overline{U}}{\max_i \overline{U_i}}
    \qquad
-   Thread\_LB = \frac{\max_i \overline{U_i}}{\max_{i,j} U_{i,j}}
+   LB_{inside} = \frac{\max_i \overline{U_i}}{\max_{i,j} U_{i,j}}
 
-Neither can exceed 100%, and their product is Hybrid Load Balance. With MPI
-Communication Efficiency and Inner Communication Efficiency, they give two levels
-whose product is Hybrid Parallel Efficiency:
+Neither can exceed 100%, and their product is Hybrid Load Balance:
 
 .. math::
 
-   Outer\_Par\_Eff = Process\_LB \cdot MPI\_Comm\_Eff
+   Hybrid\_LB\_Eff = LB_{between} \cdot LB_{inside}
+
+This is a second split of the same metric, and it does not replace the first. It
+does not pair with the MPI and inner Load Balance: *between processes* is not a
+corrected MPI Load Balance. All the multiplications of the model are unchanged, and
+with the Communication Efficiencies:
 
 .. math::
 
-   Inner\_Par\_Eff_{work} = Thread\_LB \cdot Inner\_Comm\_Eff
+   Hybrid\_Par\_Eff = LB_{between} \cdot LB_{inside} \cdot
+   MPI\_Comm\_Eff \cdot Inner\_Comm\_Eff
 
-.. math::
-
-   Hybrid\_Par\_Eff = Outer\_Par\_Eff \cdot Inner\_Par\_Eff_{work}
-
-Process Load Balance measures work, not waiting. A process that runs more code
-serially has a lower mean useful time per thread, which lowers Process Load Balance
-although its solution may be in the inner runtime. Time in which a thread appears
-as running but makes no progress, for example when it is preempted, counts as
-useful. These metrics are not computed for MPI+GPU, whose units are Host threads
-and devices.
-
-The MPI and inner metrics of the multiplicative model do not change, and are in
-*All the metrics of the model*.
+*Between processes* measures work, not waiting. A process that runs more code
+serially has a lower mean useful time per thread, which lowers it although the
+solution may be in the inner runtime. Time in which a thread appears as running but
+makes no progress, for example when it is preempted, counts as useful. These metrics
+are not computed for MPI+GPU, whose units are Host threads and devices.
 
 
 .. _useful-work-during-mpi:
@@ -1295,27 +1291,16 @@ useful time.
 
    UsefulDuringMPI = \frac{Useful}{Useful - Useful_{MPI}}
 
-.. math::
-
-   Inner\_Par\_Eff_{outside\ MPI} =
-   \frac{Inner\_Par\_Eff}{UsefulDuringMPI}
-
-so that the three levels multiply:
-
-.. math::
-
-   Hybrid\_Par\_Eff = MPI\_Par\_Eff \cdot
-   Inner\_Par\_Eff_{outside\ MPI} \cdot UsefulDuringMPI
+It is a child of the inner Parallel Efficiency and shows how much this work
+increases it. Dividing the inner Parallel Efficiency by this value gives the
+efficiency outside MPI, which does not exceed 100% when every process has the same
+number of units. It does **not** multiply with the inner Load Balance and
+Communication Efficiency, whose product is the inner Parallel Efficiency.
 
 Useful Work during MPI is 100% when no useful work runs during MPI, and 200% when
 half of the useful time does. It is not an efficiency: it has no efficiency
 color, because a higher value is neither better nor worse. It tells how far the
 execution is from the hierarchical behavior that the model assumes.
-
-Inner Parallel Efficiency outside MPI does not exceed 100% when every process has
-the same number of units. Inner Load Balance and Inner Communication Efficiency
-keep their definition, so with useful work during MPI their product is Inner
-Parallel Efficiency, not Inner Parallel Efficiency outside MPI.
 
 In MPI+GPU, the units are the Host threads and the physical devices, with the
 streams of each device flattened. A device shared by several processes is compared

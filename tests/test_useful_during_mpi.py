@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from hybridmetrics import hybrid_work_factors
+from hybridmetrics import hybrid_lb_split
 from rawdata import (
     aggregate_gpu_metrics_from_stream_stats,
     parse_first_thread_mpi_intervals,
@@ -101,63 +101,57 @@ class UsefulDuringMpiTests(unittest.TestCase):
             80.0)
 
 
-class HybridLevelsTests(unittest.TestCase):
+class HybridTreeTests(unittest.TestCase):
 
-    @staticmethod
-    def _levels(useful_during_mpi, work_value='Non-Avail'):
+    def test_new_metrics_are_children_of_existing_metrics(self):
+        from interactiveplots import GLOBAL_TREE, HYBRID_TREE
+
+        def children(tree, key):
+            for node in tree:
+                if node['metric'] == key:
+                    return [child['metric'] for child in node['children']]
+                found = children(node['children'], key)
+                if found is not None:
+                    return found
+            return None
+
+        self.assertEqual(children(GLOBAL_TREE, 'load_balance'),
+                         ['lb_between_processes', 'lb_inside_processes'])
+        self.assertEqual(children(HYBRID_TREE, 'hybrid_eff'),
+                         ['mpi_parallel_eff', 'omp_parallel_eff'])
+        self.assertIn('useful_during_mpi',
+                      children(HYBRID_TREE, 'omp_parallel_eff'))
+
+    def test_split_is_only_for_cpu_based_hybrid_executions(self):
+        from hybridmetrics import get_application_factor_keys
+
+        for mode, expected in (('Detailed+MPI+OpenMP', True),
+                               ('Detailed+MPI+CUDA', False),
+                               ('Detailed+MPI', False)):
+            keys = get_application_factor_keys(['t'], {'t': mode})
+            self.assertEqual('lb_between_processes' in keys, expected, mode)
+
+    def test_useful_during_mpi_has_a_neutral_color(self):
         from interactiveplots import (
-            HYBRID_INNER_WORK_ORDER,
-            HYBRID_ORDER,
-            HYBRID_OUTER_WORK_ORDER,
-            _build_hybrid_levels_html,
-            _build_hybrid_metric_info,
+            NEUTRAL_VALUE_COLOR, _build_efficiency_table_html,
+            _build_hybrid_metric_info)
+
+        html = _build_efficiency_table_html(
+            metric_keys=['useful_during_mpi'],
+            metric_info=_build_hybrid_metric_info('CUDA'),
+            metric_sources={'useful_during_mpi': {
+                'useful_during_mpi': {'t': 114.27}}},
+            trace_list=['t'],
+            trace_labels=['4 [T1]'],
+            section_id='test',
+            tree=[],
+            metric_knowledge={},
         )
 
-        factors = {key: {'t': 50.0} for key in HYBRID_ORDER}
-        factors['useful_during_mpi'] = {'t': useful_during_mpi}
-        factors['omp_outside_mpi_eff'] = {'t': 43.01}
-        for key in HYBRID_OUTER_WORK_ORDER + HYBRID_INNER_WORK_ORDER:
-            factors.setdefault(key, {'t': work_value})
-
-        return _build_hybrid_levels_html(
-            _build_hybrid_metric_info('CUDA'),
-            {key: factors for key in (HYBRID_ORDER
-                                      + HYBRID_OUTER_WORK_ORDER
-                                      + HYBRID_INNER_WORK_ORDER)},
-            ['t'],
-            ['4 [T1]'],
-            '',
-            'CUDA',
-        )
-
-    def test_outer_inner_and_other_tables(self):
-        html = self._levels(114.27)
-
-        self.assertIn('Outer level: MPI', html)
-        self.assertIn('Inner level: CUDA', html)
-        self.assertIn('Other: useful work during MPI', html)
-        self.assertIn('114.27%', html)
-        self.assertIn('43.01%', html)
-        # Neither good nor bad, so no efficiency color.
-        self.assertIn('background:#dbe4ee', html)
-
-    def test_cpu_levels_use_the_distribution_of_useful_time(self):
-        html = self._levels(100.0, work_value=88.0)
-
-        self.assertIn('Outer level: between processes', html)
-        self.assertIn('Inner level: inside the processes', html)
-        self.assertIn('Process Load balance', html)
-        self.assertIn('Thread Load balance', html)
-        self.assertNotIn('Outer level: MPI', html)
-
-    def test_other_is_omitted_without_values(self):
-        html = self._levels('Non-Avail')
-
-        self.assertIn('Inner level: CUDA', html)
-        self.assertNotIn('Other: useful work during MPI', html)
+        self.assertIn('background:' + NEUTRAL_VALUE_COLOR, html)
 
 
-class HybridWorkFactorsTests(unittest.TestCase):
+class HybridLbSplitTests(unittest.TestCase):
 
     def test_timings_mean_useful_per_thread_of_each_process(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -176,32 +170,22 @@ class HybridWorkFactorsTests(unittest.TestCase):
 
         self.assertEqual(result['useful_process_mean_max'], 80.0)
 
-    def test_product_is_hybrid_parallel_efficiency(self):
-        useful_avg, useful_max, runtime = 60.0, 90.0, 100.0
-        outside_max = 95.0
-        factors = hybrid_work_factors(
-            useful_avg, useful_max, 80.0,
-            outside_max / runtime * 100.0,
-            useful_max / outside_max * 100.0,
-        )
+    def test_product_is_hybrid_load_balance(self):
+        split = hybrid_lb_split(60.0, 90.0, 80.0)
 
-        self.assertAlmostEqual(factors['process_load_balance'], 75.0)
-        self.assertAlmostEqual(factors['thread_load_balance'], 80.0 / 90.0 * 100)
+        self.assertAlmostEqual(split['lb_between_processes'], 75.0)
+        self.assertAlmostEqual(split['lb_inside_processes'], 80.0 / 90.0 * 100)
         self.assertAlmostEqual(
-            factors['outer_parallel_eff'] * factors['inner_parallel_eff'] / 100.0,
-            useful_avg / runtime * 100.0)
-        self.assertAlmostEqual(
-            factors['process_load_balance'] * factors['thread_load_balance'] / 100.0,
-            useful_avg / useful_max * 100.0)
+            split['lb_between_processes'] * split['lb_inside_processes'] / 100.0,
+            60.0 / 90.0 * 100.0)
 
-    def test_compensation_example_stays_bounded(self):
+    def test_equal_useful_time_is_balanced(self):
         # Process 1 is outside MPI for 100 and process 2 for 50, with the same
         # useful time: MPI LB is 75% and the ratio to Hybrid LB is 133%.
-        factors = hybrid_work_factors(50.0, 50.0, 50.0, 100.0, 50.0)
+        split = hybrid_lb_split(50.0, 50.0, 50.0)
 
-        self.assertEqual(factors['process_load_balance'], 100.0)
-        self.assertEqual(factors['thread_load_balance'], 100.0)
-        self.assertEqual(factors['inner_parallel_eff'], 50.0)
+        self.assertEqual(split['lb_between_processes'], 100.0)
+        self.assertEqual(split['lb_inside_processes'], 100.0)
 
 
 if __name__ == '__main__':

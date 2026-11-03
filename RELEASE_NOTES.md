@@ -4,27 +4,20 @@
 
 ### New Features
 
-- **Levels of the hybrid Parallel Runtime Model.** For MPI+X traces, the view now
-  shows Application Efficiency, **Outer level** (MPI), **Inner level** (OpenMP,
-  CUDA, or HIP), and **Other**, each in its own table; all the metrics stay
-  together under *All the metrics of the model*. New metrics in the report, the
-  standard output of the classic model, `modelfactors.csv`, and the efficiency
-  tables: **Useful Work during MPI**, the useful work while the first thread of
-  the process is in an MPI call, and **Inner Parallel Efficiency outside MPI**, so
-  that Hybrid Parallel Efficiency = MPI x Inner outside MPI x Useful Work during
-  MPI. Useful Work during MPI has a neutral color because it is neither good nor
-  bad. `rawdata.csv` has a new row with the useful time during MPI. The existing
-  metrics do not change. The analysis of MPI+X traces runs one more Paraver
-  configuration, and MPI+OpenMP traces one more timeline of useful time.
-- **Load Balance by the distribution of useful time (CPU-based hybrid
-  executions).** New **Process Load Balance**, between the processes, and **Thread
-  Load Balance**, inside them, which cannot exceed 100%, with **Outer** and **Inner
-  Parallel Efficiency**, whose product is Hybrid Parallel Efficiency. The Outer and
-  Inner tables of the Parallel Runtime Model use them, because blaming MPI first
-  can point away from the real problem. The MPI and inner metrics do not change and
-  stay under *All the metrics of the model*. New rows in `modelfactors.csv`,
-  `rawdata.csv`, the efficiency table, and the standard output of the classic model.
-  Not computed for MPI+GPU.
+- **New child metrics in the hybrid model.** The metrics of the model keep their
+  names, values, and multiplications.
+  - **Load Balance between and inside processes** (CPU-based hybrid executions):
+    children of Load Balance, by the distribution of useful time. They cannot exceed
+    100%, and their product is Load Balance. They are another split of Load Balance
+    and do not pair with the MPI and inner Load Balance. Not computed for MPI+GPU.
+  - **Useful work during MPI** (MPI+X): child of the OpenMP, CUDA, or HIP Parallel
+    Efficiency, for the useful work while the first thread of the process is in an
+    MPI call. It has a neutral color, and it does not multiply with the Load Balance
+    and Communication Efficiency of the runtime.
+  - In the report, the standard output of the classic model, `modelfactors.csv`, and
+    the efficiency tables. `rawdata.csv` has two new rows. The analysis of MPI+X
+    traces runs one more Paraver configuration, and MPI+OpenMP traces one more
+    timeline of useful time.
 - The explanation of values above 100% in OpenMP, CUDA, or HIP Parallel
   Efficiency and Load Balance is corrected: they do not by themselves mean that
   the runtime compensates the MPI imbalance.

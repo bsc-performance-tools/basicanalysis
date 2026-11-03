@@ -128,17 +128,12 @@ Parallel Efficiency from changes in Computation Scalability.
 For hybrid applications, the Parallel Runtime Model additionally decomposes
 Parallel Efficiency across the active parallel runtimes.
 
-Below Application Efficiency, the view shows one table per level: the **Outer
-level** (MPI), the **Inner level** (OpenMP, CUDA, or HIP), and **Other**, which
-is the useful work during the MPI calls of the first thread of each process. Their
-Parallel Efficiencies multiply to Hybrid Parallel Efficiency; see
-:ref:`Useful Work during MPI <useful-work-during-mpi>`. For CPU-based hybrid
-executions, the Outer and Inner levels split Load Balance by the distribution of
-useful time, between and inside the processes, and their product is Hybrid
-Parallel Efficiency; see :ref:`Load Balance by the distribution of useful time
-<load-balance-useful-time>`. All the metrics of the model, including the MPI and
-inner metrics that blame MPI first, are available together under *All the metrics
-of the model*.
+The metrics of the model keep their names and multiplications. Two kinds of child
+metric add detail. For CPU-based hybrid executions, Load Balance shows how useful
+work is distributed **between processes** and **inside processes**; see
+:ref:`Load Balance by the distribution of useful time <load-balance-useful-time>`.
+The inner Parallel Efficiency shows **useful work during MPI**, in a neutral color;
+see :ref:`Useful Work during MPI <useful-work-during-mpi>`.
 
 The model can therefore be read in two complementary ways:
 

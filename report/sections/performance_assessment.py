@@ -48,6 +48,18 @@ _GLOBAL_METRICS = (
         2,
     ),
     (
+        "lb_between_processes",
+        "between processes",
+        "global",
+        3,
+    ),
+    (
+        "lb_inside_processes",
+        "inside processes",
+        "global",
+        3,
+    ),
+    (
         "comm_eff",
         "Communication efficiency",
         "global",
@@ -387,6 +399,14 @@ class PerformanceAssessmentBuilder:
                 children=(
                     MetricAnalysisTreeNode(
                         metric_id="load_balance",
+                        children=(
+                            MetricAnalysisTreeNode(
+                                metric_id="lb_between_processes",
+                            ),
+                            MetricAnalysisTreeNode(
+                                metric_id="lb_inside_processes",
+                            ),
+                        ),
                     ),
                     MetricAnalysisTreeNode(
                         metric_id="comm_eff",

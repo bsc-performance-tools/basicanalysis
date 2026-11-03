@@ -371,14 +371,9 @@ Two effects can produce a value above 100%:
 
 * **Useful work during MPI.** ``OutsideMPI`` is measured on the first thread of
   each process, so GPU kernels or other threads running during its MPI calls
-  increase the inner contribution. BasicAnalysis isolates this effect in
-  **Useful Work during MPI**, and reports the inner Parallel Efficiency without
-  it as **Inner Parallel Efficiency outside MPI**, so that:
-
-  .. math::
-
-     Hybrid\_Par\_Eff = MPI\_Par\_Eff \cdot
-     Inner\_Par\_Eff_{outside\ MPI} \cdot UsefulDuringMPI
+  increase the inner contribution. **Useful work during MPI**, a child of the inner
+  Parallel Efficiency, shows by how much. It does not multiply with the inner Load
+  Balance and Communication Efficiency.
 
 * **Compensation between Load Balance and Communication Efficiency.** The
   model blames MPI first: a delay inside a process counts as MPI imbalance, even
@@ -388,12 +383,11 @@ Two effects can produce a value above 100%:
   improves load balance: the same loss usually appears in the inner Communication
   Efficiency, so the two must be read together.
 
-For CPU-based hybrid executions, BasicAnalysis also reports Load Balance split by
-the **distribution of useful time**, which does not blame MPI first: **Process
-Load Balance** between the processes and **Thread Load Balance** inside them. They
-cannot exceed 100%, and they give an **Outer** and an **Inner Parallel Efficiency**
-whose product is Hybrid Parallel Efficiency; see :ref:`Load Balance by the
-distribution of useful time <load-balance-useful-time>`.
+For CPU-based hybrid executions, Load Balance has two children that split it by the
+distribution of useful time, **between processes** and **inside processes**. They
+cannot exceed 100%, and they show where the work is unevenly distributed, whichever
+runtime the model blames; see :ref:`Load Balance by the distribution of useful time
+<load-balance-useful-time>`. All the multiplications of the model are unchanged.
 
 
 
