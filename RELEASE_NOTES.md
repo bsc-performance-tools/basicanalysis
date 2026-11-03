@@ -16,6 +16,15 @@
   bad. `rawdata.csv` has a new row with the useful time during MPI. The existing
   metrics do not change. The analysis of MPI+X traces runs one more Paraver
   configuration, and MPI+OpenMP traces one more timeline of useful time.
+- **Load Balance by the distribution of useful time (CPU-based hybrid
+  executions).** New **Process Load Balance**, between the processes, and **Thread
+  Load Balance**, inside them, which cannot exceed 100%, with **Outer** and **Inner
+  Parallel Efficiency**, whose product is Hybrid Parallel Efficiency. The Outer and
+  Inner tables of the Parallel Runtime Model use them, because blaming MPI first
+  can point away from the real problem. The MPI and inner metrics do not change and
+  stay under *All the metrics of the model*. New rows in `modelfactors.csv`,
+  `rawdata.csv`, the efficiency table, and the standard output of the classic model.
+  Not computed for MPI+GPU.
 - The explanation of values above 100% in OpenMP, CUDA, or HIP Parallel
   Efficiency and Load Balance is corrected: they do not by themselves mean that
   the runtime compensates the MPI imbalance.

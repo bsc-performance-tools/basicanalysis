@@ -132,8 +132,13 @@ Below Application Efficiency, the view shows one table per level: the **Outer
 level** (MPI), the **Inner level** (OpenMP, CUDA, or HIP), and **Other**, which
 is the useful work during the MPI calls of the first thread of each process. Their
 Parallel Efficiencies multiply to Hybrid Parallel Efficiency; see
-:ref:`Useful Work during MPI <useful-work-during-mpi>`. All the metrics of the
-model are also available together under *All the metrics of the model*.
+:ref:`Useful Work during MPI <useful-work-during-mpi>`. For CPU-based hybrid
+executions, the Outer and Inner levels split Load Balance by the distribution of
+useful time, between and inside the processes, and their product is Hybrid
+Parallel Efficiency; see :ref:`Load Balance by the distribution of useful time
+<load-balance-useful-time>`. All the metrics of the model, including the MPI and
+inner metrics that blame MPI first, are available together under *All the metrics
+of the model*.
 
 The model can therefore be read in two complementary ways:
 

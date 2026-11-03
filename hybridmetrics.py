@@ -111,7 +111,14 @@ mod_hybrid_factors_doc = OrderedDict([
                                ('omp_load_balance', '      -- OpenMP Load balance'),
                                ('omp_comm_eff', '      -- OpenMP Communication efficiency'),
                                ('omp_outside_mpi_eff', '      -- OpenMP Parallel efficiency outside MPI'),
-                               ('useful_during_mpi', '      -- Useful work during MPI')])
+                               ('useful_during_mpi', '      -- Useful work during MPI'),
+                               ('outer_parallel_eff', '   -- Outer Parallel efficiency'),
+                               ('process_load_balance', '      -- Process Load balance'),
+                               ('inner_parallel_eff', '   -- Inner Parallel efficiency'),
+                               ('thread_load_balance', '      -- Thread Load balance')])
+
+HYBRID_WORK_FACTORS = ('outer_parallel_eff', 'process_load_balance',
+                       'inner_parallel_eff', 'thread_load_balance')
 
 mod_hyb_comm_omp_factors_doc = OrderedDict([
                                ('omp_serial_eff', '         -- OpenMP Serialization efficiency'),
@@ -323,6 +330,35 @@ def mpi_gpu_useful_per_device(raw_data, trace):
         return None
 
     return useful_total / units, useful_max
+
+
+def is_unused_work_factor(mod_key, hybrid_factors, trace_list):
+    """True for the rows of hybrid_work_factors without values: they do not
+    apply to MPI+GPU, so the tables omit them."""
+    return mod_key in HYBRID_WORK_FACTORS and not any(
+        isinstance(hybrid_factors[mod_key][trace], (int, float))
+        for trace in trace_list
+    )
+
+
+def hybrid_work_factors(useful_avg, useful_max, process_mean_max,
+                        mpi_comm_eff, inner_comm_eff):
+    """Factors of Hybrid Parallel Efficiency that split Load Balance by the
+    distribution of useful time, instead of blaming MPI first.
+
+    process_mean_max is the mean useful time of the threads of each process,
+    the maximum over the processes. Process and Thread Load Balance cannot
+    exceed 100%, and Hybrid Parallel Efficiency is Outer x Inner.
+    """
+    process_lb = useful_avg / process_mean_max * 100.0
+    thread_lb = process_mean_max / useful_max * 100.0
+
+    return {
+        'process_load_balance': process_lb,
+        'thread_load_balance': thread_lb,
+        'outer_parallel_eff': process_lb * mpi_comm_eff / 100.0,
+        'inner_parallel_eff': thread_lb * inner_comm_eff / 100.0,
+    }
 
 
 def get_application_factor_keys(trace_list, trace_mode):
@@ -1566,6 +1602,29 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             hybrid_factors['useful_during_mpi'][trace] = 'NaN'
             hybrid_factors['omp_outside_mpi_eff'][trace] = 'NaN'
 
+        # -------> Load Balance by the distribution of useful time (CPU-based
+        # hybrid executions). MPI+GPU units are not threads of a process.
+        try:
+            work_factors = dict.fromkeys(HYBRID_WORK_FACTORS, 'Non-Avail')
+
+            if not outmpi_measures:
+                pass
+            elif not trace_mode[trace].startswith("Detailed+MPI+"):
+                work_factors = dict.fromkeys(HYBRID_WORK_FACTORS, 'N/A')
+            elif not is_mpi_gpu:
+                work_factors = hybrid_work_factors(
+                    float(raw_data['useful_avg'][trace]),
+                    float(raw_data['useful_max'][trace]),
+                    float(raw_data['useful_process_mean_max'][trace]),
+                    float(hybrid_factors['mpi_comm_eff'][trace]),
+                    float(hybrid_factors['omp_comm_eff'][trace]),
+                )
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            work_factors = dict.fromkeys(HYBRID_WORK_FACTORS, 'NaN')
+
+        for key, value in work_factors.items():
+            hybrid_factors[key][trace] = value
+
 
         # -------> Isolated OpenMP metrics, TALP-style timing model
         try:
@@ -2348,6 +2407,9 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         print(''.ljust(len(line_procs_factors), '-'))
 
     for mod_key in mod_hybrid_factors_doc:
+        if is_unused_work_factor(mod_key, hybrid_factors, trace_list):
+            continue
+
         line = mod_hybrid_factors_doc[mod_key].ljust(longest_name)
         for trace in trace_list:
             line += ' | '
@@ -3071,6 +3133,9 @@ def print_efficiency_table(mod_factors, hybrid_factors, hyb_comm_omp_factors,
         output.write(line + '\n')
 
         for mod_key in mod_hybrid_factors_doc:
+            if is_unused_work_factor(mod_key, hybrid_factors, trace_list):
+                continue
+
 
         # Preserve the complete hierarchy encoded in the
         # metric description. Do not strip leading spaces.

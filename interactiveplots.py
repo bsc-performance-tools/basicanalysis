@@ -265,6 +265,22 @@ def _build_hybrid_base_metric_info(inner_model):
             "label": "      -- Useful work during MPI",
             "short_label": "Useful during MPI",
         },
+        "outer_parallel_eff": {
+            "label": "Outer Parallel efficiency",
+            "short_label": "Outer PE",
+        },
+        "process_load_balance": {
+            "label": "  -- Process Load balance",
+            "short_label": "Process LB",
+        },
+        "inner_parallel_eff": {
+            "label": "Inner Parallel efficiency",
+            "short_label": "Inner PE",
+        },
+        "thread_load_balance": {
+            "label": "  -- Thread Load balance",
+            "short_label": "Thread LB",
+        },
         "omp_serial_eff": {
             "label": "         -- {} Serialization efficiency".format(inner_model),
             "short_label": "{} Ser".format(inner_model),
@@ -499,6 +515,21 @@ HYBRID_INNER_ORDER = [
 
 HYBRID_OTHER_ORDER = ["useful_during_mpi"]
 
+# Levels by the distribution of useful time (CPU-based hybrid executions).
+HYBRID_OUTER_WORK_ORDER = [
+    "outer_parallel_eff",
+    "process_load_balance",
+    "mpi_comm_eff",
+    "serial_eff",
+    "transfer_eff",
+]
+
+HYBRID_INNER_WORK_ORDER = [
+    "inner_parallel_eff",
+    "thread_load_balance",
+    "omp_comm_eff",
+]
+
 NEUTRAL_VALUE_METRICS = {"useful_during_mpi"}
 NEUTRAL_VALUE_COLOR = "#dbe4ee"
 NEUTRAL_VALUE_TEXT_COLOR = "#1f2f40"
@@ -641,6 +672,23 @@ HYBRID_INNER_TREE = [
 ]
 
 HYBRID_OTHER_TREE = [_tree_node("useful_during_mpi")]
+
+HYBRID_OUTER_WORK_TREE = [
+    _tree_node("outer_parallel_eff", [
+        _tree_node("process_load_balance"),
+        _tree_node("mpi_comm_eff", [
+            _tree_node("serial_eff"),
+            _tree_node("transfer_eff"),
+        ]),
+    ])
+]
+
+HYBRID_INNER_WORK_TREE = [
+    _tree_node("inner_parallel_eff", [
+        _tree_node("thread_load_balance"),
+        _tree_node("omp_comm_eff"),
+    ])
+]
 
 TALP_TREE = [
     _tree_node("host_global_eff", [
@@ -4780,6 +4828,10 @@ def _build_metric_tree_heatmap_section(
         tree = HYBRID_INNER_TREE
     elif tree_kind == "hybrid_other":
         tree = HYBRID_OTHER_TREE
+    elif tree_kind == "hybrid_outer_work":
+        tree = HYBRID_OUTER_WORK_TREE
+    elif tree_kind == "hybrid_inner_work":
+        tree = HYBRID_INNER_WORK_TREE
     elif tree_kind == "talp":
         tree = TALP_TREE
     elif tree_kind == "host":
@@ -4894,6 +4946,12 @@ def _metric_family(metric_key, label=""):
 
     if key == "dev_offload_eff":
         return "host"
+
+    if key in ("outer_parallel_eff", "process_load_balance"):
+        return "mpi"
+
+    if key in ("inner_parallel_eff", "thread_load_balance"):
+        return "openmp"
 
     if "mpi " in label_lower or key.startswith("mpi_"):
         return "mpi"
@@ -6638,23 +6696,51 @@ def _build_hybrid_levels_html(metric_info, metric_sources, trace_list,
                               trace_labels, trace_column_description,
                               inner_model):
     """Outer level, inner level, and useful work during MPI, each in its own
-    table. The product of the three Parallel Efficiencies is Hybrid Parallel
-    Efficiency, shown in Application Efficiency."""
-    levels = (
-        (HYBRID_OUTER_ORDER, "hybrid_outer", "hybrid-outer",
-         "Outer level: MPI",
-         "Time that the first thread of each process spends outside MPI."),
-        (HYBRID_INNER_ORDER, "hybrid_inner", "hybrid-inner",
-         "Inner level: {}".format(inner_model),
-         "What the units do during the time outside MPI. {0} Load balance and "
-         "{0} Communication efficiency also include the work during MPI."
-         .format(inner_model)),
-        (HYBRID_OTHER_ORDER, "hybrid_other", "hybrid-other",
-         "Other: useful work during MPI",
-         "Useful work while the first thread of the process is in an MPI "
-         "call, not computation inside the MPI library. 100% means none. It "
-         "has no efficiency color because it is neither good nor bad."),
+    table. In CPU-based executions, Hybrid Parallel Efficiency is Outer x Inner,
+    with Load Balance split by the distribution of useful time. In MPI+GPU it is
+    MPI x Inner outside MPI x Useful work during MPI."""
+    work_based = any(
+        isinstance(
+            metric_sources["process_load_balance"]
+            ["process_load_balance"].get(trace),
+            (int, float),
+        )
+        for trace in trace_list
     )
+    other = (
+        HYBRID_OTHER_ORDER, "hybrid_other", "hybrid-other",
+        "Other: useful work during MPI",
+        "Useful work while the first thread of the process is in an MPI "
+        "call, not computation inside the MPI library. 100% means none. It "
+        "has no efficiency color because it is neither good nor bad.",
+    )
+
+    if work_based:
+        levels = (
+            (HYBRID_OUTER_WORK_ORDER, "hybrid_outer_work", "hybrid-outer",
+             "Outer level: between processes",
+             "How evenly useful work is distributed between the processes, and "
+             "the time that their first thread spends in MPI."),
+            (HYBRID_INNER_WORK_ORDER, "hybrid_inner_work", "hybrid-inner",
+             "Inner level: inside the processes",
+             "How evenly useful work is distributed between the threads of a "
+             "process, and what they do during the time outside MPI. Outer x "
+             "Inner is Hybrid Parallel efficiency."),
+            other,
+        )
+    else:
+        levels = (
+            (HYBRID_OUTER_ORDER, "hybrid_outer", "hybrid-outer",
+             "Outer level: MPI",
+             "Time that the first thread of each process spends outside MPI."),
+            (HYBRID_INNER_ORDER, "hybrid_inner", "hybrid-inner",
+             "Inner level: {}".format(inner_model),
+             "What the units do during the time outside MPI. {0} Load balance "
+             "and {0} Communication efficiency also include the work during "
+             "MPI.".format(inner_model)),
+            other,
+        )
+
     sections = []
 
     for keys, tree_kind, section_id, title, description in levels:
@@ -6698,6 +6784,24 @@ def _build_parallel_runtime_model_guidance_html(
     """Explain how to interpret the Parallel Runtime Model."""
 
     if model["runtime_model_hybrid"]:
+        if inner_model in ("CUDA", "HIP"):
+            levels_note = (
+                "The levels multiply: Hybrid Parallel Efficiency is "
+                "<strong>MPI</strong> (outer level) &times; <strong>{} outside "
+                "MPI</strong> (inner level) &times; <strong>Useful work during "
+                "MPI</strong> (other).".format(html.escape(inner_model))
+            )
+        else:
+            levels_note = (
+                "The levels multiply: Hybrid Parallel Efficiency is "
+                "<strong>Outer</strong> &times; <strong>Inner</strong>. They "
+                "split Load Balance by the distribution of useful time, between "
+                "and inside the processes. The MPI and {} metrics of the "
+                "multiplicative model, which blame MPI first, are in "
+                "<strong>All the metrics of the model</strong>."
+                .format(html.escape(inner_model))
+            )
+
         model_note = """
         <p>
             For hybrid executions, the model is multiplicative.
@@ -6708,10 +6812,7 @@ def _build_parallel_runtime_model_guidance_html(
         </p>
 
         <p>
-            The levels multiply: Hybrid Parallel Efficiency is
-            <strong>MPI</strong> (outer level) &times;
-            <strong>{inner_model} outside MPI</strong> (inner level) &times;
-            <strong>Useful work during MPI</strong> (other).
+            {levels_note}
         </p>
 
         <p>
@@ -6734,7 +6835,8 @@ def _build_parallel_runtime_model_guidance_html(
             across the active runtimes.
         </p>
         """.format(
-            inner_model=html.escape(inner_model)
+            inner_model=html.escape(inner_model),
+            levels_note=levels_note,
         )
     else:
         model_note = """
@@ -12353,6 +12455,8 @@ def build_basicanalysis_interactive_report_html(metrics_result,
         hybrid_sources = {}
         for key in HYBRID_ORDER:
             hybrid_sources[key] = hybrid_factors
+        for key in HYBRID_OUTER_WORK_ORDER + HYBRID_INNER_WORK_ORDER:
+            hybrid_sources[key] = hybrid_factors
         for key in OMP_COMM_ORDER:
             hybrid_sources[key] = hyb_comm_omp_factors
         hybrid_html = _build_metric_tree_heatmap_section(
@@ -13883,6 +13987,8 @@ def _build_basicanalysis_printable_report_html(
             key: hybrid_factors
             for key in HYBRID_ORDER
         }
+        for key in HYBRID_OUTER_WORK_ORDER + HYBRID_INNER_WORK_ORDER:
+            hybrid_sources[key] = hybrid_factors
         for key in OMP_COMM_ORDER:
             hybrid_sources[key] = hyb_comm_omp_factors
 

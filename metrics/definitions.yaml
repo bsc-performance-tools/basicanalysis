@@ -591,6 +591,113 @@ metrics:
     children: []
     sources:
     - basicanalysis_hybrid_openmp_decomposition
+  outer_parallel_eff:
+    name: Outer Parallel Efficiency
+    short_name: Outer PE
+    family: mpi
+    analysis_level: composed_runtime
+    metric_type: compound_efficiency
+    definition: Outer level of Hybrid Parallel Efficiency, using the distribution of
+      useful time between the processes instead of the time outside MPI.
+    formula:
+      text: OuterPE = ProcessLB × MPI_CommE
+      latex: OuterPE = ProcessLB \\times MPI\\_CommE
+    interpretation:
+      low: Low values indicate that work is unevenly distributed between the processes
+        or that the first thread of the processes spends time in MPI.
+      high: High values indicate that the distribution of work between processes and
+        the MPI calls cause little loss.
+      above_100: Values above 100% are not expected and should be checked.
+    typical_causes:
+    - Uneven work distribution between processes
+    - MPI communication and waiting
+    next_steps:
+    - Compare Process Load Balance with MPI Communication Efficiency.
+    children: []
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
+  process_load_balance:
+    name: Process Load Balance
+    short_name: Process LB
+    family: mpi
+    analysis_level: composed_runtime
+    metric_type: efficiency
+    definition: How evenly useful time is distributed between the processes, using the
+      mean useful time of the threads of each process. Unlike MPI Load Balance, it does
+      not include serial waits, runtime overhead, or I/O outside MPI.
+    formula:
+      text: ProcessLB = average useful / maximum over the processes of their mean useful per thread
+      latex: ProcessLB = \\frac{\\overline{U}}{\\max_i \\overline{U_i}}
+    interpretation:
+      low: Low values indicate that some processes do more useful work per thread than
+        others. A process running serially also has a lower mean.
+      high: High values indicate that the processes do similar useful work per thread.
+      above_100: Values above 100% are not expected and should be checked.
+    typical_causes:
+    - Uneven domain decomposition or work distribution between processes
+    - Processes that run more code serially than others
+    next_steps:
+    - Compare the useful time per process in the trace.
+    children: []
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
+  inner_parallel_eff:
+    name_template: Inner Parallel Efficiency
+    short_name_template: Inner PE
+    family_template: '{runtime_family}'
+    analysis_level: runtime_contribution
+    metric_type: compound_efficiency
+    definition_template: >
+      Inner level of Hybrid Parallel Efficiency, using the distribution of useful time
+      inside the processes instead of the ratio to MPI Load Balance.
+    formula:
+      text_template: InnerPE = ThreadLB × {runtime}_CommE
+      latex_template: InnerPE = ThreadLB \\times {runtime}\\_CommE
+    interpretation:
+      low_template: >
+        Low values indicate that the threads are not useful during the time outside MPI
+        because of work distribution inside the processes, serial code, or {runtime}
+        overhead.
+      high_template: >
+        High values indicate little loss inside the processes.
+      above_100_template: >
+        Values above 100% indicate useful work during MPI. See Useful Work during MPI.
+    typical_causes_template:
+    - Serial code or uneven work between the threads of a process
+    - '{runtime} synchronization or runtime overhead'
+    next_steps_template:
+    - Compare Thread Load Balance with {runtime} Communication Efficiency.
+    children: []
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
+  thread_load_balance:
+    name_template: Thread Load Balance
+    short_name_template: Thread LB
+    family_template: '{runtime_family}'
+    analysis_level: runtime_contribution
+    metric_type: efficiency
+    definition_template: >
+      How evenly useful time is distributed inside the processes: the mean useful time
+      per thread of the process with the most, relative to the thread with the most.
+    formula:
+      text_template: ThreadLB = maximum over the processes of their mean useful per thread / maximum useful
+      latex_template: ThreadLB = \\frac{{\\max_i \\overline{{U_i}}}}{{\\max_{{i,j}} U_{{i,j}}}}
+    interpretation:
+      low_template: >
+        Low values indicate that some threads do more useful work than others of the
+        same process, for example because of serial code.
+      high_template: >
+        High values indicate that the threads of a process do similar useful work.
+      above_100_template: >
+        Values above 100% are not expected and should be checked.
+    typical_causes_template:
+    - Serial code outside {runtime} parallel regions
+    - Uneven work between threads
+    next_steps_template:
+    - Compare the useful time per thread in the trace.
+    children: []
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
   runtime_load_balance:
     aliases:
     - omp_load_balance

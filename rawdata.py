@@ -75,6 +75,7 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_hybrid_gpu_max', 'Hybrid MPI+GPU useful duration (maximum)'),
                             ('useful_device', 'Useful duration on the device'),
                             ('useful_during_mpi', 'Useful duration during the MPI calls of the first thread (total)'),
+                            ('useful_process_mean_max', 'Useful duration per thread of the process with the most (maximum)'),
                             ('useful_device_max', 'Useful duration on the device (maximum)'),
                             ('useful_memtransf_device', 'Useful+MemoryTransfer on the device'),
                             ('useful_memtransf_device_max', 'Useful+MemoryTransfer on the device (maximum)'),
@@ -453,6 +454,8 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
     Returns a dict with:
       useful_tot, useful_avg, useful_max,
       useful_io_tot (Host rows only: the units that perform File I/O),
+      useful_process_mean_max (mean useful time of the threads of each
+          process, the maximum over the processes),
       useful_not_0_tot, useful_not_0_avg, useful_not_0_max,
       io_state_tot, io_state_avg, io_state_max,
       useful_plus_io_avg, useful_plus_io_max
@@ -463,6 +466,7 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
         'useful_avg': 'NaN',
         'useful_max': 'NaN',
         'useful_io_tot': 'NaN',
+        'useful_process_mean_max': 'NaN',
         'useful_not_0_tot': 'NaN',
         'useful_not_0_avg': 'NaN',
         'useful_not_0_max': 'NaN',
@@ -477,6 +481,7 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
     useful_plus_io = []
     # Host rows (THREAD app.task.thread); GPU stream rows do no File I/O.
     useful_host_values = []
+    useful_by_process = defaultdict(list)
 
     io_index = None
     data_row_index = 0
@@ -536,6 +541,11 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
                 if key.startswith('THREAD'):
                     useful_host_values.append(useful_value)
 
+                    if useful_value > 0.0:
+                        useful_by_process[
+                            mpi_rank_from_thread_object(key)
+                        ].append(useful_value)
+
                 # useful_not_0_* based on instructions mask
                 if instructions_mask is not None and data_row_index < len(instructions_mask):
                     if instructions_mask[data_row_index] == 1:
@@ -553,6 +563,11 @@ def parse_timings_stats(path, instructions_mask=None, posixio_totals=None, has_p
     # Final reductions
     if useful_host_values:
         result['useful_io_tot'] = float(sum(useful_host_values))
+
+    if useful_by_process:
+        result['useful_process_mean_max'] = max(
+            sum(values) / len(values) for values in useful_by_process.values()
+        )
 
     if useful_not_0_values:
         result['useful_not_0_tot'] = float(sum(useful_not_0_values))
@@ -3642,6 +3657,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_raw_data['useful_avg'] = timings_data['useful_avg']
         trace_raw_data['useful_max'] = timings_data['useful_max']
         trace_raw_data['useful_io_tot'] = timings_data['useful_io_tot']
+        trace_raw_data['useful_process_mean_max'] = timings_data['useful_process_mean_max']
         trace_raw_data['useful_not_0_tot'] = timings_data['useful_not_0_tot']
         trace_raw_data['useful_not_0_avg'] = timings_data['useful_not_0_avg']
         trace_raw_data['useful_not_0_max'] = timings_data['useful_not_0_max']
@@ -3655,6 +3671,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_raw_data['useful_avg'] = 'NaN'
         trace_raw_data['useful_max'] = 'NaN'
         trace_raw_data['useful_io_tot'] = 'NaN'
+        trace_raw_data['useful_process_mean_max'] = 'NaN'
         trace_raw_data['useful_not_0_tot'] = 'NaN'
         trace_raw_data['useful_not_0_avg'] = 'NaN'
         trace_raw_data['useful_not_0_max'] = 'NaN'

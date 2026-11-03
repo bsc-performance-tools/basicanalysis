@@ -2,9 +2,11 @@ import os
 import tempfile
 import unittest
 
+from hybridmetrics import hybrid_work_factors
 from rawdata import (
     aggregate_gpu_metrics_from_stream_stats,
     parse_first_thread_mpi_intervals,
+    parse_timings_stats,
     useful_during_mpi_time,
 )
 
@@ -102,9 +104,11 @@ class UsefulDuringMpiTests(unittest.TestCase):
 class HybridLevelsTests(unittest.TestCase):
 
     @staticmethod
-    def _levels(useful_during_mpi):
+    def _levels(useful_during_mpi, work_value='Non-Avail'):
         from interactiveplots import (
+            HYBRID_INNER_WORK_ORDER,
             HYBRID_ORDER,
+            HYBRID_OUTER_WORK_ORDER,
             _build_hybrid_levels_html,
             _build_hybrid_metric_info,
         )
@@ -112,10 +116,14 @@ class HybridLevelsTests(unittest.TestCase):
         factors = {key: {'t': 50.0} for key in HYBRID_ORDER}
         factors['useful_during_mpi'] = {'t': useful_during_mpi}
         factors['omp_outside_mpi_eff'] = {'t': 43.01}
+        for key in HYBRID_OUTER_WORK_ORDER + HYBRID_INNER_WORK_ORDER:
+            factors.setdefault(key, {'t': work_value})
 
         return _build_hybrid_levels_html(
             _build_hybrid_metric_info('CUDA'),
-            {key: factors for key in HYBRID_ORDER},
+            {key: factors for key in (HYBRID_ORDER
+                                      + HYBRID_OUTER_WORK_ORDER
+                                      + HYBRID_INNER_WORK_ORDER)},
             ['t'],
             ['4 [T1]'],
             '',
@@ -133,11 +141,67 @@ class HybridLevelsTests(unittest.TestCase):
         # Neither good nor bad, so no efficiency color.
         self.assertIn('background:#dbe4ee', html)
 
+    def test_cpu_levels_use_the_distribution_of_useful_time(self):
+        html = self._levels(100.0, work_value=88.0)
+
+        self.assertIn('Outer level: between processes', html)
+        self.assertIn('Inner level: inside the processes', html)
+        self.assertIn('Process Load balance', html)
+        self.assertIn('Thread Load balance', html)
+        self.assertNotIn('Outer level: MPI', html)
+
     def test_other_is_omitted_without_values(self):
         html = self._levels('Non-Avail')
 
         self.assertIn('Inner level: CUDA', html)
         self.assertNotIn('Other: useful work during MPI', html)
+
+
+class HybridWorkFactorsTests(unittest.TestCase):
+
+    def test_timings_mean_useful_per_thread_of_each_process(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = _write(folder, 'timings.csv', (
+                "\tRunning\n"
+                "THREAD 1.1.1\t100\n"
+                "THREAD 1.1.2\t20\n"
+                "THREAD 1.2.1\t80\n"
+                # Threads without useful time are not units of the model.
+                "THREAD 1.2.2\t0\n"
+                "Total\t200\n"
+                "Average\t66.67\n"
+                "Maximum\t100\n"
+            ))
+            result = parse_timings_stats(path, has_pcf=True)
+
+        self.assertEqual(result['useful_process_mean_max'], 80.0)
+
+    def test_product_is_hybrid_parallel_efficiency(self):
+        useful_avg, useful_max, runtime = 60.0, 90.0, 100.0
+        outside_max = 95.0
+        factors = hybrid_work_factors(
+            useful_avg, useful_max, 80.0,
+            outside_max / runtime * 100.0,
+            useful_max / outside_max * 100.0,
+        )
+
+        self.assertAlmostEqual(factors['process_load_balance'], 75.0)
+        self.assertAlmostEqual(factors['thread_load_balance'], 80.0 / 90.0 * 100)
+        self.assertAlmostEqual(
+            factors['outer_parallel_eff'] * factors['inner_parallel_eff'] / 100.0,
+            useful_avg / runtime * 100.0)
+        self.assertAlmostEqual(
+            factors['process_load_balance'] * factors['thread_load_balance'] / 100.0,
+            useful_avg / useful_max * 100.0)
+
+    def test_compensation_example_stays_bounded(self):
+        # Process 1 is outside MPI for 100 and process 2 for 50, with the same
+        # useful time: MPI LB is 75% and the ratio to Hybrid LB is 133%.
+        factors = hybrid_work_factors(50.0, 50.0, 50.0, 100.0, 50.0)
+
+        self.assertEqual(factors['process_load_balance'], 100.0)
+        self.assertEqual(factors['thread_load_balance'], 100.0)
+        self.assertEqual(factors['inner_parallel_eff'], 50.0)
 
 
 if __name__ == '__main__':

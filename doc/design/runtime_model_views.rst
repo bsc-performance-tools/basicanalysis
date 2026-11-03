@@ -195,6 +195,75 @@ Reading the signals together:
      - Useful work continues during MPI
 
 
+Load Balance by the distribution of useful time
+-----------------------------------------------
+
+Users find it unclear that the model blames MPI first and assigns the rest to the
+inner level. In CPU-based traces Other is 100%, so it does not help. Load Balance is
+the only factor affected, so it is split by useful time (decision of 2026-11-03):
+
+.. math::
+
+   ProcessLB = \frac{\overline{U}}{\max_i \overline{U_i}}
+   \qquad
+   ThreadLB = \frac{\max_i \overline{U_i}}{\max_{i,j} U_{i,j}}
+
+.. math::
+
+   \text{Hybrid PE} = (ProcessLB \cdot MPI\_Comm) \cdot
+   (ThreadLB \cdot Inner\_Comm)
+
+Implemented on this branch, for CPU-based hybrid executions only; not merged into
+``devel`` until tested. The traces of the paper give:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Trace
+     - MPI / Inner
+     - MPI LB / Inner LB
+     - Process LB / Thread LB
+     - Outer / Inner
+   * - serialOMP
+     - 95.97 / 49.04
+     - 98.9 / 52.7
+     - 98.20 / 53.04
+     - 95.31 / 49.38
+   * - unbalancedOMP
+     - 99.43 / 71.19
+     - 99.9 / 81.7
+     - 98.68 / 82.75
+     - 98.23 / 72.07
+   * - unbalancedMPI
+     - 59.90 / 93.26
+     - 61.3 / 96.0
+     - 60.39 / 97.38
+     - 59.03 / 94.63
+   * - unbalancedMPI_serialOMP
+     - 69.12 / 63.19
+     - 70.1 / 69.1
+     - 65.60 / 73.86
+     - 64.68 / 67.53
+   * - hybrid_UM_BO
+     - 98.60 / 37.62
+     - 99.5 / 39.5
+     - 89.17 / 44.11
+     - 88.38 / 41.97
+   * - hybrid_weird (preempted)
+     - 38.17 / 47.27
+     - 45.5 / 93.3
+     - 53.28 / 79.72
+     - 44.65 / 40.40
+   * - BT-MZ A
+     - 68.23 / 69.05
+     - 69.4 / 70.0
+     - 60.53 / 80.16
+     - 59.53 / 79.13
+
+The clear cases point to the same level. BT-MZ A moves to the distribution between
+processes, and hybrid_UM_BO shows an imbalance that MPI LB hides. Preemption is not
+reassigned to the inner level, because a preempted thread appears as running.
+
 Text for values above 100%
 --------------------------
 
@@ -329,5 +398,7 @@ Open questions
 2. **MPI called from other threads.** The definition uses the first thread, like
    the current model. Task-based codes may call MPI from any thread.
 3. **Labels.** How are the views labelled for each runtime?
-4. **Name of the view.** "Other" is general. Should the report use a descriptive
+4. **What was hybrid_UM_BO designed to show?** Its name suggests unbalanced MPI.
+5. **MPI+GPU.** Should it have an equivalent of Process and Thread Load Balance?
+6. **Name of the view.** "Other" is general. Should the report use a descriptive
    label such as "Useful work during MPI"?

@@ -1234,6 +1234,51 @@ application-level metric is greater than the corresponding MPI-level metric,
 resulting in a multiplicative inner-runtime contribution above 100%.
 
 
+.. _load-balance-useful-time:
+
+Load Balance by the distribution of useful time
+-----------------------------------------------
+
+The MPI metrics blame MPI first: MPI Load Balance compares the time outside MPI,
+which also includes serial waits, runtime overhead, and I/O, and the inner
+contribution is the ratio that remains. For CPU-based hybrid executions,
+BasicAnalysis also splits Hybrid Load Balance using only useful time. Let
+:math:`\overline{U_i}` be the mean useful time of the threads of process
+:math:`i`, considering the threads with useful time:
+
+.. math::
+
+   Process\_LB = \frac{\overline{U}}{\max_i \overline{U_i}}
+   \qquad
+   Thread\_LB = \frac{\max_i \overline{U_i}}{\max_{i,j} U_{i,j}}
+
+Neither can exceed 100%, and their product is Hybrid Load Balance. With MPI
+Communication Efficiency and Inner Communication Efficiency, they give two levels
+whose product is Hybrid Parallel Efficiency:
+
+.. math::
+
+   Outer\_Par\_Eff = Process\_LB \cdot MPI\_Comm\_Eff
+
+.. math::
+
+   Inner\_Par\_Eff_{work} = Thread\_LB \cdot Inner\_Comm\_Eff
+
+.. math::
+
+   Hybrid\_Par\_Eff = Outer\_Par\_Eff \cdot Inner\_Par\_Eff_{work}
+
+Process Load Balance measures work, not waiting. A process that runs more code
+serially has a lower mean useful time per thread, which lowers Process Load Balance
+although its solution may be in the inner runtime. Time in which a thread appears
+as running but makes no progress, for example when it is preempted, counts as
+useful. These metrics are not computed for MPI+GPU, whose units are Host threads
+and devices.
+
+The MPI and inner metrics of the multiplicative model do not change, and are in
+*All the metrics of the model*.
+
+
 .. _useful-work-during-mpi:
 
 Useful Work during MPI

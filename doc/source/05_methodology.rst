@@ -388,6 +388,13 @@ Two effects can produce a value above 100%:
   improves load balance: the same loss usually appears in the inner Communication
   Efficiency, so the two must be read together.
 
+For CPU-based hybrid executions, BasicAnalysis also reports Load Balance split by
+the **distribution of useful time**, which does not blame MPI first: **Process
+Load Balance** between the processes and **Thread Load Balance** inside them. They
+cannot exceed 100%, and they give an **Outer** and an **Inner Parallel Efficiency**
+whose product is Hybrid Parallel Efficiency; see :ref:`Load Balance by the
+distribution of useful time <load-balance-useful-time>`.
+
 
 
 Runtime-Specific Analysis
