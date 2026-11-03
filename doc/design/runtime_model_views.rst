@@ -2,7 +2,7 @@ Views of the Hybrid Parallel Runtime Model
 ==========================================
 
 :Status: Design; option A chosen on 2026-11-02, not implemented
-:Date: 2026-11-02
+:Date: 2026-11-02 (updated 2026-11-03)
 :Branch: ``feature/runtime-model-views``
 :Scope: Parallel Runtime Model of the interactive report for MPI+X traces
 
@@ -32,6 +32,11 @@ process :math:`i`, :math:`U_{i,j}` the useful time of thread :math:`j`, and
 
 Inner Load Balance and Inner Communication Efficiency are also ratios of the
 hybrid factor and the MPI factor (equations 11 to 13 of the paper).
+
+In MPI+CUDA and MPI+HIP, the units of the application level are the Host threads
+and the physical devices, with the streams of each device flattened, and the MPI
+metrics are computed over the MPI ranks (User Guide, *MPI+GPU Application-Level
+Metrics*; code fixed in ``devel`` ``ed5d01f``).
 
 What the paper establishes:
 
@@ -159,6 +164,12 @@ Let :math:`U^{M}_{i,j}` be the useful time of thread :math:`j` of process
      - Useful work during MPI
      - Always 100% or more
 
+In MPI+GPU, a unit is a Host thread or a physical device, and
+:math:`U^{M}` of a device is its flattened useful time during the MPI calls of
+the first thread of its process. Other does not depend on the number of units.
+The limit of 100% for Inner PE (outside MPI) assumes the same number of units in
+every process, because the MPI metrics are computed over the ranks.
+
 Other applies to Parallel Efficiency only. The Inner Load Balance and
 Communication ratios keep their current definition, so with overlap their product
 is Inner PE (outside MPI) x Other, not Inner PE (outside MPI). The view must
@@ -204,8 +215,9 @@ Validation so far
 -----------------
 
 A script read the ``.prv`` directly: useful time is state 1, and the MPI intervals
-are the events 50000001 to 50000005 of the first thread of each task. Each useful
-burst was intersected with the MPI intervals of its task.
+are the events 50000001 to 50000005 of the first thread of each task. The streams
+of each device were flattened using the labels of the ``.row`` file, and each
+unit was intersected with the MPI intervals of its task.
 
 .. list-table::
    :header-rows: 1
@@ -225,27 +237,48 @@ burst was intersected with the MPI intervals of its task.
      - 100.00
      - 0.00%
    * - XSHELLS chop1, MPI+CUDA
-     - 16.72
+     - 32.74
      - 66.60
-     - 25.10
-     - 21.95
-     - 114.37
-     - 12.56%
+     - 49.15
+     - 43.01
+     - 114.27
+     - 12.49%
    * - Tsunami-HySEA chop, MPI+CUDA
-     - 22.68
-     - 45.61*
-     - 49.73*
-     - 24.50*
+     - 22.33
+     - 45.61
+     - 48.95
+     - 24.11
      - 203.01
      - 50.74%
+   * - CloverLeaf 4p+4d, MPI+CUDA
+     - 41.21
+     - 91.46
+     - 45.05
+     - 44.99
+     - 100.15
+     - 0.15%
+   * - CloverLeaf 8p+8d, MPI+CUDA
+     - 37.98
+     - 89.01
+     - 42.67
+     - 42.58
+     - 100.22
+     - 0.22%
+   * - CloverLeaf 16p+16d, MPI+CUDA
+     - 32.23
+     - 83.10
+     - 38.78
+     - 38.68
+     - 100.26
+     - 0.26%
 
-\* Approximate: 64 tasks and 126 units, and the script did not apply the
-weighting by :math:`t_i`. The BT-MZ values match BasicAnalysis, including Inner LB
-69.95 and Inner Comm 98.72. Other is exact for these runs because it does not use
-:math:`t_i`.
+Application, Outer, and Inner today match BasicAnalysis for BT-MZ, XSHELLS,
+Tsunami-HySEA, and the CloverLeaf runs with 4 and 8 processes, and the useful
+times match the raw data. In all the traces, the overlap comes from the devices:
+Host threads have no useful time during MPI.
 
-In a scan of 45 hybrid traces, overlap above 1% appeared in only 3, and no
-trace had Inner PE above 100%. The highest Inner LB was 100.12%
+In a scan of 45 hybrid traces, measured per stream before the fix in ``ed5d01f``,
+overlap above 1% appeared in only 3, and no trace had Inner PE above 100%. The highest Inner LB was 100.12%
 (``lmp_mpi_omp-mn4``). So the mechanism is measured, but no real trace has been
 seen where overlap takes Inner PE above 100%.
 
@@ -256,10 +289,10 @@ give 27.30% against 69.06%, which would leave a residual of 253%.
 Implementation
 --------------
 
-1. **Raw data.** Obtain :math:`U^{M}_{i,j}`, preferably with a paramedir
+1. **Raw data.** Obtain :math:`U^{M}`, preferably with a paramedir
    configuration. Otherwise, from a filtered trace, as the I/O requests already
-   do. To be evaluated: the control window is at task level (``Thread i``)
-   and the data at thread level.
+   do. To be evaluated: the control window is at task level (``Thread i``) and
+   the data at thread level, and MPI+GPU needs the flattened intervals.
 2. **Metrics.** Inner PE (outside MPI) and Other in ``hybridmetrics.py``,
    ``definitions.yaml``, the CSV files, and tests. Non-Avail outside MPI+X.
 3. **Report.** The four views in the Runtime Analysis section
@@ -270,21 +303,10 @@ Implementation
 Open questions
 --------------
 
-1. **Mismatch in MPI+GPU with** ``-pop-model classic``. ``hybrid_eff`` uses
-   flattened devices (``hybrid_gpu_factors``), but the printed runtime row does
-   not. XSHELLS prints Hybrid 32.74, MPI 66.60, CUDA 25.10, and
-   66.60 x 25.10 = 16.72. The flattened inner value would be 49.16. The paper
-   accumulates the streams per rank (Section IV.B), so this may be a bug. Not yet
-   checked in the report. Resolve it before implementing, because it decides which
-   useful time the views use.
-2. **Flattened devices and overlap.** The formula above was measured per stream.
-   How should overlap be computed on flattened devices? Flattening can also
-   exceed 100% when GPUs run during MPI, with no stored case found.
-3. **Was the formulation of Section III.B of the paper finished?** If so, read it
+1. **Was the formulation of Section III.B of the paper finished?** If so, read it
    before fixing the definition of Other.
-4. **MPI called from other threads.** The definition uses the first thread, like
+2. **MPI called from other threads.** The definition uses the first thread, like
    the current model. Task-based codes may call MPI from any thread.
-5. **The default model for MPI+GPU** is TALP. Do these views apply only when the
-   runtime model is shown, and how are they labelled for each runtime?
-6. **Name of the view.** "Other" is general. Should the report use a descriptive
+3. **Labels.** How are the views labelled for each runtime?
+4. **Name of the view.** "Other" is general. Should the report use a descriptive
    label such as "Useful work during MPI"?
