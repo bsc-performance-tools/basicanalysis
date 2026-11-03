@@ -9,6 +9,7 @@ import math
 import gzip
 import shutil
 import json
+import bisect
 from utils import which
 from collections import OrderedDict, defaultdict
 from nsys2prvmetrics import process_one_nsys2prv_trace, hwc_raw_data_doc
@@ -73,6 +74,7 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_hybrid_gpu_avg', 'Hybrid MPI+GPU useful duration (average)'),
                             ('useful_hybrid_gpu_max', 'Hybrid MPI+GPU useful duration (maximum)'),
                             ('useful_device', 'Useful duration on the device'),
+                            ('useful_during_mpi', 'Useful duration during the MPI calls of the first thread (total)'),
                             ('useful_device_max', 'Useful duration on the device (maximum)'),
                             ('useful_memtransf_device', 'Useful+MemoryTransfer on the device'),
                             ('useful_memtransf_device_max', 'Useful+MemoryTransfer on the device (maximum)'),
@@ -2395,8 +2397,13 @@ def parse_gpu_stream_stats(path, active_values=None, value_tol=1e-9, positive_on
     where thread_obj is normalized to:
         "THREAD x.y.z"
     """
-    intervals = []
+    return list(iter_gpu_stream_stats(path, active_values, value_tol,
+                                      positive_only))
 
+
+def iter_gpu_stream_stats(path, active_values=None, value_tol=1e-9,
+                          positive_only=False):
+    """Rows of parse_gpu_stream_stats, one by one, for large timelines."""
     with open(path) as f:
         for raw_line in f:
             line = raw_line.strip()
@@ -2432,10 +2439,7 @@ def parse_gpu_stream_stats(path, active_values=None, value_tol=1e-9, positive_on
                 if not any(abs(value - v) <= value_tol for v in active_values):
                     continue
 
-            end = start + duration
-            intervals.append((thread_obj, start, end))
-
-    return intervals
+            yield thread_obj, start, start + duration
 
 
 def merge_intervals(intervals):
@@ -2729,6 +2733,92 @@ def aggregate_gpu_metrics_from_stream_stats(useful_stats_path, memtransfer_stats
 
     return result
 
+def parse_first_thread_mpi_intervals(path):
+    """MPI calls of the first thread of each process, from the timeline of
+    mpi_calls_intervals.cfg: {rank: (starts, merged intervals)}. The MPI
+    metrics of the hybrid model use the same thread."""
+    by_rank = defaultdict(list)
+
+    for thread_obj, start, end in iter_gpu_stream_stats(
+            path, positive_only=True):
+        if thread_obj.rsplit('.', 1)[-1] != '1':
+            continue
+
+        rank_id = mpi_rank_from_thread_object(thread_obj)
+
+        if rank_id is not None:
+            by_rank[rank_id].append((start, end))
+
+    result = {}
+
+    for rank_id, intervals in by_rank.items():
+        merged = merge_intervals(intervals)
+        result[rank_id] = ([start for start, _ in merged], merged)
+
+    return result
+
+
+def _time_during_intervals(start, end, rank_intervals):
+    """Time of [start, end] inside the (starts, merged intervals) of a rank."""
+    starts, merged = rank_intervals
+    index = max(bisect.bisect_right(starts, start) - 1, 0)
+    total = 0.0
+
+    while index < len(merged) and merged[index][0] < end:
+        total += max(0.0, min(end, merged[index][1])
+                     - max(start, merged[index][0]))
+        index += 1
+
+    return total
+
+
+def useful_during_mpi_time(mpi_intervals_path, useful_stats_path, row_path,
+                           per_device=None):
+    """Useful time while the first thread of the same process is in MPI.
+
+    The units are the same as in Hybrid Parallel Efficiency: threads, and in
+    MPI+GPU the physical devices, with their flattened useful intervals
+    (per_device, from aggregate_gpu_metrics_from_stream_stats). The GPU stream
+    rows of the useful timeline are therefore skipped. The first thread cannot
+    be useful during its own MPI calls.
+    """
+    mpi_by_rank = parse_first_thread_mpi_intervals(mpi_intervals_path)
+    thread_to_device = build_thread_to_device_map_from_row(row_path)
+    total = 0.0
+
+    for thread_obj, start, end in iter_gpu_stream_stats(
+            useful_stats_path, positive_only=True):
+        if thread_obj in thread_to_device:
+            continue
+
+        if thread_obj.rsplit('.', 1)[-1] == '1':
+            continue
+
+        rank_intervals = mpi_by_rank.get(mpi_rank_from_thread_object(thread_obj))
+
+        if rank_intervals is not None:
+            total += _time_during_intervals(start, end, rank_intervals)
+
+    if per_device:
+        # A device shared by several processes is compared with the first one.
+        device_rank = {}
+
+        for thread_obj, device_key in sorted(thread_to_device.items()):
+            device_rank.setdefault(
+                device_key, mpi_rank_from_thread_object(thread_obj))
+
+        for device_key, values in per_device.items():
+            rank_intervals = mpi_by_rank.get(device_rank.get(device_key))
+
+            if rank_intervals is None:
+                continue
+
+            for start, end in values['useful_intervals_merged']:
+                total += _time_during_intervals(start, end, rank_intervals)
+
+    return total
+
+
 # ----------------------------------------------------------------------
 # JOBS setting depending on Memory and traces size.
 # ----------------------------------------------------------------------
@@ -2819,6 +2909,7 @@ def init_cfgs():
     # Useful computation on the GPU streams: state 1 (Running), for CUDA and
     # HIP. The kernel event code changes between Extrae versions.
     cfgs['useful_streams'] = os.path.join(cfgs['root_dir'], 'useful_streams_state.cfg')
+    cfgs['mpi_calls_intervals'] = os.path.join(cfgs['root_dir'], 'mpi_calls_intervals.cfg')
     # Memory transfers: state 17 (Memory transfer), for CUDA and HIP. The
     # transfer event code changes between Extrae versions.
     cfgs['memtransfer_streams'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams_state.cfg')
@@ -3078,6 +3169,13 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     gpu_useful_stats = None
     gpu_memtransfer_stats = None
     time_pmd_sim = 0.0
+    gpu_agg = {}
+
+    # Useful time during the MPI calls of the first thread (Parallel Runtime
+    # Model of the MPI+X executions).
+    is_mpi_inner = trace_mode_value.startswith('Detailed+MPI+')
+    mpi_intervals_stats = trace_name + '.mpi_calls_intervals.stats.csv'
+    cpu_useful_stats = None
 
     # ------------------------------------------------------------
     # 1) Run paramedir on original trace
@@ -3200,7 +3298,13 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
             gpu_memtransfer_stats
         ])
 
-  
+    if is_mpi_inner:
+        cmd_base.extend([cfgs['mpi_calls_intervals'], mpi_intervals_stats])
+
+        if not gpu_useful_stats:
+            cpu_useful_stats = trace_name + '.useful_threads.stats.csv'
+            cmd_base.extend([cfgs['useful_streams'], cpu_useful_stats])
+
     if is_openmp:
         cmd_base.extend([
             cfgs['omp_useful_regions'],
@@ -3648,8 +3752,6 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_raw_data['useful_device_max'] = 0.0
         trace_raw_data['useful_memtransf_device'] = 0.0
         trace_raw_data['useful_memtransf_device_max'] = 0.0
-        gpu_agg = {}
-        
         if gpu_useful_stats and os.path.exists(gpu_useful_stats):
             time_gpu_agg = time.time()
             gpu_agg = aggregate_gpu_metrics_from_stream_stats(
@@ -3938,6 +4040,26 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_raw_data['hybrid_outsidempi_dim'] = 'Non-Avail'
 
 
+    trace_raw_data['useful_during_mpi'] = 'Non-Avail'
+
+    if is_mpi_inner and os.path.exists(mpi_intervals_stats):
+        useful_stats = gpu_useful_stats or cpu_useful_stats
+
+        if useful_stats and os.path.exists(useful_stats):
+            trace_raw_data['useful_during_mpi'] = useful_during_mpi_time(
+                mpi_intervals_stats,
+                useful_stats,
+                row_path,
+                per_device=gpu_agg.get('per_device'),
+            )
+
+    # The timeline of every thread can be large.
+    if cpu_useful_stats and not cmdl_args.debug:
+        for path in (cpu_useful_stats,
+                     trace_name + '.useful_threads.stats.legend.csv'):
+            if os.path.exists(path):
+                os.remove(path)
+
     # ------------------------------------------------------------
     # 5) Move generated files
     # ------------------------------------------------------------
@@ -4000,6 +4122,12 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     if is_mpi_gpu or is_host_gpu:
         if os.path.exists(trace_name + '.useful_host.stats.csv'):
             move_files(trace_name + '.useful_host.stats.csv', local_path_dest, cmdl_args)
+        for path in (mpi_intervals_stats,
+                     trace_name + '.mpi_calls_intervals.stats.legend.csv',
+                     trace_name + '.useful_threads.stats.csv',
+                     trace_name + '.useful_threads.stats.legend.csv'):
+            if os.path.exists(path):
+                move_files(path, local_path_dest, cmdl_args)
         if os.path.exists(trace_name + '.useful_streams.stats.csv'):
             move_files(trace_name + '.useful_streams.stats.csv', local_path_dest, cmdl_args)
         if os.path.exists(trace_name + '.useful_streams.stats.legend.csv'):

@@ -367,6 +367,27 @@ within the multiplicative model.
 Inner-runtime factors should therefore be interpreted together with the
 hybrid and outer-runtime factors from which they are derived.
 
+Two effects can produce a value above 100%:
+
+* **Useful work during MPI.** ``OutsideMPI`` is measured on the first thread of
+  each process, so GPU kernels or other threads running during its MPI calls
+  increase the inner contribution. BasicAnalysis isolates this effect in
+  **Useful Work during MPI**, and reports the inner Parallel Efficiency without
+  it as **Inner Parallel Efficiency outside MPI**, so that:
+
+  .. math::
+
+     Hybrid\_Par\_Eff = MPI\_Par\_Eff \cdot
+     Inner\_Par\_Eff_{outside\ MPI} \cdot UsefulDuringMPI
+
+* **Compensation between Load Balance and Communication Efficiency.** The
+  model blames MPI first: a delay inside a process counts as MPI imbalance, even
+  when its source is the inner runtime, serial code, or I/O. Useful time can
+  therefore be better balanced than the time outside MPI, and the inner Load
+  Balance exceeds 100%. This does not by itself mean that the inner runtime
+  improves load balance: the same loss usually appears in the inner Communication
+  Efficiency, so the two must be read together.
+
 
 
 Runtime-Specific Analysis

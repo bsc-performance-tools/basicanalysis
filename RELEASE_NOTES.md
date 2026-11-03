@@ -4,6 +4,21 @@
 
 ### New Features
 
+- **Levels of the hybrid Parallel Runtime Model.** For MPI+X traces, the view now
+  shows Application Efficiency, **Outer level** (MPI), **Inner level** (OpenMP,
+  CUDA, or HIP), and **Other**, each in its own table; all the metrics stay
+  together under *All the metrics of the model*. New metrics in the report, the
+  standard output of the classic model, `modelfactors.csv`, and the efficiency
+  tables: **Useful Work during MPI**, the useful work while the first thread of
+  the process is in an MPI call, and **Inner Parallel Efficiency outside MPI**, so
+  that Hybrid Parallel Efficiency = MPI x Inner outside MPI x Useful Work during
+  MPI. Useful Work during MPI has a neutral color because it is neither good nor
+  bad. `rawdata.csv` has a new row with the useful time during MPI. The existing
+  metrics do not change. The analysis of MPI+X traces runs one more Paraver
+  configuration, and MPI+OpenMP traces one more timeline of useful time.
+- The explanation of values above 100% in OpenMP, CUDA, or HIP Parallel
+  Efficiency and Load Balance is corrected: they do not by themselves mean that
+  the runtime compensates the MPI imbalance.
 - New File I/O performance model. The traced POSIX, ANSI C, and MPI-IO calls
   are classified into **Data Access** (calls that move or commit data: read
   and write calls of every API) and **File Management** (open, close, seek,

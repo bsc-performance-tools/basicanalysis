@@ -1,7 +1,7 @@
 Views of the Hybrid Parallel Runtime Model
 ==========================================
 
-:Status: Design; option A chosen on 2026-11-02, not implemented
+:Status: Implemented on this branch (option A); open questions below
 :Date: 2026-11-02 (updated 2026-11-03)
 :Branch: ``feature/runtime-model-views``
 :Scope: Parallel Runtime Model of the interactive report for MPI+X traces
@@ -271,9 +271,30 @@ unit was intersected with the MPI intervals of its task.
      - 38.68
      - 100.26
      - 0.26%
+   * - SOD2D 1 node, MPI+HIP
+     - 22.13
+     - 64.24
+     - 34.46
+     - 34.46
+     - 100.00
+     - 0.00%
+   * - SOD2D 4 nodes, MPI+HIP
+     - 27.04
+     - 70.81
+     - 38.19
+     - 38.19
+     - 100.00
+     - 0.00%
+   * - SOD2D 8 nodes, MPI+HIP
+     - 28.46
+     - 74.37
+     - 38.27
+     - 38.27
+     - 100.00
+     - 0.00%
 
 Application, Outer, and Inner today match BasicAnalysis for BT-MZ, XSHELLS,
-Tsunami-HySEA, and the CloverLeaf runs with 4 and 8 processes, and the useful
+Tsunami-HySEA, SOD2D, and the CloverLeaf runs with 4 and 8 processes, and the useful
 times match the raw data. In all the traces, the overlap comes from the devices:
 Host threads have no useful time during MPI.
 

@@ -511,10 +511,10 @@ metrics:
 
       above_100_template: >
         Values above 100% do not represent an isolated {runtime} efficiency greater
-        than 100%. They indicate that the MPI-first decomposition has attributed
-        more efficiency loss to the MPI level than is reflected in the complete
-        hybrid Parallel Efficiency. This may occur when delays originating in the
-        {runtime} level manifest as MPI waiting and are therefore attributed to MPI.
+        than 100%. Time outside MPI is measured on the first thread of each process,
+        so useful work during its MPI calls increases this contribution. See
+        {runtime} Parallel Efficiency outside MPI and Useful Work during MPI, the
+        two factors of this metric.
     typical_causes_template:
     - '{runtime} load imbalance'
     - '{runtime} communication, synchronization, or runtime overhead'
@@ -526,6 +526,71 @@ metrics:
     - runtime_comm_eff
     sources:
     - ispdc2020_hybrid
+  runtime_outside_mpi_eff:
+    aliases:
+    - omp_outside_mpi_eff
+    name_template: '{runtime} Parallel Efficiency outside MPI'
+    short_name_template: '{runtime} PE outside MPI'
+    family_template: '{runtime_family}'
+    analysis_level: runtime_contribution
+    metric_type: efficiency
+    definition_template: >
+      {runtime} Parallel Efficiency using only the useful time outside the MPI calls
+      of the first thread of each process.
+    formula:
+      text_template: '{runtime}_PE_outside_MPI = {runtime}_PE / UsefulDuringMPI'
+      latex_template: '{runtime}\\_PE\\_outside\\_MPI = \\frac{{{runtime}\\_PE}}{{UsefulDuringMPI}}'
+    interpretation:
+      low_template: >
+        Values below 100% indicate parallel inefficiency attributed to the {runtime}
+        component while MPI is not running on the first thread.
+      high_template: >
+        Values near 100% indicate that the units are useful during the time outside
+        MPI.
+      above_100_template: >
+        Values above 100% are not expected when every process has the same number
+        of units.
+    typical_causes_template:
+    - '{runtime} load imbalance'
+    - '{runtime} communication, synchronization, or runtime overhead'
+    next_steps_template:
+    - Inspect {runtime} Load Balance and {runtime} Communication Efficiency.
+    children: []
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
+  useful_during_mpi:
+    name_template: Useful Work during MPI
+    short_name_template: Useful during MPI
+    family_template: '{runtime_family}'
+    analysis_level: runtime_contribution
+    metric_type: compound_efficiency
+    definition_template: >
+      Increase of the useful time of the application due to the work done while the
+      first thread of the same process is inside an MPI call, for example GPU kernels
+      or other threads running during MPI. It is not computation inside the MPI
+      library. 100% means that no useful work runs during MPI.
+    formula:
+      text_template: UsefulDuringMPI = Useful / (Useful - Useful during MPI calls)
+      latex_template: UsefulDuringMPI = \\frac{{Useful}}{{Useful - Useful_{{MPI}}}}
+    interpretation:
+      low_template: >
+        This metric is 100% or more.
+      high_template: >
+        Values near 100% indicate that almost no useful work runs during MPI, so the
+        model of a hierarchical code applies directly.
+      above_100_template: >
+        Values above 100% indicate useful work during MPI. For example, 200% means
+        that half of the useful time runs during MPI. It is the part of {runtime}
+        Parallel Efficiency that the model does not attribute to the time outside MPI,
+        and it is not a measure of how efficient that work is.
+    typical_causes_template:
+    - GPU kernels running during MPI calls
+    - Threads computing while another thread is in MPI
+    next_steps_template:
+    - Inspect in the trace which kernels or threads run during MPI.
+    children: []
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
   runtime_load_balance:
     aliases:
     - omp_load_balance
@@ -551,12 +616,13 @@ metrics:
         additional load imbalance.
 
       above_100_template: >
-        Values above 100% indicate that the complete hybrid execution is more
-        load-balanced than the MPI-level execution view. The distribution of work
-        at the {runtime} level therefore partially compensates load imbalance
-        attributed to the MPI level. This is a relative contribution between the
-        two execution views, not an isolated {runtime} load-balance efficiency
-        greater than 100%.
+        Values above 100% mean that Hybrid Load Balance is higher than MPI Load
+        Balance. The model blames MPI first: a delay inside a process counts as
+        MPI imbalance, even when its source is {runtime} or serial code. So useful
+        time can be better balanced than the time outside MPI. This does not by
+        itself mean that {runtime} improves load balance. The same loss usually
+        appears in {runtime} Communication Efficiency, so read the two together. If
+        useful work runs while the first thread is in MPI, see Useful Work during MPI.
     typical_causes_template:
     - Uneven work distribution associated with {runtime}
     next_steps_template:

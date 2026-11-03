@@ -109,7 +109,9 @@ mod_hybrid_factors_doc = OrderedDict([
                                ('transfer_eff', '         -- MPI Transfer efficiency'),
                                ('omp_parallel_eff', '   -- OpenMP Parallel efficiency'),
                                ('omp_load_balance', '      -- OpenMP Load balance'),
-                               ('omp_comm_eff', '      -- OpenMP Communication efficiency')])
+                               ('omp_comm_eff', '      -- OpenMP Communication efficiency'),
+                               ('omp_outside_mpi_eff', '      -- OpenMP Parallel efficiency outside MPI'),
+                               ('useful_during_mpi', '      -- Useful work during MPI')])
 
 mod_hyb_comm_omp_factors_doc = OrderedDict([
                                ('omp_serial_eff', '         -- OpenMP Serialization efficiency'),
@@ -1132,6 +1134,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         # and the physical devices, not the streams.
         useful_avg = raw_data['useful_avg'][trace]
         useful_max = raw_data['useful_max'][trace]
+        useful_per_device = None
 
         if is_mpi_gpu and outmpi_measures:
             useful_per_device = mpi_gpu_useful_per_device(raw_data, trace)
@@ -1533,6 +1536,35 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 hybrid_factors['omp_parallel_eff'][trace] = 'N/A'
         except:
             hybrid_factors['omp_parallel_eff'][trace] = 'NaN'
+
+        # -------> Useful work during the MPI calls of the first thread:
+        # Inner Parallel Efficiency = outside MPI x useful work during MPI.
+        try:
+            hybrid_factors['useful_during_mpi'][trace] = 'Non-Avail'
+            hybrid_factors['omp_outside_mpi_eff'][trace] = 'Non-Avail'
+
+            if not outmpi_measures:
+                pass
+            elif not trace_mode[trace].startswith("Detailed+MPI+"):
+                hybrid_factors['useful_during_mpi'][trace] = 'N/A'
+                hybrid_factors['omp_outside_mpi_eff'][trace] = 'N/A'
+            elif raw_data['useful_during_mpi'][trace] != 'Non-Avail':
+                useful_total = float(raw_data['useful_tot'][trace])
+
+                if useful_per_device is not None:
+                    useful_total = useful_per_device[0] * (
+                        int(raw_data['count_host_threads'][trace])
+                        + int(raw_data['count_devices'][trace]))
+
+                useful_during_mpi = float(raw_data['useful_during_mpi'][trace])
+                other = useful_total / (useful_total - useful_during_mpi) * 100.0
+
+                hybrid_factors['useful_during_mpi'][trace] = other
+                hybrid_factors['omp_outside_mpi_eff'][trace] = (
+                    float(hybrid_factors['omp_parallel_eff'][trace]) / other * 100.0)
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            hybrid_factors['useful_during_mpi'][trace] = 'NaN'
+            hybrid_factors['omp_outside_mpi_eff'][trace] = 'NaN'
 
 
         # -------> Isolated OpenMP metrics, TALP-style timing model
@@ -2210,6 +2242,8 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
                                                      trace_mode_doc[len("Detailed+MPI+"):] + " Load Balance"
         mod_hybrid_factors_doc['omp_comm_eff'] = "      -- " + \
                                                  trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
+        mod_hybrid_factors_doc['omp_outside_mpi_eff'] = "      -- " + \
+                                                        trace_mode_doc[len("Detailed+MPI+"):] + " Parallel efficiency outside MPI"
 
     print('\n Overview of the Efficiency metrics:')
 
@@ -2415,6 +2449,8 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
                                                      trace_mode_doc[len("Detailed+MPI+"):] + " Load Balance"
         mod_hybrid_factors_doc['omp_comm_eff'] = "      -- " + \
                                                  trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
+        mod_hybrid_factors_doc['omp_outside_mpi_eff'] = "      -- " + \
+                                                        trace_mode_doc[len("Detailed+MPI+"):] + " Parallel efficiency outside MPI"
     
     # print('')
     print('\n Overview of the Efficiency metrics:')

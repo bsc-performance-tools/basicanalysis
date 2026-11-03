@@ -257,6 +257,14 @@ def _build_hybrid_base_metric_info(inner_model):
             "label": "      -- {} Communication efficiency".format(inner_model),
             "short_label": "{} Comm".format(inner_model),
         },
+        "omp_outside_mpi_eff": {
+            "label": "      -- {} Parallel efficiency outside MPI".format(inner_model),
+            "short_label": "{} PE outside MPI".format(inner_model),
+        },
+        "useful_during_mpi": {
+            "label": "      -- Useful work during MPI",
+            "short_label": "Useful during MPI",
+        },
         "omp_serial_eff": {
             "label": "         -- {} Serialization efficiency".format(inner_model),
             "short_label": "{} Ser".format(inner_model),
@@ -468,7 +476,32 @@ HYBRID_ORDER = [
     "omp_parallel_eff",
     "omp_load_balance",
     "omp_comm_eff",
+    "omp_outside_mpi_eff",
+    "useful_during_mpi",
 ]
+
+# Levels of the hybrid Parallel Runtime Model. Application is the Application
+# Efficiency table of the view.
+HYBRID_OUTER_ORDER = [
+    "mpi_parallel_eff",
+    "mpi_load_balance",
+    "mpi_comm_eff",
+    "serial_eff",
+    "transfer_eff",
+]
+
+HYBRID_INNER_ORDER = [
+    "omp_parallel_eff",
+    "omp_outside_mpi_eff",
+    "omp_load_balance",
+    "omp_comm_eff",
+]
+
+HYBRID_OTHER_ORDER = ["useful_during_mpi"]
+
+NEUTRAL_VALUE_METRICS = {"useful_during_mpi"}
+NEUTRAL_VALUE_COLOR = "#dbe4ee"
+NEUTRAL_VALUE_TEXT_COLOR = "#1f2f40"
 
 OMP_COMM_ORDER = [
     "omp_serial_eff",
@@ -583,9 +616,31 @@ HYBRID_TREE = [
                 _tree_node("omp_serial_eff"),
                 _tree_node("omp_transfer_eff"),
             ]),
+            _tree_node("omp_outside_mpi_eff"),
+            _tree_node("useful_during_mpi"),
         ]),
     ])
 ]
+
+HYBRID_OUTER_TREE = [
+    _tree_node("mpi_parallel_eff", [
+        _tree_node("mpi_load_balance"),
+        _tree_node("mpi_comm_eff", [
+            _tree_node("serial_eff"),
+            _tree_node("transfer_eff"),
+        ]),
+    ])
+]
+
+HYBRID_INNER_TREE = [
+    _tree_node("omp_parallel_eff", [
+        _tree_node("omp_outside_mpi_eff"),
+        _tree_node("omp_load_balance"),
+        _tree_node("omp_comm_eff"),
+    ])
+]
+
+HYBRID_OTHER_TREE = [_tree_node("useful_during_mpi")]
 
 TALP_TREE = [
     _tree_node("host_global_eff", [
@@ -3488,9 +3543,57 @@ def _build_hybrid_metric_info(inner_model):
         "inefficiency to the complete hybrid execution.".format(inner_model)
     )
     metric_info["omp_parallel_eff"]["above100"] = (
-        "Values above 100% indicate that the {} contribution compensates "
-        "for efficiency losses observed at the MPI level; this is not a "
-        "conventional standalone efficiency.".format(inner_model)
+        "Values above 100% are not a conventional standalone efficiency: "
+        "useful work during the MPI calls of the first thread increases "
+        "this contribution. See {0} Parallel efficiency outside MPI and "
+        "Useful work during MPI.".format(inner_model)
+    )
+
+    metric_info["omp_outside_mpi_eff"]["label"] = (
+        "    -- {} Parallel efficiency outside MPI".format(inner_model)
+    )
+    metric_info["omp_outside_mpi_eff"]["type"] = (
+        "{} contribution to the hybrid model".format(inner_model)
+    )
+    metric_info["omp_outside_mpi_eff"]["meaning"] = (
+        "{0} Parallel Efficiency using only the useful time outside the MPI "
+        "calls of the first thread of each process.".format(inner_model)
+    )
+    metric_info["omp_outside_mpi_eff"]["low"] = (
+        "Low values indicate parallel inefficiency attributed to {} while "
+        "the first thread is not in MPI.".format(inner_model)
+    )
+    metric_info["omp_outside_mpi_eff"]["above100"] = (
+        "Values above 100% are not expected when every process has the same "
+        "number of units."
+    )
+    metric_info["omp_outside_mpi_eff"]["action"] = (
+        "Continue with {0} Load balance and {0} Communication efficiency."
+        .format(inner_model)
+    )
+
+    metric_info["useful_during_mpi"]["label"] = (
+        "    -- Useful work during MPI"
+    )
+    metric_info["useful_during_mpi"]["type"] = (
+        "Part of the {} contribution".format(inner_model)
+    )
+    metric_info["useful_during_mpi"]["meaning"] = (
+        "Increase of the useful time due to the work done while the first "
+        "thread of the same process is inside an MPI call. It is not "
+        "computation inside the MPI library. 100% means that no useful work "
+        "runs during MPI."
+    )
+    metric_info["useful_during_mpi"]["low"] = (
+        "This metric is 100% or more."
+    )
+    metric_info["useful_during_mpi"]["above100"] = (
+        "Values above 100% indicate useful work during MPI: 200% means that "
+        "half of the useful time runs during MPI. It does not measure how "
+        "efficient that work is."
+    )
+    metric_info["useful_during_mpi"]["action"] = (
+        "Inspect in the trace which kernels or threads run during MPI."
     )
 
     metric_info["omp_load_balance"]["label"] = (
@@ -3511,8 +3614,14 @@ def _build_hybrid_metric_info(inner_model):
         "contributes significantly to the overall hybrid load imbalance."
     ).format(inner_model)
     metric_info["omp_load_balance"]["above100"] = (
-        "Values above 100% indicate that the {} contribution compensates "
-        "for load imbalance observed at the MPI level.".format(inner_model)
+        "Values above 100% mean that Hybrid Load Balance is higher than MPI "
+        "Load Balance. The model blames MPI first: a delay inside a process "
+        "counts as MPI imbalance, even when its source is {0} or serial code. "
+        "So useful time can be better balanced than the time outside MPI. "
+        "This does not by itself mean that {0} improves load balance. The "
+        "same loss usually appears in {0} Communication efficiency, so read "
+        "the two together. If useful work runs while the first thread is in "
+        "MPI, see Useful work during MPI.".format(inner_model)
     )
 
     metric_info["omp_comm_eff"]["label"] = (
@@ -4665,6 +4774,12 @@ def _build_metric_tree_heatmap_section(
         tree = GLOBAL_GPU_TREE
     elif tree_kind == "hybrid":
         tree = HYBRID_TREE
+    elif tree_kind == "hybrid_outer":
+        tree = HYBRID_OUTER_TREE
+    elif tree_kind == "hybrid_inner":
+        tree = HYBRID_INNER_TREE
+    elif tree_kind == "hybrid_other":
+        tree = HYBRID_OTHER_TREE
     elif tree_kind == "talp":
         tree = TALP_TREE
     elif tree_kind == "host":
@@ -6187,6 +6302,12 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
             background_color = _metric_value_color(value, thresholds)
             text_color = _cell_text_color(value, thresholds)
 
+            # Neither good nor bad: it describes the execution.
+            if (metric_key in NEUTRAL_VALUE_METRICS
+                    and isinstance(value, (int, float))):
+                background_color = NEUTRAL_VALUE_COLOR
+                text_color = NEUTRAL_VALUE_TEXT_COLOR
+
             if printable:
                 lines.append(
                     "<td class='metric-value-cell'>"
@@ -6513,6 +6634,64 @@ def _build_execution_domains_guidance_html():
     """
 
 
+def _build_hybrid_levels_html(metric_info, metric_sources, trace_list,
+                              trace_labels, trace_column_description,
+                              inner_model):
+    """Outer level, inner level, and useful work during MPI, each in its own
+    table. The product of the three Parallel Efficiencies is Hybrid Parallel
+    Efficiency, shown in Application Efficiency."""
+    levels = (
+        (HYBRID_OUTER_ORDER, "hybrid_outer", "hybrid-outer",
+         "Outer level: MPI",
+         "Time that the first thread of each process spends outside MPI."),
+        (HYBRID_INNER_ORDER, "hybrid_inner", "hybrid-inner",
+         "Inner level: {}".format(inner_model),
+         "What the units do during the time outside MPI. {0} Load balance and "
+         "{0} Communication efficiency also include the work during MPI."
+         .format(inner_model)),
+        (HYBRID_OTHER_ORDER, "hybrid_other", "hybrid-other",
+         "Other: useful work during MPI",
+         "Useful work while the first thread of the process is in an MPI "
+         "call, not computation inside the MPI library. 100% means none. It "
+         "has no efficiency color because it is neither good nor bad."),
+    )
+    sections = []
+
+    for keys, tree_kind, section_id, title, description in levels:
+        if not any(
+                isinstance(metric_sources[key][key].get(trace), (int, float))
+                for key in keys
+                for trace in trace_list):
+            continue
+
+        sections.append("""
+        <section class="hybrid-level" aria-label="{title}">
+            <h3>{title}</h3>
+            <p class="print-section-description">{description}</p>
+            {table}
+        </section>
+        """.format(
+            title=html.escape(title),
+            description=html.escape(description),
+            table=_build_metric_tree_heatmap_section(
+                metric_keys=list(keys),
+                metric_info=metric_info,
+                metric_sources={key: metric_sources[key] for key in keys},
+                trace_list=trace_list,
+                trace_labels=trace_labels,
+                title=title,
+                section_id=section_id,
+                tree_kind=tree_kind,
+                trace_column_description=trace_column_description,
+                runtime=inner_model,
+                runtime_family=inner_model.lower(),
+                show_efficiency_scale=False,
+            ),
+        ))
+
+    return "".join(sections)
+
+
 def _build_parallel_runtime_model_guidance_html(
         model,
         inner_model):
@@ -6529,11 +6708,22 @@ def _build_parallel_runtime_model_guidance_html(
         </p>
 
         <p>
+            The levels multiply: Hybrid Parallel Efficiency is
+            <strong>MPI</strong> (outer level) &times;
+            <strong>{inner_model} outside MPI</strong> (inner level) &times;
+            <strong>Useful work during MPI</strong> (other).
+        </p>
+
+        <p>
             Because the {inner_model} contribution is derived rather than
             measured as an independent efficiency, some values may exceed
             <strong>100%</strong>. These values should not be interpreted as
-            conventional standalone efficiencies; they quantify the derived 
-            {inner_model} contribution within the hybrid decomposition.
+            conventional standalone efficiencies. Time outside MPI is measured
+            on the first thread of each process, so work done during its MPI
+            calls appears in <strong>Useful work during MPI</strong>.
+            {inner_model} Load Balance can also exceed 100% when useful time
+            is better balanced than the time outside MPI; the same loss then
+            appears in {inner_model} Communication Efficiency.
         </p>
 
         <p>
@@ -12179,6 +12369,20 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             runtime=inner_model,
             runtime_family=inner_model.lower(),
         )
+
+        hybrid_html = _build_hybrid_levels_html(
+            hybrid_metric_info,
+            hybrid_sources,
+            trace_list,
+            trace_labels,
+            trace_column_description,
+            inner_model,
+        ) + """
+        <details class="hybrid-all-metrics">
+            <summary>All the metrics of the model</summary>
+            {}
+        </details>
+        """.format(hybrid_html)
     else:
         hybrid_html = "<p>Parallel programming model metrics are not available for simple traces.</p>"
 

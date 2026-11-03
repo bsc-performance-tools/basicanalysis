@@ -118,6 +118,18 @@ _HYBRID_RUNTIME_METRICS = (
         "inner-runtime",
         2,
     ),
+    (
+        "omp_outside_mpi_eff",
+        "{runtime} Parallel efficiency outside MPI",
+        "inner-runtime",
+        2,
+    ),
+    (
+        "useful_during_mpi",
+        "Useful work during MPI",
+        "inner-runtime",
+        2,
+    ),
 )
 
 
@@ -899,6 +911,12 @@ class RuntimeAnalysisBuilder:
                                         metric_id="omp_transfer_eff",
                                     ),
                                 ),
+                            ),
+                            MetricAnalysisTreeNode(
+                                metric_id="omp_outside_mpi_eff",
+                            ),
+                            MetricAnalysisTreeNode(
+                                metric_id="useful_during_mpi",
                             ),
                         ),
                     ),

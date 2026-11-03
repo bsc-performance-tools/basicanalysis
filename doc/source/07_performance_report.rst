@@ -128,6 +128,13 @@ Parallel Efficiency from changes in Computation Scalability.
 For hybrid applications, the Parallel Runtime Model additionally decomposes
 Parallel Efficiency across the active parallel runtimes.
 
+Below Application Efficiency, the view shows one table per level: the **Outer
+level** (MPI), the **Inner level** (OpenMP, CUDA, or HIP), and **Other**, which
+is the useful work during the MPI calls of the first thread of each process. Their
+Parallel Efficiencies multiply to Hybrid Parallel Efficiency; see
+:ref:`Useful Work during MPI <useful-work-during-mpi>`. All the metrics of the
+model are also available together under *All the metrics of the model*.
+
 The model can therefore be read in two complementary ways:
 
 * **by performance factor**, following Global Efficiency toward Parallel

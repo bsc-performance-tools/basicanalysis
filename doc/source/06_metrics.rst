@@ -1234,6 +1234,49 @@ application-level metric is greater than the corresponding MPI-level metric,
 resulting in a multiplicative inner-runtime contribution above 100%.
 
 
+.. _useful-work-during-mpi:
+
+Useful Work during MPI
+----------------------
+
+The MPI metrics use the time that the first thread of each process spends
+outside MPI. Other threads or GPU devices can do useful work while that thread
+is in an MPI call. Let :math:`Useful` be the useful time of all the units, and
+:math:`Useful_{MPI}` the part of it during the MPI calls of the first thread of
+the same process. It is not computation inside the MPI library, which is not
+useful time.
+
+.. math::
+
+   UsefulDuringMPI = \frac{Useful}{Useful - Useful_{MPI}}
+
+.. math::
+
+   Inner\_Par\_Eff_{outside\ MPI} =
+   \frac{Inner\_Par\_Eff}{UsefulDuringMPI}
+
+so that the three levels multiply:
+
+.. math::
+
+   Hybrid\_Par\_Eff = MPI\_Par\_Eff \cdot
+   Inner\_Par\_Eff_{outside\ MPI} \cdot UsefulDuringMPI
+
+Useful Work during MPI is 100% when no useful work runs during MPI, and 200% when
+half of the useful time does. It is not an efficiency: it has no efficiency
+color, because a higher value is neither better nor worse. It tells how far the
+execution is from the hierarchical behavior that the model assumes.
+
+Inner Parallel Efficiency outside MPI does not exceed 100% when every process has
+the same number of units. Inner Load Balance and Inner Communication Efficiency
+keep their definition, so with useful work during MPI their product is Inner
+Parallel Efficiency, not Inner Parallel Efficiency outside MPI.
+
+In MPI+GPU, the units are the Host threads and the physical devices, with the
+streams of each device flattened. A device shared by several processes is compared
+with the MPI calls of the first of them.
+
+
 Hybrid MPI+GPU Metrics
 ======================
 

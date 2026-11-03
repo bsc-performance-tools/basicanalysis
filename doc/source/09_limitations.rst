@@ -65,6 +65,11 @@ calls outside an OpenMP parallel region, the remaining OpenMP worker threads
 are considered inactive. The corresponding unused thread capacity can then be
 attributed to the OpenMP serial component.
 
+Useful work during the MPI calls of the first thread of each process is
+reported in :ref:`Useful Work during MPI <useful-work-during-mpi>`. Applications
+that call MPI from other threads, such as task-based codes, are not covered: the
+first thread remains the reference.
+
 Applications whose runtime behavior substantially violates the assumed
 hierarchical organization, for example through concurrent useful activity
 across runtime levels that the model treats as mutually exclusive, may not be
