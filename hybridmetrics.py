@@ -300,6 +300,29 @@ def is_mpi_gpu_mode(mode):
     )  
 
 
+def mpi_gpu_useful_per_device(raw_data, trace):
+    """Average and maximum useful time of the application level of MPI+GPU.
+
+    The units are the Host threads and the physical devices: the streams of
+    a device are flattened, so a device with several streams counts once.
+    Returns None when the Host or Device measures are not available.
+    """
+    try:
+        useful_total = (float(raw_data['useful_host'][trace])
+                        + float(raw_data['useful_device'][trace]))
+        useful_max = max(float(raw_data['useful_host_max'][trace]),
+                         float(raw_data['useful_device_max'][trace]))
+        devices = int(raw_data['count_devices'][trace])
+        units = int(raw_data['count_host_threads'][trace]) + devices
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    if devices <= 0 or useful_max <= 0.0:
+        return None
+
+    return useful_total / units, useful_max
+
+
 def get_application_factor_keys(trace_list, trace_mode):
     """
     Return the application-level metric keys that are valid for output.
@@ -912,7 +935,6 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     according dictionary of model factors."""
     mod_factors = create_mod_factors(trace_list)
     hybrid_factors = create_hybrid_mod_factors(trace_list)
-    hybrid_gpu_factors = create_hybrid_mod_factors(trace_list)
     other_metrics = create_other_metrics(trace_list)
     mod_factors_scale_plus_io = create_mod_factors_scale_io(trace_list)
     device_factors = create_mod_device_factors(trace_list)
@@ -1106,14 +1128,23 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         else:
             other_metrics['io_eff'][trace] = 'Non-Avail'
 
-        # Basic efficiency factors
+        # Basic efficiency factors. In MPI+GPU the units are the Host threads
+        # and the physical devices, not the streams.
+        useful_avg = raw_data['useful_avg'][trace]
+        useful_max = raw_data['useful_max'][trace]
+
+        if is_mpi_gpu and outmpi_measures:
+            useful_per_device = mpi_gpu_useful_per_device(raw_data, trace)
+
+            if useful_per_device is not None:
+                useful_avg, useful_max = useful_per_device
+
         try:  # except NaN
             #if other_metrics['io_posix'][trace] > 0.0 or other_metrics['flushing'][trace] > 5.0:
             #    mod_factors['load_balance'][trace] = float(raw_data['useful_plus_io_avg'][trace]) \
             #                                         / float(raw_data['useful_plus_io_max'][trace]) * 100.0
             #else:
-            mod_factors['load_balance'][trace] = float(raw_data['useful_avg'][trace]) \
-                                                 / float(raw_data['useful_max'][trace]) * 100.0
+            mod_factors['load_balance'][trace] = float(useful_avg) / float(useful_max) * 100.0
         except:
             mod_factors['load_balance'][trace] = 'NaN'
 
@@ -1122,7 +1153,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             #    mod_factors['comm_eff'][trace] = float(raw_data['useful_plus_io_max'][trace] \
             #                                     / raw_data['runtime'][trace] * 100.0)
             #else:
-            mod_factors['comm_eff'][trace] = float(raw_data['useful_max'][trace] / raw_data['runtime'][trace] * 100.0)
+            mod_factors['comm_eff'][trace] = float(useful_max / raw_data['runtime'][trace] * 100.0)
         except:
             mod_factors['comm_eff'][trace] = 'NaN'
 
@@ -1554,82 +1585,6 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             omp_talp_factors['omp_talp_load_balance'][trace] = 'NaN'
             omp_talp_factors['omp_talp_scheduling_eff'][trace] = 'NaN'
 
-        # -------> Classic MPI+GPU model using flattened devices
-        if (outmpi_measures and is_mpi_gpu and cmdl_args.pop_model_to_apply == 'classic'):
-            try:
-                p = int(raw_data['count_host_threads'][trace])
-                d = int(raw_data['count_devices'][trace])
-                runtime = float(raw_data['runtime'][trace])
-
-                useful_host = float(raw_data['useful_host'][trace])
-                useful_host_max = float(raw_data['useful_host_max'][trace])
-
-                useful_device = float(raw_data['useful_device'][trace])
-                useful_device_max = float(raw_data['useful_device_max'][trace])
-
-                parallel_units = p + d
-                useful_total = useful_host + useful_device
-                useful_max = max(useful_host_max, useful_device_max)
-
-                hybrid_parallel_eff = (
-                    useful_total / (parallel_units * runtime) * 100.0
-                )
-
-                hybrid_load_balance = (
-                    (useful_total / parallel_units) / useful_max * 100.0
-                )
-
-                hybrid_comm_eff = (
-                    useful_max / runtime * 100.0
-                )
-
-                hybrid_gpu_factors['hybrid_eff'][trace] = hybrid_parallel_eff
-    
-                # --------------------------------------------------
-                # Classic MPI+GPU Global Efficiency
-                # --------------------------------------------------
-                if len(trace_list) > 1:
-                    mod_factors['global_eff'][trace] = (
-                        hybrid_parallel_eff
-                        * float(mod_factors['comp_scale'][trace])
-                        / 100.0
-                    )
-                else:
-                    mod_factors['global_eff'][trace] = (
-                        hybrid_parallel_eff
-                    )
-
-                hybrid_gpu_factors['mpi_parallel_eff'][trace] = hybrid_factors['mpi_parallel_eff'][trace]
-                hybrid_gpu_factors['mpi_load_balance'][trace] = hybrid_factors['mpi_load_balance'][trace]
-                hybrid_gpu_factors['mpi_comm_eff'][trace] = hybrid_factors['mpi_comm_eff'][trace]
-                hybrid_gpu_factors['serial_eff'][trace] = hybrid_factors['serial_eff'][trace]
-                hybrid_gpu_factors['transfer_eff'][trace] = hybrid_factors['transfer_eff'][trace]
-
-                hybrid_gpu_factors['omp_parallel_eff'][trace] = (
-                    hybrid_parallel_eff
-                    / float(hybrid_factors['mpi_parallel_eff'][trace])
-                    * 100.0
-                )
-
-                hybrid_gpu_factors['omp_load_balance'][trace] = (
-                    hybrid_load_balance
-                    / float(hybrid_factors['mpi_load_balance'][trace])
-                    * 100.0
-                )
-
-                hybrid_gpu_factors['omp_comm_eff'][trace] = (
-                    hybrid_comm_eff
-                    / float(hybrid_factors['mpi_comm_eff'][trace])
-                    * 100.0
-                )
-            except Exception:
-                hybrid_gpu_factors['hybrid_eff'][trace] = 'NaN'
-                hybrid_gpu_factors['omp_parallel_eff'][trace] = 'NaN'
-                hybrid_gpu_factors['omp_load_balance'][trace] = 'NaN'
-                hybrid_gpu_factors['omp_comm_eff'][trace] = 'NaN'
-
-
-
   # ------->  HOST metrics
         try:  # except NaN
             if outmpi_measures and is_mpi_gpu:
@@ -1833,10 +1788,6 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             if not outmpi_measures:
                 hybrid_factors['hybrid_eff'][trace] = 'Non-Avail'
 
-            elif (is_mpi_gpu and cmdl_args.pop_model_to_apply == 'classic'):
-                hybrid_factors['hybrid_eff'][trace] = hybrid_gpu_factors['hybrid_eff'][trace]
-                # Already computed directly from host useful time + flattened device useful time.
-                pass
             elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
                 hybrid_factors['hybrid_eff'][trace] = float(hybrid_factors['mpi_parallel_eff'][trace]) \
                                             * float(hybrid_factors['omp_parallel_eff'][trace]) / 100.0
@@ -2203,7 +2154,6 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         other_metrics,
         device_factors,
         host_factors,
-        hybrid_gpu_factors,
         omp_talp_factors,
         scaling_info,
     )

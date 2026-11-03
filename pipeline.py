@@ -140,7 +140,6 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
             other_metrics,
             device_factors,
             host_factors,
-            hybrid_gpu_factors,
             omp_talp_factors,
             scaling_info,
         ) = hybridmetrics.compute_model_factors(

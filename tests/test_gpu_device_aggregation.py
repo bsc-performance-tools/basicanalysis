@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 
+from hybridmetrics import mpi_gpu_useful_per_device
 from rawdata import aggregate_gpu_metrics_from_stream_stats
 
 
@@ -79,6 +80,55 @@ class GpuDeviceAggregationTests(unittest.TestCase):
         result = self._aggregate()
         self.assertEqual(result["unknown_memtransfer_threads"], [])
         self.assertEqual(result["unknown_useful_threads"], [])
+
+
+class MpiGpuUsefulPerDeviceTests(unittest.TestCase):
+
+    @staticmethod
+    def _raw_data(**changes):
+        # XSHELLS, 32 processes and 32 GPUs with several streams each.
+        values = {
+            'useful_host': 25432.40,
+            'useful_host_max': 895.03,
+            'useful_device': 1053165.80,
+            'useful_device_max': 33117.99,
+            'count_host_threads': 32,
+            'count_devices': 32,
+        }
+        values.update(changes)
+        return {key: {'t': value} for key, value in values.items()}
+
+    def test_units_are_host_threads_and_physical_devices(self):
+        useful_avg, useful_max = mpi_gpu_useful_per_device(
+            self._raw_data(), 't')
+        runtime = 51477.827
+
+        self.assertAlmostEqual(useful_avg, 1078598.20 / 64)
+        self.assertEqual(useful_max, 33117.99)
+        load_balance = useful_avg / useful_max
+        comm_eff = useful_max / runtime
+        self.assertAlmostEqual(load_balance * 100.0, 50.89, places=2)
+        self.assertAlmostEqual(comm_eff * 100.0, 64.33, places=2)
+        # The product is the Hybrid Parallel Efficiency of H + D units.
+        self.assertAlmostEqual(load_balance * comm_eff,
+                               1078598.20 / (64 * runtime))
+
+    def test_maximum_can_be_on_the_host(self):
+        _, useful_max = mpi_gpu_useful_per_device(
+            self._raw_data(useful_host_max=40000.0), 't')
+
+        self.assertEqual(useful_max, 40000.0)
+
+    def test_not_available(self):
+        for changes in ({'useful_host': 'Non-Avail'},
+                        {'useful_device_max': 'Non-Avail'},
+                        {'count_devices': 0},
+                        {'useful_host_max': 0.0, 'useful_device_max': 0.0}):
+            self.assertIsNone(
+                mpi_gpu_useful_per_device(self._raw_data(**changes), 't'))
+
+        self.assertIsNone(mpi_gpu_useful_per_device({}, 't'))
+
 
 
 if __name__ == "__main__":
