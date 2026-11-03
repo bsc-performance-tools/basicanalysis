@@ -213,6 +213,21 @@
 
 ### Fixes
 
+- **Parallel Runtime Model of MPI+CUDA and MPI+HIP counted GPU streams as
+  resources.** The application level now uses the Host threads and the physical
+  devices, as the User Guide describes, in both `-pop-model` options.
+  - **Affected, MPI+CUDA and MPI+HIP only:** Parallel Efficiency, Load Balance,
+    and Communication Efficiency; Hybrid Parallel Efficiency; the CUDA or HIP
+    Parallel Efficiency, Load Balance, and Communication Efficiency; and Global
+    Efficiency. The change is large when a device has several streams
+    (for example, CUDA Parallel Efficiency from 25.10% to 49.15%), and small with
+    one stream per device.
+  - **Classic model:** its rows did not multiply, because Hybrid Parallel
+    Efficiency and Global Efficiency were per device and the other rows per
+    stream. They now multiply.
+  - **Interactive report:** these values no longer depend on `-pop-model`.
+  - **Not affected:** the MPI metrics, Computation Scalability, the Host and
+    Device metrics, and every other programming model.
 - Fixed the Parallel Runtime Model of the interactive report for GPU
   applications without MPI: it showed an empty *MPI + X* model instead of
   the CUDA (or HIP) Parallel Runtime Model. Serialization and Transfer
