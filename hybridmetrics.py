@@ -112,7 +112,17 @@ mod_hybrid_factors_doc = OrderedDict([
                                ('omp_parallel_eff', '   -- OpenMP Parallel efficiency'),
                                ('omp_load_balance', '      -- OpenMP Load balance'),
                                ('omp_comm_eff', '      -- OpenMP Communication efficiency'),
-                               ('useful_during_mpi', '      -- of which, useful work during MPI')])
+                               ('useful_during_mpi', '      -- of which, useful work during MPI'),
+                               ('nh_mpi_parallel_eff', '-- Non-hierarchical MPI Parallel efficiency'),
+                               ('nh_mpi_load_balance', '   -- Non-hierarchical MPI Load balance'),
+                               ('nh_mpi_comm_eff', '   -- Non-hierarchical MPI Communication efficiency'),
+                               ('nh_omp_parallel_eff', '-- Non-hierarchical OpenMP Parallel efficiency'),
+                               ('nh_omp_load_balance', '   -- Non-hierarchical OpenMP Load balance'),
+                               ('nh_omp_comm_eff', '   -- Non-hierarchical OpenMP Communication efficiency')])
+
+NON_HIERARCHICAL_ROWS = ('nh_mpi_parallel_eff', 'nh_mpi_load_balance',
+                         'nh_mpi_comm_eff', 'nh_omp_parallel_eff',
+                         'nh_omp_load_balance', 'nh_omp_comm_eff')
 
 HYBRID_LB_SPLIT = ('lb_between_processes', 'lb_inside_processes')
 
@@ -326,6 +336,25 @@ def mpi_gpu_useful_per_device(raw_data, trace):
         return None
 
     return useful_total / units, useful_max
+
+
+def non_hierarchical_factors(outside_avg, outside_max, runtime, parallel_eff,
+                             load_balance, comm_eff):
+    """Hybrid model without the hierarchical limitation: MPI is not blamed
+    for the units that work during its calls. Each row keeps the multiplications
+    of the model: Hybrid = MPI x inner, and PE = LB x Comm."""
+    mpi_parallel_eff = outside_avg / runtime * 100.0
+    mpi_load_balance = outside_avg / outside_max * 100.0
+    mpi_comm_eff = outside_max / runtime * 100.0
+
+    return {
+        'nh_mpi_parallel_eff': mpi_parallel_eff,
+        'nh_mpi_load_balance': mpi_load_balance,
+        'nh_mpi_comm_eff': mpi_comm_eff,
+        'nh_omp_parallel_eff': parallel_eff / mpi_parallel_eff * 100.0,
+        'nh_omp_load_balance': load_balance / mpi_load_balance * 100.0,
+        'nh_omp_comm_eff': comm_eff / mpi_comm_eff * 100.0,
+    }
 
 
 def hybrid_lb_split(useful_avg, useful_max, process_mean_max):
@@ -1595,6 +1624,30 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except (KeyError, TypeError, ValueError, ZeroDivisionError):
             hybrid_factors['useful_during_mpi'][trace] = 'NaN'
 
+        # -------> The same model without the hierarchical limitation.
+        for key in NON_HIERARCHICAL_ROWS:
+            hybrid_factors[key][trace] = (
+                'N/A' if not trace_mode[trace].startswith("Detailed+MPI+")
+                else 'Non-Avail')
+
+        try:
+            if (outmpi_measures
+                    and trace_mode[trace].startswith("Detailed+MPI+")
+                    and raw_data['nh_outside_avg'][trace] != 'Non-Avail'):
+                factors = non_hierarchical_factors(
+                    float(raw_data['nh_outside_avg'][trace]),
+                    float(raw_data['nh_outside_max'][trace]),
+                    float(raw_data['runtime'][trace]),
+                    float(mod_factors['parallel_eff'][trace]),
+                    float(mod_factors['load_balance'][trace]),
+                    float(mod_factors['comm_eff'][trace]))
+
+                for key, value in factors.items():
+                    hybrid_factors[key][trace] = value
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            for key in NON_HIERARCHICAL_ROWS:
+                hybrid_factors[key][trace] = 'NaN'
+
         # -------> Hybrid Load Balance by the distribution of useful time
         # (CPU-based hybrid executions). MPI+GPU units are not threads of a
         # process.
@@ -2291,6 +2344,12 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
                                                      trace_mode_doc[len("Detailed+MPI+"):] + " Load Balance"
         mod_hybrid_factors_doc['omp_comm_eff'] = "      -- " + \
                                                  trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
+        mod_hybrid_factors_doc['nh_omp_parallel_eff'] = "-- Non-hierarchical " + \
+            trace_mode_doc[len("Detailed+MPI+"):] + " Parallel efficiency"
+        mod_hybrid_factors_doc['nh_omp_load_balance'] = "   -- Non-hierarchical " + \
+            trace_mode_doc[len("Detailed+MPI+"):] + " Load balance"
+        mod_hybrid_factors_doc['nh_omp_comm_eff'] = "   -- Non-hierarchical " + \
+            trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
 
     print('\n Overview of the Efficiency metrics:')
 
@@ -2496,6 +2555,12 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
                                                      trace_mode_doc[len("Detailed+MPI+"):] + " Load Balance"
         mod_hybrid_factors_doc['omp_comm_eff'] = "      -- " + \
                                                  trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
+        mod_hybrid_factors_doc['nh_omp_parallel_eff'] = "-- Non-hierarchical " + \
+            trace_mode_doc[len("Detailed+MPI+"):] + " Parallel efficiency"
+        mod_hybrid_factors_doc['nh_omp_load_balance'] = "   -- Non-hierarchical " + \
+            trace_mode_doc[len("Detailed+MPI+"):] + " Load balance"
+        mod_hybrid_factors_doc['nh_omp_comm_eff'] = "   -- Non-hierarchical " + \
+            trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
     
     # print('')
     print('\n Overview of the Efficiency metrics:')

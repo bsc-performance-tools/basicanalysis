@@ -28,3 +28,4 @@ behaviour of the released tool.
 | [I/O Performance Model and Diagnostic Metrics](io_performance_model.rst) | Implementation in progress (factors, time diagnostics, request sizes, and files done) | `feature/io-metrics` |
 | [GPU Metrics: States, Events, and the `.row` File](gpu_states_events_row.rst) | Decision recorded; future work proposed (Paraver views, fallback without `.row`) | — |
 | [Child Metrics of the Hybrid Parallel Runtime Model](runtime_model_views.rst) | Implemented on its branch, under test | `feature/runtime-model-views` |
+| [Hybrid Model without the Hierarchical Limitation](non_hierarchical_model.rst) | Implemented on its branch, under test | `feature/non-hierarchical-model` |

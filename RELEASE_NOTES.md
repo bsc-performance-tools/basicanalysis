@@ -4,6 +4,13 @@
 
 ### New Features
 
+- **Hybrid model without the hierarchical limitation.** New rows, in the CSV and the
+  standard output of MPI+X traces: Non-hierarchical MPI and inner Parallel efficiency,
+  Load balance, and Communication efficiency. MPI is not blamed for threads or devices
+  that work during its calls, and the MPI calls of any Host thread count. Hybrid values
+  and the classic rows do not change. Hierarchical codes get the same values in the new
+  rows as in the classic rows.
+
 - **New child metrics in the hybrid model.** The metrics of the model keep their
   names, values, and multiplications.
   - **Load Balance between and inside processes** (CPU-based hybrid executions):

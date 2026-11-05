@@ -75,6 +75,8 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_hybrid_gpu_max', 'Hybrid MPI+GPU useful duration (maximum)'),
                             ('useful_device', 'Useful duration on the device'),
                             ('useful_during_mpi', 'Useful duration during the MPI calls of the first thread (total)'),
+                            ('nh_outside_avg', 'Non-hierarchical time not blamed on MPI per unit (average)'),
+                            ('nh_outside_max', 'Non-hierarchical time not blamed on MPI per unit (maximum)'),
                             ('useful_process_mean_max', 'Useful duration per thread of the process with the most (maximum)'),
                             ('useful_device_max', 'Useful duration on the device (maximum)'),
                             ('useful_memtransf_device', 'Useful+MemoryTransfer on the device'),
@@ -2834,6 +2836,128 @@ def useful_during_mpi_time(mpi_intervals_path, useful_stats_path, row_path,
     return total
 
 
+def _iter_timeline_values(path):
+    """(thread, start, end, value) of a paramedir timeline, with the zeros."""
+    with open(path) as f:
+        for raw_line in f:
+            parts = raw_line.strip().split('\t')
+
+            if len(parts) < 4:
+                continue
+
+            try:
+                start = float(parts[1])
+                duration = float(parts[2])
+                value = float(parts[3])
+            except ValueError:
+                continue
+
+            yield (normalize_thread_object(parts[0].strip()), start,
+                   start + duration, value)
+
+
+def non_hierarchical_outside_mpi(mpi_intervals_path, useful_stats_path, row_path,
+                                 runtime, per_device=None):
+    """Time not blamed on MPI, per unit of each process, for codes where
+    threads or devices work during MPI or any thread calls MPI.
+
+    M(i) is the union of the MPI calls of the Host threads of process i. A unit
+    is blamed for M(i) except while it does useful work:
+
+        O'(i) = (T - |M(i)|) + sum_j U(M)(i,j) / t(i)
+
+    The first thread is treated like any other unit. With MPI only on the first
+    thread and no useful work during it, O'(i) is the Outside MPI time of the
+    hierarchical model. The mean follows that model too: weighted by the threads
+    in CPU-based executions, and over the MPI ranks in MPI+GPU.
+
+    Returns {'avg', 'max'}, or None without processes.
+    """
+    thread_to_device = build_thread_to_device_map_from_row(row_path)
+
+    # The timeline has every thread of the trace, also the ones without MPI
+    # calls. A .row file can describe another execution.
+    host_threads = set()
+    calls = defaultdict(list)
+
+    for thread_obj, start, end, value in _iter_timeline_values(mpi_intervals_path):
+        if thread_obj in thread_to_device:
+            continue
+
+        rank_id = mpi_rank_from_thread_object(thread_obj)
+
+        if rank_id is None:
+            continue
+
+        host_threads.add(thread_obj)
+
+        if value > 0.0:
+            calls[rank_id].append((start, end))
+
+    if not host_threads:
+        return None
+
+    units = defaultdict(int)
+
+    for thread_obj in host_threads:
+        units[mpi_rank_from_thread_object(thread_obj)] += 1
+
+    # A device shared by several processes counts in the first one.
+    device_rank = {}
+
+    for thread_obj, device_key in sorted(thread_to_device.items()):
+        device_rank.setdefault(device_key, mpi_rank_from_thread_object(thread_obj))
+
+    if per_device:
+        for device_key in per_device:
+            rank_id = device_rank.get(device_key)
+
+            if rank_id in units:
+                units[rank_id] += 1
+
+    mpi_by_rank = {}
+
+    for rank_id, intervals in calls.items():
+        merged = merge_intervals(intervals)
+        mpi_by_rank[rank_id] = ([start for start, _ in merged], merged)
+
+    useful = defaultdict(float)
+
+    for thread_obj, start, end in iter_gpu_stream_stats(
+            useful_stats_path, positive_only=True):
+        if thread_obj in thread_to_device:
+            continue
+
+        rank_id = mpi_rank_from_thread_object(thread_obj)
+
+        if rank_id in mpi_by_rank:
+            useful[rank_id] += _time_during_intervals(start, end, mpi_by_rank[rank_id])
+
+    if per_device:
+        for device_key, values in per_device.items():
+            rank_id = device_rank.get(device_key)
+
+            if rank_id in mpi_by_rank:
+                for start, end in values['useful_intervals_merged']:
+                    useful[rank_id] += _time_during_intervals(
+                        start, end, mpi_by_rank[rank_id])
+
+    per_rank = {}
+
+    for rank_id, count in units.items():
+        merged = mpi_by_rank.get(rank_id, ([], []))[1]
+        outside = runtime - sum_intervals(merged)
+        per_rank[rank_id] = outside + useful[rank_id] / count
+
+    if per_device:
+        average = sum(per_rank.values()) / len(per_rank)
+    else:
+        average = (sum(per_rank[r] * units[r] for r in per_rank)
+                   / sum(units[r] for r in per_rank))
+
+    return {'avg': average, 'max': max(per_rank.values())}
+
+
 # ----------------------------------------------------------------------
 # JOBS setting depending on Memory and traces size.
 # ----------------------------------------------------------------------
@@ -4058,6 +4182,8 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
 
 
     trace_raw_data['useful_during_mpi'] = 'Non-Avail'
+    trace_raw_data['nh_outside_avg'] = 'Non-Avail'
+    trace_raw_data['nh_outside_max'] = 'Non-Avail'
 
     if is_mpi_inner and os.path.exists(mpi_intervals_stats):
         useful_stats = gpu_useful_stats or cpu_useful_stats
@@ -4069,6 +4195,17 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
                 row_path,
                 per_device=gpu_agg.get('per_device'),
             )
+            non_hierarchical = non_hierarchical_outside_mpi(
+                mpi_intervals_stats,
+                useful_stats,
+                row_path,
+                float(trace_raw_data['runtime']),
+                per_device=gpu_agg.get('per_device'),
+            )
+
+            if non_hierarchical is not None:
+                trace_raw_data['nh_outside_avg'] = non_hierarchical['avg']
+                trace_raw_data['nh_outside_max'] = non_hierarchical['max']
 
     # The timeline of every thread can be large.
     if cpu_useful_stats and not cmdl_args.debug:
@@ -4136,15 +4273,17 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         move_files(trace_name + '.2dh_BurstEff.stats.csv', local_path_dest, cmdl_args)
         move_files(trace_name + '.burst_useful.stats.csv', local_path_dest, cmdl_args)
 
+    # Every MPI+X execution: these files must not stay next to the trace.
+    for path in (mpi_intervals_stats,
+                 trace_name + '.mpi_calls_intervals.stats.legend.csv',
+                 trace_name + '.useful_threads.stats.csv',
+                 trace_name + '.useful_threads.stats.legend.csv'):
+        if os.path.exists(path):
+            move_files(path, local_path_dest, cmdl_args)
+
     if is_mpi_gpu or is_host_gpu:
         if os.path.exists(trace_name + '.useful_host.stats.csv'):
             move_files(trace_name + '.useful_host.stats.csv', local_path_dest, cmdl_args)
-        for path in (mpi_intervals_stats,
-                     trace_name + '.mpi_calls_intervals.stats.legend.csv',
-                     trace_name + '.useful_threads.stats.csv',
-                     trace_name + '.useful_threads.stats.legend.csv'):
-            if os.path.exists(path):
-                move_files(path, local_path_dest, cmdl_args)
         if os.path.exists(trace_name + '.useful_streams.stats.csv'):
             move_files(trace_name + '.useful_streams.stats.csv', local_path_dest, cmdl_args)
         if os.path.exists(trace_name + '.useful_streams.stats.legend.csv'):
