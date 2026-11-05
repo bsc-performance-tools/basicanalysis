@@ -1306,6 +1306,36 @@ In MPI+GPU, the units are the Host threads and the physical devices, with the
 streams of each device flattened. A device shared by several processes is compared
 with the MPI calls of the first of them.
 
+.. _non-hierarchical-model:
+
+Model without the Hierarchical Limitation
+-----------------------------------------
+
+The hybrid model was designed for hierarchical codes, where the threads are blocked
+or idle during MPI. The **Non-hierarchical** rows follow the same model for codes where
+threads or devices work during MPI, or where any thread calls MPI: MPI is blamed for
+its time and for the units waiting for it, not for the units that work.
+
+Let :math:`M_i` be the union of the MPI calls of the Host threads of process :math:`i`,
+:math:`t_i` its units, and :math:`U^M_{i,j}` the useful time of unit :math:`j` during
+:math:`M_i`. Then:
+
+.. math::
+
+   O'_i = (T - |M_i|) + \frac{1}{t_i} \sum_j U^M_{i,j}
+
+Non-hierarchical MPI Parallel Efficiency, Load Balance, and Communication Efficiency use
+:math:`O'_i` in place of the time outside MPI, and the inner rows are the Hybrid rows
+divided by them, so all the multiplications hold. Hybrid values do not change.
+
+A hierarchical code gets the same values as in the classic rows. The rows are always in
+``modelfactors.csv`` and the standard output. The report shows them only when they
+differ from the classic rows by 0.05 points or more in a trace.
+
+Inner Load Balance and Communication Efficiency can still exceed 100%, because they
+compare two maxima and MPI is still blamed first. Idle time during MPI is blamed on MPI,
+although in task-based codes it can have another cause, for example no ready tasks.
+
 
 Hybrid MPI+GPU Metrics
 ======================

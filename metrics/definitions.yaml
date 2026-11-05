@@ -559,6 +559,162 @@ metrics:
     children: []
     sources:
     - basicanalysis_hybrid_openmp_decomposition
+  nh_mpi_parallel_eff:
+    name: Non-hierarchical MPI Parallel Efficiency
+    short_name: Non-hier. MPI PE
+    family: mpi
+    analysis_level: runtime_contribution
+    metric_type: compound_efficiency
+    definition: MPI Parallel Efficiency without the limitation to hierarchical codes. MPI
+      is blamed for its time and for the units waiting for it, not for threads or devices
+      that do useful work during its calls, and the MPI calls of any Host thread count.
+      A hierarchical code gets the same value as MPI Parallel Efficiency.
+    formula:
+      text: Non-hier. MPI PE = mean O' / runtime, O' = (runtime - time in MPI calls) + useful
+        during MPI calls / units of the process
+      latex: PE_{MPI} = \\frac{\\overline{O'}}{T}, \\quad O'_i = (T - |M_i|) + \\frac{1}{t_i}\\sum_j
+        U^M_{i,j}
+    interpretation:
+      low: Low values indicate that MPI blocks the units of the processes.
+      high: High values indicate that MPI blocks little work, also when calls are long.
+      above_100: Values above 100% are not expected and should be checked.
+    typical_causes:
+    - Communication or synchronization that blocks the units of a process
+    next_steps:
+    - Compare with MPI Parallel Efficiency to see how much work overlaps MPI.
+    children:
+    - nh_mpi_load_balance
+    - nh_mpi_comm_eff
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
+  nh_mpi_load_balance:
+    name: Non-hierarchical MPI Load Balance
+    short_name: Non-hier. MPI LB
+    family: mpi
+    analysis_level: runtime_contribution
+    metric_type: efficiency
+    definition: MPI Load Balance using the time not blamed on MPI per unit, O'.
+    formula:
+      text: Non-hier. MPI LB = mean O' / maximum O'
+      latex: LB_{MPI} = \\frac{\\overline{O'}}{\\max_i O'_i}
+    interpretation:
+      low: Low values indicate that MPI blocks some processes more than others.
+      high: High values indicate that MPI blocks the processes similarly.
+      above_100: Values above 100% are not expected and should be checked.
+    typical_causes:
+    - Processes that wait in MPI for others
+    next_steps:
+    - Compare the MPI time and the useful work during MPI per process.
+    children: []
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
+  nh_mpi_comm_eff:
+    name: Non-hierarchical MPI Communication Efficiency
+    short_name: Non-hier. MPI Comm
+    family: mpi
+    analysis_level: runtime_contribution
+    metric_type: efficiency
+    definition: MPI Communication Efficiency using the time not blamed on MPI per unit, O'.
+    formula:
+      text: Non-hier. MPI Comm = maximum O' / runtime
+      latex: Comm_{MPI} = \\frac{\\max_i O'_i}{T}
+    interpretation:
+      low: Low values indicate that even the process least blocked by MPI is blocked for a
+        large part of the runtime.
+      high: High values indicate that at least one process is rarely blocked by MPI.
+      above_100: Values above 100% are not expected and should be checked.
+    typical_causes:
+    - Communication that blocks all the processes
+    next_steps:
+    - Inspect the MPI calls of the process with the largest O'.
+    children: []
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
+  nh_omp_parallel_eff:
+    name_template: Non-hierarchical {runtime} Parallel Efficiency
+    short_name_template: Non-hier. {runtime} PE
+    family_template: '{runtime_family}'
+    analysis_level: runtime_contribution
+    metric_type: compound_efficiency
+    definition_template: >
+      {runtime} Parallel Efficiency when MPI is not blamed for the units that work during
+      its calls: Hybrid Parallel Efficiency divided by Non-hierarchical MPI Parallel
+      Efficiency. A hierarchical code gets the same value as {runtime} Parallel Efficiency.
+    formula:
+      text_template: Non-hier. {runtime} PE = Hybrid PE / Non-hier. MPI PE
+      latex_template: PE_{{{runtime}}} = \\frac{{PE_{{Hybrid}}}}{{PE_{{MPI}}}}
+    interpretation:
+      low_template: >
+        Low values indicate parallel inefficiency that MPI does not explain, also taking
+        into account the work during MPI.
+      high_template: >
+        High values indicate little parallel inefficiency outside what MPI blocks.
+      above_100_template: >
+        Values above 100% are not expected with equal units per process. In MPI+GPU with
+        unequal units per process, the mean over the MPI ranks does not guarantee it.
+    typical_causes_template:
+    - '{runtime} load imbalance'
+    - '{runtime} communication, synchronization, or runtime overhead'
+    next_steps_template:
+    - Compare with {runtime} Parallel Efficiency to see how much work overlaps MPI.
+    children:
+    - nh_omp_load_balance
+    - nh_omp_comm_eff
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
+  nh_omp_load_balance:
+    name_template: Non-hierarchical {runtime} Load Balance
+    short_name_template: Non-hier. {runtime} LB
+    family_template: '{runtime_family}'
+    analysis_level: runtime_contribution
+    metric_type: efficiency
+    definition_template: >
+      Load Balance divided by Non-hierarchical MPI Load Balance.
+    formula:
+      text_template: Non-hier. {runtime} LB = Hybrid LB / Non-hier. MPI LB
+      latex_template: LB_{{{runtime}}} = \\frac{{LB_{{Hybrid}}}}{{LB_{{MPI}}}}
+    interpretation:
+      low_template: >
+        Low values indicate imbalance of the useful time that MPI does not explain.
+      high_template: >
+        High values indicate that MPI explains the imbalance of the useful time.
+      above_100_template: >
+        Values above 100% can appear because the model compares two maxima and blames
+        MPI first. Read it together with Non-hierarchical {runtime} Communication
+        Efficiency.
+    typical_causes_template:
+    - '{runtime} load imbalance'
+    next_steps_template:
+    - Inspect the useful time per unit in the trace.
+    children: []
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
+  nh_omp_comm_eff:
+    name_template: Non-hierarchical {runtime} Communication Efficiency
+    short_name_template: Non-hier. {runtime} Comm
+    family_template: '{runtime_family}'
+    analysis_level: runtime_contribution
+    metric_type: efficiency
+    definition_template: >
+      Communication Efficiency divided by Non-hierarchical MPI Communication Efficiency.
+    formula:
+      text_template: Non-hier. {runtime} Comm = Hybrid Comm / Non-hier. MPI Comm
+      latex_template: Comm_{{{runtime}}} = \\frac{{Comm_{{Hybrid}}}}{{Comm_{{MPI}}}}
+    interpretation:
+      low_template: >
+        Low values indicate loss in the {runtime} runtime that MPI does not explain.
+      high_template: >
+        High values indicate little loss in the {runtime} runtime.
+      above_100_template: >
+        Values above 100% can appear because the model compares two maxima. Read it
+        together with Non-hierarchical {runtime} Load Balance.
+    typical_causes_template:
+    - '{runtime} communication, synchronization, or runtime overhead'
+    next_steps_template:
+    - Inspect the time of the units outside useful work and outside MPI.
+    children: []
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
   lb_between_processes:
     name: Load Balance between processes
     short_name: LB between processes

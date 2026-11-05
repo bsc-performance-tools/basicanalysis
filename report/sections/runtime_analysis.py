@@ -7,6 +7,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Set, Tuple
 
+from metrics.non_hierarchical import differs_from_classic
+
 from ..model import (
     AnalysisContext,
     ReportSection,
@@ -123,6 +125,47 @@ _HYBRID_RUNTIME_METRICS = (
         "of which, useful work during MPI",
         "inner-runtime",
         2,
+    ),
+)
+
+
+# Shown only when they differ from the classic rows.
+_NON_HIERARCHICAL_METRICS = (
+    (
+        "nh_mpi_parallel_eff",
+        "Non-hierarchical MPI Parallel efficiency",
+        "mpi",
+        0,
+    ),
+    (
+        "nh_mpi_load_balance",
+        "Non-hierarchical MPI Load balance",
+        "mpi",
+        1,
+    ),
+    (
+        "nh_mpi_comm_eff",
+        "Non-hierarchical MPI Communication efficiency",
+        "mpi",
+        1,
+    ),
+    (
+        "nh_omp_parallel_eff",
+        "Non-hierarchical {runtime} Parallel efficiency",
+        "inner-runtime",
+        0,
+    ),
+    (
+        "nh_omp_load_balance",
+        "Non-hierarchical {runtime} Load balance",
+        "inner-runtime",
+        1,
+    ),
+    (
+        "nh_omp_comm_eff",
+        "Non-hierarchical {runtime} Communication efficiency",
+        "inner-runtime",
+        1,
     ),
 )
 
@@ -427,6 +470,16 @@ class RuntimeAnalysisBuilder:
                 runtime_name=inner_runtime,
             )
         )
+
+        if differs_from_classic(hybrid_factors):
+            metrics.extend(
+                self._build_available_metrics(
+                    context=context,
+                    source=hybrid_factors,
+                    definitions=_NON_HIERARCHICAL_METRICS,
+                    runtime_name=inner_runtime,
+                )
+            )
 
         # The optional inner-runtime Serialization and Transfer metrics are
         # stored separately from the main hybrid-factor dictionary.
@@ -911,6 +964,20 @@ class RuntimeAnalysisBuilder:
                             ),
                         ),
                     ),
+                ),
+            ),
+            MetricAnalysisTreeNode(
+                metric_id="nh_mpi_parallel_eff",
+                children=(
+                    MetricAnalysisTreeNode(metric_id="nh_mpi_load_balance"),
+                    MetricAnalysisTreeNode(metric_id="nh_mpi_comm_eff"),
+                ),
+            ),
+            MetricAnalysisTreeNode(
+                metric_id="nh_omp_parallel_eff",
+                children=(
+                    MetricAnalysisTreeNode(metric_id="nh_omp_load_balance"),
+                    MetricAnalysisTreeNode(metric_id="nh_omp_comm_eff"),
                 ),
             ),
         )

@@ -49,7 +49,9 @@ Implementation
 already used for Useful Work during MPI. Units are counted from the timeline and not
 from the ``.row`` file: ``unbalancedMPI.row`` describes 6 processes and the trace has 5.
 ``hybridmetrics.non_hierarchical_factors`` gives the rows ``nh_*``. The classic rows do
-not change. The new rows are in the CSV and the standard output, not yet in the report.
+not change. The new rows are in the CSV and the standard output. The report shows them
+below the classic rows only when one differs by 0.05 points or more
+(``metrics/non_hierarchical.py``), so a hierarchical code does not repeat them.
 
 Results
 -------

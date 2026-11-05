@@ -140,5 +140,45 @@ class NonHierarchicalFactorsTests(unittest.TestCase):
             40.0)
 
 
+class ReportRowsTests(unittest.TestCase):
+    def _factors(self, new, classic=70.0):
+        from metrics.non_hierarchical import NON_HIERARCHICAL_PAIRS
+
+        factors = {}
+
+        for new_key, classic_key in NON_HIERARCHICAL_PAIRS:
+            factors[new_key] = {'t': new}
+            factors[classic_key] = {'t': classic}
+
+        return factors
+
+    def test_hierarchical_code_does_not_repeat_the_rows(self):
+        from metrics.non_hierarchical import differs_from_classic
+
+        self.assertFalse(differs_from_classic(self._factors(70.003)))
+
+    def test_code_with_overlap_shows_the_rows(self):
+        from metrics.non_hierarchical import differs_from_classic
+
+        self.assertTrue(differs_from_classic(self._factors(74.0)))
+
+    def test_unavailable_values_are_not_a_difference(self):
+        from metrics.non_hierarchical import differs_from_classic
+
+        self.assertFalse(differs_from_classic(self._factors('Non-Avail')))
+        self.assertFalse(differs_from_classic({}))
+
+    def test_every_row_has_knowledge_for_the_runtime(self):
+        from interactiveplots import _build_hybrid_metric_info
+        from metrics.non_hierarchical import NON_HIERARCHICAL_KEYS
+
+        info = _build_hybrid_metric_info('CUDA')
+
+        for key in NON_HIERARCHICAL_KEYS:
+            self.assertIn('label', info[key])
+
+        self.assertIn('CUDA', info['nh_omp_parallel_eff']['label'])
+
+
 if __name__ == '__main__':
     unittest.main()

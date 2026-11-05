@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from configuration import format_configuration_label
+from metrics.non_hierarchical import NON_HIERARCHICAL_KEYS, differs_from_classic
 from tracemetadata import is_host_gpu_mode
 from iometrics import (
     ACCESS_PATTERN_CLASSES as IO_ACCESS_PATTERN_CLASSES,
@@ -261,6 +262,30 @@ def _build_hybrid_base_metric_info(inner_model):
             "label": "      -- of which, useful work during MPI",
             "short_label": "Useful during MPI",
         },
+        "nh_mpi_parallel_eff": {
+            "label": "Non-hierarchical MPI Parallel efficiency",
+            "short_label": "Non-hier. MPI PE",
+        },
+        "nh_mpi_load_balance": {
+            "label": "  -- Non-hierarchical MPI Load balance",
+            "short_label": " -- Non-hier. MPI LB",
+        },
+        "nh_mpi_comm_eff": {
+            "label": "  -- Non-hierarchical MPI Communication efficiency",
+            "short_label": " -- Non-hier. MPI Comm",
+        },
+        "nh_omp_parallel_eff": {
+            "label": "Non-hierarchical {} Parallel efficiency".format(inner_model),
+            "short_label": "Non-hier. {} PE".format(inner_model),
+        },
+        "nh_omp_load_balance": {
+            "label": "  -- Non-hierarchical {} Load balance".format(inner_model),
+            "short_label": " -- Non-hier. {} LB".format(inner_model),
+        },
+        "nh_omp_comm_eff": {
+            "label": "  -- Non-hierarchical {} Communication efficiency".format(inner_model),
+            "short_label": " -- Non-hier. {} Comm".format(inner_model),
+        },
         "omp_serial_eff": {
             "label": "         -- {} Serialization efficiency".format(inner_model),
             "short_label": "{} Ser".format(inner_model),
@@ -475,6 +500,8 @@ HYBRID_ORDER = [
     "useful_during_mpi",
 ]
 
+NON_HIERARCHICAL_ORDER = list(NON_HIERARCHICAL_KEYS)
+
 NEUTRAL_VALUE_METRICS = {"useful_during_mpi"}
 NEUTRAL_VALUE_COLOR = "#dbe4ee"
 NEUTRAL_VALUE_TEXT_COLOR = "#1f2f40"
@@ -597,7 +624,15 @@ HYBRID_TREE = [
             ]),
             _tree_node("useful_during_mpi"),
         ]),
-    ])
+    ]),
+    _tree_node("nh_mpi_parallel_eff", [
+        _tree_node("nh_mpi_load_balance"),
+        _tree_node("nh_mpi_comm_eff"),
+    ]),
+    _tree_node("nh_omp_parallel_eff", [
+        _tree_node("nh_omp_load_balance"),
+        _tree_node("nh_omp_comm_eff"),
+    ]),
 ]
 
 TALP_TREE = [
@@ -12234,8 +12269,11 @@ def build_basicanalysis_interactive_report_html(metrics_result,
         if inner_model == "OpenMP" and cmdl_args.hyb_mpiomp:
             hybrid_keys += OMP_COMM_ORDER
 
+        if differs_from_classic(hybrid_factors):
+            hybrid_keys += NON_HIERARCHICAL_ORDER
+
         hybrid_sources = {}
-        for key in HYBRID_ORDER:
+        for key in HYBRID_ORDER + NON_HIERARCHICAL_ORDER:
             hybrid_sources[key] = hybrid_factors
         for key in OMP_COMM_ORDER:
             hybrid_sources[key] = hyb_comm_omp_factors
@@ -13760,9 +13798,12 @@ def _build_basicanalysis_printable_report_html(
         if inner_model == "OpenMP" and cmdl_args.hyb_mpiomp:
             hybrid_keys += OMP_COMM_ORDER
 
+        if differs_from_classic(hybrid_factors):
+            hybrid_keys += NON_HIERARCHICAL_ORDER
+
         hybrid_sources = {
             key: hybrid_factors
-            for key in HYBRID_ORDER
+            for key in HYBRID_ORDER + NON_HIERARCHICAL_ORDER
         }
         for key in OMP_COMM_ORDER:
             hybrid_sources[key] = hyb_comm_omp_factors

@@ -134,6 +134,9 @@ work is distributed **between processes** and **inside processes**; see
 :ref:`Load Balance by the distribution of useful time <load-balance-useful-time>`.
 The inner Parallel Efficiency shows **useful work during MPI**, in a neutral color;
 see :ref:`Useful Work during MPI <useful-work-during-mpi>`.
+When an execution does not behave as a hierarchical code, the table also shows the
+**Non-hierarchical** rows; see :ref:`Model without the Hierarchical Limitation
+<non-hierarchical-model>`.
 
 The model can therefore be read in two complementary ways:
 

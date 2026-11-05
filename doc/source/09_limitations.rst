@@ -66,9 +66,11 @@ are considered inactive. The corresponding unused thread capacity can then be
 attributed to the OpenMP serial component.
 
 Useful work during the MPI calls of the first thread of each process is
-reported in :ref:`Useful Work during MPI <useful-work-during-mpi>`. Applications
-that call MPI from other threads, such as task-based codes, are not covered: the
-first thread remains the reference.
+reported in :ref:`Useful Work during MPI <useful-work-during-mpi>`. In the classic
+rows, the first thread remains the reference. The
+:ref:`Non-hierarchical rows <non-hierarchical-model>` also cover useful work during MPI and
+MPI calls from other threads. No real trace with MPI calls from other threads has been
+tested yet, only a controlled trace.
 
 Applications whose runtime behavior substantially violates the assumed
 hierarchical organization, for example through concurrent useful activity
