@@ -64,9 +64,11 @@ def build_argument_parser():
     workload_group = parser.add_mutually_exclusive_group()
     workload_group.add_argument("--workload", metavar="W1,W2,...",
                                 help='use a user-defined workload ratio instead of weak or strong scaling. '
-                                     'Comma-separated workload sizes (e.g. batch sizes), one per trace, in the '
-                                     'order the traces are given; the ratio of each trace is its size divided '
-                                     'by the size of the reference (first sorted) trace')
+                                     'Comma-separated workload sizes (e.g. batch sizes) of the whole application, '
+                                     'one per trace, in the order the traces are given; the ratio of each trace is '
+                                     'its size divided by the size of the reference (first sorted) trace. Used for '
+                                     'Speedup and Scaling Efficiency, and as the default for the Host and Device '
+                                     'workloads')
     workload_group.add_argument("--ratios-workload", metavar="R1,R2,...",
                                 help='same as --workload, but the values are already the workload ratios '
                                      'of each trace relative to the reference trace')
@@ -75,7 +77,9 @@ def build_argument_parser():
         domain_group.add_argument("--{}-workload".format(domain), metavar="W1,W2,...",
                                   help='{0} workload sizes, one per trace, for the {0} metrics of the Host/Device '
                                        'model (MPI+GPU, GPU without MPI, nsys2prv); default: the workload of '
-                                       '--workload. Needs --workload or --ratios-workload'.format(unit))
+                                       '--workload. Needs --workload or --ratios-workload, also when both the Host '
+                                       'and Device workloads are given, because Speedup and Scaling Efficiency use '
+                                       'the workload of the whole application'.format(unit))
         domain_group.add_argument("--{}-ratios-workload".format(domain), metavar="R1,R2,...",
                                   help='same as --{}-workload, but the values are already the workload '
                                        'ratios'.format(domain))
