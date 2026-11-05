@@ -117,6 +117,9 @@ metrics.
   throughput (or IPC).
 * Kernels still running at the end of a cut trace are not counted in the
   kernel contributions and in the GPU threads launched.
+* Some traces record 0 blocks and threads for their kernels (for example an
+  MPI+HIP trace from December 2025). The kernel contributions are available,
+  but Device Work and Throughput Scalability are not.
 
 
 GPU Trace Sources: Extrae and nsys2prv

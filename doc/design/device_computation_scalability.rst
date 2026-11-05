@@ -144,6 +144,12 @@ In Extrae 5.1.3 (``cuda_wrapper_cupti.c``), the blocks per grid are
 ``gridDim.x × gridDim.y × gridDim.z`` and the threads per block
 ``blockDim.x × blockDim.y × blockDim.z``, taken at the launch.
 
+Some Extrae traces swap two codes: ``63000006`` is the kernel instantiation on
+the Host and ``63000009`` the execution on the stream (the same for HIP with
+``63500006`` and ``63500009``). 31 of the 130 GPU traces checked on 2026-11-05
+do it, and the ``.pcf`` label tells which code it is. The blocks and threads
+keep their codes. The rest of this document writes ``63000006``.
+
 A kernel is the interval between a non-zero value of ``63000006`` on a
 stream row and the next zero on the same row. The grid and block events are
 written with the start of the kernel. In nsys2prv traces, event ``63000007``
@@ -299,6 +305,10 @@ largest share of the change of the device time:
 
 The time of the reference is scaled by :math:`r(n)`, so the table explains
 the gap from the ideal of the scaling model. The shares add up to 100 %.
+
+When the gap is below 1 % of the ideal time, the report and the standard output
+do not show the shares; ``device_kernels.csv`` keeps them. On SOD2D HIP (8 nodes)
+a gap of 2.7 ms out of 3.3 s gives shares from −191 % to +178 %.
 
 Proposed columns: kernel (or family), share, calls (reference → trace),
 time (reference → trace), threads launched ratio, time per thread ratio.
@@ -457,7 +467,9 @@ Implementation
 --------------
 
 * ``devicework.py``: kernel scan of the GPU stream rows (CUDA ``63000006``
-  and HIP ``63500006``, with the blocks and threads at ``+5`` and ``+6``;
+  and HIP ``63500006``, or ``63000009`` and ``63500009`` when the ``.pcf``
+  labels them as the execution, with the blocks and threads at ``63000011``,
+  ``63000012``, ``63500011`` and ``63500012``;
   nsys2prv grid and block ``9101``–``9106``), kernel families and short
   names for the tables, the submetrics, and the kernel contributions.
 * ``cfgs/nsys2prv/hwc_sm_issue_clock.cfg``: integral of SM Issue × GPC clock.
@@ -474,7 +486,14 @@ Open questions
 --------------
 
 1. **Tensor indicator.** Left for later (decision of 2026-10-28).
-2. **HIP.** Extrae 5.1.3 records the same blocks and threads for HIP
-   (``hip_wrapper_roctracer.c``: ``hipLaunchKernel``,
-   ``hipModuleLaunchKernel``, ``hipLaunchCooperativeKernel``); the event
-   codes in a HIP trace must still be checked with a real trace.
+
+HIP (checked on 2026-11-05)
+---------------------------
+
+Extrae records the blocks and threads for HIP
+(``hip_wrapper_roctracer.c``: ``hipLaunchKernel``, ``hipModuleLaunchKernel``,
+``hipLaunchCooperativeKernel``). SOD2D (1, 4 and 8 nodes) and CloverLeaf have
+real values on the stream rows. On SOD2D the full analysis gives Device Work
+Scalability 100.00 %, and Device Throughput Scalability explains the
+rest. The Laplace traces of December 2025 record 0 blocks and threads: Device
+Work and Throughput Scalability are not available, with a warning.

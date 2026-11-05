@@ -104,6 +104,40 @@ class KernelScanTests(unittest.TestCase):
         self.assertAlmostEqual(stencil[1], 0.3)  # 200 + 100 ns in us
         self.assertEqual(stencil[2], 2 * 4 * 256)
 
+    def test_execution_event_comes_from_the_pcf_labels(self):
+        # Some Extrae versions swap the codes: base + 6 is the instantiation
+        # on the Host and base + 9 the execution on the stream.
+        pcf = (
+            "EVENT_TYPE\n"
+            "0   63000011 CUDA Kernel blocks per grid\n"
+            "0   63000012 CUDA Kernel threads per block\n"
+            "0   63000006 CUDA kernel instantiation\n"
+            "0   63000009 CUDA kernel execution\n"
+            "VALUES\n"
+            "3 stencil_kernel\n\n"
+        )
+        prv = (
+            "#Paraver (01/01/2026 at 00:00):1000_ns:1(2):1:1(2:1),1\n"
+            "2:1:1:1:1:50:63000006:3\n"
+            "2:1:1:1:1:60:63000006:0\n"
+            "2:2:1:1:2:100:63000009:3:63000011:4:63000012:256\n"
+            "2:2:1:1:2:300:63000009:0\n"
+        )
+        row = (
+            "LEVEL THREAD SIZE 2\n"
+            "THREAD 1.1.1\n"
+            "CUDA-D1.S1-node1\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            base = _write_trace(directory, 'swapped', prv, row, pcf)
+            result = scan_device_kernels(base + '.prv', base + '.pcf',
+                                         base + '.row')
+
+        self.assertEqual(result['kernels'], 1)
+        self.assertEqual(result['threads'], 4 * 256)
+        self.assertEqual(list(result['families']), ['stencil_kernel'])
+        self.assertAlmostEqual(result['families']['stencil_kernel'][1], 0.2)
+
     def test_nsys2prv_grid_and_families(self):
         with tempfile.TemporaryDirectory() as directory:
             base = _write_trace(directory, 'nsys', NSYS_PRV, NSYS_ROW, NSYS_PCF)
@@ -246,6 +280,20 @@ class DecompositionTests(unittest.TestCase):
 
 
 class ContributionTests(unittest.TestCase):
+
+    def test_small_gap_is_marked(self):
+        def contributions(time_b):
+            raw_data = {DEVICE_KERNELS_KEY: {
+                'a': {'k': [1, 1000.0, 1]},
+                'b': {'k': [1, time_b, 1]},
+            }}
+            return kernel_contributions(raw_data, ['a', 'b'],
+                                        lambda trace: 1.0)['b']
+
+        self.assertTrue(contributions(1009.0)['small_gap'])
+        self.assertTrue(contributions(991.0)['small_gap'])
+        self.assertFalse(contributions(1010.0)['small_gap'])
+        self.assertFalse(contributions(900.0)['small_gap'])
 
     def test_shares_add_up_to_100(self):
         raw_data = {DEVICE_KERNELS_KEY: {

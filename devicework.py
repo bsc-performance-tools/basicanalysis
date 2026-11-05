@@ -69,12 +69,16 @@ from tracemetadata import (
 )
 
 
-# Kernel execution on a GPU stream (CUDA, HIP). In Extrae traces the blocks
-# per grid and the threads per block of the kernel follow the same base
-# (63000011, 63000012); nsys2prv writes the grid and block dimensions.
-KERNEL_EXECUTION_EVENTS = (63000006, 63500006)
-EXTRAE_BLOCKS_OFFSET = 5
-EXTRAE_THREADS_OFFSET = 6
+# Kernel execution on a GPU stream (CUDA, HIP). The event is base + 6 in most
+# traces, but in some Extrae versions base + 6 is the instantiation on the
+# Host and the execution is base + 9, so the .pcf label decides. The blocks
+# per grid and the threads per block are base + 11 and base + 12 in both;
+# nsys2prv writes the grid and block dimensions.
+KERNEL_EVENT_BASES = (63000000, 63500000)
+KERNEL_EXECUTION_OFFSET = 6
+KERNEL_INSTANTIATION_OFFSET = 9
+EXTRAE_BLOCKS_OFFSET = 11
+EXTRAE_THREADS_OFFSET = 12
 NSYS2PRV_GRID_EVENTS = (9101, 9102, 9103)
 NSYS2PRV_BLOCK_EVENTS = (9104, 9105, 9106)
 
@@ -85,6 +89,8 @@ NSYS2PRV_STREAM_LABEL_RE = re.compile(r"^(?:CUDA|HIP)-D\d+\.S\d+(?:-\S+)?\s*$")
 # ends with the tile configuration (nvjet_sm90_tst_192x192_64x4_2x1_v_bz_TNN).
 # The family is the name without it.
 KERNEL_TILE_SUFFIX_RE = re.compile(r"_\d+x\d+(?:_.*)?$")
+
+_PCF_EVENT_TYPE_RE = re.compile(r"^\s*\d+\s+(\d+)\s+(.*\S)\s*$")
 
 _HEADER_TIME_RE = re.compile(r"^#Paraver \([^)]*\):(\d+)(?:_(ns|us))?:")
 
@@ -121,6 +127,14 @@ mod_device_work_factors_doc = OrderedDict([
 
 # Kernels listed in the contribution table; the rest are added up.
 TOP_KERNELS = 10
+
+# Below this fraction of the ideal kernel time, the change is small compared
+# with the variation of each kernel, and the shares are large numbers of
+# opposite sign that explain nothing: the tables do not show them.
+SMALL_GAP_FRACTION = 0.01
+SMALL_GAP_NOTE = ('The kernel time is within 1% of the ideal: the shares are '
+                  'not shown, because they would only reflect small '
+                  'variations between kernels.')
 
 
 def kernel_family(name):
@@ -171,11 +185,38 @@ def stream_rows(prv_file, row_path):
     return rows
 
 
-def _kernel_threads(values, kernel_event):
+def kernel_execution_events(pcf_path):
+    """Kernel execution event of each runtime: {event: base}.
+
+    Base + 6 unless the .pcf labels it as the instantiation and labels
+    base + 9 as the execution.
+    """
+    labels = {}
+    try:
+        with open(pcf_path, errors='replace') as pcf:
+            for line in pcf:
+                match = _PCF_EVENT_TYPE_RE.match(line)
+                if match:
+                    labels[int(match.group(1))] = match.group(2).lower()
+    except OSError:
+        pass
+
+    events = {}
+    for base in KERNEL_EVENT_BASES:
+        offset = KERNEL_EXECUTION_OFFSET
+        if ('kernel instantiation' in labels.get(base + offset, '')
+                and 'kernel execution' in labels.get(
+                    base + KERNEL_INSTANTIATION_OFFSET, '')):
+            offset = KERNEL_INSTANTIATION_OFFSET
+        events[base + offset] = base
+    return events
+
+
+def _kernel_threads(values, base):
     """GPU threads launched by a kernel, from the events of its start."""
-    blocks = values.get(kernel_event + EXTRAE_BLOCKS_OFFSET)
+    blocks = values.get(base + EXTRAE_BLOCKS_OFFSET)
     if blocks is not None:
-        return blocks * values.get(kernel_event + EXTRAE_THREADS_OFFSET, 0)
+        return blocks * values.get(base + EXTRAE_THREADS_OFFSET, 0)
     if NSYS2PRV_GRID_EVENTS[0] in values:
         threads = 1
         for event in NSYS2PRV_GRID_EVENTS + NSYS2PRV_BLOCK_EVENTS:
@@ -202,12 +243,13 @@ def scan_device_kernels(prv_file, pcf_path, row_path):
         return None
 
     to_us = _time_unit_to_us(prv_file)
+    execution_events = kernel_execution_events(pcf_path)
     names = {}
-    for event in KERNEL_EXECUTION_EVENTS:
+    for event in execution_events:
         for value, label in parse_pcf_event_values(pcf_path, event).items():
             names[(event, value)] = label
 
-    markers = tuple(':{}:'.format(event) for event in KERNEL_EXECUTION_EVENTS)
+    markers = tuple(':{}:'.format(event) for event in execution_events)
     running = {}
     families = {}
     total_kernels = 0
@@ -226,7 +268,7 @@ def scan_device_kernels(prv_file, pcf_path, row_path):
             values = {}
             for i in range(6, len(fields) - 1, 2):
                 values[int(fields[i])] = int(fields[i + 1])
-            for kernel_event in KERNEL_EXECUTION_EVENTS:
+            for kernel_event in execution_events:
                 if kernel_event in values:
                     break
             kernel = values[kernel_event]
@@ -246,7 +288,7 @@ def scan_device_kernels(prv_file, pcf_path, row_path):
                     total_threads += threads
             if kernel != 0:
                 running[row] = (time, (kernel_event, kernel),
-                                _kernel_threads(values, kernel_event))
+                                _kernel_threads(values, execution_events[kernel_event]))
 
     if total_kernels == 0:
         return None
@@ -276,6 +318,10 @@ def add_device_kernels(trace_raw_data, trace, trace_name_control):
     trace_raw_data['device_kernels'] = result['kernels']
     if result['threads'] is not None:
         trace_raw_data['device_threads'] = result['threads']
+    if result['threads'] == 0:
+        print('==WARNING== The trace records 0 blocks and threads for its '
+              'kernels: the Device Work and Throughput Scalability are not '
+              'available.')
     trace_raw_data[DEVICE_KERNELS_KEY] = result['families']
     print('Successfully scanned {} kernels in {:.1f} seconds.'.format(
         result['kernels'], time.time() - start))
@@ -410,8 +456,9 @@ def kernel_contributions(raw_data, trace_list, work_ratio):
     100 %. The reference time is scaled by r, so the table explains the
     gap from the ideal of the scaling model.
 
-    Returns {trace: {'ratio': r, 'gap': U(n) - U(ref) r (us),
-    'rows': [row, ...]}} with the rows sorted
+    Returns {trace: {'ratio': r, 'gap': U(n) - U(ref) r (us), 'small_gap':
+    whether the gap is below SMALL_GAP_FRACTION of U(ref) r, so that the
+    tables do not show the shares, 'rows': [row, ...]}} with the rows sorted
     by the absolute change, each row {'kernel', 'change', 'share',
     'count_ref', 'count', 'time_ref', 'time', 'threads_ref', 'threads'}
     (times in us). Empty without kernel data or with a single trace.
@@ -454,7 +501,12 @@ def kernel_contributions(raw_data, trace_list, work_ratio):
                 'threads': threads,
             })
         rows.sort(key=lambda row: -abs(row['change']))
-        contributions[trace] = {'ratio': ratio, 'gap': gap, 'rows': rows}
+        contributions[trace] = {
+            'ratio': ratio,
+            'gap': gap,
+            'small_gap': abs(gap) < SMALL_GAP_FRACTION * total_ref * ratio,
+            'rows': rows,
+        }
 
     return contributions
 
@@ -557,6 +609,8 @@ def print_device_kernel_tables(contributions, trace_list):
         print('Change from the ideal of the scaling model: {:+.3f} s ({})'.format(
             result['gap'] / 1.0e6,
             'slower' if result['gap'] > 0 else 'faster'))
+        if result['small_gap']:
+            print(SMALL_GAP_NOTE)
         header = ('{:<' + str(name_width) + '} | {:>8} | {:>17} | {:>10} | '
                   '{:>10} | {:>7} | {:>9} | {:>13}').format(
             'Kernel', 'Share', 'Calls ref -> n', 'Time ref s', 'Time s',
@@ -568,8 +622,11 @@ def print_device_kernel_tables(contributions, trace_list):
             name = display.get(row['kernel'], row['kernel'])
             if len(name) > name_width:
                 name = name[:name_width - 3] + '...'
-            share = ('{:.2f}%'.format(row['share'])
-                     if row['share'] != 'NaN' else 'NaN')
+            if result['small_gap']:
+                share = '-'
+            else:
+                share = ('{:.2f}%'.format(row['share'])
+                         if row['share'] != 'NaN' else 'NaN')
             calls = '{} -> {}'.format(row['count_ref'], row['count'])
             print(('{:<' + str(name_width) + '} | {:>8} | {:>17} | {:>10.3f} | '
                    '{:>10.3f} | {:>7} | {:>9} | {:>13}').format(

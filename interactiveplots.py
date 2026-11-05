@@ -15,6 +15,7 @@ from plotly.subplots import make_subplots
 from configuration import format_configuration_label
 from tracemetadata import is_host_gpu_mode
 from devicework import (
+    SMALL_GAP_NOTE,
     kernel_display_names,
     mod_device_work_factors_doc,
     top_kernel_rows,
@@ -2104,7 +2105,8 @@ def _build_device_kernels_card_html(other_metrics, trace_list, trace_labels,
         for row in top_kernel_rows(result['rows']):
             name = display.get(row['kernel'], row['kernel'])
             share = ('{:.1f}%'.format(row['share'])
-                     if row['share'] != 'NaN' else '\u2013')
+                     if row['share'] != 'NaN' and not result['small_gap']
+                     else '\u2013')
             body.append(
                 '<tr><td title="{title}">{name}</td><td>{share}</td>'
                 '<td>{count_ref} \u2192 {count}</td>'
@@ -2130,7 +2132,7 @@ def _build_device_kernels_card_html(other_metrics, trace_list, trace_labels,
         sections.append(
             '<div class="io-files-execution"{trace_attr}><h4>{label} vs {reference} '
             '(r = {ratio:.4g}): {gap:+.3f} s from the ideal ({direction})'
-            '</h4><div class="io-files-table-wrap">'
+            '</h4>{note}<div class="io-files-table-wrap">'
             '<table class="metric-table io-diagnostics-table">'
             '<thead><tr><th>Kernel</th><th>Share</th><th>Calls</th>'
             '<th>Time (s)</th><th>Time \u00d7</th><th>Threads \u00d7</th>'
@@ -2142,6 +2144,8 @@ def _build_device_kernels_card_html(other_metrics, trace_list, trace_labels,
                 ratio=result['ratio'],
                 gap=gap,
                 direction='slower' if gap > 0 else 'faster',
+                note=('<p>{}</p>'.format(html.escape(SMALL_GAP_NOTE))
+                      if result['small_gap'] else ''),
                 body=''.join(body),
             ))
 

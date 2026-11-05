@@ -2319,6 +2319,11 @@ overlap on different streams of a device twice). The shares add up to 100%.
 When the execution is faster than the ideal (:math:`U_n < U_0 \cdot r_n`), a
 positive share is a contribution to the gain.
 
+When :math:`U_n` is within 1% of :math:`U_0 \cdot r_n`, the report and the
+standard output do not show the shares: the denominator is so small that the
+shares become large numbers of opposite sign (the time of each kernel still
+shows what changed). ``device_kernels.csv`` keeps them.
+
 Libraries such as cuBLAS select a different kernel for each problem size; the
 name ends with the tile configuration
 (``nvjet_sm90_tst_192x192_64x4_2x1_v_bz_coopB_TNN``). These kernels are

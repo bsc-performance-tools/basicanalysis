@@ -135,8 +135,9 @@ the GPC clock. With two or more GPU traces, BasicAnalysis also writes:
    the scaling model, the share of the kernel in the change of the device
    time from the ideal, and the calls, time (us), and GPU threads launched of
    the kernel in the reference and in the execution (see
-   :ref:`device-kernel-contributions`). The kernel column has the full name
-   recorded in the trace.
+   :ref:`device-kernel-contributions`). The share is always written, also
+   when the report does not show it because the change is within 1% of the
+   ideal. The kernel column has the full name recorded in the trace.
 
 When the analyzed traces use different programming models, BasicAnalysis
 also writes:

@@ -156,7 +156,10 @@
   of the scaling model (library kernels such as cuBLAS `nvjet_*` grouped by
   family), in the standard output, the Scaling view of the report (one
   execution at a time, with a selector), and the new `device_kernels.csv`. `rawdata.csv` adds the kernels executed and the
-  GPU threads launched.
+  GPU threads launched. The kernel execution event is taken from the `.pcf`
+  label, because some Extrae traces use `63000009` or `63500009` for it. When
+  the kernel time is within 1 % of the ideal, the standard output and the
+  report do not show the shares, and `device_kernels.csv` keeps them.
 
 ### Changes
 
