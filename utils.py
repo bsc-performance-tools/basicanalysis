@@ -66,9 +66,10 @@ def build_argument_parser():
                                 help='use a user-defined workload ratio instead of weak or strong scaling. '
                                      'Comma-separated workload sizes (e.g. batch sizes) of the whole application, '
                                      'one per trace, in the order the traces are given; the ratio of each trace is '
-                                     'its size divided by the size of the reference (first sorted) trace. Used for '
-                                     'Speedup and Scaling Efficiency, and as the default for the Host and Device '
-                                     'workloads')
+                                     'its size divided by the size of the reference (first sorted) trace. The ratio '
+                                     'is used in all the scaling metrics of the model. In the Host/Device model, '
+                                     'it is used directly in Speedup and Scaling Efficiency, and it is the default '
+                                     'for the Host and Device workloads')
     workload_group.add_argument("--ratios-workload", metavar="R1,R2,...",
                                 help='same as --workload, but the values are already the workload ratios '
                                      'of each trace relative to the reference trace')
