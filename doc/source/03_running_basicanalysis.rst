@@ -161,8 +161,10 @@ them does not grow like the workload of the application:
 
 Each pair has the same size and ratio forms as ``--workload`` and
 ``--ratios-workload``, with one value per trace in the same order. They need
-``--workload`` or ``--ratios-workload``: the Host or device workload that is
-not given is that of the application. For example, if the Host does about
+``--workload`` or ``--ratios-workload``, even when both the Host and device
+workloads are given: Speedup and Scaling Efficiency are measured on the whole
+application, so they always use the workload of the application. The Host or
+device workload that is not given is also that of the application. For example, if the Host does about
 the same work for every batch size (the same number of steps and kernel
 launches) while the GPU work grows with the batch:
 
