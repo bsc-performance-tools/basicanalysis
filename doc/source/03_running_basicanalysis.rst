@@ -46,9 +46,12 @@ BasicAnalysis automatically filters the input list to retain valid Paraver
 traces, including compressed traces.
 
 Traces simulated with *Dimemas* can also be analyzed. BasicAnalysis
-recognizes them by their content, whatever their name: the ``.row`` file
-written by *Dimemas* starts with ``LEVEL SYSTEM SIZE 1`` followed by
-``unnamed_1 ()``. Without a ``.row`` file, the name ``*.sim.prv`` is used. The
+recognizes them by their content, whatever their name, even when they are
+copied without their ``.row`` file: *Dimemas* writes the date of the trace
+header with a two-digit year (``#Paraver (05/11/26 at 14:47)``), while Extrae,
+nsys2prv, and Paraver keep four digits; and the ``.row`` file written by
+*Dimemas* starts with ``LEVEL SYSTEM SIZE 1`` followed by ``unnamed_1 ()``.
+The name ``*.sim.prv`` is only used when the header cannot be read. The
 metrics then describe the simulated execution, and a warning in the standard
 output and in the report explains what *Dimemas* simulates (see
 :ref:`simulated-traces-limitations`). When the ideal simulation of an input

@@ -3,11 +3,21 @@
 """Dimemas simulated traces given as input.
 
 A trace simulated by Dimemas is recognized by its content, not by its name:
-the .row file written by Dimemas starts with "LEVEL SYSTEM SIZE 1" followed
-by "unnamed_1 ()", while Extrae writes "LEVEL CPU SIZE <n>" with the node
-names and nsys2prv writes "LEVEL NODE SIZE <n>". When the trace has no .row
-file, the name *.sim.prv (the name used by BasicAnalysis for its own
-simulations) is used instead.
+
+  1. The '#Paraver' header: Dimemas writes the date with a two-digit year
+     ("#Paraver (05/11/26 at 14:47)"), while Extrae, nsys2prv and the traces
+     cut or filtered with Paraver keep a four-digit year
+     ("#Paraver (16/05/2025 at 19:33)"). The header travels with the .prv, so
+     it also identifies a simulated trace copied or renamed without its .row.
+  2. The .row file written by Dimemas, which starts with "LEVEL SYSTEM SIZE 1"
+     followed by "unnamed_1 ()" (Extrae writes "LEVEL CPU SIZE <n>" with the
+     node names, nsys2prv "LEVEL NODE SIZE <n>").
+  3. Only when the header cannot be read: the name *.sim.prv, used by
+     BasicAnalysis for its own simulations.
+
+Checked on 826 traces (2026-11-06): the two-digit year appears only in
+Dimemas outputs, including one with the .row of its original trace and seven
+without .row.
 
 What Dimemas simulates, and therefore what BasicAnalysis can compute:
 
@@ -16,13 +26,26 @@ What Dimemas simulates, and therefore what BasicAnalysis can compute:
     describe the simulated execution.
   - OpenMP (or Pthreads) worker threads and GPU streams are not simulated:
     they have no states in the simulated trace and the GPU stream labels lose
-    the device. For these traces only the MPI-level metrics are reported.
-  - Dimemas is not run again on a simulated trace, so Serialization and
-    Transfer efficiencies are not available.
+    the device. For these traces only the MPI-level metrics are reported, and
+    Dimemas is not run again: its ideal simulation of a trace without the
+    worker threads is wrong (Laplace MPI+OpenMP: MPI Serialization 18% against
+    99.6% for the original), so Serialization and Transfer are not available.
+  - For pure MPI simulations, Dimemas is run again on the simulated trace, as
+    on any trace, so Serialization and Transfer efficiencies are computed.
+    Dimemas keeps the computation and the dependencies of the processes: with
+    the same CPU speed, Serialization stays that of the original trace, and
+    Transfer shows the effect of the simulated network (100% for an ideal
+    network). This is how two networks are compared.
   - Hardware counters are copied from the original trace. They are consistent
     with the simulated time only when the simulation keeps the CPU speed
     (CPU ratio 1), which the trace does not record: they are reported with a
     warning.
+  - Average frequency is not available: it is computed as cycles per
+    microsecond between counter events, and the simulation changes that time
+    (the MPI time shrinks with the network) while the cycles keep their
+    measured values (siesta, ideal simulation: 33.9 GHz against 3.47 GHz).
+    IPC and Frequency Scalability, computed over useful time, are not
+    affected.
   - Some Dimemas outputs (seen with MPI+CUDA simulations) have state records
     that end long after the end time in their own header. No metric is
     reported for those traces.
@@ -42,14 +65,6 @@ SIMULATED_NAME_SUFFIXES = (".sim.prv", ".sim.prv.gz")
 
 # Value of the metrics that a simulated trace cannot give.
 NOT_AVAILABLE = 'Non-Avail'
-
-# Metrics that need the ideal (Dimemas) simulation of the input trace.
-SIMULATION_METRIC_KEYS = {
-    'mod_factors': ('serial_eff', 'transfer_eff'),
-    'hybrid_factors': ('serial_eff', 'transfer_eff'),
-    'host_factors': ('serial_eff', 'transfer_eff'),
-    'hyb_comm_omp_factors': ('omp_serial_eff', 'omp_transfer_eff'),
-}
 
 # Metrics kept for simulated traces with a second programming model
 # (MPI+OpenMP, MPI+Pthreads, MPI+CUDA, ...): the MPI level, computed from the
@@ -79,6 +94,7 @@ PURE_MPI_MODES = ('Detailed+MPI', 'Burst+MPI')
 # time of its header by more than this fraction.
 END_TIME_TOLERANCE = 0.01
 
+_HEADER_DATE_RE = re.compile(r"^#Paraver \(\d+/\d+/(?P<year>\d+) at ")
 _HEADER_TIME_RE = re.compile(r"^#Paraver \([^)]*\):(?P<time>\d+)(?:_(?P<unit>[a-z]+))?:")
 _UNIT_TO_US = {'ns': 1e-3, 'us': 1.0, 'ms': 1e3, 's': 1e6}
 
@@ -103,15 +119,43 @@ def _first_lines(path, count):
     return tuple(lines)
 
 
+def _read_header(prv_file):
+    """First line of the trace, or None when it cannot be read."""
+    opener = gzip.open if prv_file.endswith('.prv.gz') else open
+    try:
+        with opener(prv_file, 'rt', errors='replace') as trace_file:
+            return trace_file.readline()
+    except (OSError, EOFError):
+        return None
+
+
+def header_year_digits(prv_file):
+    """Digits of the year in the '#Paraver' header date, or None."""
+    line = _read_header(prv_file)
+    match = _HEADER_DATE_RE.match(line or '')
+    return len(match.group('year')) if match else None
+
+
+def _has_dimemas_row(prv_file):
+    row_path = _row_path(prv_file)
+    if not os.path.exists(row_path):
+        return False
+    try:
+        return _first_lines(row_path, 2) == DIMEMAS_ROW_SIGNATURE
+    except OSError:
+        return False
+
+
 def is_simulated_trace(prv_file):
     """True when the trace was written by Dimemas (see the module doc)."""
-    row_path = _row_path(prv_file)
-    if os.path.exists(row_path):
-        try:
-            return _first_lines(row_path, 2) == DIMEMAS_ROW_SIGNATURE
-        except OSError:
-            pass
-    return prv_file.endswith(SIMULATED_NAME_SUFFIXES)
+    year_digits = header_year_digits(prv_file)
+    if year_digits == 2:
+        return True
+    if _has_dimemas_row(prv_file):
+        return True
+    if year_digits is None:
+        return prv_file.endswith(SIMULATED_NAME_SUFFIXES)
+    return False
 
 
 def header_end_time_us(prv_file):
@@ -119,13 +163,8 @@ def header_end_time_us(prv_file):
 
     Returns None when the header cannot be read.
     """
-    opener = gzip.open if prv_file.endswith('.prv.gz') else open
-    try:
-        with opener(prv_file, 'rt', errors='replace') as trace_file:
-            line = trace_file.readline()
-    except OSError:
-        return None
-    match = _HEADER_TIME_RE.match(line)
+    line = _read_header(prv_file)
+    match = _HEADER_TIME_RE.match(line or '')
     if not match:
         return None
     factor = _UNIT_TO_US.get(match.group('unit') or 'us')
@@ -168,9 +207,11 @@ def inconsistent_simulation_warnings(inconsistent):
     return lines
 
 
-def is_simulated_input(trace, cmdl_args):
-    """True when the trace was detected as simulated for this analysis."""
-    return trace in getattr(cmdl_args, 'simulated_traces', ())
+def skip_resimulation(trace, trace_mode, cmdl_args):
+    """True when Dimemas must not be run again on this trace: a simulated
+    trace with worker threads or GPU streams (see the module doc)."""
+    return (trace in getattr(cmdl_args, 'simulated_traces', ())
+            and has_second_model(trace_mode))
 
 
 def has_second_model(trace_mode):
@@ -252,13 +293,9 @@ def clear_simulated_metrics(metrics_result, trace_list, trace_mode, simulated,
                     values[trace] = _not_available(group, key)
             continue
 
-        for group, keys in SIMULATION_METRIC_KEYS.items():
-            factors = metrics_result.get(group)
-            if not factors:
-                continue
-            for key in keys:
-                if key in factors and trace in factors[key]:
-                    factors[key][trace] = NOT_AVAILABLE
+        other = metrics_result.get('other_metrics') or {}
+        if trace in other.get('freq', {}):
+            other['freq'][trace] = NOT_AVAILABLE
 
         if not has_second_model(trace_mode[trace]):
             continue
@@ -285,11 +322,14 @@ def simulated_trace_warnings(trace_list, trace_mode, simulated):
     lines += ['  ' + trace for trace in traces]
     lines += [
         '  The metrics describe the simulated execution, not the measured one.',
-        '  Dimemas is not run again on these traces: Serialization and Transfer',
-        '  efficiencies are not available.',
-        '  Hardware counters are copied from the original trace by Dimemas. IPC,',
-        '  frequency and the computation scalability factors are only valid if the',
-        '  simulation kept the CPU speed (CPU ratio 1).',
+        '  Compare Serialization and Transfer with those of the original trace:',
+        '  with the same CPU speed, Serialization stays the same and Transfer',
+        '  shows the effect of the simulated network (100% for an ideal one).',
+        '  Hardware counters are copied from the original trace by Dimemas. IPC',
+        '  and the computation scalability factors are only valid if the',
+        '  simulation kept the CPU speed (CPU ratio 1). Average frequency is not',
+        '  available: Dimemas changes the time between counter events (the MPI',
+        '  time) but keeps the measured cycles.',
     ]
 
     second_model = [trace for trace in traces if has_second_model(trace_mode[trace])]
@@ -299,8 +339,10 @@ def simulated_trace_warnings(trace_list, trace_mode, simulated):
             '  its computation and its MPI calls. OpenMP/Pthreads worker threads and GPU',
             '  streams have no states in the simulated trace, so only the MPI-level',
             '  metrics (MPI Parallel, Load balance, Communication efficiency) are',
-            '  reported, and the average IPC and frequency only cover the main',
-            '  threads, for:',
+            '  reported. Dimemas is not run again on them (its ideal simulation of a',
+            '  trace without the worker threads is wrong), so Serialization and',
+            '  Transfer are not available.',
+            '  The average IPC only covers the main threads. Traces:',
         ]
         lines += ['    {} ({})'.format(trace, trace_mode[trace]) for trace in second_model]
     return lines
@@ -329,18 +371,23 @@ def simulated_trace_note_html(report_traces):
             ' Dimemas simulates the MPI level only (the main thread of each '
             'process): OpenMP/Pthreads worker threads and GPU streams have no '
             'states in the simulated trace, so only the MPI-level metrics are '
-            'reported, and the average IPC and frequency only cover the main '
-            'threads, for {}.'
+            'reported, without Serialization and Transfer (the ideal simulation '
+            'of a trace without the worker threads is wrong), and the average '
+            'IPC only covers the main threads, for {}.'
         ).format(', '.join('<code>{}</code>'.format(html.escape(name))
                            for name in second_model))
 
     return (
         "<div class='scaling-model-warning'>"
         "<b>Dimemas simulated traces:</b> {names}. The metrics describe the "
-        "simulated execution. Dimemas is not run again on them, so "
-        "Serialization and Transfer efficiencies are not available. Hardware "
-        "counters are copied from the original trace: IPC, frequency and the "
+        "simulated execution. Compare Serialization and Transfer with those of "
+        "the original trace: with the same CPU speed, Serialization stays the "
+        "same and Transfer shows the effect of the simulated network (100% for "
+        "an ideal one). Hardware "
+        "counters are copied from the original trace: IPC and the "
         "computation scalability factors are only valid if the simulation kept "
-        "the CPU speed.{mpi_level}{inconsistent}"
+        "the CPU speed. Average frequency is not available: Dimemas changes the "
+        "time between counter events but keeps the measured cycles."
+        "{mpi_level}{inconsistent}"
         "</div>"
     ).format(names=names, mpi_level=mpi_level, inconsistent=inconsistent)

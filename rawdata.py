@@ -14,7 +14,7 @@ from collections import OrderedDict, defaultdict
 from nsys2prvmetrics import process_one_nsys2prv_trace, hwc_raw_data_doc
 from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label, is_host_gpu_mode, is_nsys2prv_mode, CUDA_LEGACY_LABEL_RE
 from utils import run_command, move_files,remove_files, create_temp_folder
-from simulatedtraces import is_simulated_input
+from simulatedtraces import skip_resimulation
 
 
 # Contains all raw data entries with a printable name.
@@ -3002,9 +3002,10 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     trace_raw_data = create_trace_raw_data()
     trace_io_data = create_io_raw_data()
 
-    # Dimemas is not run again on a Dimemas simulated trace.
+    # Dimemas is not run again on a simulated trace with worker threads or GPU
+    # streams (see simulatedtraces).
     skip_simulation = (cmdl_args.skip_simulation
-                       or is_simulated_input(trace, cmdl_args))
+                       or skip_resimulation(trace, trace_mode_value, cmdl_args))
 
     mpi_proc_count = None
 

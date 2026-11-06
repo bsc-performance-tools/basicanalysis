@@ -4,7 +4,9 @@ import os
 import tempfile
 import unittest
 
-from simulatedtraces import (NOT_AVAILABLE, clear_simulated_metrics,
+from types import SimpleNamespace
+
+from simulatedtraces import (NOT_AVAILABLE, clear_simulated_metrics, skip_resimulation,
                              find_inconsistent_simulations,
                              find_overwritten_inputs, header_end_time_us,
                              is_simulated_trace, simulated_trace_note_html,
@@ -14,6 +16,8 @@ from simulatedtraces import (NOT_AVAILABLE, clear_simulated_metrics,
 DIMEMAS_ROW = "LEVEL SYSTEM SIZE 1\nunnamed_1 ()\n\nLEVEL NODE SIZE 2\n"
 EXTRAE_ROW = "LEVEL CPU SIZE 4\n01.s09r1b63\n02.s09r1b63\n"
 NSYS2PRV_ROW = "LEVEL NODE SIZE 1\nnode1\n"
+EXTRAE_HEADER = "#Paraver (16/05/2025 at 19:33):100_ns:1(1):1:1(1:1),1"
+DIMEMAS_HEADER = "#Paraver (05/11/26 at 14:47):7429996635_ns:4(1,1,1,1):1:4(1:1,1:2,1:3,1:4),9"
 
 
 class DetectionTests(unittest.TestCase):
@@ -25,10 +29,10 @@ class DetectionTests(unittest.TestCase):
     def tearDown(self):
         self._tmpdir.cleanup()
 
-    def _trace(self, name, row=None):
+    def _trace(self, name, row=None, header=EXTRAE_HEADER):
         path = os.path.join(self.dir, name)
         with open(path, "w") as f:
-            f.write("#Paraver (10/04/26 at 17:34):100_ns:1(1):1:1(1:1),1\n")
+            f.write(header + "\n")
         if row is not None:
             base = path[:-7] if name.endswith(".prv.gz") else path[:-4]
             with open(base + ".row", "w") as f:
@@ -42,13 +46,23 @@ class DetectionTests(unittest.TestCase):
         self.assertFalse(is_simulated_trace(self._trace("app.prv", EXTRAE_ROW)))
         self.assertFalse(is_simulated_trace(self._trace("nsys.prv", NSYS2PRV_ROW)))
 
-    def test_the_row_wins_over_the_name(self):
-        self.assertFalse(is_simulated_trace(self._trace("app.sim.prv", EXTRAE_ROW)))
+    def test_copied_simulation_without_row_is_detected_by_its_header(self):
+        # The case reported by a user: x_4P.sim.prv copied as
+        # x_4P.simulated.prv, without its .row and .pcf.
+        self.assertTrue(is_simulated_trace(
+            self._trace("siesta_1node_4P.simulated.prv", header=DIMEMAS_HEADER)))
 
-    def test_without_row_the_name_decides(self):
-        self.assertTrue(is_simulated_trace(self._trace("x_8P.sim.prv")))
-        self.assertTrue(is_simulated_trace(self._trace("x_8P.sim.prv.gz")))
-        self.assertFalse(is_simulated_trace(self._trace("x.prv")))
+    def test_simulation_with_the_row_of_its_original_is_detected(self):
+        self.assertTrue(is_simulated_trace(
+            self._trace("nominal.prv", EXTRAE_ROW, header=DIMEMAS_HEADER)))
+
+    def test_the_name_does_not_decide_when_the_header_is_readable(self):
+        self.assertFalse(is_simulated_trace(self._trace("app.sim.prv", EXTRAE_ROW)))
+        self.assertFalse(is_simulated_trace(self._trace("x_8P.sim.prv")))
+
+    def test_without_readable_header_the_name_decides(self):
+        self.assertTrue(is_simulated_trace(self._trace("x_8P.sim.prv", header="")))
+        self.assertFalse(is_simulated_trace(self._trace("x.prv", header="")))
 
 
 class OverwriteTests(unittest.TestCase):
@@ -72,7 +86,7 @@ def _factors(keys, traces, value=90.0):
 
 class ClearMetricsTests(unittest.TestCase):
 
-    def test_pure_mpi_simulation_keeps_all_but_the_ideal_metrics(self):
+    def test_pure_mpi_simulation_keeps_every_metric(self):
         traces = ["real.prv", "sim.prv"]
         result = {
             "mod_factors": _factors(
@@ -82,13 +96,24 @@ class ClearMetricsTests(unittest.TestCase):
         }
         clear_simulated_metrics(result, traces, dict.fromkeys(traces, "Detailed+MPI"),
                                 {"sim.prv"})
+        # Serialization and Transfer come from the ideal simulation of the
+        # simulated trace: they compare the simulated network with the
+        # original one.
         mod = result["mod_factors"]
-        self.assertEqual(mod["serial_eff"]["sim.prv"], NOT_AVAILABLE)
-        self.assertEqual(mod["transfer_eff"]["sim.prv"], NOT_AVAILABLE)
-        for key in ("parallel_eff", "load_balance", "comm_eff", "comp_scale", "ipc_scale"):
+        for key in mod:
             self.assertEqual(mod[key]["sim.prv"], 90.0)
-        self.assertEqual(mod["serial_eff"]["real.prv"], 90.0)
+            self.assertEqual(mod[key]["real.prv"], 90.0)
         self.assertEqual(result["other_metrics"]["ipc"]["sim.prv"], 90.0)
+
+    def test_average_frequency_is_not_available_for_simulations(self):
+        traces = ["real.prv", "sim.prv"]
+        result = {"other_metrics": _factors(["ipc", "freq"], traces)}
+        clear_simulated_metrics(result, traces, dict.fromkeys(traces, "Detailed+MPI"),
+                                {"sim.prv"})
+        other = result["other_metrics"]
+        self.assertEqual(other["freq"]["sim.prv"], NOT_AVAILABLE)
+        self.assertEqual(other["freq"]["real.prv"], 90.0)
+        self.assertEqual(other["ipc"]["sim.prv"], 90.0)
 
     def test_hybrid_simulation_keeps_only_the_mpi_level(self):
         traces = ["sim.prv"]
@@ -178,6 +203,16 @@ class InconsistentSimulationTests(unittest.TestCase):
         self.assertIs(result["other_metrics"]["io_request_sizes"]["sim.prv"], sizes)
 
 
+class ResimulationTests(unittest.TestCase):
+
+    def test_dimemas_runs_again_only_on_pure_mpi_simulations(self):
+        args = SimpleNamespace(simulated_traces={"sim.prv", "hyb.prv"})
+        self.assertFalse(skip_resimulation("sim.prv", "Detailed+MPI", args))
+        self.assertTrue(skip_resimulation("hyb.prv", "Detailed+MPI+OpenMP", args))
+        self.assertFalse(skip_resimulation("real.prv", "Detailed+MPI+OpenMP", args))
+        self.assertFalse(skip_resimulation("real.prv", "Detailed+MPI", SimpleNamespace()))
+
+
 class WarningTests(unittest.TestCase):
 
     def test_no_warning_without_simulated_traces(self):
@@ -190,8 +225,10 @@ class WarningTests(unittest.TestCase):
                                                   {"a.prv", "b.prv"}))
         self.assertIn("Serialization and Transfer", text)
         self.assertIn("CPU ratio 1", text)
+        self.assertIn("Average frequency is not", text)
         self.assertIn("b.prv (Detailed+MPI+CUDA)", text)
-        self.assertIn("only cover the main", text)
+        self.assertIn("the main threads", text)
+        self.assertIn("Dimemas is not run again", text)
         self.assertNotIn("a.prv (Detailed+MPI)", text)
 
     def test_report_note_escapes_names(self):

@@ -37,20 +37,33 @@ A trace simulated with *Dimemas* (for example, an ideal network or a faster
 CPU) can be given as input. The metrics then describe the simulated execution,
 and the following limitations apply:
 
-* *Dimemas* is not run again on a simulated trace, so Serialization Efficiency
-  and Transfer Efficiency are reported as ``Non-Avail``.
+* For a pure MPI simulation, *Dimemas* is run again on the simulated trace,
+  as on any trace, and Serialization Efficiency and Transfer Efficiency are
+  computed. *Dimemas* keeps the computation and the dependencies of the
+  processes: with the same CPU speed, Serialization Efficiency stays that of
+  the original trace, and Transfer Efficiency shows the effect of the
+  simulated network (100% for an ideal network). Comparing them with the
+  original trace compares the two networks.
 * *Dimemas* simulates the MPI level: the main thread of each process, its
   computation, and its MPI calls. OpenMP and Pthreads worker threads and GPU
   streams have no states in the simulated trace, and the GPU stream labels do
   not identify the device. For MPI+OpenMP, MPI+Pthreads, MPI+CUDA, and MPI+HIP
   simulations, only the MPI-level metrics (MPI Parallel Efficiency, MPI Load
-  Balance, MPI Communication Efficiency) are reported, and the average IPC and
-  frequency only cover the main threads.
+  Balance, MPI Communication Efficiency) are reported, and the average IPC only
+  covers the main threads. *Dimemas* is not run again on these
+  traces: its ideal simulation of a trace without the worker threads is wrong,
+  so Serialization and Transfer Efficiency are reported as ``Non-Avail``.
 * Hardware counters are copied unchanged from the original trace. IPC,
   frequency, and the Computation Scalability factors are consistent with the
   simulated time only when the simulation keeps the CPU speed (CPU ratio 1).
   With a faster CPU, for example, the same cycles take less time and Frequency
   Scalability grows by the CPU ratio.
+* Average frequency is reported as ``Non-Avail``. It is computed as cycles per
+  microsecond between counter events: *Dimemas* changes that time (the MPI
+  time shrinks with the simulated network) while the cycles keep their
+  measured values, which gives impossible values (33.9 GHz against 3.47 GHz in
+  an ideal simulation of SIESTA). IPC and Frequency Scalability, computed over
+  the useful time, are not affected.
 * Some *Dimemas* outputs, observed with MPI+CUDA simulations, contain state
   records that end long after the end time of their own header. When the
   measured runtime exceeds the header end time by more than 1%, no metrics are
