@@ -14,6 +14,7 @@ from collections import OrderedDict, defaultdict
 from nsys2prvmetrics import process_one_nsys2prv_trace, hwc_raw_data_doc
 from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label, is_host_gpu_mode, is_nsys2prv_mode, CUDA_LEGACY_LABEL_RE
 from utils import run_command, move_files,remove_files, create_temp_folder
+from simulatedtraces import is_simulated_input
 
 
 # Contains all raw data entries with a printable name.
@@ -3001,6 +3002,10 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     trace_raw_data = create_trace_raw_data()
     trace_io_data = create_io_raw_data()
 
+    # Dimemas is not run again on a Dimemas simulated trace.
+    skip_simulation = (cmdl_args.skip_simulation
+                       or is_simulated_input(trace, cmdl_args))
+
     mpi_proc_count = None
 
     execution_mapping = get_execution_mapping(
@@ -3246,7 +3251,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     # ------------------------------------------------------------
     # 2) Optional Dimemas simulation
     # ------------------------------------------------------------
-    if dimemas_available and not cmdl_args.skip_simulation:
+    if dimemas_available and not skip_simulation:
         if is_detailed_mpi_family and os.path.exists(trace_name + '.outside_mpi.stats.csv'):
             time_dim = time.time()
 
@@ -3295,7 +3300,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
                 else:
                     print('Failed to create Hybrid simulated trace with Dimemas.')
 
-    if dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats.csv') and not cmdl_args.skip_simulation:
+    if dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats.csv') and not skip_simulation:
         if is_detailed_mpi_family and trace_sim != '':
             cmd_ideal = ['paramedir', trace_sim]
             cmd_ideal.extend([cfgs['timings'], trace_name_sim + '.timings.stats.csv'])
@@ -3343,7 +3348,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         print('==ERROR== Failed to compute counter information with paramedir.')
         error_counters = 1
 
-    if dimemas_available and not cmdl_args.skip_simulation:
+    if dimemas_available and not skip_simulation:
         if is_detailed_mpi_family and os.path.exists(trace_name + '.outside_mpi.stats.csv'):
             if trace_sim == '' or \
                     not os.path.exists(trace_name_sim + '.timings.stats.csv') or \
@@ -3826,7 +3831,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_raw_data['burst_useful_tot'] = 0.0
 
     # simulated trace metrics
-    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats.csv') and not cmdl_args.skip_simulation):
+    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats.csv') and not skip_simulation):
         if os.path.exists(trace_name_sim + '.timings.stats.csv'):
             _, _, useful_dim_max = parse_total_average_max(trace_name_sim + '.timings.stats.csv')
             trace_raw_data['useful_dim'] = float(useful_dim_max)
@@ -3882,7 +3887,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
 
 
     # HYBRID Simulated trace metrics 
-    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats.csv') and not cmdl_args.skip_simulation):
+    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats.csv') and not skip_simulation):
         if cmdl_args.hyb_mpiomp and trace_mode_value == 'Detailed+MPI+OpenMP':        
             if os.path.exists(hybrid_trace_name_sim + '.timings.stats.csv'):
                 _, _, useful_dim_max = parse_total_average_max(hybrid_trace_name_sim + '.timings.stats.csv')
@@ -3941,7 +3946,7 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     # ------------------------------------------------------------
     # 5) Move generated files
     # ------------------------------------------------------------
-    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats.csv')) and not cmdl_args.skip_simulation:
+    if is_detailed_mpi_family and (dimemas_available and os.path.exists(trace_name + '.outside_mpi.stats.csv')) and not skip_simulation:
         move_files(trace_name + '.dimemas_ideal.cfg', local_path_dest, cmdl_args)
         move_files(trace_name + '.dim', local_path_dest, cmdl_args)
         if trace_sim != '':

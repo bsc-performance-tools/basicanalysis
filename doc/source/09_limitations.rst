@@ -28,6 +28,34 @@ Simulation-derived metrics are also unavailable when *Dimemas* is not
 installed, when the required simulation cannot be completed, or when
 simulation is explicitly disabled with the ``--skip-simulation`` option.
 
+.. _simulated-traces-limitations:
+
+Traces Simulated with Dimemas
+-----------------------------
+
+A trace simulated with *Dimemas* (for example, an ideal network or a faster
+CPU) can be given as input. The metrics then describe the simulated execution,
+and the following limitations apply:
+
+* *Dimemas* is not run again on a simulated trace, so Serialization Efficiency
+  and Transfer Efficiency are reported as ``Non-Avail``.
+* *Dimemas* simulates the MPI level: the main thread of each process, its
+  computation, and its MPI calls. OpenMP and Pthreads worker threads and GPU
+  streams have no states in the simulated trace, and the GPU stream labels do
+  not identify the device. For MPI+OpenMP, MPI+Pthreads, MPI+CUDA, and MPI+HIP
+  simulations, only the MPI-level metrics (MPI Parallel Efficiency, MPI Load
+  Balance, MPI Communication Efficiency) are reported, and the average IPC and
+  frequency only cover the main threads.
+* Hardware counters are copied unchanged from the original trace. IPC,
+  frequency, and the Computation Scalability factors are consistent with the
+  simulated time only when the simulation keeps the CPU speed (CPU ratio 1).
+  With a faster CPU, for example, the same cycles take less time and Frequency
+  Scalability grows by the CPU ratio.
+* Some *Dimemas* outputs, observed with MPI+CUDA simulations, contain state
+  records that end long after the end time of their own header. When the
+  measured runtime exceeds the header end time by more than 1%, no metrics are
+  reported for that trace.
+
 
 Number of Parallel Runtimes
 ---------------------------
