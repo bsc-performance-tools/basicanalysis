@@ -153,6 +153,13 @@
   details of each scalability metric show the ratio used. When the Host
   takes the application workload, the Host scalability metrics are dimmed
   in the report.
+- The command line and the standard output of each run are saved in
+  `basicanalysis.log` (BasicAnalysis version, date, host, working directory,
+  command line, the output with warnings and errors, and the finishing time),
+  while the output is still shown in the console. `--log <file>` changes the
+  file and `--no-log` disables it. `compute_metrics_from_merged.py` writes
+  the same log; `analyze_trace.py` writes it only with `--log`, because the
+  per-trace jobs of the staged workflow may share a directory.
 
 ### Changes
 

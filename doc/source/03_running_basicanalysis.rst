@@ -455,6 +455,32 @@ Parallel processing applies to independent trace analyses; it does not change
 the performance metrics computed for each trace.
 
 
+.. _sec:run-log:
+
+Saving the standard output
+==========================
+
+BasicAnalysis saves the command line and the standard output of each run in
+``basicanalysis.log``, in the current directory. The output is also shown in
+the console as usual. The file starts with the BasicAnalysis version, the
+date, the host, the working directory, and the command line, quoted so that
+it can be pasted in a shell to repeat the run, and ends with the time when
+the run finished and its elapsed time. Warnings and error messages are also
+saved. A new run in the same directory replaces the file.
+
+.. code-block:: text
+
+   --log <file>
+
+Save the log in ``<file>`` instead of ``basicanalysis.log``.
+
+.. code-block:: text
+
+   --no-log
+
+Do not save the log.
+
+
 Efficiency thresholds
 =====================
 

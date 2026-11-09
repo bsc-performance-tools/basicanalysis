@@ -6,7 +6,7 @@ from __future__ import print_function, division
 
 from rawdata import run_trace_analyses_to_files
 from tracemetadata import get_traces_from_args
-from utils import build_argument_parser, check_installation
+from utils import build_argument_parser, check_installation, start_run_log
 
 
 def parse_args():
@@ -29,6 +29,8 @@ def parse_args():
 
 def main():
     cmdl_args = parse_args()
+    # Per-trace jobs may share a directory: log only when --log is given.
+    start_run_log(cmdl_args, default_file=None)
 
     check_installation(cmdl_args)
 
