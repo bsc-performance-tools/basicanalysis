@@ -2348,9 +2348,18 @@ BasicAnalysis classifies the threads of the trace from the ``.row`` file:
   accelerator; they are reported in the standard output and are not
   analyzed.
 
+* **Host units**: Nsight Systems records every thread of a process, most of
+  them helper threads of the CUDA runtime, NCCL, or the application, which
+  never call CUDA. Each process with GPU streams is therefore represented by
+  one Host unit: the host thread with the most time inside CUDA calls, which
+  is the thread that drives its GPUs. It is not always the first thread of
+  the process. When a process has more than one host thread, the selected
+  thread of each process is printed in the standard output. If no thread of
+  a process calls CUDA, its first host thread is used.
+
 The configuration label uses the same format as MPI+GPU traces:
 ``units (processes x streams per process) [devices]``, where the units are
-the host threads and GPU streams of the processes with GPU streams, for
+the Host units and GPU streams of the processes with GPU streams, for
 example ``5 (1x4) [1D]``.
 
 
@@ -2410,9 +2419,9 @@ kernels is not affected by rounding.
 Host metrics
 ------------
 
-Without state records, the useful Host computation of each host thread
-:math:`h` is estimated from the CUDA runtime and driver calls (event
-``63000000``) recorded on that thread:
+Without state records, the useful Host computation of each Host unit
+:math:`h` (one per process, see `Execution units`_) is estimated from the
+CUDA runtime and driver calls (event ``63000000``) recorded on that thread:
 
 .. math::
 
@@ -2422,7 +2431,7 @@ where :math:`T` is the elapsed time and :math:`W_h` the time of thread
 :math:`h` inside CUDA calls, including the time waiting for the accelerator
 in synchronization calls.
 
-With :math:`H` host threads, BasicAnalysis computes:
+With :math:`H` Host units, BasicAnalysis computes:
 
 .. math::
 
@@ -2445,7 +2454,7 @@ Parallel Runtime Model
 
 The Parallel Runtime Model is the single-runtime model (CUDA Parallel Runtime
 Model) over all execution units, as for GPU applications without MPI in
-Extrae traces. The useful time of a host thread is :math:`UsefulHost_h`, and
+Extrae traces. The useful time of a Host unit is :math:`UsefulHost_h`, and
 the useful time of a GPU stream is the time of its own kernels (the *Running*
 state of each stream in Extrae traces). Parallel Efficiency, Load Balance, and
 Communication Efficiency are computed with the Simple Metrics formulas.

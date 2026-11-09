@@ -310,13 +310,42 @@ def streams_per_task_value(threads):
     return values.pop() if len(values) == 1 else -1
 
 
+def select_host_units(threads, host_calls):
+    """Host execution units of an nsys2prv trace: one per process with GPU
+    streams.
+
+    Nsight Systems records every thread of a process, most of them helper
+    threads of the CUDA runtime, NCCL or the application that never call
+    CUDA. Their time outside CUDA calls is not Host useful computation, so
+    each process is represented by the thread that drives its GPUs: the
+    host thread with the most time inside CUDA calls (host_calls, from
+    parse_nsys2prv_host_calls). If no thread of a process calls CUDA, its
+    first host thread is used.
+
+    Returns the selected threads, in thread order.
+    """
+    by_task = defaultdict(list)
+    for thread_obj in threads['gpu_host']:
+        by_task[_task_of(thread_obj)].append(thread_obj)
+
+    selected = []
+    for task_id in sorted(by_task):
+        # max() keeps the first thread on ties, so the choice is stable.
+        selected.append(max(by_task[task_id],
+                            key=lambda t: host_calls.get(t, 0.0)))
+    return selected
+
+
 def get_nsys2prv_resources(prv_file):
     """Execution units of an nsys2prv trace, as used in the configuration
     labels: (units, tasks, threads per task).
 
-      units:  host threads of the processes with GPU streams + GPU streams
+      units:  one host unit per process with GPU streams + GPU streams
       tasks:  processes with GPU streams
-      threads per task: maximum host threads + streams of those processes
+      threads per task: maximum host units + streams of those processes
+
+    Each process with GPU streams has one host unit (select_host_units),
+    whatever the number of helper threads recorded by Nsight Systems.
 
     Returns None if the .row file is not available.
     """
@@ -330,8 +359,10 @@ def get_nsys2prv_resources(prv_file):
 
     threads = classify_nsys2prv_threads(prv_file, row_path)
     units_per_task = defaultdict(int)
-    for thread_obj in list(threads['gpu_host']) + list(threads['streams']):
+    for thread_obj in threads['streams']:
         units_per_task[_task_of(thread_obj)] += 1
+    for task_id in {_task_of(t) for t in threads['gpu_host']}:
+        units_per_task[task_id] += 1
 
     if not units_per_task:
         return None
@@ -712,7 +743,9 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
 
     trace_raw_data['count_devices'] = len(devices)
     trace_raw_data['count_gpu_streams'] = len(stream_to_device)
-    trace_raw_data['count_host_threads'] = len(host_threads)
+    # One host unit per process with GPU streams (select_host_units).
+    host_units_tasks = {_task_of(t) for t in host_threads}
+    trace_raw_data['count_host_threads'] = len(host_units_tasks)
     trace_raw_data['gpu_streams_per_rank'] = streams_per_task
 
     other_tasks = sorted({_task_of(t) for t in threads['host']} - threads['gpu_tasks'])
@@ -737,6 +770,9 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     else:
         print("==> GPU streams per process: ", streams_per_task)
     print("==> Count of host threads: ", len(host_threads))
+    if len(host_threads) > len(host_units_tasks):
+        print("==> Host units: one per process with GPU streams, the thread "
+              "with the most time in CUDA calls")
     if other_tasks:
         print("==> Processes without GPU streams (not analyzed): " +
               ', '.join(str(t) for t in other_tasks))
@@ -796,7 +832,11 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
                   header_end / 1e6, paraver_runtime / 1e6))
 
     # Host useful time: elapsed time minus time inside CUDA calls.
+    # One host unit per process: the thread that drives its GPUs.
     host_calls = parse_nsys2prv_host_calls(stats['cuda_calls_host'], threads)
+    if len(host_threads) > len(host_units_tasks):
+        host_threads = select_host_units(threads, host_calls)
+        print("==> Host unit of each process: " + ', '.join(host_threads))
     if host_threads and trace_raw_data['runtime'] != 'NaN' and host_calls:
         runtime = float(trace_raw_data['runtime'])
         useful_host = [

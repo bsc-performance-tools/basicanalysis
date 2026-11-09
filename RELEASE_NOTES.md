@@ -213,6 +213,18 @@
 
 ### Fixes
 
+- **Device Offload Efficiency of nsys2prv traces counted the helper threads
+  as useful Host time.** Nsight Systems records every thread of a process
+  (for example, 7 per process in NCCL ring benchmarks), and the threads that
+  never call CUDA counted as 100% useful, so Device Offload Efficiency stayed
+  around 86–88% whatever the application did. Each process with GPU streams
+  is now one Host unit: the thread with the most time inside CUDA calls,
+  printed in the standard output. In a 4-GPU ring benchmark, Device Offload
+  Efficiency changes from 88.06% to 17.00%. The change also applies to Host
+  Parallel and Global Efficiency, the Parallel Runtime Model, and the number
+  of units in the configuration label. Traces with one host thread per
+  process (for example, vLLM) give the same values.
+
 - **Traces simulated with Dimemas were rejected by name, but analyzed
   without any warning when renamed.** They are now recognized by their content (the two-digit year that Dimemas
   writes in the trace header, and the `.row` written by Dimemas), also when

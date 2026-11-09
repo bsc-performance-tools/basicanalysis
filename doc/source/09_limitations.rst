@@ -183,6 +183,11 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
   includes any Host time outside those calls, such as interpreter, waiting,
   or I/O time in Python applications. Device Offload Efficiency is therefore
   an upper bound of the efficiency that would be obtained with state records.
+* **One Host unit per process.** Each process with GPU streams is analyzed
+  through the thread with the most time inside CUDA calls; the helper threads
+  recorded by Nsight Systems are not Host units. In applications where
+  several threads of a process launch GPU work, only the busiest one is
+  analyzed.
 * **Processes without GPU streams.** Only the processes with GPU streams are
   analyzed as Host. Processes that do not offload work to the accelerator are
   reported in the standard output and are not included in the metrics.

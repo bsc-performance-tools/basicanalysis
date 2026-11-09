@@ -10,6 +10,7 @@ from nsys2prvmetrics import (
     get_nsys2prv_resources,
     parse_nsys2prv_host_calls,
     parse_nsys2prv_timeline,
+    select_host_units,
     streams_per_task_value,
     trace_header_end_us,
 )
@@ -398,6 +399,62 @@ class Nsys2prvAggregationTests(unittest.TestCase):
     def test_missing_timeline(self):
         # paramedir writes no file when the events are not in the trace.
         self.assertEqual(parse_nsys2prv_timeline("/nonexistent.csv"), [])
+
+
+# Two processes with three host threads each (one drives the GPU, the other
+# two are helper threads recorded by Nsight Systems) and one stream.
+HELPERS_HEADER = "#Paraver (09/11/2026 at 10:00):1000000_ns:0:1:2:(4:1,4:1)\n"
+
+HELPERS_ROW = """\
+LEVEL NODE SIZE 1
+node1
+
+LEVEL THREAD SIZE 8
+THREAD 1.1.1
+THREAD 1.1.2
+THREAD 1.1.3
+CUDA-D0.S7
+THREAD 1.2.1
+THREAD 1.2.2
+THREAD 1.2.3
+CUDA-D1.S7
+"""
+
+
+class TestNsys2prvHostUnits(unittest.TestCase):
+    """One host unit per process, so that the helper threads, which never
+    call CUDA, do not count as useful Host time."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.prv = os.path.join(self._tmpdir.name, "h.prv")
+        with open(self.prv, "w") as f:
+            f.write(HELPERS_HEADER)
+        with open(os.path.join(self._tmpdir.name, "h.row"), "w") as f:
+            f.write(HELPERS_ROW)
+        self.threads = classify_nsys2prv_threads(
+            self.prv, os.path.join(self._tmpdir.name, "h.row"))
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_all_host_threads_are_classified(self):
+        self.assertEqual(len(self.threads["gpu_host"]), 6)
+
+    def test_resources_count_one_host_unit_per_process(self):
+        # 2 host units + 2 streams, 2 processes, 2 units per process.
+        self.assertEqual(get_nsys2prv_resources(self.prv), (4, 2, 2))
+
+    def test_thread_with_most_cuda_time_is_selected(self):
+        # The GPU thread is not always the first one (THREAD 1.2.3 here).
+        calls = {"THREAD 1.1.1": 900.0, "THREAD 1.1.3": 2.0,
+                 "THREAD 1.2.1": 1.0, "THREAD 1.2.3": 800.0}
+        self.assertEqual(select_host_units(self.threads, calls),
+                         ["THREAD 1.1.1", "THREAD 1.2.3"])
+
+    def test_without_cuda_calls_the_first_thread_is_selected(self):
+        self.assertEqual(select_host_units(self.threads, {}),
+                         ["THREAD 1.1.1", "THREAD 1.2.1"])
 
 
 if __name__ == "__main__":
