@@ -18,7 +18,7 @@ import re
 from collections import defaultdict, Counter
 from typing import Dict, Tuple, List, Optional
 
-from scaling import build_workload_map
+from scaling import build_workload_map, has_workload
 from simulatedtraces import (find_overwritten_inputs, is_simulated_trace,
                              simulated_trace_warnings)
 
@@ -106,7 +106,12 @@ def get_traces_from_args(cmdl_args):
     for trace in trace_list:
         trace_processes[trace], trace_tasks[trace], trace_threads[trace] = get_num_processes(trace,cmdl_args)
 
-    if cmdl_args.order_traces == 'yes':
+    if cmdl_args.order_traces == 'yes' and has_workload(cmdl_args):
+        # With a user-defined workload, the user decides the reference
+        # (the first trace) and the order of the values.
+        print('\nWorkload given: the traces keep the command-line order; '
+              'the first trace is the reference.')
+    elif cmdl_args.order_traces == 'yes':
         trace_list = sorted(trace_list, key=get_processes)
 
     t1 = time.perf_counter()

@@ -7,7 +7,7 @@ import sys
 
 from rawdata import *
 from collections import OrderedDict
-from scaling import get_scaling_info, warn_unused_domain_workloads
+from scaling import get_scaling_info
 from iometrics import IO_FACTORS_DOC, io_useful_time, print_io_tables
 
 # error import variables
@@ -521,9 +521,6 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     )
 
     scaling = scaling_info.selected
-
-    # The simple metrics have a single execution domain.
-    warn_unused_domain_workloads(scaling_info, has_domains=False)
 
     # Loop over all traces
     for trace in trace_list:

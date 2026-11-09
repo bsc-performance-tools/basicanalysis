@@ -6,13 +6,15 @@
 import sys
 
 
-# Execution domains with their own workload ratio in the Host/Device model:
-# (domain, size option, ratio option). Their ratios default to the workload
-# ratio of the application (--workload or --ratios-workload).
+# Execution domains of the Host/Device model with their own workload:
+# (domain, option). The values of a workload option are sizes or ratios:
+# the ratio of each trace is its value divided by that of the reference.
 WORKLOAD_DOMAINS = (
-    ("host", "--host-workload", "--host-ratios-workload"),
-    ("device", "--device-workload", "--device-ratios-workload"),
+    ("host", "--host-workload"),
+    ("device", "--device-workload"),
 )
+
+DOMAINS = tuple(domain for domain, _option in WORKLOAD_DOMAINS)
 
 
 def _option_attribute(option):
@@ -34,11 +36,12 @@ class ScalingInfo:
         is not applicable.
 
     selected : str
-        Scaling type finally used by BasicAnalysis for metric computation.
-        The value is "strong", "weak" or "workload". "workload" means that
-        the user gave the workload of each trace (--workload or
-        --ratios-workload); the weak-scaling formulas are then used with the
-        user workload ratio in place of the resource ratios.
+        Scaling type of the application level (the whole model in models
+        with one execution domain; Speedup, Scaling Efficiency, and the
+        application metrics in the Host/Device model). The value is
+        "strong", "weak" or "workload". "workload" means that the
+        scalability metrics are relative to the reference trace, scaled by
+        the workload ratio of each trace instead of its resource ratio.
 
     selection_mode : str
         Indicates how the selected scaling type was obtained.
@@ -69,17 +72,36 @@ class ScalingInfo:
         Additional information describing the scaling-analysis status.
 
     workload_values : dict or None
-        Workload value given by the user for each trace, in workload mode.
+        Workload value of each trace used at the application level, in
+        workload mode: that of --workload or, in the Host/Device model
+        without --workload, that of --device-workload.
 
     workload_ratios : dict or None
         Workload of each trace divided by the workload of the reference
-        trace, in workload mode.
+        trace, for the application level.
+
+    workload_option : str or None
+        Option that gave the application workload.
 
     domain_workload_values, domain_workload_ratios, domain_workload_options
         : dict
         Per execution domain ("host", "device"), the workload values,
-        ratios, and option given by the user, in workload mode. A domain
-        without its own workload uses the workload of the application.
+        ratios, and option given by the user with --host-workload or
+        --device-workload.
+
+    domain_modes : dict
+        Scaling type of each execution domain of the Host/Device model when
+        a workload is given: "workload" for a domain with its own workload
+        or with the application workload (--workload), and otherwise the
+        type forced with --scaling or detected from that domain only.
+
+    domain_selection : dict
+        How the scaling type of each domain was obtained: the workload
+        option, "Manual (--scaling)", or "Automatic".
+
+    domain_detection : dict
+        Per domain detected from its own measurements, the detection
+        (a ScalingInfo with the indicators).
     """
 
     def __init__(
@@ -120,25 +142,138 @@ class ScalingInfo:
         self.domain_workload_values = {}
         self.domain_workload_ratios = {}
         self.domain_workload_options = {}
+        self.domain_modes = {}
+        self.domain_selection = {}
+        self.domain_detection = {}
+
+    def mode(self, domain=None):
+        """Scaling type of an execution domain ("host" or "device"), or of
+        the application level (domain None)."""
+        return self.domain_modes.get(domain, self.selected)
 
     def work_ratio(self, trace, resource_ratio, domain=None):
-        """Return the multiplier of the weak-scaling formulas for a trace.
+        """Return the multiplier of the scalability formulas for a trace.
 
-        In workload mode it is the user workload ratio of the trace: the
-        ratio of the execution domain ("host" or "device") when the user
-        gave one, and the ratio of the application otherwise. Outside the
-        workload mode it is the resource ratio of the metric (processes,
-        host threads, devices, ...).
+        It depends on the scaling type of the domain ("host", "device", or
+        None for the application level):
+
+            workload  the workload ratio of the domain when the user gave
+                      one, and the application workload ratio otherwise;
+            weak      the resource ratio of the metric (processes, host
+                      threads, devices, ...);
+            strong    1.
         """
-        if self.workload_ratios is None:
-            return resource_ratio
+        mode = self.mode(domain)
 
-        ratios = self.domain_workload_ratios.get(domain)
+        if mode == "workload":
+            ratios = self.domain_workload_ratios.get(domain)
 
-        if ratios is not None:
-            return ratios[trace]
+            if ratios is not None:
+                return ratios[trace]
 
-        return self.workload_ratios[trace]
+            return self.workload_ratios[trace]
+
+        if mode == "strong":
+            return 1.0
+
+        return resource_ratio
+
+    def ratio_source(self, domain=None):
+        """Text describing where the multiplier of a domain comes from."""
+        mode = self.mode(domain)
+
+        if mode == "workload":
+            if domain in self.domain_workload_options:
+                return self.domain_workload_options[domain]
+            return self.workload_option
+
+        if mode == "weak":
+            return "weak scaling (resource ratio)"
+
+        return "strong scaling (ratio 1)"
+
+
+def _ratio(series, trace, reference, default):
+    try:
+        return float(series(trace)) / float(series(reference))
+    except Exception:
+        return default
+
+
+def _detect(trace_list, instructions, units, runtime, useful_avg, eps):
+    """Vote weak or strong scaling from per-trace measures.
+
+    Each argument is a function trace -> value (instructions may be None).
+    Returns (detected, normalized instruction, runtime, and useful-average
+    ratios), averaged over the traces other than the reference.
+    """
+    normalized_inst_ratio = 0
+    normalized_runtime_ratio = 0
+    normalized_useful_avg_ratio = 0
+
+    reference_trace = trace_list[0]
+
+    for trace in trace_list:
+        if instructions is None:
+            inst_ratio = 0.0
+        else:
+            inst_ratio = _ratio(instructions, trace, reference_trace, 0.0)
+
+        unit_ratio = _ratio(units, trace, reference_trace, float("nan"))
+        runtime_ratio = _ratio(runtime, trace, reference_trace, float("nan"))
+        # Not available (e.g. nsys2prv traces have no useful host time):
+        # the indicator is NaN and does not vote.
+        useful_avg_ratio = _ratio(
+            useful_avg, trace, reference_trace, float("nan"))
+
+        normalized_inst_ratio += inst_ratio / unit_ratio
+        normalized_runtime_ratio += runtime_ratio
+        normalized_useful_avg_ratio += useful_avg_ratio
+
+    # Ignore the reference execution, whose normalized ratio is 1.0.
+    others = len(trace_list) - 1
+    normalized_inst_ratio = (normalized_inst_ratio - 1) / others
+    normalized_runtime_ratio = (normalized_runtime_ratio - 1) / others
+    normalized_useful_avg_ratio = (normalized_useful_avg_ratio - 1) / others
+
+    weak_scaling_indicators = 0
+
+    if normalized_inst_ratio > eps:
+        weak_scaling_indicators += 1
+
+    if normalized_runtime_ratio > eps:
+        weak_scaling_indicators += 1
+
+    if normalized_useful_avg_ratio > eps:
+        weak_scaling_indicators += 1
+
+    # At least two of the three indicators must identify weak scaling.
+    detected = "weak" if weak_scaling_indicators > 1 else "strong"
+
+    return (
+        detected,
+        normalized_inst_ratio,
+        normalized_runtime_ratio,
+        normalized_useful_avg_ratio,
+    )
+
+
+def _detection_info(trace_list, instructions, units, runtime, useful_avg,
+                    eps):
+    detected, inst, rt, avg = _detect(
+        trace_list, instructions, units, runtime, useful_avg, eps)
+
+    return ScalingInfo(
+        has_scaling_analysis=True,
+        detected=detected,
+        selected=detected,
+        selection_mode="auto",
+        overridden=False,
+        normalized_inst_ratio=inst,
+        normalized_runtime_ratio=rt,
+        normalized_useful_avg_ratio=avg,
+        threshold=eps,
+    )
 
 
 def _compute_scaling_detection(
@@ -149,7 +284,7 @@ def _compute_scaling_detection(
 ):
     """Detect weak or strong scaling from execution measurements.
 
-    This function implements the automatic scaling-detection algorithm 
+    This function implements the automatic scaling-detection algorithm
     used by BasicAnalysis.
 
     Three indicators are evaluated:
@@ -183,100 +318,95 @@ def _compute_scaling_detection(
             status_message="Single execution",
         )
 
-    normalized_inst_ratio = 0
-    normalized_runtime_ratio = 0
-    normalized_useful_avg_ratio = 0
-
-    reference_trace = trace_list[0]
-
-    for trace in trace_list:
-        try:
-            inst_ratio = (
-                float(raw_data["useful_ins"][trace])
-                / float(raw_data["useful_ins"][reference_trace])
-            )
-        except Exception:
-            inst_ratio = 0.0
-
-        try:
-            proc_ratio = (
-                float(trace_processes[trace])
-                / float(trace_processes[reference_trace])
-            )
-        except Exception:
-            proc_ratio = float("nan")
-
-        try:
-            runtime_ratio = (
-                float(raw_data["runtime"][trace])
-                / float(raw_data["runtime"][reference_trace])
-            )
-        except Exception:
-            runtime_ratio = float("nan")
-
-        try:
-            useful_avg_ratio = (
-                float(raw_data["useful_avg"][trace])
-                / float(raw_data["useful_avg"][reference_trace])
-            )
-        except Exception:
-            # Not available (e.g. nsys2prv traces have no useful host
-            # time): the indicator is NaN and does not vote.
-            useful_avg_ratio = float("nan")
-
-        normalized_inst_ratio += (
-            inst_ratio / proc_ratio
-        )
-
-        normalized_runtime_ratio += (
-            runtime_ratio
-        )
-
-        normalized_useful_avg_ratio += (
-            useful_avg_ratio
-        )
-
-    # Ignore the reference execution, whose normalized ratio is 1.0.
-    normalized_inst_ratio = (
-        normalized_inst_ratio - 1
-    ) / (len(trace_list) - 1)
-
-    normalized_runtime_ratio = (
-        normalized_runtime_ratio - 1
-    ) / (len(trace_list) - 1)
-
-    normalized_useful_avg_ratio = (
-        normalized_useful_avg_ratio - 1
-    ) / (len(trace_list) - 1)
-
-    weak_scaling_indicators = 0
-
-    if normalized_inst_ratio > eps:
-        weak_scaling_indicators += 1
-
-    if normalized_runtime_ratio > eps:
-        weak_scaling_indicators += 1
-
-    if normalized_useful_avg_ratio > eps:
-        weak_scaling_indicators += 1
-
-    # At least two of the three indicators must identify weak scaling.
-    if weak_scaling_indicators > 1:
-        detected = "weak"
-    else:
-        detected = "strong"
-
-    return ScalingInfo(
-        has_scaling_analysis=True,
-        detected=detected,
-        selected=detected,
-        selection_mode="auto",
-        overridden=False,
-        normalized_inst_ratio=normalized_inst_ratio,
-        normalized_runtime_ratio=normalized_runtime_ratio,
-        normalized_useful_avg_ratio=normalized_useful_avg_ratio,
-        threshold=eps,
+    return _detection_info(
+        trace_list,
+        instructions=lambda trace: raw_data["useful_ins"][trace],
+        units=lambda trace: trace_processes[trace],
+        runtime=lambda trace: raw_data["runtime"][trace],
+        useful_avg=lambda trace: raw_data["useful_avg"][trace],
+        eps=eps,
     )
+
+
+def _per_unit(raw_data, total_key, count_key):
+    def useful_avg(trace):
+        return float(raw_data[total_key][trace]) / float(
+            raw_data[count_key][trace])
+    return useful_avg
+
+
+def detect_domain_scaling(raw_data, trace_list, domain, eps=0.9):
+    """Detect weak or strong scaling of one execution domain of the
+    Host/Device model from its own measurements, with the same indicators
+    and votes as the application detection:
+
+        host    Host useful instructions per Host thread, runtime, and
+                average useful time of the Host threads;
+        device  runtime and average useful time of the devices (the
+                devices have no instruction counters).
+    """
+    if domain == "host":
+        return _detection_info(
+            trace_list,
+            instructions=lambda trace: raw_data["useful_ins"][trace],
+            units=lambda trace: raw_data["count_host_threads"][trace],
+            runtime=lambda trace: raw_data["runtime"][trace],
+            useful_avg=_per_unit(raw_data, "useful_host", "count_host_threads"),
+            eps=eps,
+        )
+
+    return _detection_info(
+        trace_list,
+        instructions=None,
+        units=lambda trace: raw_data["count_devices"][trace],
+        runtime=lambda trace: raw_data["runtime"][trace],
+        useful_avg=_per_unit(raw_data, "useful_device", "count_devices"),
+        eps=eps,
+    )
+
+
+
+def _apply_scaling_option(scaling_info, cmdl_args):
+    """Apply --scaling (auto, weak, strong) to a detection."""
+
+    if cmdl_args.scaling == "auto":
+        scaling_info.selected = scaling_info.detected
+        scaling_info.selection_mode = "auto"
+        scaling_info.overridden = False
+
+        if cmdl_args.debug:
+            print(
+                "==DEBUG== Detected "
+                + scaling_info.detected
+                + " scaling."
+            )
+            print("")
+
+        return scaling_info
+
+    if cmdl_args.scaling in ("weak", "strong"):
+        forced = cmdl_args.scaling
+        other = "strong" if forced == "weak" else "weak"
+        scaling_info.selected = forced
+        scaling_info.selection_mode = "manual"
+
+        if scaling_info.detected == other:
+            scaling_info.overridden = True
+
+            print(
+                "==Warning== Scaling set to {} scaling "
+                "but detected {} scaling.".format(forced, other)
+            )
+            print("")
+        else:
+            scaling_info.overridden = False
+
+        return scaling_info
+
+    print(
+        "==Error== reached undefined control flow state."
+    )
+    sys.exit(1)
 
 
 def get_scaling_info(
@@ -284,19 +414,14 @@ def get_scaling_info(
     trace_list,
     trace_processes,
     cmdl_args,
+    has_domains=False,
 ):
     """Return complete information about scaling detection and selection.
 
     The automatic detector first determines whether the analyzed executions
     resemble strong or weak scaling.
 
-    When the user gives the workload of each trace (--workload or
-    --ratios-workload), the selected scaling is "workload" and the
-    workload ratio of each trace relative to the reference trace is
-    stored in ``workload_ratios``. The detected scaling is kept only for
-    information.
-
-    Otherwise the command-line scaling option is applied:
+    Without workloads, the command-line scaling option is applied:
 
         auto
             Use the automatically detected scaling type.
@@ -310,6 +435,12 @@ def get_scaling_info(
     When the user-selected scaling differs from the automatically detected
     scaling, ``overridden`` is set to True and the same warning historically
     produced by BasicAnalysis is emitted.
+
+    With workloads (--workload, --host-workload, --device-workload; see
+    _set_workloads), the scalability metrics use the workload ratio of each
+    trace relative to the reference trace. ``has_domains`` tells whether the
+    execution model has Host and Device domains (Host/Device model); in
+    other models the Host and Device workloads are ignored with a warning.
 
     For a single trace, scaling analysis is marked as not applicable.
     The selected value remains "strong" internally to preserve the historical
@@ -331,96 +462,96 @@ def get_scaling_info(
         return scaling_info
 
     workload_map = getattr(cmdl_args, "workload_map", None)
+    domain_maps = dict(getattr(cmdl_args, "domain_workload_maps", None) or {})
+
+    if domain_maps and not has_domains:
+        print(
+            "==Warning== {} ignored: the execution model has no Host/Device "
+            "domains.".format(
+                ", ".join(option for option, _ in domain_maps.values()))
+        )
+        print("")
+        domain_maps = {}
+
+    if not workload_map and not domain_maps:
+        return _apply_scaling_option(scaling_info, cmdl_args)
+
+    return _set_workloads(
+        scaling_info, raw_data, trace_list, cmdl_args, workload_map,
+        domain_maps, has_domains)
+
+
+def _set_workloads(scaling_info, raw_data, trace_list, cmdl_args,
+                   workload_map, domain_maps, has_domains):
+    """Scaling of each level when the user gives workloads.
+
+    Application level (Speedup, Scaling Efficiency, and every metric in
+    models with one domain): the --workload ratio; without it, the
+    --device-workload ratio; without both, the detected or forced scaling.
+
+    Host and Device domains of the Host/Device model: their own workload;
+    without it, the --workload ratio; without both, the scaling forced with
+    --scaling, or detected from the measurements of that domain only.
+    """
+    for domain, (option, values) in domain_maps.items():
+        (
+            scaling_info.domain_workload_values[domain],
+            scaling_info.domain_workload_ratios[domain],
+        ) = _workload_ratios(values, trace_list)
+        scaling_info.domain_workload_options[domain] = option
 
     if workload_map:
+        app_option = cmdl_args.workload_option
+        app_values, app_ratios = _workload_ratios(workload_map, trace_list)
+    elif "device" in domain_maps:
+        app_option = scaling_info.domain_workload_options["device"]
+        app_values = scaling_info.domain_workload_values["device"]
+        app_ratios = scaling_info.domain_workload_ratios["device"]
+    else:
+        app_option = None
+
+    if app_option is not None:
         scaling_info.selected = "workload"
         scaling_info.selection_mode = "workload"
         scaling_info.overridden = False
         # The user gave the workload: the detection is not used.
         scaling_info.detected = None
-        scaling_info.workload_values, scaling_info.workload_ratios = (
-            _workload_ratios(workload_map, trace_list,
-                             cmdl_args.workload_option)
-        )
-        scaling_info.workload_option = cmdl_args.workload_option
+        scaling_info.workload_values = app_values
+        scaling_info.workload_ratios = app_ratios
+        scaling_info.workload_option = app_option
+    else:
+        _apply_scaling_option(scaling_info, cmdl_args)
 
-        domain_maps = getattr(cmdl_args, "domain_workload_maps", None) or {}
-
-        for domain, (option, values) in domain_maps.items():
-            (
-                scaling_info.domain_workload_values[domain],
-                scaling_info.domain_workload_ratios[domain],
-            ) = _workload_ratios(values, trace_list, option)
-            scaling_info.domain_workload_options[domain] = option
-
+    if not has_domains:
         return scaling_info
 
-    if cmdl_args.scaling == "auto":
-        scaling_info.selected = scaling_info.detected
-        scaling_info.selection_mode = "auto"
-        scaling_info.overridden = False
-
-        if cmdl_args.debug:
-            print(
-                "==DEBUG== Detected "
-                + scaling_info.detected
-                + " scaling."
-            )
-            print("")
-
-        return scaling_info
-
-    if cmdl_args.scaling == "weak":
-        scaling_info.selected = "weak"
-        scaling_info.selection_mode = "manual"
-
-        if scaling_info.detected == "strong":
-            scaling_info.overridden = True
-
-            print(
-                "==Warning== Scaling set to weak scaling "
-                "but detected strong scaling."
-            )
-            print("")
+    for domain in DOMAINS:
+        if domain in domain_maps:
+            mode = "workload"
+            selection = "Manual, " + scaling_info.domain_workload_options[
+                domain]
+        elif workload_map:
+            mode = "workload"
+            selection = "Manual, " + cmdl_args.workload_option
+        elif cmdl_args.scaling in ("weak", "strong"):
+            mode = cmdl_args.scaling
+            selection = "Manual, --scaling"
         else:
-            scaling_info.overridden = False
+            detection = detect_domain_scaling(raw_data, trace_list, domain)
+            scaling_info.domain_detection[domain] = detection
+            mode = detection.detected
+            selection = "Automatic, {} measurements only".format(
+                domain.capitalize())
 
-        return scaling_info
+        scaling_info.domain_modes[domain] = mode
+        scaling_info.domain_selection[domain] = selection
 
-    if cmdl_args.scaling == "strong":
-        scaling_info.selected = "strong"
-        scaling_info.selection_mode = "manual"
-
-        if scaling_info.detected == "weak":
-            scaling_info.overridden = True
-
-            print(
-                "==Warning== Scaling set to strong scaling "
-                "but detected weak scaling."
-            )
-            print("")
-        else:
-            scaling_info.overridden = False
-
-        return scaling_info
-
-    print(
-        "==Error== reached undefined control flow state."
-    )
-    sys.exit(1)
+    return scaling_info
 
 
-def _workload_ratios(workload_map, trace_list, option):
-    """Workload values and ratios to the reference (first) trace. The
-    ratio forms warn when the reference ratio is not 1."""
+def _workload_ratios(workload_map, trace_list):
+    """Workload values and ratios to the reference (first) trace."""
     reference_value = workload_map[trace_list[0]]
-
-    if "ratios" in option and reference_value != 1.0:
-        print(
-            "==Warning== The reference trace has {} ratio {:g}; all "
-            "ratios are divided by it.".format(option, reference_value)
-        )
-        print("")
 
     values = {trace: workload_map[trace] for trace in trace_list}
     ratios = {
@@ -429,21 +560,6 @@ def _workload_ratios(workload_map, trace_list, option):
     }
 
     return values, ratios
-
-
-def warn_unused_domain_workloads(scaling_info, has_domains):
-    """Warn when host or device workloads were given but the execution
-    model has a single domain: the workload of the application is then
-    used for all the metrics."""
-    options = getattr(scaling_info, "domain_workload_options", None)
-
-    if options and not has_domains:
-        print(
-            "==Warning== {} ignored: the execution model has no Host/Device "
-            "domains, so the workload of the application is used for all "
-            "the metrics.".format(", ".join(options.values()))
-        )
-        print("")
 
 
 def describe_detected(scaling_info):
@@ -456,6 +572,12 @@ def describe_detected(scaling_info):
         return scaling_info.detected.capitalize()
 
     return "Non-Avail"
+
+
+def _describe_mode(mode):
+    if mode == "workload":
+        return "User-defined workload"
+    return mode.capitalize()
 
 
 def describe_scaling(scaling_info):
@@ -477,6 +599,89 @@ def describe_scaling(scaling_info):
         selection = "Implicit"
 
     return selected, selection
+
+
+def describe_domains(scaling_info):
+    """Scaling of the Host and Device domains, when they have their own:
+    a list of (domain label, scaling used, selection)."""
+
+    return [
+        (
+            domain.capitalize(),
+            _describe_mode(scaling_info.domain_modes[domain]),
+            scaling_info.domain_selection[domain],
+        )
+        for domain in DOMAINS
+        if domain in scaling_info.domain_modes
+    ]
+
+
+# Resource counted by the weak-scaling ratio of each domain.
+RESOURCE_COUNTS = {
+    "host": ("count_host_threads", "Host threads"),
+    "device": ("count_devices", "devices"),
+}
+
+
+def resource_ratio(raw_data, trace_list, trace, domain):
+    """Weak-scaling ratio of a domain (Host threads or devices) for a trace,
+    or None when it cannot be computed."""
+    if raw_data is None or domain not in RESOURCE_COUNTS:
+        return None
+
+    key = RESOURCE_COUNTS[domain][0]
+
+    try:
+        return float(raw_data[key][trace]) / float(raw_data[key][trace_list[0]])
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def workload_table(scaling_info, trace_list=None, raw_data=None):
+    """Workload and ratio of each trace, per level, for the outputs.
+
+    Returns (columns, rows): columns is a list of level labels
+    ("Application", "Host", "Device"), and each row is
+    (trace, [(value or None, ratio, source) per column]). The ratio of a
+    domain in weak scaling is its resource ratio when raw_data is given,
+    and None otherwise.
+    """
+    levels = [(None, "Application")]
+    if scaling_info.domain_modes:
+        levels += [(domain, domain.capitalize()) for domain in DOMAINS]
+
+    if trace_list is None:
+        trace_list = list(scaling_info.workload_ratios or {})
+        if not trace_list:
+            for ratios in scaling_info.domain_workload_ratios.values():
+                trace_list = list(ratios)
+                break
+
+    rows = []
+    for trace in trace_list:
+        cells = []
+        for domain, _label in levels:
+            mode = scaling_info.mode(domain)
+            source = scaling_info.ratio_source(domain)
+            value = None
+            if mode == "workload":
+                if domain in scaling_info.domain_workload_values:
+                    value = scaling_info.domain_workload_values[domain][trace]
+                else:
+                    value = scaling_info.workload_values[trace]
+                ratio = scaling_info.work_ratio(trace, None, domain)
+            elif mode == "strong":
+                ratio = 1.0
+            else:
+                ratio = resource_ratio(raw_data, trace_list, trace, domain)
+                if domain in RESOURCE_COUNTS:
+                    source = "weak scaling (ratio of {})".format(
+                        RESOURCE_COUNTS[domain][1])
+            cells.append((value, ratio, source))
+        rows.append((trace, cells))
+
+    return [label for _domain, label in levels], rows
+
 
 
 def get_scaling_type(
@@ -538,57 +743,16 @@ def parse_workload_values(text, option):
     return values
 
 
-def build_workload_map(cmdl_args, trace_list):
-    """Store on cmdl_args the workload value of each trace, if given.
+def has_workload(cmdl_args):
+    """True when the user gave any workload option."""
+    return bool(
+        getattr(cmdl_args, "workload", None)
+        or any(getattr(cmdl_args, _option_attribute(option), None)
+               for _domain, option in WORKLOAD_DOMAINS)
+    )
 
-    The values of --workload or --ratios-workload are matched, in order,
-    with ``trace_list``: the traces as given on the command line, before
-    any size filtering or sorting. The result is stored as
-    ``cmdl_args.workload_map`` (trace -> value), or None when neither
-    option is used. The workloads of the execution domains (--host-workload,
-    --device-workload, and their ratio forms) are matched in the same way
-    and stored as ``cmdl_args.domain_workload_maps`` (domain -> (option,
-    map)); they need the workload of the application.
-    """
 
-    cmdl_args.workload_map = None
-    cmdl_args.domain_workload_maps = {}
-
-    domain_options = {}
-
-    for domain, size_option, ratio_option in WORKLOAD_DOMAINS:
-        for domain_option in (size_option, ratio_option):
-            text = getattr(cmdl_args, _option_attribute(domain_option), None)
-
-            if text:
-                domain_options[domain] = (domain_option, text)
-
-    if getattr(cmdl_args, "workload", None):
-        option = "--workload"
-        text = cmdl_args.workload
-    elif getattr(cmdl_args, "ratios_workload", None):
-        option = "--ratios-workload"
-        text = cmdl_args.ratios_workload
-    else:
-        if domain_options:
-            print(
-                "==Error== {} needs the workload of the application "
-                "(--workload or --ratios-workload).".format(
-                    ", ".join(o for o, _ in domain_options.values())
-                )
-            )
-            sys.exit(1)
-
-        return None
-
-    if cmdl_args.scaling != "auto":
-        print(
-            "==Error== {} cannot be combined with --scaling {}.".format(
-                option, cmdl_args.scaling
-            )
-        )
-        sys.exit(1)
-
+def _matched_values(text, option, trace_list):
     values = parse_workload_values(text, option)
 
     if len(values) != len(trace_list):
@@ -599,22 +763,51 @@ def build_workload_map(cmdl_args, trace_list):
         )
         sys.exit(1)
 
-    cmdl_args.workload_map = dict(zip(trace_list, values))
-    cmdl_args.workload_option = option
+    return dict(zip(trace_list, values))
 
-    for domain, (domain_option, domain_text) in domain_options.items():
-        domain_values = parse_workload_values(domain_text, domain_option)
 
-        if len(domain_values) != len(trace_list):
-            print(
-                "==Error== {} has {} values but {} traces were "
-                "given.".format(
-                    domain_option, len(domain_values), len(trace_list)
-                )
+def build_workload_map(cmdl_args, trace_list):
+    """Store on cmdl_args the workload value of each trace, if given.
+
+    The values of --workload are matched, in order, with ``trace_list``:
+    the traces as given on the command line, before any size filtering.
+    In workload mode the traces are not sorted, so the first trace is the
+    reference. The values are sizes or ratios: the ratio of each trace is
+    its value divided by the value of the reference. The result is stored
+    as ``cmdl_args.workload_map`` (trace -> value), or None without
+    --workload. The workloads of the execution domains (--host-workload,
+    --device-workload) are matched in the same way and stored as
+    ``cmdl_args.domain_workload_maps`` (domain -> (option, map)).
+
+    --scaling cannot be combined with --workload. With only Host or Device
+    workloads it sets the scaling of the other domain.
+    """
+
+    cmdl_args.workload_map = None
+    cmdl_args.workload_option = None
+    cmdl_args.domain_workload_maps = {}
+
+    for domain, option in WORKLOAD_DOMAINS:
+        text = getattr(cmdl_args, _option_attribute(option), None)
+
+        if text:
+            cmdl_args.domain_workload_maps[domain] = (
+                option, _matched_values(text, option, trace_list))
+
+    text = getattr(cmdl_args, "workload", None)
+
+    if not text:
+        return None
+
+    if getattr(cmdl_args, "scaling", "auto") != "auto":
+        print(
+            "==Error== --workload cannot be combined with --scaling {}.".format(
+                cmdl_args.scaling
             )
-            sys.exit(1)
+        )
+        sys.exit(1)
 
-        cmdl_args.domain_workload_maps[domain] = (
-            domain_option, dict(zip(trace_list, domain_values)))
+    cmdl_args.workload_map = _matched_values(text, "--workload", trace_list)
+    cmdl_args.workload_option = "--workload"
 
     return cmdl_args.workload_map

@@ -37,7 +37,8 @@ from iometrics import (
     request_size_interval_label,
     shorten_file_name,
 )
-from scaling import describe_detected, describe_scaling
+from scaling import (RESOURCE_COUNTS, describe_detected, describe_domains,
+                     describe_scaling, resource_ratio, workload_table)
 
 from report.renderer.html import (
     build_analysis_catalogue,
@@ -2109,6 +2110,7 @@ def _build_device_hwc_indicator_table_html(device_hwc_factors, trace_list,
                 continue
             lines.append(
                 "<td><button type='button' class='device-hwc-indicator-value' "
+                "data-trace-index='{index}' "
                 "onclick=\"selectMetricCell(this, '{section_id}', "
                 "'{metric_key}', '{metric_label}', '{trace_label}', "
                 "{value})\">{text}</button></td>".format(
@@ -2120,6 +2122,7 @@ def _build_device_hwc_indicator_table_html(device_hwc_factors, trace_list,
                         "{:.10f}".format(value) if value is not None else "null"
                     ),
                     text=text,
+                    index=index,
                 )
             )
         lines.append("</tr>")
@@ -2714,6 +2717,107 @@ def _inner_model_name(trace_mode, trace_list):
     return "X"
 
 
+# Scaling ratio of each scaled metric and trace (Metric Details), and the
+# Host metrics whose workload is assumed (dimmed in the efficiency tables).
+# Set by _set_scaling_context for each report.
+_SCALING_CONTEXT = {"notes": {}, "dimmed": frozenset()}
+
+_HOST_SCALED_KEYS = ("host_comp_scale", "host_inst_scale", "host_global_eff")
+_DEVICE_SCALED_KEYS = ("dev_comp_scale", "dev_global_eff")
+_APPLICATION_SCALED_KEYS = ("comp_scale", "global_eff", "inst_scale")
+
+def _scaling_ratio_text(scaling_info, raw_data, trace_list, trace, domain):
+    """Ratio used by the scalability metrics of a domain for one trace."""
+
+    mode = scaling_info.mode(domain)
+
+    if mode == "workload":
+        return "{:g} ({})".format(
+            scaling_info.work_ratio(trace, None, domain),
+            scaling_info.ratio_source(domain),
+        )
+
+    if mode == "strong":
+        return "1 (strong scaling)"
+
+    ratio = resource_ratio(raw_data, trace_list, trace, domain)
+
+    if ratio is not None:
+        return "{:g} (weak scaling: ratio of {})".format(
+            ratio, RESOURCE_COUNTS[domain][1])
+
+    return "resource ratio (weak scaling)"
+
+
+def _set_scaling_context(metrics_result, raw_data, trace_list):
+    """Prepare the scaling notes of the Metric Details and the Host metrics
+    to dim, for the report being built."""
+
+    scaling_info = metrics_result.get("scaling_info")
+    notes = {}
+    dimmed = set()
+
+    if scaling_info is not None and scaling_info.has_scaling_analysis:
+        domains = bool(scaling_info.domain_modes)
+
+        def note(trace, *levels):
+            parts = []
+            for label, domain in levels:
+                text = _scaling_ratio_text(
+                    scaling_info, raw_data, trace_list, trace, domain)
+                parts.append(label + text if label else text)
+            return "Scaling ratio: " + "; ".join(parts)
+
+        for index, trace in enumerate(trace_list):
+            if index == 0:
+                text = "Scaling ratio: 1 (reference execution)"
+                levels = {key: text for key in (
+                    _HOST_SCALED_KEYS + _DEVICE_SCALED_KEYS
+                    + _APPLICATION_SCALED_KEYS)}
+            else:
+                host = note(trace, ("", "host"))
+                device = note(trace, ("", "device"))
+                if domains:
+                    application = note(trace, ("Host ", "host"),
+                                       ("Device ", "device"))
+                else:
+                    application = note(trace, ("", None))
+                levels = {}
+                for key in _HOST_SCALED_KEYS:
+                    levels[key] = host
+                for key in _DEVICE_SCALED_KEYS:
+                    levels[key] = device
+                for key in _APPLICATION_SCALED_KEYS:
+                    levels[key] = application
+                # Instructions are those of the Host units.
+                if domains:
+                    levels["inst_scale"] = host
+            for key, text in levels.items():
+                notes.setdefault(key, {})[str(index)] = text
+
+        # Host workload taken from --workload: shown, but dimmed.
+        if (scaling_info.domain_modes.get("host") == "workload"
+                and "host" not in scaling_info.domain_workload_options):
+            dimmed.update(_HOST_SCALED_KEYS)
+            assumed = (". The Host workload was not given: the {} ratio is "
+                       "assumed for the Host.".format(
+                           scaling_info.workload_option))
+            for key in _HOST_SCALED_KEYS:
+                for index in notes.get(key, {}):
+                    if index != "0":
+                        notes[key][index] += assumed
+
+    _SCALING_CONTEXT["notes"] = notes
+    _SCALING_CONTEXT["dimmed"] = frozenset(dimmed)
+    _SCALING_CONTEXT["raw_data"] = raw_data
+
+
+def _scaling_notes_script():
+    """Script with the scaling notes read by the Metric Details."""
+    return "<script>window.scalingRatioNotes = {};</script>".format(
+        json.dumps(_SCALING_CONTEXT["notes"]).replace("</", "<\\/"))
+
+
 def _build_scaling_model_html(scaling_model):
     """Build the scaling-model summary shown in Computation Scalability."""
 
@@ -2726,51 +2830,51 @@ def _build_scaling_model_html(scaling_model):
 
     warning_html = ""
 
-    if scaling_model.workload_ratios is not None:
-        domains = list(scaling_model.domain_workload_ratios)
-        header = "<tr><th>Trace</th><th>Workload</th><th>Ratio</th>{}</tr>".format(
+    if (scaling_model.workload_ratios is not None
+            or scaling_model.domain_modes):
+        columns, table_rows = workload_table(
+            scaling_model, raw_data=_SCALING_CONTEXT.get("raw_data"))
+        header = "<tr><th>Trace</th>{}</tr>".format(
             "".join(
-                "<th>{0} workload</th><th>{0} ratio</th>".format(
-                    domain.capitalize())
-                for domain in domains
+                "<th>{} ratio</th>".format(html.escape(column))
+                for column in columns
             )
         )
+
+        def cell(value, ratio, source):
+            if ratio is None:
+                return "<td>weak</td>"
+            if value is not None and value != ratio:
+                return "<td>{:g} <span class='scaling-model-value'>" \
+                       "(workload {:g})</span></td>".format(ratio, value)
+            return "<td>{:g}</td>".format(ratio)
+
         rows = "".join(
-            "<tr><td>{}</td><td>{:g}</td><td>{:g}</td>{}</tr>".format(
+            "<tr><td>{}</td>{}</tr>".format(
                 html.escape(os.path.basename(trace)),
-                scaling_model.workload_values[trace],
-                ratio,
-                "".join(
-                    "<td>{:g}</td><td>{:g}</td>".format(
-                        scaling_model.domain_workload_values[domain][trace],
-                        scaling_model.domain_workload_ratios[domain][trace],
-                    )
-                    for domain in domains
-                ),
+                "".join(cell(*cells_item) for cells_item in cells),
             )
-            for trace, ratio in scaling_model.workload_ratios.items()
+            for trace, cells in table_rows
         )
-        if domains:
-            domain_text = (
-                " The {} metrics of the Host/Device model use their own "
-                "ratio.".format(
-                    " and ".join(domain.capitalize() for domain in domains))
-            )
-        else:
-            domain_text = ""
+        sources = "; ".join(
+            "{}: {}".format(column, html.escape(source))
+            for column, (_value, _ratio, source)
+            in zip(columns, table_rows[0][1])
+        )
 
         warning_html = """
         <div class="scaling-model-warning">
             <strong>User-defined workload:</strong>
-            the weak-scaling formulas use the workload ratio of each trace
-            relative to the first trace instead of the ratio of processes,
-            threads or devices.{domain_text}
+            the scalability metrics are relative to the first trace, scaled
+            by the ratio of each trace below. Application: Speedup, Scaling
+            Efficiency and the application metrics.
             <table class="scaling-model-workload">
                 {header}
                 {rows}
             </table>
+            <p class="scaling-model-sources">Source of each ratio: {sources}.</p>
         </div>
-        """.format(header=header, rows=rows, domain_text=domain_text)
+        """.format(header=header, rows=rows, sources=sources)
 
     if scaling_model.overridden:
         warning_html += """
@@ -2812,6 +2916,7 @@ def _build_scaling_model_html(scaling_model):
                 </span>
                 <strong>{selection}</strong>
             </div>
+            {domain_items}
         </div>
 
         {warning_html}
@@ -2821,6 +2926,20 @@ def _build_scaling_model_html(scaling_model):
         selected=html.escape(selected),
         selection=html.escape(selection),
         warning_html=warning_html,
+        domain_items="".join(
+            """
+            <div class="scaling-model-item">
+                <span class="scaling-model-label">
+                    {} scaling
+                </span>
+                <strong>{}</strong> ({})
+            </div>
+            """.format(
+                html.escape(domain), html.escape(used),
+                html.escape(domain_selection))
+            for domain, used, domain_selection
+            in describe_domains(scaling_model)
+        ),
     )
 
 
@@ -6135,6 +6254,7 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
     lines.append("<tbody>")
 
     for metric_key in metric_keys:
+        dimmed = metric_key in _SCALING_CONTEXT["dimmed"]
         info = metric_info.get(metric_key, {})
         raw_label = info.get("label", metric_key)
         clean_label = _clean_metric_label(raw_label)
@@ -6212,8 +6332,9 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
                     "<td class='metric-value-cell'>"
                     "<button "
                     "type='button' "
-                    "class='metric-value {value_class}' "
+                    "class='metric-value {value_class}{dimmed_class}' "
                     "style='background:{background}; color:{text_color};' "
+                    "data-trace-index='{trace_index}'{dimmed_title} "
                     "onclick=\"selectMetricCell("
                     "this, "
                     "'{section_id}', "
@@ -6234,6 +6355,12 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
                         value=js_value,
                         value_class=value_class,
                         display_value=display_value,
+                        trace_index=index,
+                        dimmed_class=(
+                            " metric-value-assumed" if dimmed else ""),
+                        dimmed_title=(
+                            " title='Host workload assumed equal to the "
+                            "application workload'" if dimmed else ""),
                     )
                 )
 
@@ -7398,6 +7525,16 @@ def _build_interactive_report_document(workspace_html,
         .metric-details-dialog h2 {
             margin: 0 44px 10px 0;
             font-size: 21px;
+        }
+
+        .metric-details-scaling {
+            margin: 0 0 14px;
+            font-size: 13px;
+            color: #4b5563;
+        }
+
+        .metric-value.metric-value-assumed {
+            opacity: 0.45;
         }
 
         .metric-details-context {
@@ -11833,6 +11970,25 @@ def _build_interactive_report_document(workspace_html,
                 "metric-details-value"
             ).innerText = valueText;
 
+            const scalingNote = document.getElementById(
+                "metric-details-scaling"
+            );
+
+            if (scalingNote) {
+                const notes = (window.scalingRatioNotes || {})[metricKey];
+                const traceIndex =
+                    trigger && trigger.dataset
+                        ? trigger.dataset.traceIndex
+                        : undefined;
+                const text =
+                    notes && traceIndex !== undefined
+                        ? notes[traceIndex]
+                        : "";
+
+                scalingNote.innerText = text || "";
+                scalingNote.hidden = !text;
+            }
+
             document.getElementById(
                 "metric-details-definition"
             ).innerText = info.meaning;
@@ -11970,6 +12126,8 @@ def _build_interactive_report_document(workspace_html,
                     <span id="metric-details-value"></span>
                 </div>
 
+                <p id="metric-details-scaling" class="metric-details-scaling" hidden></p>
+
                 <div class="metric-details-section">
                     <h3>Definition</h3>
                     <p id="metric-details-definition"></p>
@@ -11995,12 +12153,14 @@ def _build_interactive_report_document(workspace_html,
             {printable_report_html}
         </section>
 
+        {scaling_notes_script}
         </body>
         </html>
         """
 
     return(document.replace('{workspace_html}', workspace_html,)
          .replace('{printable_report_html}',printable_report_html,)
+         .replace('{scaling_notes_script}', _scaling_notes_script(),)
       )
 
 
@@ -12044,6 +12204,9 @@ def build_basicanalysis_interactive_report_html(metrics_result,
     """Build the unified interactive HTML report and return it."""
 
     other_metrics = metrics_result["other_metrics"]
+
+    _set_scaling_context(
+        metrics_result, analysis_result.get("raw_data", {}), trace_list)
 
     model = _report_execution_model(trace_mode, trace_list, metrics_result)
 

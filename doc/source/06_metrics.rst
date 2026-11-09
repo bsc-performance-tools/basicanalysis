@@ -372,8 +372,8 @@ For weak scaling:
 where :math:`P` is the number of parallel execution units and the ``ref``
 subscript denotes the reference execution.
 
-When the workload of each execution is given with ``--workload`` or
-``--ratios-workload`` (see :doc:`05_methodology`), the weak-scaling formulas of
+When the workload of each execution is given with ``--workload`` (see
+:doc:`05_methodology`), the weak-scaling formulas of
 this chapter are used with the resource ratio (:math:`P/P_{ref}`, or the
 ratio of Host threads, devices, Host threads plus devices, or processes with
 instructions) replaced by the workload ratio :math:`w = W/W_{ref}`. In the
@@ -392,8 +392,11 @@ models with a single domain it is the same for all metrics:
 
 In the Host/Device model, the Host metrics (Host Computation Scalability and
 Instruction Scalability) use the Host ratio :math:`w_H`, and Device
-Computation Scalability the device ratio :math:`w_D`; both are :math:`w`
-unless given with ``--host-workload`` or ``--device-workload``. The
+Computation Scalability the device ratio :math:`w_D`, given with
+``--host-workload`` and ``--device-workload``. A domain without its own
+workload uses :math:`w` when ``--workload`` is given, and otherwise 1 or its
+resource ratio, according to the scaling detected from that domain or forced
+with ``--scaling``. The
 Application Computation Scalability compares the useful time of the
 application with the ideal useful time of each domain:
 

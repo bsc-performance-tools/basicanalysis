@@ -130,30 +130,29 @@ an inference or training run, it can be given instead of a scaling model:
 .. code-block:: text
 
    --workload W1,W2,...
-   --ratios-workload R1,R2,...
 
-``--workload``
-   Workload sizes, one per trace. The workload ratio of each trace is its
-   size divided by the size of the reference trace.
-
-``--ratios-workload``
-   Workload ratios, one per trace, already relative to the reference trace
-   (the reference trace has ratio 1). If the ratio of the reference trace is
-   not 1, all ratios are divided by it and a warning is printed.
+The values are the workload of each trace: sizes (for example batch sizes)
+or ratios (for example ``1,4,16``). The workload ratio of each trace is its
+value divided by the value of the reference trace, so both forms give the
+same result. All values must be greater than zero, and the number of values
+must be the same as the number of traces.
 
 The values are matched, in order, with the ``.prv`` traces as they are given
-on the command line, before the traces are filtered by size or sorted; each
-trace keeps its value after sorting. Shell wildcards expand in alphabetical
-order (``b1``, ``b128``, ``b16``, ``b2``, ...), so the traces should be
-listed explicitly in the same order as the values. The trace, workload, and
-ratio used for each execution are printed in the scaling model summary and
-shown in the **Scaling** section of the report. With
-``compute_metrics_from_merged.py``, the values are matched with the trace
-list of the merged file.
+on the command line. With a workload, the traces are **not sorted**: they
+keep the command-line order, and the first trace is the reference. Shell
+wildcards expand in alphabetical order (``b1``, ``b128``, ``b16``, ``b2``,
+...), so the traces should be listed explicitly in the same order as the
+values. The ratio used for each trace is printed in the scaling model
+summary and shown in the **Scaling** section of the report, and the
+**Metric details** of each scalability metric show the ratio used for that
+metric and trace. With the distributed workflow
+(:doc:`04_staged_workflow`), the order is set when the results are merged:
+run ``merge_trace_results.py`` with ``-ord not`` and the traces in the order
+of the values, which ``compute_metrics_from_merged.py`` then matches with
+the trace list of the merged file.
 
-The two options cannot be combined with each other or with
-``--scaling weak`` or ``--scaling strong``, and the number of values must be
-the same as the number of traces. All values must be greater than zero.
+``--workload`` cannot be combined with ``--scaling weak`` or
+``--scaling strong``.
 
 For example, four vLLM runs on the same GPU with batch sizes 1, 8, 64, and
 256:
@@ -163,37 +162,75 @@ For example, four vLLM runs on the same GPU with batch sizes 1, 8, 64, and
    modelfactors.py --workload 1,8,64,256 \
        vllm_b1.prv vllm_b8.prv vllm_b64.prv vllm_b256.prv
 
+Host and Device workloads
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
 In the Host/Device model (MPI+GPU, GPU without MPI, and nsys2prv traces), the
-Host and the device can have their own workload, when the work of one of
+Host and the Device can have their own workload, when the work of one of
 them does not grow like the workload of the application:
 
 .. code-block:: text
 
-   --host-workload W1,W2,...     --host-ratios-workload R1,R2,...
-   --device-workload W1,W2,...   --device-ratios-workload R1,R2,...
+   --host-workload W1,W2,...
+   --device-workload W1,W2,...
 
-Each pair has the same size and ratio forms as ``--workload`` and
-``--ratios-workload``, with one value per trace in the same order. They need
-``--workload`` or ``--ratios-workload``, even when both the Host and device
-workloads are given: Speedup and Scaling Efficiency are measured on the whole
-application, so they always use the workload of the application. The Host or
-device workload that is not given is also that of the application. For example, if the Host does about
-the same work for every batch size (the same number of steps and kernel
-launches) while the GPU work grows with the batch:
+The values follow the same rules as ``--workload``. Each scalability metric
+uses the ratio of its level:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Options given
+     - Ratio used
+   * - ``--workload`` only
+     - The same ratio for the Host, the Device, and the application
+       (Speedup, Scaling Efficiency, and application Computation
+       Scalability).
+   * - ``--workload`` and ``--host-workload`` or ``--device-workload``
+     - Each domain its own workload; the domain without one, and the
+       application, the ``--workload`` ratio.
+   * - ``--device-workload`` only
+     - Device: its workload. Speedup and Scaling Efficiency: the Device
+       workload. Host: the scaling detected from the Host measurements only
+       (Host instructions, average Host useful time, and runtime), or the one
+       forced with ``--scaling``: ratio 1 in strong scaling, ratio of Host
+       threads in weak scaling.
+   * - ``--host-workload`` only
+     - Host: its workload. Device: the scaling detected from the Device
+       measurements only, or the one forced with ``--scaling``. Speedup and
+       Scaling Efficiency: the detected or forced scaling.
+
+``--scaling`` can be combined with ``--host-workload`` or
+``--device-workload`` when ``--workload`` is not given: it sets the scaling
+of the domain without a workload. Application Computation Scalability
+combines the useful time of both domains, each scaled by its ratio:
+
+.. math::
+
+   CompScale = \frac{U^{H}_{0} \cdot r_H + U^{D}_{0} \cdot r_D}
+                    {U^{H}_{n} + U^{D}_{n}}
+
+For example, if the GPU work grows with the batch size while the Host does
+the same steps for every batch:
 
 .. code-block:: bash
 
-   modelfactors.py --workload 1,8,64,256 --host-ratios-workload 1,1,1,1 \
+   modelfactors.py --device-workload 1,8,64,256 \
        vllm_b1.prv vllm_b8.prv vllm_b64.prv vllm_b256.prv
 
-In execution models with a single domain (MPI, MPI+OpenMP, OpenMP or
-pthreads, Burst mode), the Host and device workloads are ignored with a
-warning. The Host and device values are printed and shown with the
-workload of the application.
+When only ``--workload`` is given, the Host takes the application workload,
+which may not describe the work of the Host. The report then shows the Host
+scalability metrics dimmed, and their Metric details say that the Host
+workload was assumed.
 
-With a user-defined workload, the automatic detection of weak or strong
-scaling is not used, and the report shows it as *Not used*. The reference
-is the first execution, as in weak and strong scaling (see
+In execution models with a single domain (MPI, MPI+OpenMP, OpenMP or
+pthreads, Burst mode), ``--host-workload`` and ``--device-workload`` are
+ignored with a warning.
+
+With ``--workload`` or ``--device-workload``, the automatic detection of the
+application is not used, and the report shows it as *Not used*. The
+reference is the first execution, as in weak and strong scaling (see
 :doc:`05_methodology`).
 
 The scaling model affects the computation and interpretation of scalability

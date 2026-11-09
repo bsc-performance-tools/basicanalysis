@@ -123,20 +123,25 @@
   read and write bandwidth without the GR Active weighting, which are
   proportional to the amount of data read and written (for comparing
   executions on the same GPU model).
-- User-defined workload scaling: `--workload W1,W2,...` (workload sizes, for
-  example batch sizes) or `--ratios-workload R1,R2,...` (workload ratios
-  relative to the reference trace), one value per trace in command-line
-  order. The scalability metrics, Speedup, and Scaling Efficiency use the
-  weak-scaling formulas with the workload ratio in place of the ratio of
-  processes, Host threads, or devices. This covers experiments in which the
-  workload changes but the resources do not, such as several batch sizes on
-  the same GPU. In the Host/Device model, the Host and the device can have
-  their own workload (`--host-workload`, `--device-workload`, and their
-  ratio forms), which default to that of the application; the Application
-  Computation Scalability uses the ideal useful time of both domains. The
-  workload and ratio of each trace are printed in the scaling model summary
-  and shown in the Scaling section of the report; the automatic detection
-  of weak or strong scaling is not used.
+- User-defined workload scaling: `--workload W1,W2,...`, one value per trace
+  (sizes, such as batch sizes, or ratios), in command-line order. The
+  scalability metrics, Speedup, and Scaling Efficiency are relative to the
+  first trace, scaled by the workload ratio of each trace in place of the
+  ratio of processes, Host threads, or devices. This covers experiments in
+  which the workload changes but the resources do not, such as several batch
+  sizes on the same GPU. With a workload, the traces are not sorted: the
+  first trace given is the reference.
+  In the Host/Device model, the Host and the Device can have their own
+  workload (`--host-workload`, `--device-workload`). A domain without its
+  own workload takes that of `--workload`; without `--workload`, its scaling
+  is detected from the measurements of that domain only, or forced with
+  `--scaling`, and Speedup and Scaling Efficiency use the Device workload.
+  The Application Computation Scalability uses the ideal useful time of both
+  domains. The ratio of each trace and level is printed in the scaling model
+  summary and shown in the Scaling section of the report, and the Metric
+  details of each scalability metric show the ratio used. When the Host
+  takes the application workload, the Host scalability metrics are dimmed
+  in the report.
 
 ### Changes
 

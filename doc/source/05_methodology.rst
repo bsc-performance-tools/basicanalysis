@@ -951,7 +951,7 @@ not, for example the batch size of an inference run on the same GPU, are
 neither.
 
 For these experiments, the workload of each execution can be given with
-``--workload`` or ``--ratios-workload`` (see :doc:`03_running_basicanalysis`).
+``--workload`` (see :doc:`03_running_basicanalysis`).
 BasicAnalysis then uses the weak-scaling formulas of the scalability metrics,
 replacing the resource ratio of each metric (processes, Host threads,
 devices, or processes with instructions) with the workload ratio
@@ -973,16 +973,27 @@ whose work can grow differently. In an inference run, for example, the GPU
 work grows with the batch size, while the Host performs about the same steps
 and kernel launches for every batch. Each domain therefore has its own
 workload ratio, :math:`w_H(n)` for the Host metrics and :math:`w_D(n)` for
-the device metrics, which are the ratio of the application, :math:`w(n)`,
-unless the user gives them (``--host-workload``, ``--device-workload``).
-The Application Computation Scalability compares the useful time with the
-ideal useful time of both domains, and Speedup and Scaling Efficiency use
-the ratio of the application (see :doc:`06_metrics`). The resource ratios of
-weak scaling follow the same pattern: processes for the application, Host
-threads for the Host, and devices for the device.
+the device metrics, given with ``--host-workload`` and ``--device-workload``.
+A domain without its own workload takes the ratio of the application,
+:math:`w(n)`, when ``--workload`` is given. Otherwise its scaling is detected
+from the measurements of that domain only, with the indicators of
+`Determining the scaling model`_ computed on the Host threads or on the
+devices, or forced with ``--scaling``; its ratio is then 1 (strong) or its
+resource ratio (weak). Speedup and Scaling Efficiency use the ratio of the
+application: that of ``--workload``, or that of ``--device-workload`` when
+only the Device workload is given. The Application Computation Scalability
+compares the useful time with the ideal useful time of both domains (see
+:doc:`06_metrics`). The resource ratios of weak scaling follow the same
+pattern: processes for the application, Host threads for the Host, and
+devices for the device.
 
-The automatic detection is not used in this case: the report shows it as
-*Not used*.
+The scaling used for each level, and how it was obtained, is shown in the
+scaling summary and in the **Scaling** section of the report. When the
+application workload is given, its automatic detection is not used: the
+report shows it as *Not used*.
+
+The traces are not sorted when a workload is given: the first trace given is
+the reference (see `Reference execution`_).
 
 Reference execution
 -------------------
@@ -994,7 +1005,8 @@ Scalability and its contributing factors.
 By default, BasicAnalysis orders the traces according to their parallel
 configuration and uses the first execution in this ordering as the reference.
 Users can preserve the input ordering when a different reference execution is
-required.
+required. When a workload is given, the input ordering is always preserved,
+because the values follow the order of the traces.
 
 The choice of reference affects the numerical values of the relative
 scalability metrics and their interpretation. The selected configuration

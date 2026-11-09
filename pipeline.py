@@ -21,7 +21,8 @@ from simulatedtraces import (clear_simulated_metrics,
                              find_inconsistent_simulations,
                              inconsistent_simulation_warnings)
 from nsys2prvmetrics import create_device_hwc_factors
-from scaling import describe_detected, describe_scaling
+from scaling import (describe_detected, describe_domains, describe_scaling,
+                     workload_table)
 from comparison import (
     get_programming_model,
     is_comparison_mode,
@@ -212,7 +213,7 @@ def _without_simulated_metrics(raw_data, metrics_result, trace_list, trace_mode,
     return metrics_result
 
 
-def print_scaling_info(scaling_info):
+def print_scaling_info(scaling_info, raw_data=None):
     """Print the scaling model used by the analysis."""
 
     if (
@@ -231,22 +232,29 @@ def print_scaling_info(scaling_info):
     print("  Scaling used     : {}".format(selected))
     print("  Selection        : {}".format(selection))
 
-    if scaling_info.workload_ratios is not None:
-        print("  Workload per trace (reference: first trace):")
-        width = max(len(trace) for trace in scaling_info.workload_ratios)
-        for trace, ratio in scaling_info.workload_ratios.items():
-            print("    {:<{w}}  workload {:>10g}  ratio {:>10g}".format(
-                trace, scaling_info.workload_values[trace], ratio, w=width))
+    for domain, used, domain_selection in describe_domains(scaling_info):
+        print("  {:<17}: {} ({})".format(
+            domain + " scaling", used, domain_selection))
 
-        for domain, ratios in scaling_info.domain_workload_ratios.items():
-            print("  {} workload per trace ({}):".format(
-                domain.capitalize(),
-                scaling_info.domain_workload_options[domain]))
-            for trace, ratio in ratios.items():
-                print("    {:<{w}}  workload {:>10g}  ratio {:>10g}".format(
-                    trace,
-                    scaling_info.domain_workload_values[domain][trace],
-                    ratio, w=width))
+    if (scaling_info.workload_ratios is not None
+            or scaling_info.domain_modes):
+        columns, rows = workload_table(scaling_info, raw_data=raw_data)
+        rows = [(os.path.basename(trace), cells) for trace, cells in rows]
+        print("  Workload ratio per trace (reference: first trace):")
+        width = max(len(trace) for trace, _cells in rows)
+        print("    {:<{w}}".format("Trace", w=width) + "".join(
+            "  {:>14}".format(column) for column in columns))
+        for trace, cells in rows:
+            print("    {:<{w}}".format(trace, w=width) + "".join(
+                "  {:>14}".format(
+                    "{:g}".format(ratio) if ratio is not None else "weak")
+                for _value, ratio, _source in cells))
+        sources = [
+            "{}: {}".format(column, cells_source)
+            for column, cells_source in zip(
+                columns, [cell[2] for cell in rows[0][1]])
+        ]
+        print("    Source: " + "; ".join(sources))
 
     print("")
 
@@ -256,7 +264,7 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
     raw_data = analysis_result["raw_data"]
 
     scaling_info = metrics_result.get("scaling_info")
-    print_scaling_info(scaling_info)    
+    print_scaling_info(scaling_info, raw_data)
 
     comparison = is_comparison_mode(trace_list, trace_mode)
     if comparison:

@@ -59,31 +59,27 @@ def build_argument_parser():
                         version='%(prog)s {version}'.format(version=__version__))
     parser.add_argument("-d", "--debug", help="increase output verbosity to debug level", action="store_true")
     parser.add_argument("-s", "--scaling",
-                        help="define whether the measurements are weak or strong scaling (default: auto)",
+                        help="define whether the measurements are weak or strong scaling (default: auto). "
+                             "In the Host/Device model with only --host-workload or --device-workload, it sets "
+                             "the scaling of the domain without a workload",
                         choices=['weak', 'strong', 'auto'], default='auto')
-    workload_group = parser.add_mutually_exclusive_group()
-    workload_group.add_argument("--workload", metavar="W1,W2,...",
-                                help='use a user-defined workload ratio instead of weak or strong scaling. '
-                                     'Comma-separated workload sizes (e.g. batch sizes) of the whole application, '
-                                     'one per trace, in the order the traces are given; the ratio of each trace is '
-                                     'its size divided by the size of the reference (first sorted) trace. The ratio '
-                                     'is used in all the scaling metrics of the model. In the Host/Device model, '
-                                     'it is used directly in Speedup and Scaling Efficiency, and it is the default '
-                                     'for the Host and Device workloads')
-    workload_group.add_argument("--ratios-workload", metavar="R1,R2,...",
-                                help='same as --workload, but the values are already the workload ratios '
-                                     'of each trace relative to the reference trace')
+    parser.add_argument("--workload", metavar="W1,W2,...",
+                        help='use a user-defined workload instead of weak or strong scaling. Comma-separated '
+                             'workload values of the whole application (e.g. batch sizes, or ratios), one per '
+                             'trace, in the order the traces are given; the traces are then not sorted, and the '
+                             'first one is the reference. The ratio of each trace is its value divided by the '
+                             'value of the reference. It is used in all the scalability metrics; in the '
+                             'Host/Device model, it is also the workload of the Host and Device domains that '
+                             'have no workload of their own. Cannot be combined with --scaling')
     for domain, unit in (('host', 'Host'), ('device', 'Device')):
-        domain_group = parser.add_mutually_exclusive_group()
-        domain_group.add_argument("--{}-workload".format(domain), metavar="W1,W2,...",
-                                  help='{0} workload sizes, one per trace, for the {0} metrics of the Host/Device '
-                                       'model (MPI+GPU, GPU without MPI, nsys2prv); default: the workload of '
-                                       '--workload. Needs --workload or --ratios-workload, also when both the Host '
-                                       'and Device workloads are given, because Speedup and Scaling Efficiency use '
-                                       'the workload of the whole application'.format(unit))
-        domain_group.add_argument("--{}-ratios-workload".format(domain), metavar="R1,R2,...",
-                                  help='same as --{}-workload, but the values are already the workload '
-                                       'ratios'.format(domain))
+        parser.add_argument("--{}-workload".format(domain), metavar="W1,W2,...",
+                            help='{0} workload values, one per trace, for the {0} metrics of the Host/Device model '
+                                 '(MPI+GPU, GPU without MPI, nsys2prv). Without --workload, the domain without a '
+                                 'workload uses the scaling detected from its own measurements, or the one given '
+                                 'with --scaling{1}'.format(
+                                     unit,
+                                     ', and Speedup and Scaling Efficiency use the Device workload'
+                                     if domain == 'device' else ''))
     parser.add_argument('--limit', help='limit number of cores for the plots '
                                         '(default: max processes of the trace list )')
     parser.add_argument("-ms", "--max_trace_size", help='set the maximum trace size in MiB allowed.'
