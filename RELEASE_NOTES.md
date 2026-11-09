@@ -213,6 +213,21 @@
 
 ### Fixes
 
+- **Traces simulated with Dimemas were rejected by name, but analyzed
+  without any warning when renamed.** They are now recognized by their content (the two-digit year that Dimemas
+  writes in the trace header, and the `.row` written by Dimemas), also when
+  copied or renamed without their `.row`, and
+  analyzed with a warning in the standard output and in the report. For pure
+  MPI simulations, Serialization and Transfer are computed as for any trace:
+  compared with the original trace, Transfer shows the effect of the simulated
+  network. Hardware-counter metrics are only valid when the simulation keeps
+  the CPU speed, and Average frequency is not available (Dimemas changes the
+  time between counter events but keeps the measured cycles). For MPI+OpenMP, MPI+Pthreads, and MPI+GPU simulations only
+  the MPI-level metrics are reported, without Serialization and Transfer,
+  because Dimemas does not simulate the worker threads or the GPU streams. No metrics are reported for a simulated
+  trace whose records end after the end time of its header. BasicAnalysis stops
+  when the ideal simulation of an input trace would overwrite another input.
+
 - **Parallel Runtime Model of MPI+CUDA and MPI+HIP counted GPU streams as
   resources.** The application level now uses the Host threads and the physical
   devices, as the User Guide describes, in both `-pop-model` options.

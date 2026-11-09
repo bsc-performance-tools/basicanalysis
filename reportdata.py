@@ -36,6 +36,8 @@ def build_report(metrics_result,
             trace_threads,
             trace_mode,
             raw_data,
+            getattr(cmdl_args, "simulated_traces", ()),
+            getattr(cmdl_args, "inconsistent_simulations", ()),
         ),
         "resources": _build_resources(trace_list, output_dir),
         "metrics": metrics_result,
@@ -58,7 +60,9 @@ def _build_traces(trace_list,
                   trace_tasks,
                   trace_threads,
                   trace_mode,
-                  raw_data):
+                  raw_data,
+                  simulated_traces=(),
+                  inconsistent_simulations=()):
     traces = []
 
     for index, trace in enumerate(trace_list):
@@ -91,6 +95,8 @@ def _build_traces(trace_list,
             "gpu_streams": gpu_streams,
             "gpu_streams_per_rank": gpu_streams_per_rank,
             "mapping": execution_mapping,
+            "simulated": trace in simulated_traces,
+            "inconsistent": trace in inconsistent_simulations,
         })
      
 

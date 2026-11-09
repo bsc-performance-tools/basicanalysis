@@ -17,6 +17,9 @@ from report import build_analysis_context, build_report_model
 import html_to_pdf
 import os
 from tracemetadata import is_host_gpu_mode
+from simulatedtraces import (clear_simulated_metrics,
+                             find_inconsistent_simulations,
+                             inconsistent_simulation_warnings)
 from nsys2prvmetrics import create_device_hwc_factors
 from scaling import describe_detected, describe_scaling
 from comparison import (
@@ -153,7 +156,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
 
         add_io_metrics(other_metrics, raw_data, io_data, trace_list)
 
-        return {
+        return _without_simulated_metrics(raw_data, {
             "kind": "hybrid",
             "mod_factors": mod_factors,
             "mod_factors_scale_plus_io": mod_factors_scale_plus_io,
@@ -165,7 +168,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
             "omp_talp_factors": omp_talp_factors,
             "device_hwc_factors": create_device_hwc_factors(raw_data, trace_list),
             "scaling_info": scaling_info,
-        }
+        }, trace_list, trace_mode, cmdl_args)
 
 
     (mod_factors, 
@@ -184,7 +187,7 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
 
     add_io_metrics(other_metrics, raw_data, io_data, trace_list)
 
-    return {
+    return _without_simulated_metrics(raw_data, {
         "kind": "simple",
         "mod_factors": mod_factors,
         "mod_factors_scale_plus_io": mod_factors_scale_plus_io,
@@ -192,7 +195,22 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
         "omp_talp_factors": omp_talp_factors,
         "device_hwc_factors": create_device_hwc_factors(raw_data, trace_list),
         "scaling_info": scaling_info,
-    }
+    }, trace_list, trace_mode, cmdl_args)
+
+
+def _without_simulated_metrics(raw_data, metrics_result, trace_list, trace_mode,
+                               cmdl_args):
+    """Mark the metrics that Dimemas simulated traces cannot give."""
+    simulated = getattr(cmdl_args, "simulated_traces", ())
+    if simulated:
+        inconsistent = find_inconsistent_simulations(trace_list, simulated, raw_data)
+        cmdl_args.inconsistent_simulations = set(inconsistent)
+        for line in inconsistent_simulation_warnings(inconsistent):
+            print(line)
+        clear_simulated_metrics(metrics_result, trace_list, trace_mode, simulated,
+                                inconsistent)
+    return metrics_result
+
 
 def print_scaling_info(scaling_info):
     """Print the scaling model used by the analysis."""

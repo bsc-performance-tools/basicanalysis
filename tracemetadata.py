@@ -19,6 +19,8 @@ from collections import defaultdict, Counter
 from typing import Dict, Tuple, List, Optional
 
 from scaling import build_workload_map
+from simulatedtraces import (find_overwritten_inputs, is_simulated_trace,
+                             simulated_trace_warnings)
 
 
 TARGET_PAIR_BURST = "40000018:2"
@@ -50,16 +52,16 @@ RX_HIP = re.compile(rb'\n2:\w+:\w+:[1-3]:[1-3]:\w+:635\w{5}:')
 def get_traces_from_args(cmdl_args):
     """Filters the given list to extract traces, i.e. matching *.prv and sorts
     the traces in ascending order based on the number of processes in the trace.
-    Excludes all files other than *.prv and ignores also simulated traces from
-    this script, i.e. *.sim.prv
+    Excludes all files other than *.prv and *.prv.gz.
+    Dimemas simulated traces are accepted: they are recognized by their content
+    (see simulatedtraces) and stored in cmdl_args.simulated_traces.
     Returns list of trace paths and dictionary with the number of processes.
     """
 
     def get_processes(prv_file):
         return trace_processes[prv_file], trace_tasks[prv_file], trace_threads[prv_file]
 
-    trace_list = [x for x in cmdl_args.trace_list if (fnmatch.fnmatch(x, '*.prv') or fnmatch.fnmatch(x, '*.prv.gz'))
-                  if not fnmatch.fnmatch(x, '*.sim.prv')]
+    trace_list = [x for x in cmdl_args.trace_list if (fnmatch.fnmatch(x, '*.prv') or fnmatch.fnmatch(x, '*.prv.gz'))]
     if not trace_list:
         print('==Error== could not find any traces matching "', ' '.join(cmdl_args.trace_list))
         sys.exit(1)
@@ -150,8 +152,25 @@ def get_traces_from_args(cmdl_args):
                 (trace_processes[trace], trace_tasks[trace],
                  trace_threads[trace]) = resources
            
+    simulated = set(trace for trace in trace_list if is_simulated_trace(trace))
+    cmdl_args.simulated_traces = simulated
+
+    if not getattr(cmdl_args, 'skip_simulation', False):
+        clashes = find_overwritten_inputs(trace_list, trace_processes, simulated)
+        if clashes:
+            for sim_trace, trace in clashes:
+                print('==Error== the ideal simulation of', trace,
+                      'would overwrite the input trace', sim_trace)
+            print('==Error== analyze these traces in separate runs, rename the '
+                  'simulated trace, or use -skip-simul.')
+            sys.exit(1)
+
     print("Starting Analysis for the following sorted traces list:")
     print_overview(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode, trace_task_per_node)
+    for line in simulated_trace_warnings(trace_list, trace_mode, simulated):
+        print(line)
+    if simulated:
+        print()
     return trace_list, trace_processes, trace_tasks, trace_threads, trace_task_per_node, trace_mode
 
 

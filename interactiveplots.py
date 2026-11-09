@@ -14,6 +14,7 @@ from plotly.subplots import make_subplots
 
 from configuration import format_configuration_label
 from tracemetadata import is_host_gpu_mode
+from simulatedtraces import simulated_trace_note_html
 from iometrics import (
     ACCESS_PATTERN_CLASSES as IO_ACCESS_PATTERN_CLASSES,
     ACCESS_PATTERN_DESCRIPTIONS as IO_ACCESS_PATTERN_DESCRIPTIONS,
@@ -4110,14 +4111,19 @@ def _build_trace_column_description(report):
 def _build_trace_header_note(
         report,
         trace_labels=None):
-    """Explain the model-aware trace column labels."""
+    """Explain the model-aware trace column labels, and warn when some
+    traces are Dimemas simulations."""
+
+    simulated_note = simulated_trace_note_html(
+        report.get("traces", [])
+    )
 
     description = _build_trace_column_description(
         report
     )
 
     if not description:
-        return ""
+        return simulated_note
 
     has_trace_ids = (
         trace_labels
@@ -4132,7 +4138,7 @@ def _build_trace_header_note(
     else:
         suffix = ""
 
-    return (
+    return simulated_note + (
         "<p class='trace-header-note'>"
         "<b>Trace columns:</b> "
         "<code>{}{}</code>"
