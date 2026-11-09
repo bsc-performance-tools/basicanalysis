@@ -141,6 +141,75 @@ class MetricKnowledge:
         return self.sources
 
 
+# Positions of the critical, attention and reference thresholds on the
+# efficiency color scale. The colors of every metric are mapped so that its
+# thresholds fall on these positions; they are the default thresholds.
+SCALE_ANCHORS = MetricThresholds()
+
+
+def efficiency_scale_position(
+    value: float,
+    thresholds: MetricThresholds | None = None,
+) -> float:
+    """Map a metric value to the position of the efficiency color scale.
+
+    The mapping is piecewise linear, so that the critical, attention and
+    reference thresholds fall on SCALE_ANCHORS. With the default thresholds
+    the value is returned unchanged.
+    """
+    value = float(value)
+
+    if thresholds is None:
+        return value
+
+    anchors = SCALE_ANCHORS
+    critical = float(thresholds.critical)
+    attention = float(thresholds.attention)
+    reference = float(thresholds.reference)
+
+    if value < critical:
+        return value / critical * anchors.critical
+
+    if value < attention:
+        return anchors.critical + (
+            (value - critical) / (attention - critical)
+            * (anchors.attention - anchors.critical)
+        )
+
+    if reference == attention:
+        return anchors.reference + (value - reference)
+
+    return anchors.attention + (
+        (value - attention) / (reference - attention)
+        * (anchors.reference - anchors.attention)
+    )
+
+
+def parse_thresholds(text: str) -> MetricThresholds:
+    """Parse --thresholds CRITICAL,ATTENTION (percentages)."""
+    parts = [part.strip() for part in str(text).split(",")]
+
+    if len(parts) != 2:
+        raise ValueError(
+            "expected two comma-separated values, CRITICAL,ATTENTION "
+            "(e.g. 50,80)"
+        )
+
+    try:
+        critical, attention = (float(part) for part in parts)
+    except ValueError:
+        raise ValueError("the thresholds must be numbers (e.g. 50,80)")
+
+    if not 0.0 < critical < attention <= DEFAULT_REFERENCE_VALUE:
+        raise ValueError(
+            "the thresholds must satisfy 0 < CRITICAL < ATTENTION <= {:g}".format(
+                DEFAULT_REFERENCE_VALUE
+            )
+        )
+
+    return MetricThresholds(critical=critical, attention=attention)
+
+
 class PerformanceKnowledgeProvider:
     """Semantic API for BasicAnalysis metric knowledge."""
 
@@ -158,6 +227,7 @@ class PerformanceKnowledgeProvider:
 
         self._knowledge_base = knowledge_base
         self._default_thresholds = default_thresholds or MetricThresholds()
+        self._threshold_override: MetricThresholds | None = None
         self._enable_cache = bool(enable_cache)
         self._cache: dict[
             tuple[str, str | None, str | None],
@@ -172,8 +242,26 @@ class PerformanceKnowledgeProvider:
 
     @property
     def default_thresholds(self) -> MetricThresholds:
-        """Return provider-level fallback thresholds."""
-        return self._default_thresholds
+        """Return provider-level fallback thresholds (the override when set)."""
+        return self._threshold_override or self._default_thresholds
+
+    @property
+    def threshold_override(self) -> MetricThresholds | None:
+        """Return the thresholds given by the user (--thresholds), if any."""
+        return self._threshold_override
+
+    def set_threshold_override(
+        self,
+        thresholds: MetricThresholds | None,
+    ) -> None:
+        """Use the same thresholds for every efficiency metric (or None to
+        restore the thresholds of definitions.yaml)."""
+        if thresholds is not None and not isinstance(
+            thresholds, MetricThresholds
+        ):
+            raise TypeError("thresholds must be a MetricThresholds instance.")
+        self._threshold_override = thresholds
+        self.clear_cache()
 
     @property
     def cache_enabled(self) -> bool:
@@ -571,6 +659,9 @@ class PerformanceKnowledgeProvider:
         )
 
     def _resolve_thresholds(self, value: Any) -> MetricThresholds:
+        if self._threshold_override is not None:
+            return self._threshold_override
+
         if value is None:
             return self._default_thresholds
 

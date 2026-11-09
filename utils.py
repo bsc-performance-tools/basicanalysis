@@ -80,6 +80,12 @@ def build_argument_parser():
                                      unit,
                                      ', and Speedup and Scaling Efficiency use the Device workload'
                                      if domain == 'device' else ''))
+    parser.add_argument("--thresholds", metavar="CRITICAL,ATTENTION", type=_thresholds_argument,
+                        default=None,
+                        help='efficiency thresholds, in %%, of the colors of the efficiency tables and '
+                             'figures and of the interpretation in the report: values below CRITICAL are '
+                             'critical, values from ATTENTION are good (default: 60,85). They apply to '
+                             'every efficiency metric; the report can still change them in the browser')
     parser.add_argument('--limit', help='limit number of cores for the plots '
                                         '(default: max processes of the trace list )')
     parser.add_argument("-ms", "--max_trace_size", help='set the maximum trace size in MiB allowed.'
@@ -107,6 +113,28 @@ def build_argument_parser():
     ' of OpenMP runtime events. Any remaining duration is due to implicit synchronization.')
     parser.add_argument('--hyb-mpiomp', action='store_true', help='Compute Serialization and Transfer at OpenMP level for MPI+OpenMP codes.')
     return parser
+
+
+def _thresholds_argument(text):
+    """argparse type of --thresholds."""
+    from metrics import parse_thresholds
+    try:
+        return parse_thresholds(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error))
+
+
+def apply_efficiency_thresholds(cmdl_args):
+    """Use the thresholds of --thresholds for every efficiency metric."""
+    thresholds = getattr(cmdl_args, 'thresholds', None)
+    if thresholds is None:
+        return
+    from metrics import get_default_provider
+    get_default_provider().set_threshold_override(thresholds)
+    print('==> Efficiency thresholds (--thresholds): Critical below {:g}%, '
+          'Attention {:g}%-{:g}%, Good from {:g}%'.format(
+              thresholds.critical, thresholds.critical,
+              thresholds.attention, thresholds.attention))
 
 
 def parse_arguments():

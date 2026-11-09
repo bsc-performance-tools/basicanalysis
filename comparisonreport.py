@@ -230,11 +230,13 @@ def _build_comparison_table_html(rows, trace_list, trace_labels,
                 lines.append(
                     "<td class='metric-value-cell'>"
                     "<span class='metric-value metric-value-print' "
-                    "style='background:{background}; color:{text_color};'>"
+                    "style='background:{background}; color:{text_color};'"
+                    "{threshold_attrs}>"
                     "{display_value}</span></td>".format(
                         background=background_color,
                         text_color=text_color,
                         display_value=display_value,
+                        threshold_attrs=ip._threshold_data_attrs(value),
                     )
                 )
                 continue
@@ -242,7 +244,8 @@ def _build_comparison_table_html(rows, trace_list, trace_labels,
             lines.append(
                 "<td class='metric-value-cell'>"
                 "<button type='button' class='metric-value' "
-                "style='background:{background}; color:{text_color};' "
+                "style='background:{background}; color:{text_color};'"
+                "{threshold_attrs} "
                 "onclick=\"selectMetricCell(this, '{section_id}', "
                 "'{info_key}', '{metric_label}', '{trace_label}', {value})\">"
                 "{display_value}</button></td>".format(
@@ -254,6 +257,7 @@ def _build_comparison_table_html(rows, trace_list, trace_labels,
                     trace_label=html.escape(trace_labels[index], quote=True),
                     value=js_value,
                     display_value=display_value,
+                    threshold_attrs=ip._threshold_data_attrs(value),
                 )
             )
 

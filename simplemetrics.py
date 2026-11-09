@@ -7,6 +7,7 @@ import sys
 
 from rawdata import *
 from collections import OrderedDict
+from metrics import SCALE_ANCHORS, efficiency_scale_position, get_default_provider
 from scaling import get_scaling_info
 from iometrics import IO_FACTORS_DOC, io_useful_time, print_io_tables
 
@@ -360,14 +361,23 @@ def _plot_efficiency_heatmap(df, output_name, separator_row=None):
     # Heatmap
     # --------------------------------------------------
 
+    # With --thresholds, the colors follow the thresholds: the values are
+    # mapped onto the default thresholds of the scale and annotated as is.
+    threshold_override = get_default_provider().threshold_override
+    color_data = df
+    if threshold_override is not None:
+        color_data = df.apply(lambda column: column.map(
+            lambda value: value if pd.isna(value)
+            else efficiency_scale_position(value, threshold_override)))
+
     heatmap = sns.heatmap(
-        df,
+        color_data,
         ax=ax,
         cbar_ax=cbar_ax,
         cmap='RdYlGn',
         linewidths=0.6,
         linecolor='white',
-        annot=True,
+        annot=df.values if threshold_override is not None else True,
         vmin=0,
         vmax=100,
         center=75,
@@ -485,6 +495,22 @@ def _plot_efficiency_heatmap(df, output_name, separator_row=None):
         fontsize=11,
         labelpad=8
     )
+
+    if threshold_override is not None:
+        ticks = [0.0, SCALE_ANCHORS.critical, SCALE_ANCHORS.attention, 100.0]
+        cbar.set_ticks(ticks)
+        cbar.set_ticklabels([
+            '0',
+            '{:g}'.format(threshold_override.critical),
+            '{:g}'.format(threshold_override.attention),
+            '100',
+        ])
+        cbar.set_label(
+            'Percentage (%), thresholds {:g} / {:g}'.format(
+                threshold_override.critical, threshold_override.attention),
+            fontsize=11,
+            labelpad=8
+        )
 
     # --------------------------------------------------
     # Output

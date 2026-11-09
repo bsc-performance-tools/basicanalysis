@@ -3646,6 +3646,10 @@ The cell colors and the efficiency scale of the report follow the
 thresholds of each metric, so the colors of the other metrics do not
 change.
 
+The ``--thresholds`` option and the threshold fields of the report replace
+the thresholds of every metric, these included (see
+:ref:`sec:report-thresholds`).
+
 The metrics are reported as ``Non-Avail`` when no File I/O is detected.
 
 

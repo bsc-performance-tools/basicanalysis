@@ -73,6 +73,31 @@ complementary split view and to the report export functions. These features
 are also described later in this chapter.
 
 
+.. _sec:report-thresholds:
+
+Efficiency thresholds
+~~~~~~~~~~~~~~~~~~~~~
+
+Each view with efficiency tables shows the **Efficiency interpretation**
+scale with its thresholds: Critical, Attention, and Good. Below the scale,
+the fields **Critical below** and **Good from** change the thresholds of the
+whole report: the cells of every efficiency table, the labels of every
+scale, and the interpretation in Metric Details follow the new values at
+once. The values must satisfy ``0 < Critical < Good <= 100``.
+
+The thresholds chosen in the report are remembered by the browser for that
+report and are shown in a note under the scale, so that they are not
+mistaken for the thresholds of the report. **Reset** restores the
+thresholds the report was generated with: 60% and 85%, or those given with
+``--thresholds`` (see :doc:`03_running_basicanalysis`). The thresholds of the
+report are the ones to share: another person opening the report sees them,
+not the ones chosen in your browser.
+
+Tables exported as PNG images and the printed report use the colors shown
+on the screen. The static figures written by BasicAnalysis follow the
+thresholds of the report.
+
+
 Execution Overview
 ------------------
 

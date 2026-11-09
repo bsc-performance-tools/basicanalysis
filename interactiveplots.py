@@ -52,6 +52,8 @@ from report.renderer.html import (
 from metrics import (
     get_default_knowledge_base,
     get_default_provider,
+    SCALE_ANCHORS,
+    efficiency_scale_position,
 )
 
 #
@@ -138,6 +140,271 @@ EFFICIENCY_COLOR_SCALE = [
     (0.92, "#b8e186"),
     (1.00, "#4dac26"),
 ]
+
+
+# Script that lets the viewer change the efficiency thresholds in the
+# report: it recolors the value cells (data-value, data-critical, ...), the
+# labels of the efficiency scales and the Metric Details, and remembers the
+# thresholds in the browser for this report.
+_THRESHOLD_SCRIPT = """
+<script>
+(function () {
+    "use strict";
+
+    var SCALE = __SCALE__;
+    var ANCHORS = __ANCHORS__;
+
+    function storageKey() {
+        var path = "";
+        try {
+            path = window.top.location.pathname;
+        } catch (error) {
+            path = window.location.pathname;
+        }
+        return "basicanalysis-thresholds:" + path;
+    }
+
+    function valid(t) {
+        return t
+            && isFinite(t.critical) && isFinite(t.attention)
+            && t.critical > 0 && t.critical < t.attention
+            && t.attention <= 100;
+    }
+
+    function loadCustom() {
+        try {
+            var stored = JSON.parse(window.localStorage.getItem(storageKey()));
+            return valid(stored) ? stored : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function saveCustom(t) {
+        try {
+            if (t) {
+                window.localStorage.setItem(storageKey(), JSON.stringify(t));
+            } else {
+                window.localStorage.removeItem(storageKey());
+            }
+        } catch (error) {
+            // Storage unavailable: the thresholds apply to this page only.
+        }
+    }
+
+    var custom = loadCustom();
+
+    // Thresholds used for a metric whose report thresholds are `own`.
+    window.effectiveThresholds = function (own) {
+        own = own || {critical: ANCHORS.critical,
+                      attention: ANCHORS.attention,
+                      reference: ANCHORS.reference};
+        if (!custom) {
+            return own;
+        }
+        return {critical: custom.critical,
+                attention: custom.attention,
+                reference: own.reference};
+    };
+
+    function position(value, t) {
+        if (value < t.critical) {
+            return value / t.critical * ANCHORS.critical;
+        }
+        if (value < t.attention) {
+            return ANCHORS.critical + (value - t.critical)
+                / (t.attention - t.critical)
+                * (ANCHORS.attention - ANCHORS.critical);
+        }
+        if (t.reference === t.attention) {
+            return ANCHORS.reference + (value - t.reference);
+        }
+        return ANCHORS.attention + (value - t.attention)
+            / (t.reference - t.attention)
+            * (ANCHORS.reference - ANCHORS.attention);
+    }
+
+    function hexToRgb(hex) {
+        return [1, 3, 5].map(function (i) {
+            return parseInt(hex.substr(i, 2), 16);
+        });
+    }
+
+    function color(value, t) {
+        var normalized = Math.max(0, Math.min(position(value, t), 100)) / 100;
+        for (var i = 0; i < SCALE.length - 1; i++) {
+            var low = SCALE[i], high = SCALE[i + 1];
+            if (low[0] <= normalized && normalized <= high[0]) {
+                var f = (normalized - low[0]) / (high[0] - low[0]);
+                var a = hexToRgb(low[1]), b = hexToRgb(high[1]);
+                return "#" + a.map(function (c, k) {
+                    var v = Math.round(c + (b[k] - c) * f);
+                    return (v < 16 ? "0" : "") + v.toString(16);
+                }).join("");
+            }
+        }
+        return SCALE[SCALE.length - 1][1];
+    }
+
+    function textColor(value, t) {
+        var p = position(value, t);
+        return (p < 25 || p >= 95) ? "white" : "#333333";
+    }
+
+    var CLASSES = ["metric-critical", "metric-warning", "metric-good",
+                   "metric-above-reference"];
+
+    function valueClass(value, t) {
+        if (value > t.reference) { return "metric-above-reference"; }
+        if (value < t.critical) { return "metric-critical"; }
+        if (value < t.attention) { return "metric-warning"; }
+        return "metric-good";
+    }
+
+    function ownThresholds(element) {
+        return {critical: parseFloat(element.getAttribute("data-critical")),
+                attention: parseFloat(element.getAttribute("data-attention")),
+                reference: parseFloat(element.getAttribute("data-reference"))};
+    }
+
+    function fmt(v) {
+        return String(Math.round(v * 100) / 100);
+    }
+
+    function recolorCells() {
+        var cells = document.querySelectorAll(".metric-value[data-value]");
+        for (var i = 0; i < cells.length; i++) {
+            var cell = cells[i];
+            var value = parseFloat(cell.getAttribute("data-value"));
+            var t = window.effectiveThresholds(ownThresholds(cell));
+            cell.style.background = color(value, t);
+            cell.style.color = textColor(value, t);
+            if (cell.classList.contains("metric-value-print")) {
+                continue;
+            }
+            CLASSES.forEach(function (name) { cell.classList.remove(name); });
+            cell.classList.add(valueClass(value, t));
+        }
+    }
+
+    function updatePanels(message) {
+        var panels = document.querySelectorAll(
+            ".efficiency-scale-panel[data-critical]");
+        for (var i = 0; i < panels.length; i++) {
+            var panel = panels[i];
+            var own = ownThresholds(panel);
+            var t = window.effectiveThresholds(own);
+            var labels = {
+                critical: "< " + fmt(t.critical) + "%",
+                attention: fmt(t.critical) + "% \\u2013 " + fmt(t.attention) + "%",
+                good: "\\u2265 " + fmt(t.attention) + "%"
+            };
+            Object.keys(labels).forEach(function (key) {
+                var label = panel.querySelector(
+                    "[data-threshold-label='" + key + "']");
+                if (label) { label.textContent = labels[key]; }
+            });
+            ["critical", "attention"].forEach(function (key) {
+                var input = panel.querySelector(
+                    "[data-threshold-input='" + key + "']");
+                if (input && document.activeElement !== input) {
+                    input.value = fmt(t[key]);
+                }
+            });
+            var note = panel.querySelector("[data-threshold-note]");
+            if (!note) { continue; }
+            if (!note.hasAttribute("data-origin")) {
+                note.setAttribute("data-origin", note.textContent);
+            }
+            panel.classList.toggle("efficiency-thresholds-custom", !!custom);
+            if (message) {
+                note.textContent = message;
+            } else if (custom) {
+                note.textContent = "Custom thresholds in this browser: "
+                    + "Critical below " + fmt(custom.critical)
+                    + "%, Good from " + fmt(custom.attention)
+                    + "%. Reset restores the thresholds of the report ("
+                    + fmt(own.critical) + "% and " + fmt(own.attention)
+                    + "%).";
+            } else {
+                note.textContent = note.getAttribute("data-origin");
+            }
+        }
+    }
+
+    function apply(message) {
+        recolorCells();
+        updatePanels(message);
+    }
+
+    function onInput(event) {
+        var panel = event.target.closest(".efficiency-scale-panel");
+        var t = {
+            critical: parseFloat(panel.querySelector(
+                "[data-threshold-input='critical']").value),
+            attention: parseFloat(panel.querySelector(
+                "[data-threshold-input='attention']").value)
+        };
+        if (!valid(t)) {
+            updatePanels("The thresholds must satisfy 0 < Critical < "
+                + "Good \\u2264 100.");
+            return;
+        }
+        custom = t;
+        saveCustom(custom);
+        apply();
+    }
+
+    function onReset() {
+        custom = null;
+        saveCustom(null);
+        apply();
+    }
+
+    function init() {
+        var inputs = document.querySelectorAll("[data-threshold-input]");
+        for (var i = 0; i < inputs.length; i++) {
+            inputs[i].addEventListener("change", onInput);
+        }
+        var resets = document.querySelectorAll("[data-threshold-reset]");
+        for (var j = 0; j < resets.length; j++) {
+            resets[j].addEventListener("click", onReset);
+        }
+        if (custom) {
+            apply();
+        }
+    }
+
+    // Other tabs or embedded reports of the same report changed them.
+    window.addEventListener("storage", function (event) {
+        if (event.key === storageKey()) {
+            custom = loadCustom();
+            apply();
+        }
+    });
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+    } else {
+        init();
+    }
+})();
+</script>
+"""
+
+
+def _threshold_script():
+    """Script of the adjustable efficiency thresholds."""
+    anchors = {
+        "critical": float(SCALE_ANCHORS.critical),
+        "attention": float(SCALE_ANCHORS.attention),
+        "reference": float(SCALE_ANCHORS.reference),
+    }
+    return (_THRESHOLD_SCRIPT
+            .replace("__SCALE__", json.dumps(
+                [[position, color] for position, color in EFFICIENCY_COLOR_SCALE]))
+            .replace("__ANCHORS__", json.dumps(anchors)))
+
 
 def _format_unavailable_metric_value(raw_value):
     if raw_value == "Non-Avail":
@@ -3862,17 +4129,20 @@ def _build_efficiency_scale_html(thresholds=None):
     attention = float(thresholds.attention)
     reference = float(thresholds.reference)
 
-    # The cell colors map the thresholds of each metric to the positions
-    # of the default thresholds, so the segments of the color bar keep the
-    # default proportions.
-    default = _default_metric_thresholds()
+    # The cell colors map the thresholds of each metric to the fixed
+    # positions of the color scale, so the segments of the color bar keep
+    # the same proportions whatever the thresholds.
+    default = SCALE_ANCHORS
 
     critical_width = float(default.critical)
     attention_width = float(default.attention) - float(default.critical)
     acceptable_width = float(default.reference) - float(default.attention)
 
     return """
-    <div class="efficiency-scale-panel">
+    <div class="efficiency-scale-panel"
+         data-critical="{critical:g}"
+         data-attention="{attention:g}"
+         data-reference="{reference:g}">
         <div class="efficiency-scale-header">
             <h3>Efficiency interpretation</h3>
             <p>
@@ -3893,20 +4163,39 @@ def _build_efficiency_scale_html(thresholds=None):
             >
                 <span>
                     <strong>Critical</strong>
-                    &lt; {critical:g}%
+                    <span data-threshold-label="critical">&lt; {critical:g}%</span>
                 </span>
 
                 <span>
                     <strong>Attention</strong>
-                    {critical:g}% – {attention:g}%
+                    <span data-threshold-label="attention">{critical:g}% – {attention:g}%</span>
                 </span>
 
                 <span>
                     <strong>Good</strong>
-                    ≥ {attention:g}%
+                    <span data-threshold-label="good">≥ {attention:g}%</span>
                 </span>
             </div>
         </div>
+
+        <div class="efficiency-threshold-controls">
+            <label>
+                Critical below
+                <input type="number" data-threshold-input="critical"
+                       min="0.5" max="{reference:g}" step="any"
+                       value="{critical:g}"
+                       aria-label="Critical threshold (%)">%
+            </label>
+            <label>
+                Good from
+                <input type="number" data-threshold-input="attention"
+                       min="1" max="{reference:g}" step="any"
+                       value="{attention:g}"
+                       aria-label="Good threshold (%)">%
+            </label>
+            <button type="button" data-threshold-reset>Reset</button>
+        </div>
+        <p class="efficiency-threshold-note" data-threshold-note>{note}</p>
 
         <p class="efficiency-above-reference">
             <strong>Above reference (&gt; {reference:g}%):</strong>
@@ -3927,7 +4216,15 @@ def _build_efficiency_scale_html(thresholds=None):
         critical_width=critical_width,
         attention_width=attention_width,
         acceptable_width=acceptable_width,
+        note=_threshold_origin_note(),
     )
+
+
+def _threshold_origin_note():
+    """Where the report thresholds come from (shown under the scale)."""
+    if KNOWLEDGE_PROVIDER.threshold_override is not None:
+        return "Thresholds set with --thresholds when the report was generated."
+    return ""
 
 
 def _split_trace_mode(mode):
@@ -4528,35 +4825,15 @@ def _metric_info_json(
 def _efficiency_scale_position(value, thresholds=None):
     """Map a value of a metric to the position of the common color scale.
 
-    Metrics with their own thresholds (e.g. the I/O efficiencies) are
-    mapped piecewise linearly so that their critical and attention
-    thresholds fall on the positions of the default thresholds. With the
-    default thresholds the value is returned unchanged.
+    The thresholds of the metric (by default the report thresholds, which
+    --thresholds can change) are mapped piecewise linearly onto the fixed
+    positions of the color scale (SCALE_ANCHORS). With the default
+    thresholds the value is returned unchanged.
     """
-    value = float(value)
-
     if thresholds is None:
-        return value
+        thresholds = _default_metric_thresholds()
 
-    default = _default_metric_thresholds()
-
-    critical = float(thresholds.critical)
-    attention = float(thresholds.attention)
-    reference = float(thresholds.reference)
-
-    if value < critical:
-        return value / critical * float(default.critical)
-
-    if value < attention:
-        return float(default.critical) + (
-            (value - critical) / (attention - critical)
-            * (float(default.attention) - float(default.critical))
-        )
-
-    return float(default.attention) + (
-        (value - attention) / (reference - attention)
-        * (float(default.reference) - float(default.attention))
-    )
+    return efficiency_scale_position(value, thresholds)
 
 
 def _metric_value_color(value, thresholds=None):
@@ -4944,6 +5221,26 @@ def _interpolate_color(color_a, color_b, fraction):
     )
 
     return _rgb_to_hex(rgb)
+
+
+def _threshold_data_attrs(value, thresholds=None):
+    """Attributes read by the report script to recolor a value cell when
+    the viewer changes the thresholds."""
+    if value is None:
+        return ""
+
+    if thresholds is None:
+        thresholds = _default_metric_thresholds()
+
+    return (
+        " data-value='{:.10f}' data-critical='{:g}' "
+        "data-attention='{:g}' data-reference='{:g}'".format(
+            value,
+            float(thresholds.critical),
+            float(thresholds.attention),
+            float(thresholds.reference),
+        )
+    )
 
 
 def _metric_value_class(value, thresholds=None):
@@ -6318,13 +6615,16 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
                     "<td class='metric-value-cell'>"
                     "<span "
                     "class='metric-value metric-value-print' "
-                    "style='background:{background}; color:{text_color};'>"
+                    "style='background:{background}; color:{text_color};'"
+                    "{threshold_attrs}>"
                     "{display_value}"
                     "</span>"
                     "</td>".format(
                         background=background_color,
                         text_color=text_color,
                         display_value=display_value,
+                        threshold_attrs=_threshold_data_attrs(
+                            value, thresholds),
                     )
                 )
             else:
@@ -6334,7 +6634,8 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
                     "type='button' "
                     "class='metric-value {value_class}{dimmed_class}' "
                     "style='background:{background}; color:{text_color};' "
-                    "data-trace-index='{trace_index}'{dimmed_title} "
+                    "data-trace-index='{trace_index}'{dimmed_title}"
+                    "{threshold_attrs} "
                     "onclick=\"selectMetricCell("
                     "this, "
                     "'{section_id}', "
@@ -6356,6 +6657,8 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
                         value_class=value_class,
                         display_value=display_value,
                         trace_index=index,
+                        threshold_attrs=_threshold_data_attrs(
+                            value, thresholds),
                         dimmed_class=(
                             " metric-value-assumed" if dimmed else ""),
                         dimmed_title=(
@@ -8101,6 +8404,56 @@ def _build_interactive_report_document(workspace_html,
         }
 
         /* Semantic ranges */
+
+        .efficiency-threshold-controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px 14px;
+            margin-top: 2px;
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+
+        .efficiency-threshold-controls input {
+            width: 4.5em;
+            margin: 0 2px 0 4px;
+            padding: 1px 4px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font: inherit;
+        }
+
+        .efficiency-threshold-controls button {
+            padding: 1px 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: #ffffff;
+            color: var(--primary);
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .efficiency-threshold-note {
+            margin: 4px 0 0;
+            color: var(--text-secondary);
+            font-size: 10px;
+        }
+
+        .efficiency-threshold-note:empty {
+            display: none;
+        }
+
+        .efficiency-thresholds-custom .efficiency-threshold-note {
+            color: #8a5a00;
+            font-weight: 600;
+        }
+
+        @media print {
+            .efficiency-threshold-controls {
+                display: none;
+            }
+        }
 
         .efficiency-above-reference {
             margin: 14px 0 0;
@@ -11855,7 +12208,9 @@ def _build_interactive_report_document(workspace_html,
             }
 
             const info = infoDict[metricKey];
-            const thresholds = info.thresholds;
+            const thresholds = window.effectiveThresholds
+                ? window.effectiveThresholds(info.thresholds)
+                : info.thresholds;
 
             document.getElementById(sectionId + "-info-title").innerText = info.title;
             document.getElementById(sectionId + "-info-type").innerText = info.type;
@@ -11900,7 +12255,9 @@ def _build_interactive_report_document(workspace_html,
             }
 
             const info = infoDict[metricKey];
-            const thresholds = info.thresholds;
+            const thresholds = window.effectiveThresholds
+                ? window.effectiveThresholds(info.thresholds)
+                : info.thresholds;
 
             let valueText =
                 value === null || value === undefined
@@ -12154,6 +12511,7 @@ def _build_interactive_report_document(workspace_html,
         </section>
 
         {scaling_notes_script}
+        {threshold_script}
         </body>
         </html>
         """
@@ -12161,6 +12519,7 @@ def _build_interactive_report_document(workspace_html,
     return(document.replace('{workspace_html}', workspace_html,)
          .replace('{printable_report_html}',printable_report_html,)
          .replace('{scaling_notes_script}', _scaling_notes_script(),)
+         .replace('{threshold_script}', _threshold_script(),)
       )
 
 

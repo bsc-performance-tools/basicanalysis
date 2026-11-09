@@ -455,6 +455,34 @@ Parallel processing applies to independent trace analyses; it does not change
 the performance metrics computed for each trace.
 
 
+Efficiency thresholds
+=====================
+
+The efficiency values are classified as **Critical** below 60%,
+**Attention** from 60% to 85%, and **Good** from 85%. These thresholds set
+the colors of the efficiency tables, in the report and in the static
+figures, and the interpretation shown in Metric Details. They can be
+changed with:
+
+.. code-block:: text
+
+   --thresholds <critical>,<attention>
+
+For example, ``--thresholds 50,80`` classifies the values below 50% as
+Critical and the values from 80% as Good. The values must satisfy
+``0 < critical < attention <= 100``. The thresholds apply to every
+efficiency metric, including those with their own thresholds in
+``metrics/definitions.yaml``, and are printed in the standard output. They do
+not change the metric values or the CSV files.
+
+The colors keep the same scale whatever the thresholds: the critical
+threshold always falls on the orange-yellow boundary and the attention
+threshold on the yellow-green boundary of the scale.
+
+The thresholds can also be changed in the report itself, without running
+BasicAnalysis again (see :ref:`sec:report-thresholds`).
+
+
 Maximum trace size
 ==================
 

@@ -13,7 +13,10 @@ from .provider import (
     MetricStatus,
     MetricThresholds,
     PerformanceKnowledgeProvider,
+    SCALE_ANCHORS,
+    efficiency_scale_position,
     get_default_provider,
+    parse_thresholds,
 )
 
 __all__ = [
@@ -26,5 +29,8 @@ __all__ = [
     "MetricStatus",
     "MetricThresholds",
     "PerformanceKnowledgeProvider",
+    "SCALE_ANCHORS",
+    "efficiency_scale_position",
     "get_default_provider",
+    "parse_thresholds",
 ]
