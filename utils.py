@@ -9,7 +9,10 @@ import subprocess
 import tempfile
 import argparse
 import shutil
+import shlex
+import socket
 import time
+import atexit
 from datetime import datetime
 
 try:
@@ -106,11 +109,84 @@ def build_argument_parser():
     parser.add_argument('--ideal-omp', action='store_true', help='In simulation of MPI+OpenMP codes, it ignores the duration'
     ' of OpenMP runtime events. Any remaining duration is due to implicit synchronization.')
     parser.add_argument('--hyb-mpiomp', action='store_true', help='Compute Serialization and Transfer at OpenMP level for MPI+OpenMP codes.')
+    parser.add_argument('--log', metavar='FILE', default=None,
+                        help='file where the command line and the standard output of the run are saved '
+                             '(default: {} in the current directory)'.format(DEFAULT_LOG_FILE))
+    parser.add_argument('--no-log', action='store_true',
+                        help='do not save the command line and the standard output in a file')
     return parser
 
 
 def parse_arguments():
     return build_argument_parser().parse_args()
+
+
+DEFAULT_LOG_FILE = 'basicanalysis.log'
+
+
+class _TeeStream(object):
+    """Write to the console stream and to the log file."""
+
+    def __init__(self, stream, log):
+        self._stream = stream
+        self._log = log
+
+    def write(self, data):
+        self._stream.write(data)
+        if not self._log.closed:
+            self._log.write(data)
+        return len(data)
+
+    def flush(self):
+        self._stream.flush()
+        if not self._log.closed:
+            self._log.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def command_line(argv=None):
+    """The command line of the run, quoted so that it can be pasted in a shell."""
+    argv = sys.argv if argv is None else argv
+    return ' '.join(shlex.quote(arg) for arg in argv)
+
+
+def start_run_log(cmdl_args, default_file=DEFAULT_LOG_FILE):
+    """Save the command line and the standard output and error of the run in a file.
+
+    The output still goes to the console. Returns the path of the log file, or
+    None when the log is disabled (--no-log, or no file given and no default)."""
+    if getattr(cmdl_args, 'no_log', False):
+        return None
+    path = getattr(cmdl_args, 'log', None) or default_file
+    if not path:
+        return None
+    try:
+        log = open(path, 'w', buffering=1)
+    except OSError as error:
+        print('==WARNING== Could not open the log file {}: {}'.format(path, error))
+        return None
+    start = datetime.now()
+    log.write('BasicAnalysis {} ({})\n'.format(__version__, os.path.basename(sys.argv[0])))
+    log.write('Date:      {}\n'.format(start.strftime('%Y-%m-%d %H:%M:%S')))
+    log.write('Host:      {}\n'.format(socket.gethostname()))
+    log.write('Directory: {}\n'.format(os.getcwd()))
+    log.write('Command:   {}\n'.format(command_line()))
+    log.write('-' * 79 + '\n')
+    sys.stdout = _TeeStream(sys.stdout, log)
+    sys.stderr = _TeeStream(sys.stderr, log)
+
+    def _close():
+        end = datetime.now()
+        log.write('-' * 79 + '\n')
+        log.write('Finished:  {} (elapsed {})\n'.format(
+            end.strftime('%Y-%m-%d %H:%M:%S'), str(end - start).split('.')[0]))
+        log.close()
+
+    atexit.register(_close)
+    print('==> Command line and output saved in {}'.format(path))
+    return path
 
 
 def which(cmd):

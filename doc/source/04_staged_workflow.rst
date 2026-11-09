@@ -108,6 +108,12 @@ with:
 
    analyze_trace.py --help
 
+``analyze_trace.py`` saves its command line and standard output only when
+``--log <file>`` is given, because the per-trace jobs may run in the same
+directory; give each job its own file, for example
+``--log analyze_trace_1.log``. ``compute_metrics_from_merged.py`` saves them in
+``basicanalysis.log`` by default (see :ref:`sec:run-log`).
+
 
 Merging raw data
 ================
