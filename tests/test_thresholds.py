@@ -123,6 +123,10 @@ class TestReportMarkup(unittest.TestCase):
         self.assertNotIn("__ANCHORS__", script)
         self.assertIn('"#b2182b"', script)
         self.assertIn("window.effectiveThresholds", script)
+        # The thresholds are kept per report view; the printable report
+        # keeps the thresholds of the report.
+        self.assertIn("data-guided-view-id", script)
+        self.assertIn("data-basicanalysis-printable-report", script)
 
 
 if __name__ == "__main__":

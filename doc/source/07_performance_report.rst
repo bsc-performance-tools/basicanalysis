@@ -80,21 +80,25 @@ Efficiency thresholds
 
 Each view with efficiency tables shows the **Efficiency interpretation**
 scale with its thresholds: Critical, Attention, and Good. Below the scale,
-the fields **Critical below** and **Good from** change the thresholds of the
-whole report: the cells of every efficiency table, the labels of every
-scale, and the interpretation in Metric Details follow the new values at
-once. The values must satisfy ``0 < Critical < Good <= 100``.
+the fields **Critical below** and **Good from** change the thresholds of
+that view: its efficiency tables, its scale, and the interpretation in
+Metric Details of its values follow the new values at once. The values must
+satisfy ``0 < Critical < Good <= 100``.
 
-The thresholds chosen in the report are remembered by the browser for that
-report and are shown in a note under the scale, so that they are not
-mistaken for the thresholds of the report. **Reset** restores the
-thresholds the report was generated with: 60% and 85%, or those given with
-``--thresholds`` (see :doc:`03_running_basicanalysis`). The thresholds of the
-report are the ones to share: another person opening the report sees them,
-not the ones chosen in your browser.
+Each view keeps its own thresholds, because each view analyzes a different
+performance model: changing the thresholds of the Host/Device Model, for
+example, does not change the colors of the Parallel Runtime Model.
 
-Tables exported as PNG images and the printed report use the colors shown
-on the screen. The static figures written by BasicAnalysis follow the
+The browser remembers the thresholds of each view for that report, and a
+note under the scale shows that the view uses custom thresholds, so that
+they are not mistaken for the thresholds of the report. **Reset** restores
+the thresholds the report was generated with: 60% and 85%, or those given
+with ``--thresholds`` (see :doc:`03_running_basicanalysis`). The thresholds
+of the report are the ones to share: another person opening the report sees
+them, not the ones chosen in your browser.
+
+Tables exported as PNG images use the colors shown in their view. The
+printed report and the static figures written by BasicAnalysis use the
 thresholds of the report.
 
 

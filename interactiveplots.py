@@ -142,10 +142,12 @@ EFFICIENCY_COLOR_SCALE = [
 ]
 
 
-# Script that lets the viewer change the efficiency thresholds in the
-# report: it recolors the value cells (data-value, data-critical, ...), the
-# labels of the efficiency scales and the Metric Details, and remembers the
-# thresholds in the browser for this report.
+# Script that lets the viewer change the efficiency thresholds of each
+# report view: it recolors the value cells of the view (data-value,
+# data-critical, ...), the labels of its efficiency scale and the Metric
+# Details of its cells, and remembers the thresholds of each view in the
+# browser for this report. The printable report keeps the thresholds the
+# report was generated with.
 _THRESHOLD_SCRIPT = """
 <script>
 (function () {
@@ -155,35 +157,46 @@ _THRESHOLD_SCRIPT = """
     var ANCHORS = __ANCHORS__;
 
     function storageKey() {
-        var path = "";
+        var key = "basicanalysis-thresholds:";
         try {
-            path = window.top.location.pathname;
+            key += window.top.location.pathname;
+            // A report embedded in the comparison report keeps its own views.
+            if (window.frameElement) {
+                var panel = window.frameElement.closest("[id]");
+                key += "#" + (panel ? panel.id : "frame");
+            }
         } catch (error) {
-            path = window.location.pathname;
+            key += window.location.pathname;
         }
-        return "basicanalysis-thresholds:" + path;
+        return key;
     }
 
     function valid(t) {
-        return t
+        return !!t
             && isFinite(t.critical) && isFinite(t.attention)
             && t.critical > 0 && t.critical < t.attention
             && t.attention <= 100;
     }
 
     function loadCustom() {
+        var result = {};
         try {
             var stored = JSON.parse(window.localStorage.getItem(storageKey()));
-            return valid(stored) ? stored : null;
+            if (stored && typeof stored === "object") {
+                Object.keys(stored).forEach(function (view) {
+                    if (valid(stored[view])) { result[view] = stored[view]; }
+                });
+            }
         } catch (error) {
-            return null;
+            // Nothing stored or storage unavailable.
         }
+        return result;
     }
 
-    function saveCustom(t) {
+    function saveCustom() {
         try {
-            if (t) {
-                window.localStorage.setItem(storageKey(), JSON.stringify(t));
+            if (Object.keys(custom).length) {
+                window.localStorage.setItem(storageKey(), JSON.stringify(custom));
             } else {
                 window.localStorage.removeItem(storageKey());
             }
@@ -192,18 +205,36 @@ _THRESHOLD_SCRIPT = """
         }
     }
 
+    // Custom thresholds of each view, by view id.
     var custom = loadCustom();
 
-    // Thresholds used for a metric whose report thresholds are `own`.
-    window.effectiveThresholds = function (own) {
+    // View of an element: its report view, or the panel of the comparison
+    // report. The printable report has no view: it keeps the thresholds of
+    // the report.
+    function viewOf(element) {
+        if (!element || !element.closest
+                || element.closest("[data-basicanalysis-printable-report]")) {
+            return null;
+        }
+        var view = element.closest("[data-guided-view-id]");
+        if (view) { return view.getAttribute("data-guided-view-id"); }
+        var panel = element.closest(".pmc-panel[id]");
+        return panel ? panel.id : null;
+    }
+
+    // Thresholds of a metric whose report thresholds are `own`, for a cell
+    // or panel `element` of the report.
+    window.effectiveThresholds = function (own, element) {
         own = own || {critical: ANCHORS.critical,
                       attention: ANCHORS.attention,
                       reference: ANCHORS.reference};
-        if (!custom) {
+        var view = viewOf(element);
+        var t = view !== null ? custom[view] : null;
+        if (!t) {
             return own;
         }
-        return {critical: custom.critical,
-                attention: custom.attention,
+        return {critical: t.critical,
+                attention: t.attention,
                 reference: own.reference};
     };
 
@@ -276,7 +307,7 @@ _THRESHOLD_SCRIPT = """
         for (var i = 0; i < cells.length; i++) {
             var cell = cells[i];
             var value = parseFloat(cell.getAttribute("data-value"));
-            var t = window.effectiveThresholds(ownThresholds(cell));
+            var t = window.effectiveThresholds(ownThresholds(cell), cell);
             cell.style.background = color(value, t);
             cell.style.color = textColor(value, t);
             if (cell.classList.contains("metric-value-print")) {
@@ -287,58 +318,71 @@ _THRESHOLD_SCRIPT = """
         }
     }
 
-    function updatePanels(message) {
-        var panels = document.querySelectorAll(
-            ".efficiency-scale-panel[data-critical]");
-        for (var i = 0; i < panels.length; i++) {
-            var panel = panels[i];
-            var own = ownThresholds(panel);
-            var t = window.effectiveThresholds(own);
-            var labels = {
-                critical: "< " + fmt(t.critical) + "%",
-                attention: fmt(t.critical) + "% \\u2013 " + fmt(t.attention) + "%",
-                good: "\\u2265 " + fmt(t.attention) + "%"
-            };
-            Object.keys(labels).forEach(function (key) {
-                var label = panel.querySelector(
-                    "[data-threshold-label='" + key + "']");
-                if (label) { label.textContent = labels[key]; }
-            });
-            ["critical", "attention"].forEach(function (key) {
-                var input = panel.querySelector(
-                    "[data-threshold-input='" + key + "']");
-                if (input && document.activeElement !== input) {
-                    input.value = fmt(t[key]);
-                }
-            });
-            var note = panel.querySelector("[data-threshold-note]");
-            if (!note) { continue; }
-            if (!note.hasAttribute("data-origin")) {
-                note.setAttribute("data-origin", note.textContent);
+    function updatePanel(panel, message) {
+        var own = ownThresholds(panel);
+        var view = viewOf(panel);
+        var t = window.effectiveThresholds(own, panel);
+        var labels = {
+            critical: "< " + fmt(t.critical) + "%",
+            attention: fmt(t.critical) + "% \\u2013 " + fmt(t.attention) + "%",
+            good: "\\u2265 " + fmt(t.attention) + "%"
+        };
+        Object.keys(labels).forEach(function (key) {
+            var label = panel.querySelector(
+                "[data-threshold-label='" + key + "']");
+            if (label) { label.textContent = labels[key]; }
+        });
+        ["critical", "attention"].forEach(function (key) {
+            var input = panel.querySelector(
+                "[data-threshold-input='" + key + "']");
+            if (input && document.activeElement !== input) {
+                input.value = fmt(t[key]);
             }
-            panel.classList.toggle("efficiency-thresholds-custom", !!custom);
-            if (message) {
-                note.textContent = message;
-            } else if (custom) {
-                note.textContent = "Custom thresholds in this browser: "
-                    + "Critical below " + fmt(custom.critical)
-                    + "%, Good from " + fmt(custom.attention)
-                    + "%. Reset restores the thresholds of the report ("
-                    + fmt(own.critical) + "% and " + fmt(own.attention)
-                    + "%).";
-            } else {
-                note.textContent = note.getAttribute("data-origin");
-            }
+        });
+        var note = panel.querySelector("[data-threshold-note]");
+        if (!note) { return; }
+        if (!note.hasAttribute("data-origin")) {
+            note.setAttribute("data-origin", note.textContent);
+        }
+        var isCustom = view !== null && !!custom[view];
+        panel.classList.toggle("efficiency-thresholds-custom", isCustom);
+        if (message) {
+            note.textContent = message;
+        } else if (view === null && Object.keys(custom).length) {
+            note.textContent = "The printed report uses the thresholds of "
+                + "the report (" + fmt(own.critical) + "% and "
+                + fmt(own.attention) + "%); the thresholds changed in a "
+                + "view apply to that view on the screen and to its PNG "
+                + "exports.";
+        } else if (isCustom) {
+            note.textContent = "Custom thresholds of this view in this "
+                + "browser: Critical below " + fmt(t.critical)
+                + "%, Good from " + fmt(t.attention)
+                + "%. Reset restores the thresholds of the report ("
+                + fmt(own.critical) + "% and " + fmt(own.attention)
+                + "%).";
+        } else {
+            note.textContent = note.getAttribute("data-origin");
         }
     }
 
-    function apply(message) {
+    function updatePanels() {
+        var panels = document.querySelectorAll(
+            ".efficiency-scale-panel[data-critical]");
+        for (var i = 0; i < panels.length; i++) {
+            updatePanel(panels[i]);
+        }
+    }
+
+    function apply() {
         recolorCells();
-        updatePanels(message);
+        updatePanels();
     }
 
     function onInput(event) {
         var panel = event.target.closest(".efficiency-scale-panel");
+        var view = viewOf(panel);
+        if (view === null) { return; }
         var t = {
             critical: parseFloat(panel.querySelector(
                 "[data-threshold-input='critical']").value),
@@ -346,18 +390,20 @@ _THRESHOLD_SCRIPT = """
                 "[data-threshold-input='attention']").value)
         };
         if (!valid(t)) {
-            updatePanels("The thresholds must satisfy 0 < Critical < "
+            updatePanel(panel, "The thresholds must satisfy 0 < Critical < "
                 + "Good \\u2264 100.");
             return;
         }
-        custom = t;
-        saveCustom(custom);
+        custom[view] = t;
+        saveCustom();
         apply();
     }
 
-    function onReset() {
-        custom = null;
-        saveCustom(null);
+    function onReset(event) {
+        var view = viewOf(event.target);
+        if (view === null) { return; }
+        delete custom[view];
+        saveCustom();
         apply();
     }
 
@@ -370,12 +416,12 @@ _THRESHOLD_SCRIPT = """
         for (var j = 0; j < resets.length; j++) {
             resets[j].addEventListener("click", onReset);
         }
-        if (custom) {
+        if (Object.keys(custom).length) {
             apply();
         }
     }
 
-    // Other tabs or embedded reports of the same report changed them.
+    // The same report open in another browser tab changed them.
     window.addEventListener("storage", function (event) {
         if (event.key === storageKey()) {
             custom = loadCustom();
@@ -8434,6 +8480,10 @@ def _build_interactive_report_document(workspace_html,
             cursor: pointer;
         }
 
+        [data-basicanalysis-printable-report] .efficiency-threshold-controls {
+            display: none;
+        }
+
         .efficiency-threshold-note {
             margin: 4px 0 0;
             color: var(--text-secondary);
@@ -12256,7 +12306,7 @@ def _build_interactive_report_document(workspace_html,
 
             const info = infoDict[metricKey];
             const thresholds = window.effectiveThresholds
-                ? window.effectiveThresholds(info.thresholds)
+                ? window.effectiveThresholds(info.thresholds, trigger)
                 : info.thresholds;
 
             let valueText =

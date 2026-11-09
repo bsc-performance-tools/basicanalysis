@@ -479,8 +479,8 @@ The colors keep the same scale whatever the thresholds: the critical
 threshold always falls on the orange-yellow boundary and the attention
 threshold on the yellow-green boundary of the scale.
 
-The thresholds can also be changed in the report itself, without running
-BasicAnalysis again (see :ref:`sec:report-thresholds`).
+The thresholds can also be changed in each view of the report, without
+running BasicAnalysis again (see :ref:`sec:report-thresholds`).
 
 
 Maximum trace size

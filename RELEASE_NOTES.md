@@ -8,12 +8,13 @@
   (default 60,85) sets the thresholds of every efficiency metric: the colors
   of the efficiency tables of the report and of the static heatmaps, the
   labels of the efficiency scales, and the interpretation in Metric Details.
-  In the report, the **Critical below** and **Good from** fields under each
-  efficiency scale change them for the whole report without running
-  BasicAnalysis again; the browser remembers them for that report, a note
-  shows that custom thresholds are in use, and **Reset** restores the
-  thresholds of the report. The metric values and the CSV files do not
-  change.
+  In the report, the **Critical below** and **Good from** fields under the
+  efficiency scale of each view change the thresholds of that view without
+  running BasicAnalysis again; each view keeps its own thresholds, the
+  browser remembers them for that report, a note shows that the view uses
+  custom thresholds, and **Reset** restores the thresholds of the report.
+  The printed report keeps the thresholds of the report. The metric values
+  and the CSV files do not change.
 - New File I/O performance model. The traced POSIX, ANSI C, and MPI-IO calls
   are classified into **Data Access** (calls that move or commit data: read
   and write calls of every API) and **File Management** (open, close, seek,
