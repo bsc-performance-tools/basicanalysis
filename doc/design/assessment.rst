@@ -218,10 +218,47 @@ mode, never exported.
      - No content to write
      - Fixed slide, added at export
 
-The template is a data file (for example
-``assessment_templates/pop3.json``) with the sections, their guidance, the
-fields, the elements to insert, and the *internal* flag. Other templates
-(outside POP, or a future POP version) are new files, not code changes.
+Templates
+~~~~~~~~~
+
+*Decided 2026-11-10*: BasicAnalysis ships the current POP template as the
+default, and the user can point to their own.
+
+A template has two files:
+
+* **Structure** (``.json``): the sections, their guidance, the fields, the
+  elements to insert, and the *internal* flag. It drives the Assessment
+  view.
+* **Slides** (``.pptx``): the PowerPoint file whose layouts the slide
+  export fills. Only the export uses it.
+
+Default files::
+
+    assessment_templates/
+        pop3.json
+        pop3.pptx      (POP3_Assessment_template_detailed.pptx)
+
+Choosing a template:
+
+* ``modelfactors.py`` and ``compute_metrics_from_merged.py`` get
+  ``--assessment-template FILE.json``; without it the report offers the
+  POP template and a blank assessment.
+* The slide export takes ``--template FILE.pptx``; without it, it uses the
+  ``.pptx`` named in the structure file, or the default POP one.
+* The structure and the slides can be changed independently: a user can
+  keep the POP sections with their organisation's slides, or the reverse.
+
+A user's ``.pptx`` must have layouts for a title slide, title and content,
+title only, section header, and blank. The export finds them by the
+standard PowerPoint layout names, and the structure file can map other
+names (``"layouts": {"title_only": "Our title-only layout"}``). When a
+layout is missing, the export stops and names it, instead of producing
+slides with the wrong layout. The fixed slides of the POP template (survey
+and closing) are taken from the ``.pptx`` itself, so a user's template
+brings its own or none.
+
+The chosen template is recorded in the assessment (``"template"``), so a
+regenerated report and the export use the same one.
 
 Add evidence from Metric Details
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -335,7 +372,9 @@ Export
 
   **Proposed: (b)**, because the deliverable must be the POP template, and
   any change to the template is picked up without code changes. The
-  template file is given with ``--template``. BasicAnalysis tables are
+  default is the POP template; ``--template`` points to another one (see
+  *Templates*). The dates in the template slides are replaced by the export
+  date. BasicAnalysis tables are
   exported as images; Paraver views are inserted as pasted.
 * **Customer and internal exports**: the customer export leaves out the
   sections marked *internal*; the internal export includes them.
@@ -380,9 +419,11 @@ Scope of each phase
    deck with one of our traces.
 2. *Add evidence* from Metric Details, the links, the marks on metric
    cells, BasicAnalysis elements with snapshots, the POP template (fields,
-   guidance, prefilled values, issue list, internal sections), and
+   guidance, prefilled values, issue list, internal sections), the default
+   template files and ``--assessment-template``, and
    ``--assessment``.
-3. Printable report and PDF; PPTX export with the POP template, customer
+3. Printable report and PDF; PPTX export with the default POP template or
+   the user's (``--template``, layout mapping), customer
    and internal versions.
 4. User Guide (report and output chapters), release notes, screenshots.
 
@@ -391,8 +432,8 @@ Open questions
 --------------
 
 1. Slide export with ``python-pptx`` and the template file (b): agreed?
-   Can the POP template be distributed with BasicAnalysis, or must the
-   analyst give its path?
+   (Decided: the POP template is the default, and users can give their
+   own; see *Templates*.)
 2. Is plain text with bullets enough, or do analysts need bold, links, or
    formulas in comments?
 3. Which other templates are needed besides POP (for example for internal
