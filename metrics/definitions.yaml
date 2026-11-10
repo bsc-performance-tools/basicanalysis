@@ -1830,7 +1830,7 @@ metrics:
         efficiency. Compare it with the fraction of execution time covered
         by GPU kernels as a consistency check. GPU idle periods and their
         impact on application performance are assessed with the Device
-        metrics of the Host/Device Model.
+        metrics of the Heterogeneous Model.
       low: >
         The GPU graphics/compute engines are active during a relatively
         small fraction of the execution.
@@ -1843,7 +1843,7 @@ metrics:
         GPU kernels; a large discrepancy may indicate sampling,
         trace-conversion, or counter-interpretation issues.
       - >
-        Use the Device metrics of the Host/Device Model to assess
+        Use the Device metrics of the Heterogeneous Model to assess
         GPU idle periods and their impact on application performance.
     children: []
     availability: >

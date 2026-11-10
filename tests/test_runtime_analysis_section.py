@@ -700,7 +700,7 @@ class RuntimeAnalysisBuilderTests(unittest.TestCase):
 
         self.assertEqual(
             analysis.title,
-            "Parallel Runtime Model: MPI + OpenMP",
+            "Hybrid Model: MPI + OpenMP",
         )
 
         self.assertEqual(
@@ -790,7 +790,7 @@ class RuntimeAnalysisBuilderTests(unittest.TestCase):
 
         self.assertEqual(
             analysis.title,
-            "Parallel Runtime Model: MPI + CUDA",
+            "Hybrid Model: MPI + CUDA",
         )
 
         self.assertEqual(

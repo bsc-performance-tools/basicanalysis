@@ -313,7 +313,7 @@ def _render_primary_tabs(views: Sequence[AnalysisCatalogueView],) -> str:
                         role="menuitem"
                         hidden
                     >
-                        Parallel Runtime Model table (PNG)
+                        __RUNTIME_MODEL_LABEL__ table (PNG)
                     </button>
 
                     <button
@@ -378,7 +378,19 @@ def _render_primary_tabs(views: Sequence[AnalysisCatalogueView],) -> str:
 
     lines.append("</div>")  # guided-primary-tabs
 
-    return "\n".join(lines)
+    runtime_label = next(
+        (
+            view.label
+            for view in views
+            if view.view_id == "parallel-runtime-model"
+        ),
+        "Parallel Runtime Model",
+    )
+
+    return "\n".join(lines).replace(
+        "__RUNTIME_MODEL_LABEL__",
+        html.escape(runtime_label),
+    )
 
 
 def _render_drilldown_selector(
@@ -2381,7 +2393,7 @@ def _render_navigation_script() -> str:
 
                 if (!exportCard) {
                     window.alert(
-                        "The Parallel Runtime Model and Runtime "
+                        "The runtime model and Runtime "
                         + "Analysis tables could not be prepared "
                         + "for export."
                     );
@@ -2654,7 +2666,7 @@ def _render_navigation_script() -> str:
 
                 if (!table) {
                     window.alert(
-                        "The Parallel Runtime Model efficiency "
+                        "The runtime model efficiency "
                         + "table is not available."
                     );
 

@@ -21,12 +21,12 @@ The main output of BasicAnalysis is the interactive performance report:
    basicanalysis_interactive_report.html
 
 The report provides a guided view of the performance analysis through the
-Execution Overview, Parallel Runtime Model, Runtime-Specific Analysis,
-Host/Device Model, I/O Analysis, and Scaling views, as applicable to the
+Execution Overview, Parallel Runtime Model (Hybrid Model for MPI+X
+applications), Runtime-Specific Analysis, Heterogeneous Model, I/O Analysis, and Scaling views, as applicable to the
 analyzed execution.
 
 The available views depend on the programming model and performance data. For
-example, the Host/Device Model view is available for accelerator
+example, the Heterogeneous Model view is available for accelerator
 applications, while I/O Analysis reports I/O Efficiency and its Data Access
 and File Management factors when POSIX, ANSI C, or MPI-IO calls are detected
 in the traces. When multiple execution
@@ -150,7 +150,7 @@ performance model, the output includes files such as:
    efficiency_table-matplot.pdf
 
 or the corresponding global, hybrid, runtime-specific, or Host/Device
-variants. For the Host/Device model, ``efficiency_table_talp_matplot``
+variants. For the Heterogeneous Model, ``efficiency_table_talp_matplot``
 shows the Host and Device metrics together, and
 ``efficiency_table_talp_host_matplot`` and
 ``efficiency_table_talp_device_matplot`` show each execution domain on its

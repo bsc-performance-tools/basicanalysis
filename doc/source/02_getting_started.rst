@@ -151,8 +151,9 @@ A standard BasicAnalysis execution can produce:
 * an interactive HTML performance report.
 
 The performance report organizes the analysis into complementary views such
-as Execution Overview, Parallel Runtime Model, Runtime-Specific Analysis, 
-Host/Device Model when applicable, and Scaling when several configurations 
+as Execution Overview, Parallel Runtime Model (Hybrid Model for MPI+X
+applications), Runtime-Specific Analysis, 
+Heterogeneous Model when applicable, and Scaling when several configurations 
 are available.
 
 The interactive report can also be exported as a printable PDF when the

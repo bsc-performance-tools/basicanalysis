@@ -12,6 +12,7 @@ from ...sections import (
     ResourceAnalysisData,
     RuntimeAnalysisData,
 )
+from ...model_names import runtime_model_name_from_title
 
 
 @dataclass(frozen=True)
@@ -326,7 +327,7 @@ def render_secondary_panel(
         (
             "<p>"
             "Select a runtime component or execution domain to inspect "
-            "its metrics while keeping the Parallel Runtime Model visible."
+            "its metrics while keeping the runtime model visible."
             "</p>"
         ),
         "</div>",
@@ -593,7 +594,7 @@ def render_performance_assessment(
     >
         <section class="performance-runtime-analysis">
             <header class="performance-section-header">
-                <h2>Parallel Runtime Model</h2>
+                <h2>{runtime_model_label}</h2>
 
                 <p>
                     Attribute the parallel-efficiency loss to the active
@@ -605,7 +606,7 @@ def render_performance_assessment(
             <div class="performance-analysis-layout {layout_class}">
                 <section
                     class="performance-primary-panel"
-                    aria-label="Parallel Runtime Model"
+                    aria-label="{runtime_model_label}"
                 >
                     <div class="performance-primary-body">
                         {parallel_runtime_model_html}
@@ -622,6 +623,9 @@ def render_performance_assessment(
     {interaction_script}
     """.format(
         layout_class=layout_class,
+        runtime_model_label=html.escape(runtime_model_name_from_title(
+            getattr(runtime_section.payload.parallel_runtime_model,
+                    "title", ""))),
         parallel_runtime_model_html=(
             parallel_runtime_model_html
         ),

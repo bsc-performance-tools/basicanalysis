@@ -165,7 +165,7 @@ For example, four vLLM runs on the same GPU with batch sizes 1, 8, 64, and
 Host and Device workloads
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-In the Host/Device model (MPI+GPU, GPU without MPI, and nsys2prv traces), the
+In the Heterogeneous Model (MPI+GPU, GPU without MPI, and nsys2prv traces), the
 Host and the Device can have their own workload, when the work of one of
 them does not grow like the workload of the application:
 

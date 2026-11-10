@@ -815,14 +815,15 @@ class AnalysisCatalogueTests(unittest.TestCase):
             "Execution Overview",
         )
 
+        # MPI+CUDA is a hybrid MPI+X execution.
         self.assertEqual(
             labels["parallel-runtime-model"],
-            "Parallel Runtime Model",
+            "Hybrid Model",
         )
 
         self.assertEqual(
             labels["execution-domains"],
-            "Host/Device Model",
+            "Heterogeneous Model",
         )
 
         self.assertEqual(
@@ -985,7 +986,7 @@ class AnalysisCatalogueTests(unittest.TestCase):
 
         self.assertEqual(
             execution_domains.label,
-            "Host/Device Model",
+            "Heterogeneous Model",
         )
 
     def test_execution_domains_is_available_for_single_trace_mpi_cuda(self):

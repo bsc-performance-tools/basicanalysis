@@ -21,14 +21,16 @@ The main analytical views provided by BasicAnalysis are:
 * **Parallel Runtime Model**, which presents the main application-level
   efficiency factors and their hierarchical relationships and, for hybrid
   applications, shows the contribution of the active parallel runtimes to
-  Parallel Efficiency.
+  Parallel Efficiency. For applications that combine MPI with a second
+  runtime (MPI+OpenMP, MPI+CUDA, MPI+HIP), the report names this view
+  **Hybrid Model**.
 
 * **Runtime-Specific Analysis**, which provides additional metrics for the
   active parallel runtimes when runtime-specific information is available.
 
-* **Host/Device Model**, which provides complementary Device and Host views for
-  accelerator applications and helps identify where accelerator-related
-  inefficiencies manifest.
+* **Heterogeneous Model** (formerly *Host/Device Model*), which provides
+  complementary Device and Host views for accelerator applications and helps
+  identify where accelerator-related inefficiencies manifest.
 
 * **Scaling**, which shows how efficiency metrics and other performance
   indicators evolve across the analyzed execution configurations.

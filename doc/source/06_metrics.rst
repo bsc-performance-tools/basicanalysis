@@ -390,7 +390,7 @@ models with a single domain it is the same for all metrics:
    \cdot
    w
 
-In the Host/Device model, the Host metrics (Host Computation Scalability and
+In the Heterogeneous Model, the Host metrics (Host Computation Scalability and
 Instruction Scalability) use the Host ratio :math:`w_H`, and Device
 Computation Scalability the device ratio :math:`w_D`, given with
 ``--host-workload`` and ``--device-workload``. A domain without its own
@@ -1536,7 +1536,8 @@ MPI+GPU Parallel Runtime Model
 ------------------------------
 
 The Parallel Runtime Model separates the contribution of the outer MPI
-runtime from that of the accelerator runtime.
+runtime from that of the accelerator runtime. In the report, it is shown in
+the **Hybrid Model** view (*Hybrid Model: MPI + CUDA* or *MPI + HIP*).
 
 The MPI contribution is characterized using the MPI runtime metrics described
 for the hybrid model. For MPI+GPU applications, however, ``OutsideMPI`` is
@@ -2477,7 +2478,7 @@ hardware counters sampled for the whole GPU, every 100 µs by default
 accelerator is kept supplied with useful work over the execution, whereas the
 GPU hardware-counter metrics characterize how the GPU resources are exercised
 while the Graphics/Compute Engine is active. They are complementary and are
-**not** part of the multiplicative Host/Device model.
+**not** part of the multiplicative Heterogeneous Model.
 
 
 GPU activity represented by the counters
@@ -2795,7 +2796,7 @@ It can be compared with the fraction of the execution covered by GPU kernels
 as a consistency check between the sampled hardware counters and the
 kernel-based trace information. GPU idle periods and their impact on
 application performance should instead be assessed using the Device metrics
-of the Host/Device Model.
+of the Heterogeneous Model.
 
 
 **Achieved Occupancy (run average)**
@@ -2968,7 +2969,7 @@ Example: combining Device metrics and GPU hardware counters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The GPU hardware-counter metrics complement the Device metrics of the
-Host/Device Model. The Device metrics first identify where efficiency is
+Heterogeneous Model. The Device metrics first identify where efficiency is
 being lost, while the hardware counters provide additional information about
 how the GPU resources are exercised during Graphics/Compute Engine activity.
 
@@ -2985,7 +2986,7 @@ The Device metrics reported by BasicAnalysis are shown in
    :align: center
    :alt: Device metrics reported by BasicAnalysis for two vLLM executions
 
-   Device metrics of the Host/Device Model.
+   Device metrics of the Heterogeneous Model.
 
 T1 shows very low Device Parallel Efficiency (12.55%). Device Load Balance
 is 100%, while Device Communication Efficiency is 47.16% and Device

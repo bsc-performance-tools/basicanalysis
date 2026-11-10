@@ -49,6 +49,11 @@ from report.renderer.html import (
 )
 
 
+from report.model_names import (
+    PARALLEL_RUNTIME_MODEL,
+    hybrid_model_title,
+    runtime_model_name,
+)
 from metrics import (
     get_default_knowledge_base,
     get_default_provider,
@@ -2453,7 +2458,7 @@ def _build_device_hwc_scope_note_html():
         <h3>Analysis focus</h3>
 
         <p>
-            The Device metrics of the Host/Device Model
+            The Device metrics of the Heterogeneous Model
             characterize how effectively the accelerator is kept supplied
             with useful work over the execution, whereas these metrics
             characterize how the GPU resources are exercised while the
@@ -3029,6 +3034,12 @@ def _inner_model_name(trace_mode, trace_list):
             return mode[len(prefix):]
     return "X"
 
+
+# Name of the runtime model of the report being built (Parallel Runtime
+# Model, or Hybrid Model for MPI+X executions). The texts use
+# RUNTIME_MODEL_TOKEN, replaced when the report document is assembled.
+RUNTIME_MODEL_TOKEN = "__BA_RUNTIME_MODEL__"
+_REPORT_NAMES = {"runtime_model": PARALLEL_RUNTIME_MODEL}
 
 # Scaling ratio of each scaled metric and trace (Metric Details), and the
 # Host metrics whose workload is assumed (dimmed in the efficiency tables).
@@ -3860,7 +3871,7 @@ def _build_global_metric_info(is_hybrid):
         return metric_info
 
     metric_info["parallel_eff"]["action"] = (
-        "Inspect the Parallel Runtime Model and compare the Parallel Efficiency "
+        "Inspect the __BA_RUNTIME_MODEL__ and compare the Parallel Efficiency "
         "of each active runtime. Continue the diagnosis from the runtime "
         "exhibiting the lowest efficiency."
     )
@@ -3890,7 +3901,7 @@ def _build_global_metric_info(is_hybrid):
     )
     metric_info["comm_eff"]["action"] = (
         "Inspect the Communication Efficiency metric of each active runtime in "
-        "the Parallel Runtime Model. Continue the diagnosis within the runtime "
+        "the __BA_RUNTIME_MODEL__. Continue the diagnosis within the runtime "
         "exhibiting the greatest efficiency loss and follow its child metrics."
     )
 
@@ -4068,7 +4079,7 @@ def _build_hybrid_metric_info(inner_model):
             "parallel inefficiency to the complete MPI+{} execution."
         ).format(inner_model, inner_model)
         metric_info["omp_parallel_eff"]["action"] = (
-            "Continue the diagnosis in the Host/Device Model view. Compare "
+            "Continue the diagnosis in the Heterogeneous Model view. Compare "
             "Host Global Efficiency, Device Offload Efficiency, and Device "
             "Global Efficiency to determine whether the dominant loss "
             "originates in the host-side accelerator execution path, "
@@ -4985,7 +4996,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         <h3>Analysis focus</h3>
 
         <p>
-            The Host/Device Model view identifies where
+            The Heterogeneous Model view identifies where
             accelerator-related inefficiencies manifest across host
             execution, the accelerator offload path, and device execution.
         </p>
@@ -4993,7 +5004,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         <p>
             Host and Device metrics provide complementary evidence and
             should not be interpreted as direct decompositions of the
-            runtime-specific metrics shown in the Parallel Runtime Model.
+            runtime-specific metrics shown in the __BA_RUNTIME_MODEL__.
         </p>
     </div>
     """
@@ -5001,7 +5012,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
     return """
     <section
         class="execution-domains-analysis"
-        aria-label="Host/Device Model"
+        aria-label="Heterogeneous Model"
     >
         <script>
         window["metricInfo_execution-domains"] = {info_json};
@@ -5639,7 +5650,7 @@ def _build_printable_execution_domains_section(
     >
         <header class="print-section-header">
 
-            <h2>{section_number} Host/Device Model</h2>
+            <h2>{section_number} Heterogeneous Model</h2>
         </header>
         
         {guidance_html}
@@ -6733,7 +6744,7 @@ def _build_openmp_runtime_scope_note(is_hybrid):
             not directly comparable with the application-level
             <strong>Load Balance</strong> shown in Application Efficiency or with the
             derived OpenMP Load Balance contribution shown in the
-            Parallel Runtime Model.
+            __BA_RUNTIME_MODEL__.
         </p>
         """
     else:
@@ -6794,7 +6805,7 @@ def _build_execution_overview_guidance_html(
             "configurations and their general performance characteristics"
         ),
         (
-            "the <strong>Parallel Runtime Model</strong> to identify the "
+            "the <strong>__BA_RUNTIME_MODEL__</strong> to identify the "
             "performance factors and parallel runtimes contributing to "
             "efficiency loss"
         ),
@@ -6802,7 +6813,7 @@ def _build_execution_overview_guidance_html(
 
     if has_execution_domains:
         workflow_parts.append(
-            "<strong>Host/Device Model</strong> to obtain a complementary "
+            "<strong>Heterogeneous Model</strong> to obtain a complementary "
             "Host/Device perspective and identify where accelerator-related "
             "inefficiencies manifest"
         )
@@ -6954,7 +6965,7 @@ def _build_execution_domains_guidance_html():
     return """
     <details
         class="analysis-guide-note"
-        aria-label="How to read the Host/Device Model view"
+        aria-label="How to read the Heterogeneous Model view"
     >
         <summary>How to read this view</summary>
 
@@ -7042,7 +7053,7 @@ def _build_parallel_runtime_model_guidance_html(
     return """
     <details
         class="analysis-guide-note"
-        aria-label="How to read the Parallel Runtime Model"
+        aria-label="How to read the __BA_RUNTIME_MODEL__"
     >
         <summary>How to read this view</summary>
 
@@ -7187,7 +7198,7 @@ def _build_parallel_runtime_model_views(
         runtime_efficiency_html = """
         <section
             class="parallel-runtime-efficiency"
-            aria-label="Parallel Runtime Model"
+            aria-label="__BA_RUNTIME_MODEL__"
             data-prm-export-role="runtime-model"
         >
             {runtime_html}
@@ -7199,7 +7210,7 @@ def _build_parallel_runtime_model_views(
         runtime_model_views.append({
             "id": "runtime-model-hybrid",
             "label": "MPI + {}".format(inner_model),
-            "title": "Parallel Runtime Model: MPI + {}".format(inner_model),
+            "title": hybrid_model_title(inner_model),
             "html": (
                 runtime_guidance_html
                 + application_efficiency_html
@@ -7211,7 +7222,7 @@ def _build_parallel_runtime_model_views(
         parallel_runtime_model_html = runtime_model_views[0]["html"]
     else:
         parallel_runtime_model_html = (
-            "<p>No Parallel Runtime Model is available.</p>"
+            "<p>No __BA_RUNTIME_MODEL__ is available.</p>"
         )
 
     return runtime_model_views
@@ -7295,7 +7306,7 @@ def _build_component_views(model, inner_model, mpi_html,
             "html": (
                 "<div class='analysis-scope-note'>"
                 "<h3>Analysis availability</h3>"
-                "<p>The Parallel Runtime Model quantifies the {0} contribution, "
+                "<p>The __BA_RUNTIME_MODEL__ quantifies the {0} contribution, "
                 "but an isolated {0} runtime-specific analysis is not currently "
                 "available.</p></div>"
             ).format(html.escape(inner_model)),
@@ -12570,6 +12581,7 @@ def _build_interactive_report_document(workspace_html,
          .replace('{printable_report_html}',printable_report_html,)
          .replace('{scaling_notes_script}', _scaling_notes_script(),)
          .replace('{threshold_script}', _threshold_script(),)
+         .replace(RUNTIME_MODEL_TOKEN, _REPORT_NAMES["runtime_model"])
       )
 
 
@@ -12618,6 +12630,8 @@ def build_basicanalysis_interactive_report_html(metrics_result,
         metrics_result, analysis_result.get("raw_data", {}), trace_list)
 
     model = _report_execution_model(trace_mode, trace_list, metrics_result)
+    _REPORT_NAMES["runtime_model"] = runtime_model_name(
+        model["runtime_model_hybrid"])
 
     report_traces = report.get("traces", [])
 
@@ -13577,7 +13591,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
 
             execution_domain_analysis_html = (
                 _build_scaling_analysis_group(
-                    title="Host/Device Model Analysis",
+                    title="Heterogeneous Model Analysis",
                     description=(
                         "Examine accelerator-related scalability from complementary "
                         "Host and Device execution-domain perspectives."
@@ -13763,7 +13777,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
         parallel_runtime_model_html = runtime_model_views[0]["html"]
     else:
         parallel_runtime_model_html = (
-            "<p>No Parallel Runtime Model is available.</p>"
+            "<p>No __BA_RUNTIME_MODEL__ is available.</p>"
         )
 
     rendered_analysis_html = {
@@ -13959,7 +13973,7 @@ def _build_printable_report_guidance_html(
             "configurations and their general performance characteristics"
         ),
         (
-            "the <strong>Parallel Runtime Model</strong> to identify the "
+            "the <strong>__BA_RUNTIME_MODEL__</strong> to identify the "
             "performance factors and parallel runtimes contributing to "
             "efficiency loss"
         ),
@@ -13967,7 +13981,7 @@ def _build_printable_report_guidance_html(
 
     if has_execution_domains:
         workflow_parts.append(
-            "<strong>Host/Device Model</strong> to obtain a complementary "
+            "<strong>Heterogeneous Model</strong> to obtain a complementary "
             "Host/Device perspective and identify where accelerator-related "
             "inefficiencies manifest"
         )
@@ -14361,7 +14375,7 @@ def _build_basicanalysis_printable_report_html(
 
         <div class="print-section-intro">
             <header class="print-section-header">
-                <h2>2 Parallel Runtime Model</h2>
+                <h2>2 __BA_RUNTIME_MODEL__</h2>
             </header>
 
             {parallel_runtime_guidance_html}

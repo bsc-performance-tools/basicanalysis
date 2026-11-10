@@ -10,7 +10,7 @@ The report is intended to support a hierarchical analysis workflow. Start with
 the Execution Overview to verify the analyzed configurations, then use the
 Parallel Runtime Model to identify the main sources of efficiency loss.
 Runtime-Specific Analysis provides a more detailed view of the active parallel
-runtimes, while the Host/Device Model identifies where accelerator-related
+runtimes, while the Heterogeneous Model identifies where accelerator-related
 inefficiencies manifest. For *nsys2prv* traces with GPU metrics, GPU Hardware
 Counters shows how the GPU resources are exercised while the device is
 active. I/O Analysis provides a complementary view of the weight of File I/O
@@ -36,8 +36,10 @@ The BasicAnalysis performance report is organized around the following primary
 analysis views, shown when they apply to the analyzed traces:
 
 * **Execution Overview**
-* **Parallel Runtime Model**
-* **Host/Device Model**
+* **Parallel Runtime Model**, named **Hybrid Model** when the application
+  combines MPI with a second runtime (MPI+OpenMP, MPI+CUDA, MPI+HIP)
+* **Heterogeneous Model** (formerly *Host/Device Model*), for accelerator
+  applications
 * **GPU Hardware Counters** (*nsys2prv* traces with GPU metrics)
 * **I/O Analysis**
 * **Scaling**
@@ -86,7 +88,7 @@ Metric Details of its values follow the new values at once. The values must
 satisfy ``0 < Critical < Good <= 100``.
 
 Each view keeps its own thresholds, because each view analyzes a different
-performance model: changing the thresholds of the Host/Device Model, for
+performance model: changing the thresholds of the Heterogeneous Model, for
 example, does not change the colors of the Parallel Runtime Model.
 
 The browser remembers the thresholds of each view for that report, and a
@@ -155,7 +157,11 @@ lowest-efficiency factors. Global Efficiency separates losses associated with
 Parallel Efficiency from changes in Computation Scalability.
 
 For hybrid applications, the Parallel Runtime Model additionally decomposes
-Parallel Efficiency across the active parallel runtimes.
+Parallel Efficiency across the active parallel runtimes. When the application
+combines MPI with a second runtime, the view is named **Hybrid Model** in the
+navigation bar, and its table is titled, for example, *Hybrid Model: MPI +
+CUDA*. With a single runtime it keeps the name **Parallel Runtime Model**,
+and its table is titled, for example, *MPI Parallel Runtime Model*.
 
 The model can therefore be read in two complementary ways:
 
@@ -210,10 +216,10 @@ identified in the Parallel Runtime Model. Its metrics may therefore use a
 different analytical scope from the application-level metrics.
 
 
-Host/Device Model
------------------
+Heterogeneous Model
+-------------------
 
-For accelerator applications, the **Host/Device Model** view provides
+For accelerator applications, the **Heterogeneous Model** view provides
 a complementary analysis of where performance inefficiencies manifest by
 separating the execution into **Device** and **Host** domains, following the
 TALP model. The Device metrics are shown first.
@@ -248,7 +254,7 @@ and Device Global Efficiency must be interpreted independently and must not be
 multiplied to obtain the application Global Efficiency.
 
 Use the Parallel Runtime Model to determine **which runtime contributes to the
-efficiency loss**, and the Host/Device Model view to determine **where
+efficiency loss**, and the Heterogeneous Model view to determine **where
 accelerator-related inefficiencies manifest**.
 
 A low execution-domain metric identifies where a performance loss becomes
@@ -262,7 +268,7 @@ GPU Hardware Counters
 For *nsys2prv* traces whose Nsight Systems report includes GPU metrics, the
 **GPU Hardware Counters** view characterizes how the GPU resources are
 exercised while the device is active. It complements the Device metrics of
-the Host/Device Model, which characterize how effectively the
+the Heterogeneous Model, which characterize how effectively the
 accelerator is kept supplied with useful work over the execution.
 
 .. _fig-report-gpu-hardware-counters:
@@ -526,9 +532,9 @@ This is useful when evidence from two analytical perspectives should be
 compared directly, for example:
 
 * Parallel Runtime Model with Scaling;
-* Parallel Runtime Model with Host/Device Model;
+* Parallel Runtime Model with Heterogeneous Model;
 * Parallel Runtime Model with I/O Analysis;
-* Host/Device Model with Scaling; or
+* Heterogeneous Model with Scaling; or
 * Execution Overview with a detailed analytical view.
 
 The two views remain analytically independent. The split layout is intended to
@@ -616,7 +622,7 @@ Host.
 
 Each programming-model tab contains the complete report of the traces of that
 model, analyzed as an independent set: Execution Overview, Parallel Runtime
-Model, Host/Device Model, I/O Analysis, and, when the tab contains several
+Model, Heterogeneous Model, I/O Analysis, and, when the tab contains several
 traces, Scaling. The report of each tab is the same report that BasicAnalysis
 generates when those traces are analyzed alone, and it provides its own
 navigation, Metric Details, and export functions.
@@ -659,7 +665,7 @@ The Execution Overview establishes the context of the experiment. The
 hierarchical performance model identifies whether a significant performance
 loss exists and which broad factor dominates. The Parallel Runtime Model and
 Runtime-Specific Analysis attribute and explain parallel-runtime losses.
-The Host/Device Model localizes accelerator-related inefficiencies to
+The Heterogeneous Model localizes accelerator-related inefficiencies to
 the Device or Host side. I/O Analysis independently characterizes the contribution and
 distribution of File I/O activity. Finally, the Scaling view shows how these
 relevant performance characteristics evolve as the execution configuration

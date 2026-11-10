@@ -123,7 +123,7 @@
   and SM Issue Efficiency, and the indicators GPU Active, Achieved Occupancy
   (run average over all kernels), Tensor Core Activity, DRAM Read and Write
   Bandwidth and GPC Clock. They are averages over the whole execution
-  weighted by the GPU activity, are complementary to the Host/Device model
+  weighted by the GPU activity, are complementary to the Heterogeneous Model
   (not part of it), and are shown in the standard output, in
   `device_hwc_metrics.csv`, in the `efficiency_table_device_hwc_matplot`
   heatmap, in the `table_device_hwc_indicators_matplot` table of
@@ -142,7 +142,7 @@
   which the workload changes but the resources do not, such as several batch
   sizes on the same GPU. With a workload, the traces are not sorted: the
   first trace given is the reference.
-  In the Host/Device model, the Host and the Device can have their own
+  In the Heterogeneous Model, the Host and the Device can have their own
   workload (`--host-workload`, `--device-workload`). A domain without its
   own workload takes that of `--workload`; without `--workload`, its scaling
   is detected from the measurements of that domain only, or forced with
@@ -162,6 +162,15 @@
   per-trace jobs of the staged workflow may share a directory.
 
 ### Changes
+
+- Report view names. The Host/Device Model view is now named
+  **Heterogeneous Model**. The Parallel Runtime Model view is named
+  **Hybrid Model** when the application combines MPI with a second runtime
+  (MPI+OpenMP, MPI+CUDA, MPI+HIP), with tables titled, for example,
+  *Hybrid Model: MPI + CUDA*; applications with a single runtime keep
+  **Parallel Runtime Model**. Only the names shown in the report and the
+  User Guide change: the view identifiers, CSV files, and metric names are
+  the same.
 
 - **Shorter I/O section in the standard output.** It now shows only the I/O
   efficiencies, followed by a message saying that the other I/O metrics
@@ -217,7 +226,7 @@
 - Static efficiency tables no longer show the metrics that have no value
   for any trace (e.g. IPC, Instruction and Frequency scalability when the
   traces have no hardware counters).
-- Add Host-only and Device-only efficiency tables of the Host/Device model
+- Add Host-only and Device-only efficiency tables of the Heterogeneous Model
   (`efficiency_table_talp_host_matplot` and
   `efficiency_table_talp_device_matplot`), in addition to the combined
   `efficiency_table_talp_matplot`, e.g. for presentations that focus on one

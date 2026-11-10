@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Mapping, Optional
 
+from ...model_names import HETEROGENEOUS_MODEL, runtime_model_name_from_title
 from ...model import ReportSection
 from ...sections import (
     ResourceAnalysisData,
@@ -156,11 +157,11 @@ def build_analysis_catalogue(
             Describes the analyzed executions, their configurations,
             resources, and general performance measurements.
 
-        Parallel Runtime Model
+        Parallel Runtime Model (Hybrid Model for MPI+X executions)
             Starts from application-level efficiency and attributes
             parallel-efficiency losses to the active parallel runtimes.
 
-        Host/Device Model
+        Heterogeneous Model (Host/Device execution domains)
             For accelerator executions, identifies where inefficiencies
             manifest across host execution, the offload path, and
             device execution.
@@ -206,7 +207,9 @@ def build_analysis_catalogue(
         ),
         AnalysisCatalogueView(
             view_id="parallel-runtime-model",
-            label="Parallel Runtime Model",
+            label=runtime_model_name_from_title(
+                runtime_data.parallel_runtime_model.title
+            ),
             title=runtime_data.parallel_runtime_model.title,
             group="primary",
             description=(
@@ -242,8 +245,8 @@ def build_analysis_catalogue(
         views.append(
             AnalysisCatalogueView(
                 view_id="execution-domains",
-                label="Host/Device Model",
-                title="Host/Device Model",
+                label=HETEROGENEOUS_MODEL,
+                title=HETEROGENEOUS_MODEL,
                 group="primary",
                 description=(
                     "Analyze where accelerator-related inefficiencies "

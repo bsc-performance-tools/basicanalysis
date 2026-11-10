@@ -23,7 +23,7 @@ The methodology is organized around the following perspectives:
   the active parallel runtimes.
 * **Runtime-Specific Analysis**, which provides additional metrics describing
   the behavior of individual parallel runtimes.
-* **Host/Device Model**, which provides a complementary Host/Device analysis
+* **Heterogeneous Model**, which provides a complementary Host/Device analysis
   for accelerator applications.
 * **I/O Analysis**, which provides complementary metrics characterizing the
   contribution and distribution of File I/O activity.
@@ -196,7 +196,9 @@ communication and coordination for the hybrid execution as a whole.
 This decomposition identifies which performance factor limits the hybrid
 execution, but it does not reveal how the different parallel runtimes
 contribute to that factor. To provide this additional level of analysis,
-BasicAnalysis uses the **Parallel Runtime Model**.
+BasicAnalysis uses the **Parallel Runtime Model**. In the report, the view of
+this model is named **Hybrid Model** when the application combines MPI with
+a second runtime (MPI+OpenMP, MPI+CUDA, MPI+HIP).
 
 The Parallel Runtime Model introduces a runtime dimension into the Parallel
 Efficiency hierarchy. For a hierarchical hybrid execution, it distinguishes
@@ -594,8 +596,8 @@ be represented as:
 .. graphviz:: graphs/05_openmp_efficiency_hierarchy.dot
    :align: center
 
-Host/Device Model
-=================
+Heterogeneous Model
+===================
 
 Accelerator applications involve execution across two distinct but interacting
 domains: the **Host**, where the CPU-side execution takes place and work is
@@ -614,7 +616,7 @@ mechanisms used to supply work to the accelerator, while other losses may
 manifest on the Device through insufficient available work, data movement,
 workload imbalance, or computation scalability.
 
-The **Host/Device Model** analysis separates these two perspectives in order
+The **Heterogeneous Model** analysis separates these two perspectives in order
 to identify where accelerator-related inefficiencies manifest:
 
 * **Host**, characterizing CPU-side execution and the interaction with the
@@ -841,7 +843,7 @@ accelerator.
    Host Global Efficiency and Device Global Efficiency must not be multiplied
    to obtain application Global Efficiency.
 
-The Host/Device Model analysis should therefore be interpreted as a
+The Heterogeneous Model analysis should therefore be interpreted as a
 localization view: it helps determine **where** accelerator-related
 inefficiency manifests. The Parallel Runtime Model provides a different,
 complementary perspective by attributing efficiency losses to the participating
@@ -968,7 +970,7 @@ ideal is twice the useful computation time and twice the instructions. With
 :math:`w(n) = 1` the metrics are those of strong scaling, and with
 :math:`w(n) = P(n)/P_{ref}` they are those of weak scaling.
 
-In the Host/Device model, the Host and the device are two execution domains
+In the Heterogeneous Model, the Host and the device are two execution domains
 whose work can grow differently. In an inference run, for example, the GPU
 work grows with the batch size, while the Host performs about the same steps
 and kernel launches for every batch. Each domain therefore has its own
@@ -1172,7 +1174,7 @@ A useful way to interpret them is:
    Which behavior within the identified runtime helps explain the observed
    inefficiency?
 
-**Host/Device Model**
+**Heterogeneous Model**
 
    For accelerator applications, where does the inefficiency manifest: Host,
    offload path, or Device?

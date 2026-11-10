@@ -7,6 +7,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Set, Tuple
 
+from ..model_names import hybrid_model_title, runtime_model_name
 from ..model import (
     AnalysisContext,
     ReportSection,
@@ -296,11 +297,15 @@ class RuntimeAnalysisBuilder:
             payload=runtime_data,
         )
 
+        runtime_model_label = runtime_model_name(
+            self._uses_hybrid_runtime_model(context)
+        )
+
         section.add_child(
             ReportSection(
                 section_id="parallel-runtime-model",
-                title="Parallel Runtime Model",
-                navigation_label="Parallel Runtime Model",
+                title=runtime_model_label,
+                navigation_label=runtime_model_label,
                 description=(
                     "Runtime-level decomposition of Parallel Efficiency "
                     "across the active parallel runtimes."
@@ -446,9 +451,7 @@ class RuntimeAnalysisBuilder:
 
         return MetricAnalysisData(
             analysis_id="parallel-runtime-model",
-            title="Parallel Runtime Model: MPI + {}".format(
-                inner_runtime
-            ),
+            title=hybrid_model_title(inner_runtime),
             description=(
                 "Multiplicative decomposition of Parallel Efficiency across "
                 "the active MPI and {} runtimes.".format(
