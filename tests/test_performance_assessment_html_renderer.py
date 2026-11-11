@@ -374,6 +374,7 @@ class PerformanceAssessmentHtmlRendererTests(unittest.TestCase):
             ],
             [
                 "mpi-runtime",
+                "accelerator-runtime",
                 "openmp-runtime",
             ],
         )
@@ -384,6 +385,7 @@ class PerformanceAssessmentHtmlRendererTests(unittest.TestCase):
                 for view in views
             ],
             [
+                "runtime",
                 "runtime",
                 "runtime",
             ],

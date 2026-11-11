@@ -3,29 +3,46 @@
 Only the names shown to the user live here; the internal identifiers (view
 ids such as ``parallel-runtime-model`` and ``execution-domains``, section
 types, CSS classes) do not change.
+
+Report structure::
+
+    [Runtime Model]                      [Heterogeneous Model]
+       one runtime:  MPI, OpenMP, CUDA...   Device, Host
+       MPI + X:      Hybrid (MPI+X)
+                       Outer (MPI), Inner (X)
 """
+
+# Navigation tab of the runtime-level model of the parallel efficiency.
+RUNTIME_MODEL = "Runtime Model"
 
 # Host/Device execution-domain model of accelerator applications.
 HETEROGENEOUS_MODEL = "Heterogeneous Model"
 
-# Runtime-level model of the parallel efficiency: with one parallel runtime
-# (MPI, OpenMP, CUDA without MPI, ...) it is the Parallel Runtime Model; with
-# MPI plus a second runtime (MPI+OpenMP, MPI+CUDA, MPI+HIP) it is the Hybrid
-# Model.
-PARALLEL_RUNTIME_MODEL = "Parallel Runtime Model"
-HYBRID_MODEL = "Hybrid Model"
+# Names of the tables of the Heterogeneous Model.
+HOST_DOMAIN = "Host"
+DEVICE_DOMAIN = "Device"
 
+# Name of the application-level table (Global efficiency).
+APPLICATION = "Application"
 
-def runtime_model_name(hybrid):
-    """Name of the runtime model: Hybrid Model for MPI+X executions."""
-    return HYBRID_MODEL if hybrid else PARALLEL_RUNTIME_MODEL
+HYBRID_PREFIX = "Hybrid"
 
 
 def hybrid_model_title(inner_runtime):
-    """Title of the composed MPI+X model, e.g. Hybrid Model: MPI + CUDA."""
-    return "{}: MPI + {}".format(HYBRID_MODEL, inner_runtime)
+    """Name of the composed MPI+X model, e.g. Hybrid (MPI+CUDA)."""
+    return "{} (MPI+{})".format(HYBRID_PREFIX, inner_runtime)
 
 
-def runtime_model_name_from_title(title):
-    """Name of the runtime model from the title of its view."""
-    return runtime_model_name(str(title or "").startswith(HYBRID_MODEL))
+def is_hybrid_model_title(title):
+    """Whether a runtime model name is the composed MPI+X model."""
+    return str(title or "").startswith(HYBRID_PREFIX + " (")
+
+
+def outer_level_name(runtime="MPI"):
+    """Outer level of the Hybrid model, e.g. Outer (MPI)."""
+    return "Outer ({})".format(runtime)
+
+
+def inner_level_name(runtime):
+    """Inner level of the Hybrid model, e.g. Inner (CUDA)."""
+    return "Inner ({})".format(runtime)

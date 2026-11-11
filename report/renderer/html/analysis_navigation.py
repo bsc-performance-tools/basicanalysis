@@ -378,13 +378,14 @@ def _render_primary_tabs(views: Sequence[AnalysisCatalogueView],) -> str:
 
     lines.append("</div>")  # guided-primary-tabs
 
+    # The export menu names the model shown, e.g. Hybrid (MPI+CUDA) or MPI.
     runtime_label = next(
         (
-            view.label
+            view.title or view.label
             for view in views
             if view.view_id == "parallel-runtime-model"
         ),
-        "Parallel Runtime Model",
+        "Runtime Model",
     )
 
     return "\n".join(lines).replace(
@@ -406,7 +407,11 @@ def _render_drilldown_selector(
             '<nav class="guided-drilldown-selector" '
             'aria-label="Runtime analysis">'
         ),
-        '<span class="guided-runtime-selector-label">Runtime Analysis</span>',
+        '<span class="guided-runtime-selector-label">{}</span>'.format(
+            "Hybrid levels"
+            if any(view.label.startswith("Outer (") for view in views)
+            else "Runtime Analysis"
+        ),
         '<div class="guided-drilldown-buttons">',
     ]
 

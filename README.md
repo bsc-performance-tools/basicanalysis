@@ -201,13 +201,13 @@ The report includes:
   including their programming models and parallel resources, together with
   general performance information such as execution time, speedup, efficiency,
   average IPC, and average frequency.
-* **Parallel Runtime Model** – presents the main application-level efficiency
-  factors and their hierarchical relationships and, for hybrid applications,
-  shows the contribution of the active parallel runtimes to the observed
-  Parallel Efficiency. It is named **Hybrid Model** when the application
-  combines MPI with a second runtime (MPI+OpenMP, MPI+CUDA, MPI+HIP).
-* **Runtime-Specific Analysis** – presents efficiency metrics that characterize
-  the behavior of individual parallel runtimes.
+* **Runtime Model** – presents the main application-level efficiency
+  factors and their hierarchical relationships, and the model of the
+  parallel runtime: for example *MPI*, or **Hybrid (MPI+X)** when the
+  application combines MPI with a second runtime (MPI+OpenMP, MPI+CUDA,
+  MPI+HIP), with the contribution of each runtime to Parallel Efficiency.
+  Its **Outer (MPI)** and **Inner (X)** levels present the metrics of each
+  runtime.
 * **Heterogeneous Model** (formerly *Host/Device Model*) – presents Device
   and Host efficiency metrics for accelerator applications.
 * **I/O Analysis** – characterizes the weight and distribution of File I/O

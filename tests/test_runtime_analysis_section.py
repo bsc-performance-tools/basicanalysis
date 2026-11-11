@@ -525,7 +525,7 @@ class RuntimeAnalysisBuilderTests(unittest.TestCase):
 
             self.assertEqual(
                 analysis.title,
-                "CUDA Parallel Runtime Model",
+                "CUDA",
             )
             self.assertEqual(
                 self._metric_ids(analysis),
@@ -555,7 +555,7 @@ class RuntimeAnalysisBuilderTests(unittest.TestCase):
 
         self.assertEqual(
             analysis.title,
-            "MPI Parallel Runtime Model",
+            "MPI",
         )
 
         self.assertEqual(
@@ -700,7 +700,7 @@ class RuntimeAnalysisBuilderTests(unittest.TestCase):
 
         self.assertEqual(
             analysis.title,
-            "Hybrid Model: MPI + OpenMP",
+            "Hybrid (MPI+OpenMP)",
         )
 
         self.assertEqual(
@@ -720,7 +720,7 @@ class RuntimeAnalysisBuilderTests(unittest.TestCase):
             ],
         )
 
-    def test_mpi_openmp_builds_two_runtime_components(self):
+    def test_mpi_openmp_builds_outer_inner_and_openmp_components(self):
         section = self._build_section(
             self._mpi_openmp_report_data()
         )
@@ -730,10 +730,12 @@ class RuntimeAnalysisBuilderTests(unittest.TestCase):
             for component in section.payload.runtime_components
         ]
 
+        # Outer (MPI), Inner (OpenMP), and the isolated OpenMP metrics.
         self.assertEqual(
             component_ids,
             [
                 "mpi-runtime",
+                "accelerator-runtime",
                 "openmp-runtime",
             ],
         )
@@ -790,7 +792,7 @@ class RuntimeAnalysisBuilderTests(unittest.TestCase):
 
         self.assertEqual(
             analysis.title,
-            "Hybrid Model: MPI + CUDA",
+            "Hybrid (MPI+CUDA)",
         )
 
         self.assertEqual(

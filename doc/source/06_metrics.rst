@@ -1537,7 +1537,8 @@ MPI+GPU Parallel Runtime Model
 
 The Parallel Runtime Model separates the contribution of the outer MPI
 runtime from that of the accelerator runtime. In the report, it is shown in
-the **Hybrid Model** view (*Hybrid Model: MPI + CUDA* or *MPI + HIP*).
+the **Runtime Model** view as *Hybrid (MPI+CUDA)* or *Hybrid (MPI+HIP)*,
+with the levels **Outer (MPI)** and **Inner (CUDA)** or **Inner (HIP)**.
 
 The MPI contribution is characterized using the MPI runtime metrics described
 for the hybrid model. For MPI+GPU applications, however, ``OutsideMPI`` is
@@ -2361,10 +2362,11 @@ BasicAnalysis classifies the threads of the trace from the ``.row`` file:
   thread of each process is printed in the standard output. If no thread of
   a process calls CUDA, its first host thread is used.
 
-The configuration label uses the same format as MPI+GPU traces:
-``units (processes x streams per process) [devices]``, where the units are
-the Host units and GPU streams of the processes with GPU streams, for
-example ``5 (1x4) [1D]``.
+The configuration label of the standard output uses the same format as
+MPI+GPU traces: ``units (processes x streams per process) [devices]``, where
+the units are the Host units and GPU streams of the processes with GPU
+streams, for example ``5 (1x4) [1D]``. The performance report labels GPU
+configurations as processes × GPUs per process, for example ``1 × 1 GPU``.
 
 
 Device metrics

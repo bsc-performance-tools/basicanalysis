@@ -7,7 +7,12 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Set, Tuple
 
-from ..model_names import hybrid_model_title, runtime_model_name
+from ..model_names import (
+    RUNTIME_MODEL,
+    hybrid_model_title,
+    inner_level_name,
+    outer_level_name,
+)
 from ..model import (
     AnalysisContext,
     ReportSection,
@@ -297,9 +302,7 @@ class RuntimeAnalysisBuilder:
             payload=runtime_data,
         )
 
-        runtime_model_label = runtime_model_name(
-            self._uses_hybrid_runtime_model(context)
-        )
+        runtime_model_label = RUNTIME_MODEL
 
         section.add_child(
             ReportSection(
@@ -387,9 +390,7 @@ class RuntimeAnalysisBuilder:
 
         return MetricAnalysisData(
             analysis_id="parallel-runtime-model",
-            title="{} Parallel Runtime Model".format(
-                runtime_name
-            ),
+            title=runtime_name,
             description=(
                 "Runtime-level decomposition of Parallel Efficiency into "
                 "load-balance and communication effects."
@@ -494,6 +495,19 @@ class RuntimeAnalysisBuilder:
                     mpi_component
                 )
     
+        # Inner level of the Hybrid (MPI+X) model, for any X.
+        if self._uses_hybrid_runtime_model(context):
+            accelerator_component = (
+                self._build_accelerator_component(
+                    context
+                )
+            )
+
+            if accelerator_component is not None:
+                components.append(
+                    accelerator_component
+                )
+
         if self._has_runtime(
             context,
             "OPENMP",
@@ -505,21 +519,6 @@ class RuntimeAnalysisBuilder:
             if openmp_component is not None:
                 components.append(
                     openmp_component
-                )
-
-        if (
-            self._uses_hybrid_runtime_model(context)
-            and self._has_accelerator(context)
-        ):
-            accelerator_component = (
-                self._build_accelerator_component(
-                    context
-                )
-            )
-
-            if accelerator_component is not None:
-                components.append(
-                    accelerator_component
                 )
 
         return tuple(components)
@@ -537,7 +536,7 @@ class RuntimeAnalysisBuilder:
             )
 
             definitions = _MPI_HYBRID_COMPONENT_METRICS
-            title = "MPI Runtime-Specific Analysis"
+            title = outer_level_name()
             description = (
                 "MPI-specific diagnosis of load imbalance, serialization, "
                 "and data-transfer overhead."
@@ -684,9 +683,7 @@ class RuntimeAnalysisBuilder:
 
         analysis = MetricAnalysisData(
             analysis_id="accelerator-runtime",
-            title="{} Runtime Contribution".format(
-                runtime_name
-            ),
+            title=inner_level_name(runtime_name),
             description=(
                 "{} contribution derived from the composed MPI+{} "
                 "multiplicative runtime model. This is not an isolated "

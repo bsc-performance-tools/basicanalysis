@@ -12,7 +12,7 @@ from ...sections import (
     ResourceAnalysisData,
     RuntimeAnalysisData,
 )
-from ...model_names import runtime_model_name_from_title
+from ...model_names import RUNTIME_MODEL
 
 
 @dataclass(frozen=True)
@@ -623,9 +623,7 @@ def render_performance_assessment(
     {interaction_script}
     """.format(
         layout_class=layout_class,
-        runtime_model_label=html.escape(runtime_model_name_from_title(
-            getattr(runtime_section.payload.parallel_runtime_model,
-                    "title", ""))),
+        runtime_model_label=html.escape(RUNTIME_MODEL),
         parallel_runtime_model_html=(
             parallel_runtime_model_html
         ),

@@ -750,6 +750,21 @@ def is_nsys2prv_mode(mode):
     return mode in NSYS2PRV_MODES
 
 
+# nsys2prv traces are CUDA traces: the trace mode names only the tool.
+NSYS2PRV_DISPLAY_MODE = 'nsys2prv'
+
+
+def print_trace_mode_header(line_trace_mode, trace_mode_labels):
+    """Print the trace mode of the stdout efficiency table.
+
+    When all the traces share it, it is printed once ("Trace mode: MPI+CUDA")
+    instead of a row that repeats it in every column."""
+    if trace_mode_labels and len(set(trace_mode_labels)) == 1:
+        print('Trace mode: ' + trace_mode_labels[0])
+    else:
+        print(line_trace_mode)
+
+
 # nsys2prv thread with the sampled GPU hardware metrics: Metrics GPU0.
 NSYS2PRV_METRICS_LABEL_RE = re.compile(r"^Metrics GPU\d+\s*$")
 

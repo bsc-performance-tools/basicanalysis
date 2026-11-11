@@ -36,7 +36,10 @@ class TestOverviewHtmlRenderer(unittest.TestCase):
         self.assertIn("<th>MPI ranks</th>", rendered)
         self.assertIn("<strong>T1</strong>", rendered)
         self.assertIn("<code>case.prv</code>", rendered)
-        self.assertIn("<td>Detailed</td>", rendered)
+        # One trace mode for all the traces: shown once, not as a column.
+        self.assertIn(
+            "<b>Trace mode:</b> <span>Detailed</span>", rendered)
+        self.assertNotIn("<th>Trace mode</th>", rendered)
         self.assertIn("<td>MPI</td>", rendered)
         self.assertIn("<td>16</td>", rendered)
 

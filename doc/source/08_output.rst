@@ -21,8 +21,9 @@ The main output of BasicAnalysis is the interactive performance report:
    basicanalysis_interactive_report.html
 
 The report provides a guided view of the performance analysis through the
-Execution Overview, Parallel Runtime Model (Hybrid Model for MPI+X
-applications), Runtime-Specific Analysis, Heterogeneous Model, I/O Analysis, and Scaling views, as applicable to the
+Execution Overview, Runtime Model (Hybrid (MPI+X) with its Outer and Inner
+levels for MPI+X applications), Heterogeneous Model, I/O Analysis, and
+Scaling views, as applicable to the
 analyzed execution.
 
 The available views depend on the programming model and performance data. For

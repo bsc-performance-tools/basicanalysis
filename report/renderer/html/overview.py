@@ -310,6 +310,15 @@ def _validate_mapping_section(
         )
 
 
+def trace_mode_tag_html(collection_mode):
+    """Trace mode shared by all the analyzed traces, shown once."""
+
+    return (
+        "<p class='trace-mode-tag'><b>Trace mode:</b> "
+        "<span>{}</span></p>"
+    ).format(html.escape(str(collection_mode)))
+
+
 def render_trace_configuration(
     section: ReportSection,
 ) -> str:
@@ -339,7 +348,18 @@ def render_trace_configuration(
         model_key
     )
 
+    # The trace mode is shown once when all traces share it, and as a
+    # column only when the analyzed traces have different modes.
+    collection_modes = [
+        _split_trace_mode(trace.mode)[0]
+        for trace in traces
+    ]
+    show_mode_column = len(set(collection_modes)) > 1
+
     lines = []
+
+    if not show_mode_column:
+        lines.append(trace_mode_tag_html(collection_modes[0]))
 
     lines.append("<table class='metric-table'>")
     lines.append("<thead>")
@@ -347,7 +367,8 @@ def render_trace_configuration(
 
     lines.append("<th>ID</th>")
     lines.append("<th>Trace</th>")
-    lines.append("<th>Trace mode</th>")
+    if show_mode_column:
+        lines.append("<th>Trace mode</th>")
     lines.append("<th>Programming model</th>")
 
     for _, label in resource_columns:
@@ -380,11 +401,12 @@ def render_trace_configuration(
             )
         )
 
-        lines.append(
-            "<td>{}</td>".format(
-                html.escape(trace_collection_mode)
+        if show_mode_column:
+            lines.append(
+                "<td>{}</td>".format(
+                    html.escape(trace_collection_mode)
+                )
             )
-        )
 
         lines.append(
             "<td>{}</td>".format(

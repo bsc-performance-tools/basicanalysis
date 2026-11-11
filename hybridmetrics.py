@@ -11,7 +11,12 @@ from collections import OrderedDict
 from metrics import SCALE_ANCHORS, efficiency_scale_position, get_default_provider
 from scaling import get_scaling_info
 from iometrics import IO_FACTORS_DOC, io_useful_time, print_io_tables
-from tracemetadata import is_host_gpu_mode, is_nsys2prv_mode
+from tracemetadata import (
+    NSYS2PRV_DISPLAY_MODE,
+    is_host_gpu_mode,
+    is_nsys2prv_mode,
+    print_trace_mode_header,
+)
 from nsys2prvmetrics import mod_device_hwc_factors_doc
 from comparison import (
     NOT_APPLICABLE,
@@ -2295,13 +2300,13 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
         elif trace_mode[trace] == "Sampling":
             mode_string = trace_mode[trace]
         elif trace_mode[trace].startswith("nsys2prv"):
-            mode_string = trace_mode[trace]
+            mode_string = NSYS2PRV_DISPLAY_MODE
 
         line_trace_mode += mode_string.rjust(value_to_adjust)
         label_trace_mode.append(mode_string)
 
+    print_trace_mode_header(line_trace_mode, label_trace_mode)
     print(''.ljust(len(line), '='))
-    print(line_trace_mode)
     print(line)
     line_procs_factors = line
 
@@ -2498,13 +2503,13 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
         elif trace_mode[trace] == "Sampling":
             mode_string = trace_mode[trace]
         elif trace_mode[trace].startswith("nsys2prv"):
-            mode_string = trace_mode[trace]
+            mode_string = NSYS2PRV_DISPLAY_MODE
 
         line_trace_mode += mode_string.rjust(value_to_adjust)
         label_trace_mode.append(mode_string)
 
+    print_trace_mode_header(line_trace_mode, label_trace_mode)
     print(''.ljust(len(line), '='))
-    print(line_trace_mode)
     print(line)
     line_procs_factors = line
 

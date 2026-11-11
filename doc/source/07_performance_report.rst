@@ -8,9 +8,9 @@ factors responsible for efficiency loss.
 
 The report is intended to support a hierarchical analysis workflow. Start with
 the Execution Overview to verify the analyzed configurations, then use the
-Parallel Runtime Model to identify the main sources of efficiency loss.
-Runtime-Specific Analysis provides a more detailed view of the active parallel
-runtimes, while the Heterogeneous Model identifies where accelerator-related
+Runtime Model to identify the main sources of efficiency loss. For hybrid
+applications, its Outer and Inner levels give a more detailed view of each
+parallel runtime, while the Heterogeneous Model identifies where accelerator-related
 inefficiencies manifest. For *nsys2prv* traces with GPU metrics, GPU Hardware
 Counters shows how the GPU resources are exercised while the device is
 active. I/O Analysis provides a complementary view of the weight of File I/O
@@ -36,8 +36,10 @@ The BasicAnalysis performance report is organized around the following primary
 analysis views, shown when they apply to the analyzed traces:
 
 * **Execution Overview**
-* **Parallel Runtime Model**, named **Hybrid Model** when the application
-  combines MPI with a second runtime (MPI+OpenMP, MPI+CUDA, MPI+HIP)
+* **Runtime Model**: the model of the parallel runtime of the application,
+  for example *MPI*, *OpenMP*, or *CUDA*, or *Hybrid (MPI+X)* when the
+  application combines MPI with a second runtime (MPI+OpenMP, MPI+CUDA,
+  MPI+HIP)
 * **Heterogeneous Model** (formerly *Host/Device Model*), for accelerator
   applications
 * **GPU Hardware Counters** (*nsys2prv* traces with GPU metrics)
@@ -57,8 +59,17 @@ report views.
 
    Performance report navigation.
 
-Runtime-specific analysis is accessed from the Parallel Runtime Model through
-the **Runtime Analysis** selector rather than as a separate primary view.
+For hybrid applications, the Outer (MPI) and Inner (X) levels of the Hybrid
+model are opened from the **Hybrid levels** selector of the Runtime Model
+rather than as separate primary views.
+
+The first column of every efficiency table names the model or level of that
+table, for example *Application*, *Hybrid (MPI+CUDA)*, *Outer (MPI)*,
+*Device*, or *Host*. The other columns are the analyzed configurations. For
+GPU applications the configuration is given as processes × GPUs per process,
+for example ``4 × 1 GPU``, in every table; the GPU streams are listed in the
+Execution Overview. When the GPUs are shared by the processes, the label gives
+both totals, for example ``8 (4 GPUs)``.
 
 Metric values in the interactive efficiency tables can be clicked to open the
 **Metric Details** view. This view provides the metric definition,
@@ -89,7 +100,7 @@ satisfy ``0 < Critical < Good <= 100``.
 
 Each view keeps its own thresholds, because each view analyzes a different
 performance model: changing the thresholds of the Heterogeneous Model, for
-example, does not change the colors of the Parallel Runtime Model.
+example, does not change the colors of the Runtime Model.
 
 The browser remembers the thresholds of each view for that report, and a
 note under the scale shows that the view uses custom thresholds, so that
@@ -122,7 +133,10 @@ characteristics of the analyzed traces.
    Execution Overview.
 
 Before interpreting efficiency metrics, verify that the reported trace
-configuration corresponds to the intended experiment. In particular, check the
+configuration corresponds to the intended experiment. When all the traces
+have the same trace mode (for example *Detailed*, or *nsys2prv*), it is shown
+once above the table; a **Trace mode** column appears only when the analyzed
+traces have different modes. In particular, check the
 programming model, parallel resources, and accelerator configuration when
 applicable.
 
@@ -136,10 +150,10 @@ increase. The detailed efficiency and scaling views should then be used to
 identify which factors explain the observed behavior.
 
 
-Parallel Runtime Model
-----------------------
+Runtime Model
+-------------
 
-The **Parallel Runtime Model**, shown in
+The **Runtime Model** view, shown in
 :numref:`fig-report-parallel-runtime-model`, identifies the performance factors
 and parallel runtimes contributing to efficiency loss.
 
@@ -148,28 +162,31 @@ and parallel runtimes contributing to efficiency loss.
 .. figure:: images/report-parallel-runtime-model.png
    :width: 85%
    :align: center
-   :alt: BasicAnalysis Parallel Runtime Model
+   :alt: BasicAnalysis Runtime Model
 
-   Parallel Runtime Model view.
+   Runtime Model view.
 
-Start with **Global Efficiency** and follow its child metrics toward the
-lowest-efficiency factors. Global Efficiency separates losses associated with
-Parallel Efficiency from changes in Computation Scalability.
+Start with **Global Efficiency** in the *Application* table and follow its
+child metrics toward the lowest-efficiency factors. Global Efficiency
+separates losses associated with Parallel Efficiency from changes in
+Computation Scalability.
 
-For hybrid applications, the Parallel Runtime Model additionally decomposes
-Parallel Efficiency across the active parallel runtimes. When the application
-combines MPI with a second runtime, the view is named **Hybrid Model** in the
-navigation bar, and its table is titled, for example, *Hybrid Model: MPI +
-CUDA*. With a single runtime it keeps the name **Parallel Runtime Model**,
-and its table is titled, for example, *MPI Parallel Runtime Model*.
+With a single parallel runtime, the view shows only the model of that runtime,
+for example the *MPI* table with its Load Balance and Communication
+Efficiency.
+
+When the application combines MPI with a second runtime, the view shows the
+**Hybrid (MPI+X)** model, for example *Hybrid (MPI+CUDA)*, which decomposes
+Parallel Efficiency across the two runtimes: the **Outer** level is MPI and
+the **Inner** level is the second runtime X.
 
 The model can therefore be read in two complementary ways:
 
 * **by performance factor**, following Global Efficiency toward Parallel
   Efficiency, Load Balance, Communication Efficiency, and Computation
   Scalability; or
-* **by runtime**, comparing the contributions of MPI and the inner parallel
-  runtime.
+* **by runtime**, comparing the contributions of the Outer (MPI) and Inner
+  (X) levels.
 
 The performance-factor hierarchy identifies what type of efficiency loss is
 present, while the runtime decomposition helps determine which parallel
@@ -180,14 +197,16 @@ value opens its definition, interpretation, and recommended next diagnostic
 step.
 
 
-Runtime-Specific Analysis
--------------------------
+Outer and Inner Levels
+----------------------
 
-When a runtime requires closer investigation, select it from the
-**Runtime Analysis** selector. A split view opens, displaying the metrics
-specific to the selected runtime while keeping the Parallel Runtime Model
-visible for context. An example for the OpenMP parallel runtime is shown in
-:numref:`fig-report-runtime-analysis`.
+When a level of the Hybrid model requires closer investigation, select it
+from the **Hybrid levels** selector: **Outer (MPI)** or **Inner (X)**, for
+example **Inner (CUDA)**. A split view opens, displaying the metrics of the
+selected level while keeping the Runtime Model visible for context. For
+MPI+OpenMP applications, the selector also offers **OpenMP runtime**, with
+the isolated OpenMP metrics. An example for the OpenMP parallel runtime is
+shown in :numref:`fig-report-runtime-analysis`.
 
 .. _fig-report-runtime-analysis:
 
@@ -198,22 +217,23 @@ visible for context. An example for the OpenMP parallel runtime is shown in
 
    Runtime-specific analysis.
 
-The selected runtime opens in the detailed-analysis panel while the Parallel
-Runtime Model remains visible for context.
+The selected level opens in the detailed-analysis panel while the Runtime
+Model remains visible for context.
 
-The available runtime-specific metrics depend on the programming model. For
-example:
+The available metrics depend on the programming model. For example:
 
-* MPI analysis examines MPI Load Balance and Communication Efficiency,
+* **Outer (MPI)** examines MPI Load Balance and Communication Efficiency,
   including Serialization and Transfer Efficiency when available.
-* OpenMP analysis provides the isolated OpenMP Serial, Load Balance, and
-  Scheduling efficiencies.
-* CUDA or HIP analysis displays the corresponding accelerator-runtime
-  contribution defined by the selected hybrid model.
+* **Inner (X)** displays the contribution of the second runtime (OpenMP,
+  CUDA, or HIP) derived from the Hybrid model.
+* **OpenMP runtime** provides the isolated OpenMP Serial, Load Balance, and
+  Scheduling efficiencies. These are measured directly on the OpenMP
+  runtime, not derived from the Hybrid model, so their values differ from the
+  Inner (OpenMP) level.
 
-Runtime-Specific Analysis is intended to explain the runtime contribution
-identified in the Parallel Runtime Model. Its metrics may therefore use a
-different analytical scope from the application-level metrics.
+The levels are intended to explain the runtime contributions identified in
+the Runtime Model. Their metrics may therefore use a different analytical
+scope from the application-level metrics.
 
 
 Heterogeneous Model
@@ -253,7 +273,7 @@ of a common multiplicative efficiency model. Therefore, Host Global Efficiency
 and Device Global Efficiency must be interpreted independently and must not be
 multiplied to obtain the application Global Efficiency.
 
-Use the Parallel Runtime Model to determine **which runtime contributes to the
+Use the Runtime Model to determine **which runtime contributes to the
 efficiency loss**, and the Heterogeneous Model view to determine **where
 accelerator-related inefficiencies manifest**.
 
@@ -531,9 +551,9 @@ analysis views to be displayed simultaneously.
 This is useful when evidence from two analytical perspectives should be
 compared directly, for example:
 
-* Parallel Runtime Model with Scaling;
-* Parallel Runtime Model with Heterogeneous Model;
-* Parallel Runtime Model with I/O Analysis;
+* Runtime Model with Scaling;
+* Runtime Model with Heterogeneous Model;
+* Runtime Model with I/O Analysis;
 * Heterogeneous Model with Scaling; or
 * Execution Overview with a detailed analytical view.
 
@@ -565,7 +585,7 @@ identifiers of the columns (``[T1]``, ``[T2]``, ...), so that they can be
 referenced in papers and slides.
 
 :numref:`fig-report-export-menu` shows the export menu for saving an efficiency
-table from the Parallel Runtime Model view as a PNG image.
+table from the Runtime Model view as a PNG image.
 
 The complete report can be exported using **Print / Save as PDF**. This
 generates the printable report from the current analysis data and opens the
@@ -646,9 +666,9 @@ analyses. A typical analysis follows this progression:
 #. **Verify the executions** in the Execution Overview.
 #. **Identify the dominant efficiency loss** using Global Efficiency and its
    hierarchy.
-#. **Determine the responsible parallel runtime** using the Parallel Runtime
-   Model.
-#. **Explain the runtime contribution** using Runtime-Specific Analysis.
+#. **Determine the responsible parallel runtime** using the Runtime Model.
+#. **Explain the runtime contribution** using the Outer and Inner levels of
+   the Hybrid model.
 #. For accelerator applications, **identify where the inefficiency manifests**
    using the Host and Device execution domains.
 #. When File I/O activity is relevant, **evaluate its weight and distribution**
@@ -663,8 +683,8 @@ complementary evidence and may use different analytical scopes.
 
 The Execution Overview establishes the context of the experiment. The
 hierarchical performance model identifies whether a significant performance
-loss exists and which broad factor dominates. The Parallel Runtime Model and
-Runtime-Specific Analysis attribute and explain parallel-runtime losses.
+loss exists and which broad factor dominates. The Runtime Model and its
+Outer and Inner levels attribute and explain parallel-runtime losses.
 The Heterogeneous Model localizes accelerator-related inefficiencies to
 the Device or Host side. I/O Analysis independently characterizes the contribution and
 distribution of File I/O activity. Finally, the Scaling view shows how these

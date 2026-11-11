@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Mapping, Optional
 
-from ...model_names import HETEROGENEOUS_MODEL, runtime_model_name_from_title
+from ...model_names import (
+    HETEROGENEOUS_MODEL,
+    RUNTIME_MODEL,
+    is_hybrid_model_title,
+)
 from ...model import ReportSection
 from ...sections import (
     ResourceAnalysisData,
@@ -157,7 +161,8 @@ def build_analysis_catalogue(
             Describes the analyzed executions, their configurations,
             resources, and general performance measurements.
 
-        Parallel Runtime Model (Hybrid Model for MPI+X executions)
+        Runtime Model (one runtime, or Hybrid (MPI+X) with its Outer and
+        Inner levels)
             Starts from application-level efficiency and attributes
             parallel-efficiency losses to the active parallel runtimes.
 
@@ -207,9 +212,7 @@ def build_analysis_catalogue(
         ),
         AnalysisCatalogueView(
             view_id="parallel-runtime-model",
-            label=runtime_model_name_from_title(
-                runtime_data.parallel_runtime_model.title
-            ),
+            label=RUNTIME_MODEL,
             title=runtime_data.parallel_runtime_model.title,
             group="primary",
             description=(
@@ -335,12 +338,28 @@ def build_analysis_catalogue(
             )
         )
 
-    # Runtime-specific views remain available as secondary analyses.
+    # Runtime-specific views remain available as secondary analyses. In the
+    # Hybrid (MPI+X) model they are its Outer (MPI) and Inner (X) levels,
+    # named by their titles; the isolated OpenMP metrics stay apart.
+    hybrid = is_hybrid_model_title(
+        runtime_data.parallel_runtime_model.title
+    )
+
     for component in runtime_data.runtime_components:
+        if not hybrid:
+            label = component.runtime_name
+        elif component.component_id in (
+            "mpi-runtime",
+            "accelerator-runtime",
+        ):
+            label = component.metrics.title
+        else:
+            label = "{} runtime".format(component.runtime_name)
+
         views.append(
             AnalysisCatalogueView(
                 view_id=component.component_id,
-                label=component.runtime_name,
+                label=label,
                 title=component.metrics.title,
                 group="runtime",
                 description=component.metrics.description,

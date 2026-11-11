@@ -213,3 +213,49 @@ def disambiguate_configuration_labels(
         result.append(label)
 
     return result
+
+def format_gpu_configuration_label(
+        processes,
+        devices,
+        trace_id=None,
+        separator='×'):
+    """Build the report label of a GPU configuration: processes × GPUs.
+
+    The same label is used in every table (Runtime Model, Host, Device), so
+    that it describes the configuration and not the units of one domain:
+    ``4 × 1 GPU`` (4 processes, 1 GPU each), ``2 × 4 GPUs``. When the GPUs
+    are shared by the processes, or the counts are unknown, it gives both
+    totals: ``8 (4 GPUs)``. The GPU streams are shown in the Execution
+    Overview.
+    """
+
+    def _count(value):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    processes = _count(processes)
+    devices = _count(devices)
+
+    if not processes or not devices:
+        label = str(processes) if processes else "-"
+    elif devices % processes == 0:
+        per_process = devices // processes
+        label = "{} {} {} GPU{}".format(
+            processes,
+            separator,
+            per_process,
+            "" if per_process == 1 else "s",
+        )
+    else:
+        label = "{} ({} GPU{})".format(
+            processes,
+            devices,
+            "" if devices == 1 else "s",
+        )
+
+    if trace_id is not None:
+        label += " [{}]".format(trace_id)
+
+    return label

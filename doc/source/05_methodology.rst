@@ -196,9 +196,10 @@ communication and coordination for the hybrid execution as a whole.
 This decomposition identifies which performance factor limits the hybrid
 execution, but it does not reveal how the different parallel runtimes
 contribute to that factor. To provide this additional level of analysis,
-BasicAnalysis uses the **Parallel Runtime Model**. In the report, the view of
-this model is named **Hybrid Model** when the application combines MPI with
-a second runtime (MPI+OpenMP, MPI+CUDA, MPI+HIP).
+BasicAnalysis uses the **Parallel Runtime Model**. In the report, it is
+shown in the **Runtime Model** view as the **Hybrid (MPI+X)** model when the
+application combines MPI with a second runtime (MPI+OpenMP, MPI+CUDA,
+MPI+HIP), with MPI as its **Outer** level and X as its **Inner** level.
 
 The Parallel Runtime Model introduces a runtime dimension into the Parallel
 Efficiency hierarchy. For a hierarchical hybrid execution, it distinguishes

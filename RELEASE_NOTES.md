@@ -163,14 +163,21 @@
 
 ### Changes
 
-- Report view names. The Host/Device Model view is now named
-  **Heterogeneous Model**. The Parallel Runtime Model view is named
-  **Hybrid Model** when the application combines MPI with a second runtime
-  (MPI+OpenMP, MPI+CUDA, MPI+HIP), with tables titled, for example,
-  *Hybrid Model: MPI + CUDA*; applications with a single runtime keep
-  **Parallel Runtime Model**. Only the names shown in the report and the
-  User Guide change: the view identifiers, CSV files, and metric names are
-  the same.
+- Report views and tables. The navigation bar has the **Runtime Model** and
+  **Heterogeneous Model** (formerly *Host/Device Model*) views. The Runtime
+  Model shows the model of the runtime of the application (for example
+  *MPI*), or **Hybrid (MPI+X)** for applications that combine MPI with a
+  second runtime, whose levels **Outer (MPI)** and **Inner (X)** open from
+  the **Hybrid levels** selector; MPI+OpenMP applications now also have the
+  Inner (OpenMP) level, next to the isolated **OpenMP runtime** metrics.
+  The first column of every efficiency table names its model (*Application*,
+  *Hybrid (MPI+CUDA)*, *Device*, *Host*...), replacing the *Metric* header
+  and the separate HOST and DEVICE labels. GPU configurations are labelled
+  as processes × GPUs per process (``4 × 1 GPU``) in every table of the
+  report. The trace mode is shown once when all the traces share it, in the
+  report and in the standard output (``Trace mode: MPI+CUDA``), and nsys2prv
+  traces show ``nsys2prv``. The view identifiers, CSV files, and metric
+  names do not change.
 
 - **Shorter I/O section in the standard output.** It now shows only the I/O
   efficiencies, followed by a message saying that the other I/O metrics

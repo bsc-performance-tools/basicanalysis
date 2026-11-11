@@ -12,7 +12,10 @@ import html
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from configuration import format_configuration_label
+from configuration import (
+    format_configuration_label,
+    format_gpu_configuration_label,
+)
 from tracemetadata import is_host_gpu_mode
 from simulatedtraces import simulated_trace_note_html
 from iometrics import (
@@ -47,12 +50,16 @@ from report.renderer.html import (
     render_performance_assessment,
     render_trace_configuration,
 )
+from report.renderer.html.overview import trace_mode_tag_html
 
 
 from report.model_names import (
-    PARALLEL_RUNTIME_MODEL,
+    APPLICATION,
+    DEVICE_DOMAIN,
+    HOST_DOMAIN,
     hybrid_model_title,
-    runtime_model_name,
+    inner_level_name,
+    outer_level_name,
 )
 from metrics import (
     get_default_knowledge_base,
@@ -2617,6 +2624,7 @@ def _build_device_hwc_section(metrics_result, trace_list, trace_labels,
         trace_list=trace_list,
         trace_labels=trace_labels,
         section_id="device-hwc",
+        header_label="GPU Hardware Counters",
         tree=DEVICE_HWC_TREE,
         metric_knowledge=metric_knowledge,
     )
@@ -2785,6 +2793,7 @@ def _build_printable_device_hwc_section(metrics_result, trace_list,
         trace_list=trace_list,
         trace_labels=trace_labels,
         section_id="print-device-hwc",
+        header_label="GPU Hardware Counters",
         tree=DEVICE_HWC_TREE,
         printable=True,
     )
@@ -2864,6 +2873,7 @@ def _build_io_metrics_section(
         trace_list=trace_list,
         trace_labels=trace_labels,
         section_id="io-metrics",
+        header_label="I/O",
         tree=IO_TREE,
         metric_knowledge=metric_knowledge,
     )
@@ -3034,12 +3044,6 @@ def _inner_model_name(trace_mode, trace_list):
             return mode[len(prefix):]
     return "X"
 
-
-# Name of the runtime model of the report being built (Parallel Runtime
-# Model, or Hybrid Model for MPI+X executions). The texts use
-# RUNTIME_MODEL_TOKEN, replaced when the report document is assembled.
-RUNTIME_MODEL_TOKEN = "__BA_RUNTIME_MODEL__"
-_REPORT_NAMES = {"runtime_model": PARALLEL_RUNTIME_MODEL}
 
 # Scaling ratio of each scaled metric and trace (Metric Details), and the
 # Host metrics whose workload is assumed (dimmed in the efficiency tables).
@@ -3871,7 +3875,7 @@ def _build_global_metric_info(is_hybrid):
         return metric_info
 
     metric_info["parallel_eff"]["action"] = (
-        "Inspect the __BA_RUNTIME_MODEL__ and compare the Parallel Efficiency "
+        "Inspect the Runtime Model and compare the Parallel Efficiency "
         "of each active runtime. Continue the diagnosis from the runtime "
         "exhibiting the lowest efficiency."
     )
@@ -3901,7 +3905,7 @@ def _build_global_metric_info(is_hybrid):
     )
     metric_info["comm_eff"]["action"] = (
         "Inspect the Communication Efficiency metric of each active runtime in "
-        "the __BA_RUNTIME_MODEL__. Continue the diagnosis within the runtime "
+        "the Runtime Model. Continue the diagnosis within the runtime "
         "exhibiting the greatest efficiency loss and follow its child metrics."
     )
 
@@ -4026,7 +4030,8 @@ def _build_hybrid_metric_info(inner_model):
             "inefficiency to the complete MPI+OpenMP execution."
         )
         metric_info["omp_parallel_eff"]["action"] = (
-            "Continue the diagnosis in the Runtime-Specific Analysis section. "
+            "Continue the diagnosis with the OpenMP runtime metrics (Hybrid "
+            "levels selector). "
             "Compare OpenMP Serial Efficiency, OpenMP Region Load Balance, and "
             "OpenMP Scheduling Efficiency to determine whether the OpenMP loss "
             "is caused by serial execution, workload imbalance inside parallel "
@@ -4043,7 +4048,8 @@ def _build_hybrid_metric_info(inner_model):
             "load imbalance."
         )
         metric_info["omp_load_balance"]["action"] = (
-            "Continue the diagnosis in the Runtime-Specific Analysis section. "
+            "Continue the diagnosis with the OpenMP runtime metrics (Hybrid "
+            "levels selector). "
             "Inspect OpenMP Region Load Balance to determine whether the "
             "observed OpenMP imbalance originates inside OpenMP parallel "
             "regions. Compare useful computation per thread within those "
@@ -4062,7 +4068,8 @@ def _build_hybrid_metric_info(inner_model):
             "the MPI+OpenMP execution."
         )
         metric_info["omp_comm_eff"]["action"] = (
-            "Continue the diagnosis in the Runtime-Specific Analysis section. "
+            "Continue the diagnosis with the OpenMP runtime metrics (Hybrid "
+            "levels selector). "
             "Inspect OpenMP Scheduling Efficiency and OpenMP Serial Efficiency "
             "to determine whether runtime management, synchronization, "
             "fork/join overhead, or time outside OpenMP parallel regions "
@@ -4361,19 +4368,13 @@ def _report_trace_label(
     # GPU traces generated with nsys2prv
     # --------------------------------------------------
 
-    if collection_mode == "nsys2prv":
-        return format_configuration_label(
-            model_key="tasks_gpu",
-            processes=trace_info.get("processes"),
-            mpi_ranks=trace_info.get("tasks"),
-            streams_per_rank=trace_info.get(
-                "gpu_streams_per_rank"
-            ),
-            devices=trace_info.get(
-                "devices"
-            ),
+    # GPU configurations (nsys2prv, CUDA/HIP with or without MPI) use the
+    # same label in every table: processes × GPUs per process.
+    if collection_mode == "nsys2prv" or model_key in ("gpu", "mpi_gpu"):
+        return format_gpu_configuration_label(
+            processes=trace_info.get("tasks"),
+            devices=trace_info.get("devices"),
             trace_id=trace_id,
-            separator='×',
         )
 
     # --------------------------------------------------
@@ -4540,12 +4541,10 @@ def _build_trace_column_description(report):
         programming_model
     )
 
-    # GPU traces generated with nsys2prv use the MPI+GPU label format.
+    # GPU configurations: processes × GPUs per process (the GPU streams are
+    # in the Execution Overview).
     if collection_mode == "nsys2prv":
-        return (
-            "Parallel units (processes × streams/process) "
-            "[nD = devices]"
-        )
+        return "Processes × GPUs per process"
 
     descriptions = {
         "mpi": (
@@ -4561,7 +4560,7 @@ def _build_trace_column_description(report):
             "Workers"
         ),
         "gpu": (
-            "GPU streams"
+            "Processes × GPUs per process"
         ),
         "mpi_threads": (
             "Parallel units (MPI ranks × threads/rank)"
@@ -4570,8 +4569,7 @@ def _build_trace_column_description(report):
             "Parallel units (MPI ranks × workers/rank)"
         ),
         "mpi_gpu": (
-            "Parallel units (MPI ranks × streams/rank) "
-            "[nD = devices]"
+            "MPI ranks × GPUs per rank"
         ),
         "generic": (
             "Parallel units"
@@ -4703,7 +4701,17 @@ def _build_trace_config_table_html(report):
 
     resource_columns = _trace_resource_columns(model_key)
 
+    # The trace mode is shown once when all traces share it.
+    collection_modes = [
+        _split_trace_mode(trace.get("mode", "unknown"))[0]
+        for trace in traces
+    ]
+    show_mode_column = len(set(collection_modes)) > 1
+
     html_lines = []
+
+    if not show_mode_column:
+        html_lines.append(trace_mode_tag_html(collection_modes[0]))
 
     html_lines.append(
         "<table class='metric-table trace-config-table "
@@ -4715,7 +4723,8 @@ def _build_trace_config_table_html(report):
 
     html_lines.append("<th>ID</th>")
     html_lines.append("<th>Trace</th>")
-    html_lines.append("<th>Trace mode</th>")
+    if show_mode_column:
+        html_lines.append("<th>Trace mode</th>")
     html_lines.append("<th>Programming model</th>")
 
 
@@ -4748,11 +4757,12 @@ def _build_trace_config_table_html(report):
             )
         )
 
-        html_lines.append(
-            "<td>{}</td>".format(
-                html.escape(trace_collection_mode)
+        if show_mode_column:
+            html_lines.append(
+                "<td>{}</td>".format(
+                    html.escape(trace_collection_mode)
+                )
             )
-        )
 
         html_lines.append(
             "<td>{}</td>".format(
@@ -4957,6 +4967,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         trace_labels=trace_labels,
         section_id="execution-domains",
         tree=HOST_TREE,
+        header_label=HOST_DOMAIN,
         metric_knowledge=metric_knowledge,
     )
 
@@ -4972,6 +4983,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         trace_labels=trace_labels,
         section_id="execution-domains",
         tree=DEVICE_TREE,
+        header_label=DEVICE_DOMAIN,
         metric_knowledge=metric_knowledge,
     )
 
@@ -5004,7 +5016,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         <p>
             Host and Device metrics provide complementary evidence and
             should not be interpreted as direct decompositions of the
-            runtime-specific metrics shown in the __BA_RUNTIME_MODEL__.
+            runtime-specific metrics shown in the Runtime Model.
         </p>
     </div>
     """
@@ -5027,10 +5039,6 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
             class="execution-domain-block execution-domain-device"
             aria-label="Device execution domain"
         >
-            <div class="execution-domain-title">
-                DEVICE
-            </div>
-
             <div
                 class="metric-table-card"
                 data-efficiency-export
@@ -5048,10 +5056,6 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
             class="execution-domain-block execution-domain-host"
             aria-label="Host execution domain"
         >
-            <div class="execution-domain-title">
-                HOST
-            </div>
-
             <div
                 class="metric-table-card"
                 data-efficiency-export
@@ -5094,7 +5098,8 @@ def _build_metric_tree_heatmap_section(
         trace_column_description="",
         runtime=None,
         runtime_family=None,
-        show_efficiency_scale=True):
+        show_efficiency_scale=True,
+        header_label="Metric"):
     # Global Metrics deliberately stop at Communication Efficiency. Keep this
     # invariant here even if a caller supplies runtime-level metrics.
     
@@ -5152,6 +5157,7 @@ def _build_metric_tree_heatmap_section(
         section_id=section_id,
         tree=tree,
         metric_knowledge=metric_knowledge,
+        header_label=header_label,
     )
 
     if show_efficiency_scale:
@@ -5616,6 +5622,7 @@ def _build_printable_execution_domains_section(
         trace_labels=trace_labels,
         section_id="print-execution-domains",
         tree=HOST_TREE,
+        header_label=HOST_DOMAIN,
         printable=True,
         metric_knowledge=metric_knowledge,
     )
@@ -5632,6 +5639,7 @@ def _build_printable_execution_domains_section(
         trace_labels=trace_labels,
         section_id="print-execution-domains",
         tree=DEVICE_TREE,
+        header_label=DEVICE_DOMAIN,
         printable=True,
         metric_knowledge=metric_knowledge,
     )
@@ -5655,10 +5663,6 @@ def _build_printable_execution_domains_section(
         
         {guidance_html}
         
-        <div class="print-execution-domain-label">
-            DEVICE
-        </div>
-
         <p class="trace-header-note">
             <b>Trace columns:</b>
             <code>{trace_column_description}</code>
@@ -5666,10 +5670,6 @@ def _build_printable_execution_domains_section(
 
         <div class="print-metric-results metric-table-card">
             {device_table_html}
-        </div>
-
-        <div class="print-execution-domain-label">
-            HOST
         </div>
 
         <div class="print-metric-results metric-table-card">
@@ -5761,6 +5761,7 @@ def _build_printable_io_section(
         trace_list=trace_list,
         trace_labels=trace_labels,
         section_id="print-io-metrics",
+        header_label="I/O",
         tree=IO_TREE,
         # Stricter I/O thresholds (definitions.yaml) for the cell colors.
         metric_knowledge=_build_metric_knowledge(
@@ -6500,7 +6501,8 @@ def _build_printable_metric_section(
         trace_column_description="",
         scope_note_html="",
         section_kicker="Performance analysis",
-        section_description=""):
+        section_description="",
+        header_label="Metric"):
     """Build one analytical section for the printable report.
 
     Metric definitions are intentionally excluded.  They are collected by the
@@ -6528,6 +6530,7 @@ def _build_printable_metric_section(
         section_id="print",
         tree=tree,
         printable=True,
+        header_label=header_label,
     )
 
     description_html = ""
@@ -6573,9 +6576,12 @@ def _build_printable_metric_section(
 def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
                                 trace_list, trace_labels, section_id,
                                 tree=None, printable=False,
-                                metric_knowledge=None):
+                                metric_knowledge=None, header_label="Metric"):
 
-    """Build an interactive HTML efficiency metrics table."""
+    """Build an interactive HTML efficiency metrics table.
+
+    ``header_label`` names the table in the header of the metric column,
+    usually the model (Application, Hybrid (MPI+CUDA), Device...)."""
 
     depth_map = _build_metric_depth_map(tree or [])
     headers = trace_labels
@@ -6591,7 +6597,8 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
 
     lines.append("<thead>")
     lines.append("<tr>")
-    lines.append("<th class='metric-column-header'>Metric</th>")
+    lines.append("<th class='metric-column-header'>{}</th>".format(
+        html.escape(header_label or "Metric")))
 
     for header in headers:
         lines.append(
@@ -6744,7 +6751,7 @@ def _build_openmp_runtime_scope_note(is_hybrid):
             not directly comparable with the application-level
             <strong>Load Balance</strong> shown in Application Efficiency or with the
             derived OpenMP Load Balance contribution shown in the
-            __BA_RUNTIME_MODEL__.
+            Runtime Model.
         </p>
         """
     else:
@@ -6805,7 +6812,7 @@ def _build_execution_overview_guidance_html(
             "configurations and their general performance characteristics"
         ),
         (
-            "the <strong>__BA_RUNTIME_MODEL__</strong> to identify the "
+            "the <strong>Runtime Model</strong> to identify the "
             "performance factors and parallel runtimes contributing to "
             "efficiency loss"
         ),
@@ -7053,7 +7060,7 @@ def _build_parallel_runtime_model_guidance_html(
     return """
     <details
         class="analysis-guide-note"
-        aria-label="How to read the __BA_RUNTIME_MODEL__"
+        aria-label="How to read the Runtime Model"
     >
         <summary>How to read this view</summary>
 
@@ -7118,8 +7125,6 @@ def _build_parallel_runtime_model_views(
         aria-label="Application Efficiency"
         data-prm-export-role="application-efficiency"
     >
-        <h3>Application Efficiency</h3>
-
         {global_html}
     </section>
     """.format(
@@ -7164,15 +7169,17 @@ def _build_parallel_runtime_model_views(
             trace_labels=trace_labels,
             title="{} Parallel Efficiency".format(runtime_label),
             section_id="runtime-model-simple-metrics",
+            header_label=runtime_label,
             tree_kind="runtime_global",
-            trace_header_note=trace_header_note,
+            # The Application table above already explains the columns.
+            trace_header_note="",
             trace_column_description=trace_column_description,
         )
 
         runtime_efficiency_html = """
         <section
             class="parallel-runtime-efficiency"
-            aria-label="{runtime_label} Parallel Runtime Model"
+            aria-label="{runtime_label}"
             data-prm-export-role="runtime-model"
         >
             {runtime_html}
@@ -7186,7 +7193,7 @@ def _build_parallel_runtime_model_views(
         runtime_model_views.append({
             "id": "runtime-model-simple",
             "label": runtime_label,
-            "title": "{} Parallel Runtime Model".format(runtime_label),
+            "title": runtime_label,
             "html": (
                 runtime_guidance_html
                 + application_efficiency_html
@@ -7198,12 +7205,13 @@ def _build_parallel_runtime_model_views(
         runtime_efficiency_html = """
         <section
             class="parallel-runtime-efficiency"
-            aria-label="__BA_RUNTIME_MODEL__"
+            aria-label="{title}"
             data-prm-export-role="runtime-model"
         >
             {runtime_html}
         </section>
         """.format(
+            title=html.escape(hybrid_model_title(inner_model)),
             runtime_html=hybrid_html,
         )        
         
@@ -7222,7 +7230,7 @@ def _build_parallel_runtime_model_views(
         parallel_runtime_model_html = runtime_model_views[0]["html"]
     else:
         parallel_runtime_model_html = (
-            "<p>No __BA_RUNTIME_MODEL__ is available.</p>"
+            "<p>No Runtime Model is available.</p>"
         )
 
     return runtime_model_views
@@ -7243,9 +7251,11 @@ def _build_component_views(model, inner_model, mpi_html,
     if mpi_html:
         analysis_views.append({
             "id": "analysis-runtime-mpi",
-            "label": "MPI",
+            "label": (outer_level_name() if model["runtime_model_hybrid"]
+                      else "MPI"),
             "description": "Runtime analysis",
-            "title": "MPI Runtime-Specific Analysis",
+            "title": (outer_level_name() if model["runtime_model_hybrid"]
+                      else "MPI Runtime-Specific Analysis"),
             "group": "runtime",
             "html": mpi_html,
         })
@@ -7260,12 +7270,12 @@ def _build_component_views(model, inner_model, mpi_html,
             "html": openmp_html,
         })
 
-    if model["runtime_model_hybrid"] and model["has_gpu"] and accelerator_html:
+    if model["runtime_model_hybrid"] and accelerator_html:
         analysis_views.append({
             "id": "analysis-runtime-accelerator",
-            "label": inner_model,
+            "label": inner_level_name(inner_model),
             "description": "Hybrid contribution",
-            "title": "{} Runtime Contribution".format(inner_model),
+            "title": inner_level_name(inner_model),
             "group": "runtime",
             "html": accelerator_html,
         })
@@ -7306,7 +7316,7 @@ def _build_component_views(model, inner_model, mpi_html,
             "html": (
                 "<div class='analysis-scope-note'>"
                 "<h3>Analysis availability</h3>"
-                "<p>The __BA_RUNTIME_MODEL__ quantifies the {0} contribution, "
+                "<p>The Runtime Model quantifies the {0} contribution, "
                 "but an isolated {0} runtime-specific analysis is not currently "
                 "available.</p></div>"
             ).format(html.escape(inner_model)),
@@ -8602,8 +8612,25 @@ def _build_interactive_report_document(workspace_html,
             font-weight: 600;
         }
 
+        /* Trace mode shared by all the traces, shown once. */
+        .trace-mode-tag {
+            margin: 4px 0 10px;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .trace-mode-tag span {
+            display: inline-block;
+            margin-left: 4px;
+            padding: 1px 8px;
+            border-radius: 10px;
+            background: #e8eef6;
+            color: #29435f;
+            font-weight: 600;
+        }
+
         /* -------------------------------------------------- */
-        /* Parave view notes                                  */
+        /* Parave view notes                                */
         /* -------------------------------------------------- */
 
         .paraver-view-note {
@@ -12581,7 +12608,6 @@ def _build_interactive_report_document(workspace_html,
          .replace('{printable_report_html}',printable_report_html,)
          .replace('{scaling_notes_script}', _scaling_notes_script(),)
          .replace('{threshold_script}', _threshold_script(),)
-         .replace(RUNTIME_MODEL_TOKEN, _REPORT_NAMES["runtime_model"])
       )
 
 
@@ -12630,8 +12656,6 @@ def build_basicanalysis_interactive_report_html(metrics_result,
         metrics_result, analysis_result.get("raw_data", {}), trace_list)
 
     model = _report_execution_model(trace_mode, trace_list, metrics_result)
-    _REPORT_NAMES["runtime_model"] = runtime_model_name(
-        model["runtime_model_hybrid"])
 
     report_traces = report.get("traces", [])
 
@@ -12738,6 +12762,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
         trace_labels=trace_labels,
         title="Global Efficiency Metrics",
         section_id="global",
+        header_label=APPLICATION,
         tree_kind=global_tree_kind,
         trace_header_note=trace_header_note,
         trace_column_description=trace_column_description,
@@ -12765,8 +12790,10 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             trace_labels=trace_labels,
             title="Parallel Programming Model: MPI + {}".format(inner_model),
             section_id="hybrid",
+            header_label=hybrid_model_title(inner_model),
             tree_kind="hybrid",
-            trace_header_note=trace_header_note,
+            # Shown below the Application table, which explains the columns.
+            trace_header_note="",
             trace_column_description=trace_column_description,
             runtime=inner_model,
             runtime_family=inner_model.lower(),
@@ -12848,6 +12875,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             trace_labels=trace_labels,
             title="Host Efficiency Metrics",
             section_id="host",
+            header_label=HOST_DOMAIN,
             tree_kind="host",
             trace_header_note=trace_header_note,
             trace_column_description=trace_column_description,
@@ -12861,6 +12889,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             trace_labels=trace_labels,
             title="Device Efficiency Metrics",
             section_id="device",
+            header_label=DEVICE_DOMAIN,
             tree_kind="device",
             trace_header_note=trace_header_note,
             trace_column_description=trace_column_description,
@@ -12909,6 +12938,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
                 trace_labels=trace_labels,
                 title="OpenMP Efficiency Metrics",
                 section_id="openmp",
+                header_label="OpenMP",
                 tree_kind="openmp",
                 trace_header_note=trace_header_note,
                 trace_column_description=trace_column_description,
@@ -13693,6 +13723,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
                 trace_labels=trace_labels,
                 title="MPI Efficiency Metrics",
                 section_id="mpi-runtime",
+                header_label=outer_level_name() if model["runtime_model_hybrid"] else "MPI",
                 tree_kind=mpi_tree_kind,
                 trace_header_note=trace_header_note,
                 trace_column_description=trace_column_description,
@@ -13703,7 +13734,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
     # --------------------------------------------------
     accelerator_html = ""
 
-    if model["is_hybrid"] and model["has_gpu"]:
+    if model["runtime_model_hybrid"]:
         accelerator_keys = [
             "omp_parallel_eff",
             "omp_load_balance",
@@ -13727,12 +13758,13 @@ def build_basicanalysis_interactive_report_html(metrics_result,
                 "<div class='analysis-scope-note'>"
                 "<h3>Metric scope</h3>"
                 "<p>These metrics quantify the {0} contribution within the "
-                "MPI+{0} multiplicative runtime model. Use the Execution "
-                "Domains view to inspect complementary Host and Device "
-                "evidence and determine where the accelerator-related "
-                "inefficiency manifests.</p></div>"
+                "Hybrid (MPI+{0}) multiplicative model.{1}</p></div>"
             ).format(
-                html.escape(inner_model)
+                html.escape(inner_model),
+                " Use the Heterogeneous Model view to inspect complementary "
+                "Host and Device evidence and determine where the "
+                "accelerator-related inefficiency manifests."
+                if model["has_gpu"] else "",
             )
 
             accelerator_metrics_html = _build_metric_tree_heatmap_section(
@@ -13743,6 +13775,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
                 trace_labels=trace_labels,
                 title="{} Runtime Contribution Metrics".format(inner_model),
                 section_id="accelerator-runtime",
+                header_label=inner_level_name(inner_model),
                 tree_kind="runtime_inner",
                 trace_header_note=trace_header_note,
                 trace_column_description=trace_column_description,
@@ -13777,7 +13810,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
         parallel_runtime_model_html = runtime_model_views[0]["html"]
     else:
         parallel_runtime_model_html = (
-            "<p>No __BA_RUNTIME_MODEL__ is available.</p>"
+            "<p>No Runtime Model is available.</p>"
         )
 
     rendered_analysis_html = {
@@ -13973,7 +14006,7 @@ def _build_printable_report_guidance_html(
             "configurations and their general performance characteristics"
         ),
         (
-            "the <strong>__BA_RUNTIME_MODEL__</strong> to identify the "
+            "the <strong>Runtime Model</strong> to identify the "
             "performance factors and parallel runtimes contributing to "
             "efficiency loss"
         ),
@@ -14247,6 +14280,7 @@ def _build_basicanalysis_printable_report_html(
         trace_labels=trace_labels,
         title="2.1 Application Efficiency",
         tree=global_tree,
+        header_label=APPLICATION,
         trace_header_note=trace_header_note,
         trace_column_description=trace_column_description,
         section_kicker="Application-level model",
@@ -14292,10 +14326,11 @@ def _build_basicanalysis_printable_report_html(
                 metric_sources=hybrid_sources,
                 trace_list=trace_list,
                 trace_labels=trace_labels,
-                title="2.2 Composed Runtime Model — MPI + {}".format(
-                    inner_model
+                title="2.2 {}".format(
+                    hybrid_model_title(inner_model)
                 ),
                 tree=HYBRID_TREE,
+                header_label=hybrid_model_title(inner_model),
                 trace_header_note=trace_header_note,
                 trace_column_description=trace_column_description,
                 section_kicker="Composed runtime model",
@@ -14346,8 +14381,9 @@ def _build_basicanalysis_printable_report_html(
                 metric_sources=single_runtime_sources,
                 trace_list=trace_list,
                 trace_labels=trace_labels,
-                title="2.2 {} Parallel Efficiency".format(runtime_name),
+                title="2.2 {}".format(runtime_name),
                 tree=GLOBAL_PARALLEL_TREE,
+                header_label=runtime_name,
                 trace_header_note=trace_header_note,
                 trace_column_description=trace_column_description,
                 section_kicker="Runtime model",
@@ -14375,7 +14411,7 @@ def _build_basicanalysis_printable_report_html(
 
         <div class="print-section-intro">
             <header class="print-section-header">
-                <h2>2 __BA_RUNTIME_MODEL__</h2>
+                <h2>2 Runtime Model</h2>
             </header>
 
             {parallel_runtime_guidance_html}
@@ -14436,11 +14472,13 @@ def _build_basicanalysis_printable_report_html(
                     metric_sources=mpi_sources,
                     trace_list=trace_list,
                     trace_labels=trace_labels,
-                    title="{}.{} MPI Runtime-Specific Analysis".format(
+                    title="{}.{} {}".format(
                         runtime_specific_section_number,
                         runtime_specific_index,
+                        outer_level_name(),
                     ),
                     tree=MPI_RUNTIME_TREE,
+                    header_label=outer_level_name(),
                     trace_header_note=trace_header_note,
                     trace_column_description=trace_column_description,
                     section_kicker="Runtime-specific diagnosis",
@@ -14448,6 +14486,55 @@ def _build_basicanalysis_printable_report_html(
                         "Isolated diagnosis of MPI load balance, "
                         "serialization, and transfer overhead."
                     ),
+                )
+            )
+            runtime_specific_index += 1
+
+    # Inner level of the Hybrid model: the contribution of X derived from
+    # the composed MPI+X model, next to the Outer (MPI) level.
+    if model["runtime_model_hybrid"]:
+        accelerator_keys = [
+            "omp_parallel_eff",
+            "omp_load_balance",
+            "omp_comm_eff",
+        ]
+        accelerator_sources = {
+            key: hybrid_factors
+            for key in accelerator_keys
+        }
+        accelerator_filtered_keys = _filter_available_metric_keys(
+            accelerator_keys,
+            accelerator_sources,
+            trace_list,
+        )
+
+        if accelerator_filtered_keys:
+            _collect_metric_reference(
+                metric_reference,
+                accelerator_filtered_keys,
+                hybrid_metric_info,
+            )
+            runtime_specific_sections.append(
+                _build_printable_metric_section(
+                    metric_keys=accelerator_filtered_keys,
+                    metric_info=hybrid_metric_info,
+                    metric_sources=accelerator_sources,
+                    trace_list=trace_list,
+                    trace_labels=trace_labels,
+                    title="{}.{} {}".format(
+                        runtime_specific_section_number,
+                        runtime_specific_index,
+                        inner_level_name(inner_model),
+                    ),
+                    tree=INNER_RUNTIME_TREE,
+                    header_label=inner_level_name(inner_model),
+                    trace_header_note=trace_header_note,
+                    trace_column_description=trace_column_description,
+                    section_kicker="Runtime contribution",
+                    section_description=(
+                        "Isolated view of the {} contribution derived from "
+                        "the composed MPI+{} runtime model."
+                    ).format(inner_model, inner_model),
                 )
             )
             runtime_specific_index += 1
@@ -14480,11 +14567,15 @@ def _build_basicanalysis_printable_report_html(
                     metric_sources=openmp_sources,
                     trace_list=trace_list,
                     trace_labels=trace_labels,
-                    title="{}.{} OpenMP Runtime-Specific Analysis".format(
+                    title="{}.{} {}".format(
                         runtime_specific_section_number,
                         runtime_specific_index,
+                        "OpenMP runtime"
+                        if model["runtime_model_hybrid"]
+                        else "OpenMP Runtime-Specific Analysis",
                     ),
                     tree=OPENMP_TREE,
+                    header_label="OpenMP",
                     trace_header_note=trace_header_note,
                     trace_column_description=trace_column_description,
                     scope_note_html=_build_openmp_runtime_scope_note(
@@ -14499,58 +14590,6 @@ def _build_basicanalysis_printable_report_html(
             )
             runtime_specific_index += 1
 
-    # CUDA/HIP currently expose their contribution from the composed model.
-    # This is kept separate from Host and Device execution-domain analysis.
-    if (
-        model["is_hybrid"]
-        and model["has_gpu"]
-        and inner_model in ("CUDA", "HIP")
-    ):
-        accelerator_keys = [
-            "omp_parallel_eff",
-            "omp_load_balance",
-            "omp_comm_eff",
-        ]
-        accelerator_sources = {
-            key: hybrid_factors
-            for key in accelerator_keys
-        }
-        accelerator_filtered_keys = _filter_available_metric_keys(
-            accelerator_keys,
-            accelerator_sources,
-            trace_list,
-        )
-
-        if accelerator_filtered_keys:
-            _collect_metric_reference(
-                metric_reference,
-                accelerator_filtered_keys,
-                hybrid_metric_info,
-            )
-            runtime_specific_sections.append(
-                _build_printable_metric_section(
-                    metric_keys=accelerator_filtered_keys,
-                    metric_info=hybrid_metric_info,
-                    metric_sources=accelerator_sources,
-                    trace_list=trace_list,
-                    trace_labels=trace_labels,
-                    title="{}.{} {} Runtime Contribution".format(
-                        runtime_specific_section_number,
-                        runtime_specific_index,
-                        inner_model,
-                    ),
-                    tree=INNER_RUNTIME_TREE,
-                    trace_header_note=trace_header_note,
-                    trace_column_description=trace_column_description,
-                    section_kicker="Runtime contribution",
-                    section_description=(
-                        "Isolated view of the {} contribution derived from "
-                        "the composed MPI+{} runtime model."
-                    ).format(inner_model, inner_model),
-                )
-            )
-            runtime_specific_index += 1
-
 
     runtime_specific_content_html = "\n".join(
         runtime_specific_sections
@@ -14560,7 +14599,7 @@ def _build_basicanalysis_printable_report_html(
         runtime_specific_html = """
         <section class="print-analysis-stage">
             <header class="print-section-header">
-                <h2>{section_number} Runtime-Specific Analysis</h2>
+                <h2>{section_number} {stage_title}</h2>
 
                 <p class="print-section-description">
                     Continue the analysis within the relevant runtime using
@@ -14572,6 +14611,11 @@ def _build_basicanalysis_printable_report_html(
         </section>
         """.format(
             section_number=runtime_specific_section_number,
+            stage_title=(
+                "Hybrid Levels"
+                if model["runtime_model_hybrid"]
+                else "Runtime-Specific Analysis"
+            ),
             runtime_specific_content_html=(
                 runtime_specific_content_html
             ),

@@ -730,6 +730,7 @@ class AnalysisCatalogueTests(unittest.TestCase):
                 "parallel-runtime-model",
                 "computation-scalability",
                 "mpi-runtime",
+                "accelerator-runtime",
                 "openmp-runtime",
             ],
         )
@@ -815,11 +816,18 @@ class AnalysisCatalogueTests(unittest.TestCase):
             "Execution Overview",
         )
 
-        # MPI+CUDA is a hybrid MPI+X execution.
+        # One Runtime Model tab; MPI+CUDA shows the Hybrid (MPI+CUDA) model
+        # with its Outer (MPI) and Inner (CUDA) levels.
         self.assertEqual(
             labels["parallel-runtime-model"],
-            "Hybrid Model",
+            "Runtime Model",
         )
+        self.assertEqual(
+            catalogue.get_view("parallel-runtime-model").title,
+            "Hybrid (MPI+CUDA)",
+        )
+        self.assertEqual(labels["mpi-runtime"], "Outer (MPI)")
+        self.assertEqual(labels["accelerator-runtime"], "Inner (CUDA)")
 
         self.assertEqual(
             labels["execution-domains"],
@@ -831,15 +839,7 @@ class AnalysisCatalogueTests(unittest.TestCase):
             "Scaling",
         )
 
-        self.assertEqual(
-            labels["mpi-runtime"],
-            "MPI",
-        )
 
-        self.assertEqual(
-            labels["accelerator-runtime"],
-            "CUDA",
-        )
 
         self.assertEqual(
             labels["host-analysis"],
