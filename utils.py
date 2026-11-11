@@ -99,8 +99,7 @@ def build_argument_parser():
                         help='select .prv or .pcf file for trace mode detection. '
                              'For customized traces, i.e. cut, filtered and so on, you must select'
                              ' the .prv file. (default: pcf)')
-    parser.add_argument("-ord", "--order_traces", choices=['yes', 'not'], default='yes',
-                        help='Order the trace list based on the numbers of processes')
+    add_sort_arguments(parser)
     parser.add_argument("-somp", "--simulation_openmp", help='OpenMP events will be simulated '
                                                           '(default: disable).', action="store_true")
     parser.add_argument("-scuda", "--simulation_cuda", help='CUDA events will be simulated '
@@ -115,12 +114,39 @@ def build_argument_parser():
     parser.add_argument('--ideal-omp', action='store_true', help='In simulation of MPI+OpenMP codes, it ignores the duration'
     ' of OpenMP runtime events. Any remaining duration is due to implicit synchronization.')
     parser.add_argument('--hyb-mpiomp', action='store_true', help='Compute Serialization and Transfer at OpenMP level for MPI+OpenMP codes.')
-    parser.add_argument('--log', metavar='FILE', default=None,
+    parser.add_argument('-o', '--output', '--log', dest='log', metavar='FILE', default=None,
                         help='file where the command line and the standard output of the run are saved '
-                             '(default: {} in the current directory)'.format(DEFAULT_LOG_FILE))
+                             '(default: {} in the current directory). --log is the former name of this '
+                             'option'.format(DEFAULT_LOG_FILE))
     parser.add_argument('--no-log', action='store_true',
                         help='do not save the command line and the standard output in a file')
     return parser
+
+
+class _DeprecatedOrderAction(argparse.Action):
+    """-ord/--order_traces yes|not, replaced by --no-sort."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        print('==WARNING== {} is deprecated and will be removed in a future release; '
+              'use --no-sort to keep the order of the traces.'.format(option_string),
+              file=sys.stderr)
+        setattr(namespace, self.dest, values)
+
+
+def add_sort_arguments(parser, workload_options=True):
+    """--no-sort, and the deprecated -ord/--order_traces.
+
+    Both set ``order_traces`` ('yes' sorts the traces by number of processes).
+    A user-defined workload always keeps the command-line order."""
+    parser.add_argument('--no-sort', dest='order_traces', action='store_const', const='not',
+                        default='yes',
+                        help='keep the traces in the order given, instead of sorting them by number '
+                             'of processes; the first trace is the reference{}'.format(
+                                 '. Implied by --workload, --host-workload, and --device-workload'
+                                 if workload_options else ''))
+    parser.add_argument('-ord', '--order_traces', dest='order_traces', choices=['yes', 'not'],
+                        action=_DeprecatedOrderAction,
+                        help='deprecated: use --no-sort instead of "-ord not"')
 
 
 def _thresholds_argument(text):
@@ -183,8 +209,11 @@ def command_line(argv=None):
 def start_run_log(cmdl_args, default_file=DEFAULT_LOG_FILE):
     """Save the command line and the standard output and error of the run in a file.
 
-    The output still goes to the console. Returns the path of the log file, or
-    None when the log is disabled (--no-log, or no file given and no default)."""
+    The output still goes to the console. The command line is always printed
+    first, so that it is the reference of the output; the log file has it in its
+    header. Returns the path of the log file, or None when the log is disabled
+    (--no-log, or no file given and no default)."""
+    print('Command: {}'.format(command_line()))
     if getattr(cmdl_args, 'no_log', False):
         return None
     path = getattr(cmdl_args, 'log', None) or default_file

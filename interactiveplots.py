@@ -7351,6 +7351,7 @@ def _build_application_summary_panel(
 
             <section class="report-section">
                 <h3>Trace configuration</h3>
+                {command_html}
                 {trace_config_html}
             </section>
 
@@ -7378,12 +7379,22 @@ def _build_application_summary_panel(
     </section>
     """.format(
         guidance_html=guidance_html,
+        command_html=_command_line_html(),
         trace_config_html=trace_config_html,
         execution_mapping_html=execution_mapping_html,
         trace_header_note=trace_header_note,
         overview_html=overview_html,
         resources_html=resources_html,
     )
+
+
+def _command_line_html():
+    """Command line of the run that generated the report, as a reference."""
+    from utils import command_line
+
+    return (
+        "<p class='report-command'><b>Command:</b> <code>{}</code></p>"
+    ).format(html.escape(command_line()))
 
 
 def _build_primary_report_navigation(
@@ -8610,6 +8621,19 @@ def _build_interactive_report_document(workspace_html,
         .trace-header-note code {
             color: #29435f;
             font-weight: 600;
+        }
+
+        /* Command line of the run (Execution Overview). */
+        .report-command {
+            margin: 4px 0 8px;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .report-command code {
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: #29435f;
         }
 
         /* Trace mode shared by all the traces, shown once. */
@@ -14874,6 +14898,7 @@ def _build_basicanalysis_printable_report_html(
             <div class="print-overview-grid">
                 <div class="print-overview-block">
                     <h3>Trace configuration</h3>
+                    {command_html}
                     {trace_config_html}
                 </div>
 
@@ -14899,6 +14924,7 @@ def _build_basicanalysis_printable_report_html(
         {scaling_html}
         {appendix_html}
     """.format(
+        command_html=_command_line_html(),
         trace_config_html=trace_config_html,
         execution_mapping_print_html=execution_mapping_print_html,
         trace_header_note=trace_header_note,
@@ -15137,6 +15163,18 @@ def _build_basicanalysis_printable_report_html(
                 margin: 0 0 7px;
                 color: #5c677a;
                 font-size: 8.2pt;
+            }}
+
+            .report-command,
+            .trace-mode-tag {{
+                margin: 0 0 6px;
+                color: #5c677a;
+                font-size: 8.2pt;
+            }}
+
+            .report-command code {{
+                white-space: pre-wrap;
+                word-break: break-all;
             }}
 
             .analysis-scope-note {{

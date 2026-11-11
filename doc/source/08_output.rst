@@ -201,8 +201,8 @@ Run Log
    Contains the BasicAnalysis version, the date, the host, the working
    directory, and the command line of the run, followed by its standard
    output, warnings, and error messages, and the time when the run finished.
-   The name can be changed with ``--log <file>``, and the file is not written
-   with ``--no-log``. See :ref:`sec:run-log`.
+   The name can be changed with ``-o, --output <file>``, and the file is not
+   written with ``--no-log``. See :ref:`sec:run-log`.
 
 
 Intermediate Analysis Files

@@ -7,6 +7,7 @@ from __future__ import print_function, division
 import json
 
 from comparison import check_comparison_support
+from tracemetadata import check_supported_models
 from scaling import build_workload_map
 from pipeline import count_hybrid_traces, compute_metrics, generate_reports, generate_plots
 from utils import build_argument_parser, start_run_log, apply_efficiency_thresholds
@@ -70,6 +71,7 @@ def main():
         "list_mpi_procs_count": list_mpi_procs_count,
     }
 
+    check_supported_models(trace_list, trace_mode)
     check_comparison_support(trace_list, trace_mode)
 
     # Workload values are matched with the merged (sorted) trace list.

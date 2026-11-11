@@ -156,12 +156,25 @@
 - The command line and the standard output of each run are saved in
   `basicanalysis.log` (BasicAnalysis version, date, host, working directory,
   command line, the output with warnings and errors, and the finishing time),
-  while the output is still shown in the console. `--log <file>` changes the
-  file and `--no-log` disables it. `compute_metrics_from_merged.py` writes
-  the same log; `analyze_trace.py` writes it only with `--log`, because the
-  per-trace jobs of the staged workflow may share a directory.
+  while the output is still shown in the console. `-o, --output <file>`
+  changes the file and `--no-log` disables it. `compute_metrics_from_merged.py`
+  writes the same log; `analyze_trace.py` writes it only with `-o`, because
+  the per-trace jobs of the staged workflow may share a directory. The first
+  line of the standard output is the command line of the run, which the
+  Execution Overview of the report also shows.
 
 ### Changes
+
+- `--no-sort` keeps the traces in the order of the command line (in
+  `modelfactors.py`, `analyze_trace.py`, `compute_metrics_from_merged.py`,
+  and `merge_trace_results.py`). It replaces `-ord, --order_traces`, still
+  accepted with a deprecation warning. With a user-defined workload the
+  traces are never sorted.
+- `--log <file>` is now `-o, --output <file>`; `--log` is still accepted.
+- Traces whose programming model has no performance model in BasicAnalysis,
+  a GPU runtime together with a CPU threading runtime (for example
+  MPI+OpenMP+CUDA or MPI+Pthreads+CUDA), stop the analysis with their trace
+  mode before any metric is computed.
 
 - Report views and tables. The navigation bar has the **Runtime Model** and
   **Heterogeneous Model** (formerly *Host/Device Model*) views. The Runtime

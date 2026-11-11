@@ -109,9 +109,9 @@ with:
    analyze_trace.py --help
 
 ``analyze_trace.py`` saves its command line and standard output only when
-``--log <file>`` is given, because the per-trace jobs may run in the same
-directory; give each job its own file, for example
-``--log analyze_trace_1.log``. ``compute_metrics_from_merged.py`` saves them in
+``-o, --output <file>`` is given, because the per-trace jobs may run in the
+same directory; give each job its own file, for example
+``-o analyze_trace_1.log``. ``compute_metrics_from_merged.py`` saves them in
 ``basicanalysis.log`` by default (see :ref:`sec:run-log`).
 
 
@@ -133,8 +133,9 @@ For example:
 
 
 By default, the merge stage orders traces according to the number of
-processes. This behavior can be controlled with the ``-ord``
-option.
+processes. Use ``--no-sort`` to keep the order of the command line (the
+former ``-ord not`` is still accepted). Note that ``--output`` of
+``merge_trace_results.py`` is the merged JSON file, not a log.
 
 The merge operation combines the independent trace-analysis results into a
 single dataset that can be used for comparative and scalability analysis.

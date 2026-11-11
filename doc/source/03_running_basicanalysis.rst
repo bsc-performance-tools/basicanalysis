@@ -147,7 +147,7 @@ summary and shown in the **Scaling** section of the report, and the
 **Metric details** of each scalability metric show the ratio used for that
 metric and trace. With the distributed workflow
 (:doc:`04_staged_workflow`), the order is set when the results are merged:
-run ``merge_trace_results.py`` with ``-ord not`` and the traces in the order
+run ``merge_trace_results.py`` with ``--no-sort`` and the traces in the order
 of the values, which ``compute_metrics_from_merged.py`` then matches with
 the trace list of the merged file.
 
@@ -337,19 +337,18 @@ Trace ordering
 By default, BasicAnalysis orders the analyzed traces according to their
 parallel configuration.
 
-This behavior is controlled with:
+To keep the order of the command line instead, use:
 
 .. code-block:: text
 
-   -ord, --order_traces {yes,not}
+   --no-sort
 
-``yes``
-   Order the traces before performing the comparative analysis.
+With ``--workload``, ``--host-workload``, or ``--device-workload``, the
+traces always keep the command-line order, so ``--no-sort`` is implied.
 
-``not``
-   Preserve the input trace order.
-
-The default is ``yes``.
+The former option ``-ord, --order_traces {yes,not}`` is still accepted, with
+a warning, and will be removed in a future release: ``-ord not`` is
+``--no-sort``.
 
 Trace ordering is particularly relevant when several configurations are
 analyzed because the first execution is used as the reference for several
@@ -359,7 +358,7 @@ Preserving the input order is also useful when the analyzed traces are not a
 scaling study, for example when comparing executions with the same parallel
 resources but different problems, or executions that use different
 programming models (see :ref:`sec:comparing-programming-models`). In these
-cases, list the trace to be used as reference first and use ``-ord not``.
+cases, list the trace to be used as reference first and use ``--no-sort``.
 
 
 .. _sec:comparing-programming-models:
@@ -403,7 +402,7 @@ application, list it first and preserve the input order:
 
 .. code-block:: sh
 
-   modelfactors.py -ord not app_legacy_mpi.prv app_new_mpi_cuda.prv
+   modelfactors.py --no-sort app_legacy_mpi.prv app_new_mpi_cuda.prv
 
 The comparison is supported for **Detailed** traces of MPI-based programming
 models, such as MPI, MPI+OpenMP, MPI+CUDA, and MPI+HIP. If a trace set with
@@ -460,6 +459,10 @@ the performance metrics computed for each trace.
 Saving the standard output
 ==========================
 
+The first line of the standard output is the command line of the run, as a
+reference of the output that follows; the Execution Overview of the report
+shows it too.
+
 BasicAnalysis saves the command line and the standard output of each run in
 ``basicanalysis.log``, in the current directory. The output is also shown in
 the console as usual. The file starts with the BasicAnalysis version, the
@@ -470,9 +473,10 @@ saved. A new run in the same directory replaces the file.
 
 .. code-block:: text
 
-   --log <file>
+   -o, --output <file>
 
-Save the log in ``<file>`` instead of ``basicanalysis.log``.
+Save the log in ``<file>`` instead of ``basicanalysis.log``. ``--log <file>``,
+the former name of this option, is still accepted.
 
 .. code-block:: text
 

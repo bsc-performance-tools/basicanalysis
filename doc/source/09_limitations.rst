@@ -76,18 +76,16 @@ Number of Parallel Runtimes
 The Parallel Runtime Model has been validated for applications with up to two
 parallel runtime levels, such as MPI+OpenMP and MPI+GPU.
 
-Applications containing more than two parallel runtimes may be detected in the
-trace, but their decomposition into runtime-specific efficiency contributions
-has not been validated.
+Applications that combine a GPU runtime (CUDA, HIP, OpenCL) with a CPU
+threading runtime (OpenMP, Pthreads, OmpSs), with or without MPI, for
+example MPI+OpenMP+CUDA, have no performance model in BasicAnalysis: their
+metrics would mix the Hybrid and Heterogeneous models without a defined
+decomposition. BasicAnalysis prints the trace mode detected for each of these
+traces and stops before computing any metric. The same check is done by
+``analyze_trace.py`` and ``compute_metrics_from_merged.py``.
 
-For example, an application combining MPI, a CPU threading runtime, and a GPU
-runtime introduces three parallel runtime levels. The current Parallel Runtime
-Model does not provide an independently validated efficiency decomposition for
-all three runtime contributions.
-
-The application-level metrics may still provide useful performance
-information, but the runtime-specific decomposition should not be interpreted
-as a complete attribution of the efficiency loss across all active runtimes.
+Which metrics can be computed for these applications is still to be
+decided.
 
 
 Hierarchical Execution Model

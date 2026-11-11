@@ -62,9 +62,47 @@ class TestRunLog(unittest.TestCase):
         self.assertEqual(hooks, [])
 
     def test_parser_options(self):
-        args = utils.build_argument_parser().parse_args(['--log', 'a.log', 't.prv'])
-        self.assertEqual(args.log, 'a.log')
-        self.assertFalse(args.no_log)
+        parser = utils.build_argument_parser()
+        for option in ('-o', '--output', '--log'):
+            args = parser.parse_args([option, 'a.log', 't.prv'])
+            self.assertEqual(args.log, 'a.log')
+            self.assertFalse(args.no_log)
+
+    def test_command_is_the_first_console_line(self):
+        for no_log in (False, True):
+            _, console, hooks = self._start(
+                log=os.path.join(self.tmp.name, 'c.log'), no_log=no_log)
+            sys.stdout, sys.stderr = self.stdout, self.stderr
+            for hook in hooks:
+                hook()
+            self.assertEqual(
+                console.getvalue().splitlines()[0],
+                "Command: modelfactors.py --workload 1,2 'my trace.prv'")
+
+
+class TestSortOptions(unittest.TestCase):
+
+    def _parse(self, argv):
+        stderr = io.StringIO()
+        with mock.patch.object(sys, 'stderr', stderr):
+            args = utils.build_argument_parser().parse_args(argv)
+        return args, stderr.getvalue()
+
+    def test_default_sorts(self):
+        args, warning = self._parse(['t.prv'])
+        self.assertEqual(args.order_traces, 'yes')
+        self.assertEqual(warning, '')
+
+    def test_no_sort(self):
+        args, warning = self._parse(['--no-sort', 't.prv'])
+        self.assertEqual(args.order_traces, 'not')
+        self.assertEqual(warning, '')
+
+    def test_deprecated_ord(self):
+        args, warning = self._parse(['-ord', 'not', 't.prv'])
+        self.assertEqual(args.order_traces, 'not')
+        self.assertIn('-ord is deprecated', warning)
+        self.assertIn('--no-sort', warning)
 
 
 if __name__ == '__main__':

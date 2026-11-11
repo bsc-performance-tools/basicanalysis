@@ -176,6 +176,7 @@ def get_traces_from_args(cmdl_args):
         print(line)
     if simulated:
         print()
+    check_supported_models(trace_list, trace_mode)
     return trace_list, trace_processes, trace_tasks, trace_threads, trace_task_per_node, trace_mode
 
 
@@ -748,6 +749,43 @@ def is_host_gpu_mode(mode):
 def is_nsys2prv_mode(mode):
     """Return True for traces generated with nsys2prv."""
     return mode in NSYS2PRV_MODES
+
+
+# Programming models without a performance model in BasicAnalysis: a GPU
+# runtime together with a host-threading runtime (e.g. MPI+OpenMP+CUDA,
+# MPI+Pthreads+CUDA, OpenMP+CUDA). Their metrics would mix the Hybrid and
+# Heterogeneous models without a defined decomposition.
+_GPU_RUNTIMES = ('CUDA', 'HIP', 'OpenCL')
+_HOST_THREADING_RUNTIMES = ('OpenMP', 'Pthreads', 'OmpSs')
+
+
+def unsupported_model(mode):
+    """Return why a trace mode has no performance model, or None."""
+    runtimes = str(mode).split('+')[1:]
+    gpu = [runtime for runtime in runtimes if runtime in _GPU_RUNTIMES]
+    threading = [runtime for runtime in runtimes if runtime in _HOST_THREADING_RUNTIMES]
+    if gpu and threading:
+        return ('a GPU runtime ({}) together with a host-threading runtime ({})'
+                .format(', '.join(gpu), ', '.join(threading)))
+    return None
+
+
+def check_supported_models(trace_list, trace_mode):
+    """Stop before computing when a trace has no performance model."""
+    unsupported = [(trace, unsupported_model(trace_mode[trace]))
+                   for trace in trace_list]
+    unsupported = [(trace, reason) for trace, reason in unsupported if reason]
+    if not unsupported:
+        return
+    print('==ERROR== BasicAnalysis has no performance model for the programming '
+          'model of these traces:')
+    for trace, reason in unsupported:
+        print('            {}'.format(trace))
+        print('              Trace mode: {} ({})'.format(trace_mode[trace], reason))
+    print('          The metrics are not computed. Supported GPU models: CUDA or HIP, '
+          'with or without MPI,')
+    print('          without a CPU threading runtime (OpenMP, Pthreads, OmpSs).')
+    sys.exit(1)
 
 
 # nsys2prv traces are CUDA traces: the trace mode names only the tool.

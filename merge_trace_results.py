@@ -13,6 +13,7 @@ from rawdata import (
     merge_trace_results,
     reconstruct_trace_metadata,
 )
+from utils import add_sort_arguments
 
 
 def parse_args():
@@ -30,12 +31,7 @@ def parse_args():
         default="merged_rawdata.json",
         help="Output merged JSON file (default: merged_rawdata.json)"
     )
-    parser.add_argument(
-        "-ord", "--order_traces",
-        choices=['yes', 'not'],
-        default='yes',
-        help='Order the trace list based on the numbers of processes'
-    )
+    add_sort_arguments(parser, workload_options=False)
     return parser.parse_args()
 
 
