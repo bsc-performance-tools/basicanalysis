@@ -1138,7 +1138,8 @@ def _build_overview_table_html(other_metrics, trace_list, trace_labels):
         # Metrics inside section
         for key in keys:
             html.append("<tr>")
-            html.append("<td>{}</td>".format(OVERVIEW_LABELS[key]))
+            html.append("<td>{}{}</td>".format(
+                OVERVIEW_LABELS[key], _workload_mark_html(key)))
 
             for trace in trace_list:
                 value = other_metrics.get(key, {}).get(trace, "Non-Avail")
@@ -3048,7 +3049,10 @@ def _inner_model_name(trace_mode, trace_list):
 # Scaling ratio of each scaled metric and trace (Metric Details), and the
 # Host metrics whose workload is assumed (dimmed in the efficiency tables).
 # Set by _set_scaling_context for each report.
-_SCALING_CONTEXT = {"notes": {}, "dimmed": frozenset()}
+_SCALING_CONTEXT = {"notes": {}, "dimmed": frozenset(), "workload": {}}
+
+# Mark of the metrics computed with a user-defined workload ratio.
+WORKLOAD_MARK = "\u26a0"
 
 _HOST_SCALED_KEYS = ("host_comp_scale", "host_inst_scale", "host_global_eff")
 _DEVICE_SCALED_KEYS = ("dev_comp_scale", "dev_global_eff")
@@ -3075,6 +3079,69 @@ def _scaling_ratio_text(scaling_info, raw_data, trace_list, trace, domain):
             ratio, RESOURCE_COUNTS[domain][1])
 
     return "resource ratio (weak scaling)"
+
+
+def _workload_mark_text(scaling_info, trace_list, domains):
+    """Tooltip of the workload mark: the option and ratios of each level
+    (None: application, "host", "device") that uses a workload."""
+
+    parts = []
+    for domain in domains:
+        if scaling_info.mode(domain) != "workload":
+            continue
+        ratios = ", ".join(
+            "{:g}".format(scaling_info.work_ratio(trace, None, domain))
+            for trace in trace_list
+        )
+        parts.append("{}{} (ratios {})".format(
+            "{} workload, ".format(domain.capitalize()) if domain else "",
+            scaling_info.ratio_source(domain),
+            ratios,
+        ))
+    if not parts:
+        return ""
+    return "Computed with a user-defined workload ratio: {}.".format(
+        "; ".join(parts))
+
+
+def _workload_marks(scaling_info, trace_list):
+    """Metrics computed with a user-defined workload ratio, with the text
+    of their mark."""
+
+    marks = {}
+    if scaling_info is None or not scaling_info.has_scaling_analysis:
+        return marks
+
+    if scaling_info.domain_modes:
+        levels = (
+            (_HOST_SCALED_KEYS + ("inst_scale",), ("host",)),
+            (_DEVICE_SCALED_KEYS, ("device",)),
+            (("comp_scale", "global_eff"), ("host", "device")),
+        )
+    else:
+        levels = ((_APPLICATION_SCALED_KEYS, (None,)),)
+
+    # Speedup and Efficiency use the application-level ratio.
+    levels += ((("speedup", "efficiency"), (None,)),)
+
+    for keys, domains in levels:
+        text = _workload_mark_text(scaling_info, trace_list, domains)
+        if text:
+            for key in keys:
+                marks[key] = text
+    return marks
+
+
+def _workload_mark_html(metric_key):
+    """Warning mark of a metric computed with a workload ratio, or ""."""
+
+    text = _SCALING_CONTEXT.get("workload", {}).get(metric_key)
+    if not text:
+        return ""
+    return (
+        " <span class='workload-mark' title='{0}' aria-label='{0}' "
+        "role='img'>{1}</span>"
+    ).format(html.escape(text, quote=True), WORKLOAD_MARK)
 
 
 def _set_scaling_context(metrics_result, raw_data, trace_list):
@@ -3137,6 +3204,7 @@ def _set_scaling_context(metrics_result, raw_data, trace_list):
 
     _SCALING_CONTEXT["notes"] = notes
     _SCALING_CONTEXT["dimmed"] = frozenset(dimmed)
+    _SCALING_CONTEXT["workload"] = _workload_marks(scaling_info, trace_list)
     _SCALING_CONTEXT["raw_data"] = raw_data
 
 
@@ -3146,63 +3214,165 @@ def _scaling_notes_script():
         json.dumps(_SCALING_CONTEXT["notes"]).replace("</", "<\\/"))
 
 
+def _scaling_level_source(scaling_model, domain):
+    """How the scaling of a level was chosen, in words."""
+
+    mode = scaling_model.mode(domain)
+
+    if mode == "workload":
+        option = scaling_model.ratio_source(domain)
+        if domain == "host" and "host" not in (
+                scaling_model.domain_workload_options):
+            return "Assumed from {} (no Host workload given)".format(option)
+        return "Given with {}".format(option)
+
+    if domain is None:
+        selection_mode = scaling_model.selection_mode
+    else:
+        selection = scaling_model.domain_selection.get(domain, "")
+        selection_mode = "manual" if selection.startswith("Manual") else "auto"
+
+    if selection_mode == "manual":
+        return "Forced with --scaling"
+
+    if domain is None:
+        return "Detected from the measurements"
+
+    return "Detected from the {} measurements".format(domain.capitalize())
+
+
+def _scaling_level_mode(scaling_model, domain):
+    """Scaling used by a level, in words."""
+
+    mode = scaling_model.mode(domain)
+
+    if mode == "workload":
+        return "User-defined workload"
+
+    if mode == "strong":
+        return "Strong scaling (ratio 1)"
+
+    if domain in RESOURCE_COUNTS:
+        return "Weak scaling (ratio of {})".format(RESOURCE_COUNTS[domain][1])
+
+    return "Weak scaling (ratio of processes)"
+
+
+def _build_scaling_levels_html(scaling_model):
+    """Scaling model of each level (Application, Host, Device): the scaling
+    used, how it was chosen, and the ratio of each trace."""
+
+    columns, table_rows = workload_table(
+        scaling_model, raw_data=_SCALING_CONTEXT.get("raw_data"))
+    domains = {"Application": None, "Host": "host", "Device": "device"}
+    descriptions = {
+        "Application": "Speedup, Efficiency{}".format(
+            "" if scaling_model.domain_modes
+            else ", and the scalability metrics"),
+        "Host": "Host scalability metrics",
+        "Device": "Device scalability metrics",
+    }
+
+    def ratio_text(value, ratio):
+        if ratio is None:
+            return "–"
+        if value is not None and value != ratio:
+            return "{:g} <span class='scaling-model-value'>(workload " \
+                   "{:g})</span>".format(ratio, value)
+        return "{:g}".format(ratio)
+
+    rows = []
+    for index, column in enumerate(columns):
+        domain = domains[column]
+        ratios = " · ".join(
+            ratio_text(cells[index][0], cells[index][1])
+            for _trace, cells in table_rows
+        )
+        workload = scaling_model.mode(domain) == "workload"
+        rows.append(
+            "<tr{row_class}><th scope='row'>{level}"
+            "<span class='scaling-level-scope'>{scope}</span></th>"
+            "<td>{mode}{mark}</td><td>{source}</td><td>{ratios}</td></tr>"
+            .format(
+                row_class=" class='scaling-level-workload'" if workload else "",
+                level=html.escape(column),
+                scope=html.escape(descriptions[column]),
+                mode=html.escape(_scaling_level_mode(scaling_model, domain)),
+                mark=(" <span class='workload-mark' aria-hidden='true'>{}"
+                      "</span>".format(WORKLOAD_MARK) if workload else ""),
+                source=html.escape(_scaling_level_source(scaling_model, domain)),
+                ratios=ratios,
+            )
+        )
+
+    traces = " · ".join(
+        "T{}".format(index + 1) for index in range(len(table_rows)))
+    has_workload = any(
+        scaling_model.mode(domains[column]) == "workload" for column in columns)
+
+    return """
+        <table class="scaling-levels">
+            <thead>
+                <tr><th>Level</th><th>Scaling</th><th>How it was chosen</th>
+                <th>Ratio per trace ({traces})</th></tr>
+            </thead>
+            <tbody>{rows}</tbody>
+        </table>
+        <p class="scaling-model-sources">
+            The scalability metrics are relative to the first trace (T1),
+            scaled by the ratio of each trace.{mark_note}
+        </p>
+    """.format(
+        traces=html.escape(traces),
+        rows="".join(rows),
+        mark_note=(
+            " In the efficiency tables, {} marks the metrics computed with a "
+            "user-defined workload ratio; its tooltip gives the option and "
+            "the ratios.".format(WORKLOAD_MARK)
+            if has_workload else ""
+        ),
+    )
+
+
 def _build_scaling_model_html(scaling_model):
     """Build the scaling-model summary shown in Computation Scalability."""
 
     if scaling_model is None:
         return ""
 
+    if (scaling_model.workload_ratios is not None
+            or scaling_model.domain_modes):
+        warning_html = ""
+        if scaling_model.overridden:
+            warning_html = """
+            <div class="scaling-model-warning">
+                <strong>Manual override:</strong>
+                the scaling model used to compute the metrics differs from
+                the automatically detected scaling behavior.
+            </div>
+            """
+        return """
+        <section class="scaling-model-panel">
+            <div class="scaling-model-header">
+                <h3>Scaling model</h3>
+                <p>
+                    Scaling used by each level of the analysis to compute
+                    the scalability metrics.
+                </p>
+            </div>
+            {levels_html}
+            {warning_html}
+        </section>
+        """.format(
+            levels_html=_build_scaling_levels_html(scaling_model),
+            warning_html=warning_html,
+        )
+
     detected = describe_detected(scaling_model)
 
     selected, selection = describe_scaling(scaling_model)
 
     warning_html = ""
-
-    if (scaling_model.workload_ratios is not None
-            or scaling_model.domain_modes):
-        columns, table_rows = workload_table(
-            scaling_model, raw_data=_SCALING_CONTEXT.get("raw_data"))
-        header = "<tr><th>Trace</th>{}</tr>".format(
-            "".join(
-                "<th>{} ratio</th>".format(html.escape(column))
-                for column in columns
-            )
-        )
-
-        def cell(value, ratio, source):
-            if ratio is None:
-                return "<td>weak</td>"
-            if value is not None and value != ratio:
-                return "<td>{:g} <span class='scaling-model-value'>" \
-                       "(workload {:g})</span></td>".format(ratio, value)
-            return "<td>{:g}</td>".format(ratio)
-
-        rows = "".join(
-            "<tr><td>{}</td>{}</tr>".format(
-                html.escape(os.path.basename(trace)),
-                "".join(cell(*cells_item) for cells_item in cells),
-            )
-            for trace, cells in table_rows
-        )
-        sources = "; ".join(
-            "{}: {}".format(column, html.escape(source))
-            for column, (_value, _ratio, source)
-            in zip(columns, table_rows[0][1])
-        )
-
-        warning_html = """
-        <div class="scaling-model-warning">
-            <strong>User-defined workload:</strong>
-            the scalability metrics are relative to the first trace, scaled
-            by the ratio of each trace below. Application: Speedup, Scaling
-            Efficiency and the application metrics.
-            <table class="scaling-model-workload">
-                {header}
-                {rows}
-            </table>
-            <p class="scaling-model-sources">Source of each ratio: {sources}.</p>
-        </div>
-        """.format(header=header, rows=rows, sources=sources)
 
     if scaling_model.overridden:
         warning_html += """
@@ -5344,12 +5514,13 @@ def _metric_name_html(metric_key, metric_info, depth=0):
     return (
         "<td class='metric-name-cell metric-family-{family}' "
         "style='--metric-depth: {depth};'>"
-        "{label}"
+        "{label}{mark}"
         "</td>"
     ).format(
         family=family,
         depth=depth,
         label=display_label,
+        mark=_workload_mark_html(metric_key),
     )
 
 
@@ -8621,6 +8792,61 @@ def _build_interactive_report_document(workspace_html,
         .trace-header-note code {
             color: #29435f;
             font-weight: 600;
+        }
+
+        /* Scaling model of each level (Application, Host, Device). */
+        .scaling-levels {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0 6px;
+            font-size: 13px;
+        }
+
+        .scaling-levels th,
+        .scaling-levels td {
+            padding: 7px 10px;
+            border-bottom: 1px solid #e3e9f1;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .scaling-levels thead th {
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .scaling-levels tbody th {
+            color: #1f3550;
+            font-weight: 700;
+        }
+
+        .scaling-level-scope {
+            display: block;
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 400;
+        }
+
+        .scaling-level-workload td:nth-child(2) {
+            font-weight: 600;
+        }
+
+        .scaling-model-panel > .scaling-model-sources {
+            margin: 6px 0 0;
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        /* Metric computed with a user-defined workload ratio. */
+        .workload-mark {
+            margin-left: 6px;
+            color: #b7791f;
+            font-size: 0.9em;
+            cursor: help;
         }
 
         /* Command line of the run (Execution Overview). */
@@ -15163,6 +15389,32 @@ def _build_basicanalysis_printable_report_html(
                 margin: 0 0 7px;
                 color: #5c677a;
                 font-size: 8.2pt;
+            }}
+
+            .workload-mark {{
+                margin-left: 4px;
+                color: #b7791f;
+            }}
+
+            .scaling-levels {{
+                width: 100%;
+                border-collapse: collapse;
+                margin: 6px 0;
+                font-size: 8.2pt;
+            }}
+
+            .scaling-levels th,
+            .scaling-levels td {{
+                padding: 3px 6px;
+                border-bottom: 1px solid #d9e0ea;
+                text-align: left;
+                vertical-align: top;
+            }}
+
+            .scaling-level-scope {{
+                display: block;
+                color: #5c677a;
+                font-weight: 400;
             }}
 
             .report-command,

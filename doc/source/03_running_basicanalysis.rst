@@ -145,7 +145,9 @@ wildcards expand in alphabetical order (``b1``, ``b128``, ``b16``, ``b2``,
 values. The ratio used for each trace is printed in the scaling model
 summary and shown in the **Scaling** section of the report, and the
 **Metric details** of each scalability metric show the ratio used for that
-metric and trace. With the distributed workflow
+metric and trace. In the efficiency tables of the report, the metrics
+computed with a workload ratio are marked with a warning sign; its tooltip
+gives the option and the ratios. With the distributed workflow
 (:doc:`04_staged_workflow`), the order is set when the results are merged:
 run ``merge_trace_results.py`` with ``--no-sort`` and the traces in the order
 of the values, which ``compute_metrics_from_merged.py`` then matches with
@@ -229,7 +231,11 @@ pthreads, Burst mode), ``--host-workload`` and ``--device-workload`` are
 ignored with a warning.
 
 With ``--workload`` or ``--device-workload``, the automatic detection of the
-application is not used, and the report shows it as *Not used*. The
+application is not used. The **Scaling model** of the report then lists,
+for each level (Application, and Host and Device in the Heterogeneous
+Model), the scaling used, how it was chosen (given with a workload option,
+assumed from ``--workload``, forced with ``--scaling``, or detected from the
+measurements of that level), and the ratio of each trace. The
 reference is the first execution, as in weak and strong scaling (see
 :doc:`05_methodology`).
 

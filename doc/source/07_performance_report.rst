@@ -437,6 +437,17 @@ across the analyzed execution configurations.
 view, which reports the detected and selected scaling model and compares the
 measured Speedup and Efficiency with their ideal behavior.
 
+When a workload is given (``--workload``, ``--host-workload``,
+``--device-workload``), or the analysis has Host and Device domains, the
+**Scaling model** is a table with one row per level: **Application**
+(Speedup, Efficiency, and, with a single domain, the scalability metrics),
+**Host**, and **Device**. Each row gives the scaling used (user-defined
+workload, weak scaling with the resource of its ratio, or strong scaling),
+how it was chosen, and the ratio of each trace. Weak scaling is shown only
+when it was detected or forced for that level. In the efficiency tables,
+the metrics computed with a workload ratio are marked with a warning sign, whose
+tooltip gives the option and the ratios.
+
 .. _fig-report-scaling-performance:
 
 .. figure:: images/report-scaling-performance.png

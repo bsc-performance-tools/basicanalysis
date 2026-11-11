@@ -165,6 +165,15 @@
 
 ### Changes
 
+- Workload indicators in the report. The metrics computed with a
+  user-defined workload ratio are marked with ⚠ in the efficiency tables
+  and in the General metrics (Speedup, Efficiency); the tooltip gives the
+  option and the ratios. With a workload, or with Host and Device domains,
+  the Scaling model is a table with one row per level (Application, Host,
+  Device) giving the scaling used, how it was chosen (given, assumed from
+  `--workload`, forced, or detected from the measurements of that level),
+  and the ratio of each trace.
+
 - `--no-sort` keeps the traces in the order of the command line (in
   `modelfactors.py`, `analyze_trace.py`, `compute_metrics_from_merged.py`,
   and `merge_trace_results.py`). It replaces `-ord, --order_traces`, still
