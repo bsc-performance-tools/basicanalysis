@@ -93,10 +93,15 @@ Efficiency thresholds
 
 Each view with efficiency tables shows the **Efficiency interpretation**
 scale with its thresholds: Critical, Attention, and Good. Below the scale,
-the fields **Critical below** and **Good from** change the thresholds of
-that view: its efficiency tables, its scale, and the interpretation in
-Metric Details of its values follow the new values at once. The values must
-satisfy ``0 < Critical < Good <= 100``.
+the **Thresholds** slider has two handles: the left one is the Critical
+threshold (values below it are Critical) and the right one the Good
+threshold (values from it are Good). The colored bands of the slider show
+the three ranges, and each handle shows its value. Moving a handle changes
+the thresholds of that view: its efficiency tables, its scale, and the
+interpretation in Metric Details of its values follow the new values while
+the handle moves. The handles can also be moved with the keyboard (Tab to
+select a handle, then the arrow keys, in steps of 0.5%). The handles cannot
+cross: the Critical threshold stays below the Good threshold.
 
 Each view keeps its own thresholds, because each view analyzes a different
 performance model: changing the thresholds of the Heterogeneous Model, for

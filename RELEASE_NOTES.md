@@ -8,9 +8,10 @@
   (default 60,85) sets the thresholds of every efficiency metric: the colors
   of the efficiency tables of the report and of the static heatmaps, the
   labels of the efficiency scales, and the interpretation in Metric Details.
-  In the report, the **Critical below** and **Good from** fields under the
-  efficiency scale of each view change the thresholds of that view without
-  running BasicAnalysis again; each view keeps its own thresholds, the
+  In the report, the two handles of the **Thresholds** slider under the
+  efficiency scale of each view (Critical, Good) change the thresholds of
+  that view without running BasicAnalysis again, while the handle moves,
+  with the mouse or the keyboard; each view keeps its own thresholds, the
   browser remembers them for that report, a note shows that the view uses
   custom thresholds, and **Reset** restores the thresholds of the report.
   The printed report keeps the thresholds of the report. The metric values

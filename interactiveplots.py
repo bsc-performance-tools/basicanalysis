@@ -351,6 +351,7 @@ _THRESHOLD_SCRIPT = """
                 input.value = fmt(t[key]);
             }
         });
+        paintSlider(panel, t);
         var note = panel.querySelector("[data-threshold-note]");
         if (!note) { return; }
         if (!note.hasAttribute("data-origin")) {
@@ -378,6 +379,53 @@ _THRESHOLD_SCRIPT = """
         }
     }
 
+    // Bands, value bubbles and accessible values of the threshold slider.
+    var THUMB = 16;
+
+    function paintSlider(panel, t) {
+        var bands = {
+            critical: t.critical,
+            attention: t.attention - t.critical,
+            good: Math.max(0, 100 - t.attention)
+        };
+        Object.keys(bands).forEach(function (key) {
+            var band = panel.querySelector(
+                "[data-threshold-band='" + key + "']");
+            if (band) { band.style.width = bands[key] + "%"; }
+        });
+        var names = {critical: "Critical below ", attention: "Good from "};
+        ["critical", "attention"].forEach(function (key) {
+            var bubble = panel.querySelector(
+                "[data-threshold-bubble='" + key + "']");
+            if (bubble) {
+                bubble.textContent = fmt(t[key]) + "%";
+                // Centre of the thumb, which stays inside the track.
+                bubble.style.left = "calc(" + t[key] + "% + "
+                    + (THUMB / 2 - t[key] * THUMB / 100) + "px)";
+            }
+            var input = panel.querySelector(
+                "[data-threshold-input='" + key + "']");
+            if (input) {
+                input.setAttribute("aria-valuetext",
+                                   names[key] + fmt(t[key]) + "%");
+            }
+        });
+        // Close handles: the bubbles move apart instead of overlapping.
+        var close = t.attention - t.critical < 10;
+        var shift = {critical: close ? "-100%" : "-50%",
+                     attention: close ? "0%" : "-50%"};
+        ["critical", "attention"].forEach(function (key) {
+            var bubble = panel.querySelector(
+                "[data-threshold-bubble='" + key + "']");
+            if (bubble) {
+                bubble.style.transform = "translateX(" + shift[key] + ")";
+            }
+        });
+        // Near the right end the Critical handle must stay reachable.
+        var critical = panel.querySelector("[data-threshold-input='critical']");
+        if (critical) { critical.style.zIndex = t.critical > 90 ? 3 : 1; }
+    }
+
     function updatePanels() {
         var panels = document.querySelectorAll(
             ".efficiency-scale-panel[data-critical]");
@@ -395,12 +443,26 @@ _THRESHOLD_SCRIPT = """
         var panel = event.target.closest(".efficiency-scale-panel");
         var view = viewOf(panel);
         if (view === null) { return; }
+        var criticalInput = panel.querySelector(
+            "[data-threshold-input='critical']");
+        var attentionInput = panel.querySelector(
+            "[data-threshold-input='attention']");
         var t = {
-            critical: parseFloat(panel.querySelector(
-                "[data-threshold-input='critical']").value),
-            attention: parseFloat(panel.querySelector(
-                "[data-threshold-input='attention']").value)
+            critical: parseFloat(criticalInput.value),
+            attention: parseFloat(attentionInput.value)
         };
+        // The handles do not cross: the one moved stops 0.5% before the
+        // other.
+        var STEP = 0.5;
+        if (t.critical >= t.attention) {
+            if (event.target === criticalInput) {
+                t.critical = t.attention - STEP;
+                criticalInput.value = t.critical;
+            } else {
+                t.attention = t.critical + STEP;
+                attentionInput.value = t.attention;
+            }
+        }
         if (!valid(t)) {
             updatePanel(panel, "The thresholds must satisfy 0 < Critical < "
                 + "Good \\u2264 100.");
@@ -422,7 +484,8 @@ _THRESHOLD_SCRIPT = """
     function init() {
         var inputs = document.querySelectorAll("[data-threshold-input]");
         for (var i = 0; i < inputs.length; i++) {
-            inputs[i].addEventListener("change", onInput);
+            // While dragging, and with the arrow keys.
+            inputs[i].addEventListener("input", onInput);
         }
         var resets = document.querySelectorAll("[data-threshold-reset]");
         for (var j = 0; j < resets.length; j++) {
@@ -430,6 +493,8 @@ _THRESHOLD_SCRIPT = """
         }
         if (Object.keys(custom).length) {
             apply();
+        } else {
+            updatePanels();
         }
     }
 
@@ -4413,20 +4478,35 @@ def _build_efficiency_scale_html(thresholds=None):
         </div>
 
         <div class="efficiency-threshold-controls">
-            <label>
-                Critical below
-                <input type="number" data-threshold-input="critical"
-                       min="0.5" max="{reference:g}" step="any"
-                       value="{critical:g}"
-                       aria-label="Critical threshold (%)">%
-            </label>
-            <label>
-                Good from
-                <input type="number" data-threshold-input="attention"
-                       min="1" max="{reference:g}" step="any"
+            <span class="threshold-slider-label">Thresholds</span>
+            <div class="threshold-slider" data-threshold-slider>
+                <div class="threshold-slider-track" aria-hidden="true">
+                    <span class="threshold-band-critical"
+                          data-threshold-band="critical"
+                          style="width: {critical:g}%;"></span>
+                    <span class="threshold-band-attention"
+                          data-threshold-band="attention"
+                          style="width: {attention_band:g}%;"></span>
+                    <span class="threshold-band-good"
+                          data-threshold-band="good"
+                          style="width: {good_band:g}%;"></span>
+                </div>
+                <input type="range" data-threshold-input="critical"
+                       min="0.5" max="99.5" step="0.5" value="{critical:g}"
+                       aria-label="Critical below (%)"
+                       aria-valuetext="Critical below {critical:g}%">
+                <input type="range" data-threshold-input="attention"
+                       min="1" max="{reference:g}" step="0.5"
                        value="{attention:g}"
-                       aria-label="Good threshold (%)">%
-            </label>
+                       aria-label="Good from (%)"
+                       aria-valuetext="Good from {attention:g}%">
+                <output class="threshold-bubble"
+                        data-threshold-bubble="critical"
+                        style="left: {critical:g}%;">{critical:g}%</output>
+                <output class="threshold-bubble"
+                        data-threshold-bubble="attention"
+                        style="left: {attention:g}%;">{attention:g}%</output>
+            </div>
             <button type="button" data-threshold-reset>Reset</button>
         </div>
         <p class="efficiency-threshold-note" data-threshold-note>{note}</p>
@@ -4450,6 +4530,8 @@ def _build_efficiency_scale_html(thresholds=None):
         critical_width=critical_width,
         attention_width=attention_width,
         acceptable_width=acceptable_width,
+        attention_band=float(attention) - float(critical),
+        good_band=max(0.0, 100.0 - float(attention)),
         note=_threshold_origin_note(),
     )
 
@@ -8664,13 +8746,101 @@ def _build_interactive_report_document(workspace_html,
             font-size: 11px;
         }
 
-        .efficiency-threshold-controls input {
-            width: 4.5em;
-            margin: 0 2px 0 4px;
-            padding: 1px 4px;
-            border: 1px solid var(--border);
+        /* Two-handle threshold slider: two range inputs on one track. */
+        .threshold-slider {
+            position: relative;
+            flex: 1 1 260px;
+            max-width: 420px;
+            height: 34px;
+            margin: 0 8px;
+        }
+
+        .threshold-slider-track {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 7px;
+            display: flex;
+            height: 8px;
             border-radius: 4px;
-            font: inherit;
+            overflow: hidden;
+        }
+
+        .threshold-band-critical { background: #f4a582; }
+        .threshold-band-attention { background: #fee08b; }
+        .threshold-band-good { background: #a6d96a; }
+
+        .threshold-slider input[type="range"] {
+            position: absolute;
+            left: 0;
+            bottom: 2px;
+            width: 100%;
+            height: 18px;
+            margin: 0;
+            background: transparent;
+            pointer-events: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .threshold-slider input[type="range"]::-webkit-slider-runnable-track {
+            background: transparent;
+        }
+
+        .threshold-slider input[type="range"]::-moz-range-track {
+            background: transparent;
+        }
+
+        .threshold-slider input[type="range"]::-webkit-slider-thumb {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #29435f;
+            border-radius: 50%;
+            background: #ffffff;
+            cursor: pointer;
+            pointer-events: auto;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .threshold-slider input[type="range"]::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            border: 2px solid #29435f;
+            border-radius: 50%;
+            background: #ffffff;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        .threshold-slider input[type="range"]:focus-visible {
+            outline: none;
+        }
+
+        .threshold-slider input[type="range"]:focus-visible::-webkit-slider-thumb {
+            box-shadow: 0 0 0 3px rgba(41, 67, 95, 0.35);
+        }
+
+        .threshold-slider input[type="range"]:focus-visible::-moz-range-thumb {
+            box-shadow: 0 0 0 3px rgba(41, 67, 95, 0.35);
+        }
+
+        .threshold-bubble {
+            position: absolute;
+            top: 0;
+            transform: translateX(-50%);
+            padding: 0 4px;
+            border-radius: 3px;
+            background: #29435f;
+            color: #ffffff;
+            font-size: 10px;
+            line-height: 14px;
+            white-space: nowrap;
+            pointer-events: none;
+        }
+
+        .threshold-slider-label {
+            font-weight: 600;
         }
 
         .efficiency-threshold-controls button {

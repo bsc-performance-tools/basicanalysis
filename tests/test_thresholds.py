@@ -98,6 +98,13 @@ class TestThresholdOverride(unittest.TestCase):
         self.assertIn('data-threshold-input="critical"', html)
         self.assertIn("data-threshold-reset", html)
         self.assertNotIn("--thresholds when", html)
+        # Two-handle slider: two range inputs, bands and value bubbles.
+        self.assertEqual(html.count('type="range"'), 2)
+        self.assertNotIn('type="number"', html)
+        self.assertIn('data-threshold-band="attention"', html)
+        self.assertIn('style="width: 25%;"', html)
+        self.assertIn('data-threshold-bubble="critical"', html)
+        self.assertIn('aria-valuetext="Good from 85%"', html)
 
         self.provider.set_threshold_override(MetricThresholds(critical=50.0, attention=80.0))
         html = ip._build_efficiency_scale_html()
