@@ -51,6 +51,7 @@ from report.renderer.html import (
     render_trace_configuration,
 )
 from report.renderer.html.overview import trace_mode_tag_html
+from report.renderer.html.ask_ai import ask_ai_html, ask_ai_metric_button_html
 
 
 from report.model_names import (
@@ -5030,6 +5031,9 @@ def _metric_info_json(
                 "above_reference": interpretation_above_reference,
             },
             "recommendations": recommendations,
+            # Used by the Ask AI context.
+            "formula": (knowledge.formula or {}).get("text", ""),
+            "causes": list(knowledge.typical_causes or ()),
             "thresholds": {
                 "critical": thresholds.critical,
                 "attention": thresholds.attention,
@@ -6871,6 +6875,8 @@ def _build_efficiency_table_html( metric_keys, metric_info, metric_sources,
                     "style='background:{background}; color:{text_color};' "
                     "data-trace-index='{trace_index}'{dimmed_title}"
                     "{threshold_attrs} "
+                    "data-metric-key='{metric_key}' "
+                    "data-section='{section_id}' "
                     "onclick=\"selectMetricCell("
                     "this, "
                     "'{section_id}', "
@@ -12837,6 +12843,7 @@ def _build_interactive_report_document(workspace_html,
                     <h3>Next diagnostic step</h3>
                     <p id="metric-details-action"></p>
                 </div>
+                {ask_ai_metric_button}
             </section>
         </div>
 
@@ -12857,7 +12864,8 @@ def _build_interactive_report_document(workspace_html,
     return(document.replace('{workspace_html}', workspace_html,)
          .replace('{printable_report_html}',printable_report_html,)
          .replace('{scaling_notes_script}', _scaling_notes_script(),)
-         .replace('{threshold_script}', _threshold_script(),)
+         .replace('{threshold_script}', _threshold_script() + ask_ai_html(),)
+         .replace('{ask_ai_metric_button}', ask_ai_metric_button_html(),)
       )
 
 

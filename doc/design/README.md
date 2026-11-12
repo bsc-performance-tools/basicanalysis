@@ -27,4 +27,4 @@ behaviour of the released tool.
 |----------|--------|--------|
 | [I/O Performance Model and Diagnostic Metrics](io_performance_model.rst) | Implementation in progress (factors, time diagnostics, request sizes, and files done) | `feature/io-metrics` |
 | [GPU Metrics: States, Events, and the `.row` File](gpu_states_events_row.rst) | Decision recorded; future work proposed (Paraver views, fallback without `.row`) | — |
-| [AI Assistance for BasicAnalysis](ai_assistance.rst) | Design (Ask AI in the report, MCP server, chat panel) | `feature/ai-assistance` |
+| [AI Assistance for BasicAnalysis](ai_assistance.rst) | Design; prototypes (Ask AI in the report, MCP server) | `feature/ai-assistance` |

@@ -10,6 +10,7 @@ from .analysis_catalogue import (
     AnalysisCatalogue,
     AnalysisCatalogueView,
 )
+from .ask_ai import ask_ai_nav_button_html
 
 
 _PRIMARY_VIEW_IDS = (
@@ -146,6 +147,9 @@ def _render_primary_tabs(views: Sequence[AnalysisCatalogueView],) -> str:
         )
 
     lines.append("</nav>")
+
+    # Ask AI (prototype): copy a question about the view for an assistant.
+    lines.append(ask_ai_nav_button_html())
 
     lines.append(
         """

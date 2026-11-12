@@ -1,7 +1,7 @@
 AI Assistance for BasicAnalysis
 ===============================
 
-:Status: Design; not implemented
+:Status: Design; prototypes of Phase 1 and Phase 2 on the branch
 :Date: 2026-11-12
 :Branch: ``feature/ai-assistance``
 :Scope: Interactive report, a tool interface for AI assistants (MCP), and
@@ -276,6 +276,55 @@ Before Phase 2, test Phase 1 with the reports we know:
   available;
 * record whether the answers use the definitions given, cite values, and
   admit uncertainty; adjust the instructions of the context accordingly.
+
+
+Prototypes
+----------
+
+Two prototypes on ``feature/ai-assistance``, to try the idea before the
+design is reviewed. They are not part of a release.
+
+*Ask AI* in the report (Phase 1)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``report/renderer/html/ask_ai.py``. Every report generated from the branch
+has an **Ask AI** button in the navigation bar (about the current view; in
+the Execution Overview, about the whole analysis) and **Ask AI about this
+metric** in Metric Details. The dialog shows the question, which can be
+edited, the scope (metric, view, whole analysis), the option to include trace
+names and the command line, and the text to copy; **Copy** and **Download
+(.md)**. The context is read from the report itself: the efficiency tables
+(values, thresholds, workload marks) and the Metric Details data, to which
+the formula and possible causes were added. On CloverLeaf MPI+CUDA, the
+context is 5 K characters for a metric and 19 K for the whole analysis.
+
+MCP server (Phase 2)
+~~~~~~~~~~~~~~~~~~~~
+
+``basicanalysis_api.py`` (functions, no MCP dependency) and
+``basicanalysis_mcp.py`` (MCP server, MCP Python SDK 2.x). Tools:
+``list_runs``, ``get_metrics``, ``list_issues``, ``explain_metric``,
+``analyze``, ``job_status``; resource ``basicanalysis://definitions``. The
+tools read the CSV files of a result folder and match each row with
+``definitions.yaml`` (key, thresholds, status). Paths are limited to the
+folders in ``BA_ROOTS``; ``analyze`` runs only ``modelfactors.py`` with
+validated options.
+
+To try it with Claude Code::
+
+    pip install --user "mcp>=2"
+    claude mcp add basicanalysis \
+        -e BA_ROOTS=/path/to/results:/path/to/traces \
+        -- python3 /path/to/basicanalysis/basicanalysis_mcp.py
+
+then ask, for example, "List the BasicAnalysis results in /path/to/results
+and explain the main performance issues of the CloverLeaf run." Claude
+Desktop and other MCP clients are configured with the same command.
+
+Tested on 2026-11-12 with the SDK client over stdio: the six tools, the
+issues and explanations of CloverLeaf MPI+CUDA, an analysis of laplace MPI
+started with ``analyze`` and followed with ``job_status``, and the refusal
+of a path outside ``BA_ROOTS`` and of an option with a shell command.
 
 
 Scope of each phase
