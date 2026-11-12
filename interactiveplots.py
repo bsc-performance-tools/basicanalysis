@@ -704,7 +704,7 @@ def _build_talp_metric_info():
             "short_label": "   -- MPI Trans",
         },
         "dev_offload_eff": {
-            "label": "   == Device Offload efficiency",
+            "label": "   == Offloading efficiency",
             "short_label": "   == Offload",
         },
         "host_comp_scale": {
@@ -4322,7 +4322,7 @@ def _build_hybrid_metric_info(inner_model):
         ).format(inner_model, inner_model)
         metric_info["omp_parallel_eff"]["action"] = (
             "Continue the diagnosis in the Heterogeneous Model view. Compare "
-            "Host Global Efficiency, Device Offload Efficiency, and Device "
+            "Host Global Efficiency, Offloading Efficiency, and Device "
             "Global Efficiency to determine whether the dominant loss "
             "originates in the host-side accelerator execution path, "
             "device-side execution, or both."
@@ -5837,7 +5837,7 @@ def _build_printable_execution_domains_guidance_html():
             toward Host Parallel Efficiency and Host Computation Scalability.
             Host Parallel Efficiency distinguishes losses associated with
             host-side parallel execution from losses in supplying work to the
-            accelerator through Device Offload Efficiency.
+            accelerator through Offloading Efficiency.
         </p>
     </div>
     """
@@ -6558,7 +6558,7 @@ def _build_printable_scaling_section(
                 title="Host Parallel Efficiency",
                 description=(
                     "Compare Host Parallel Efficiency with MPI Parallel "
-                    "Efficiency and Device Offload Efficiency across "
+                    "Efficiency and Offloading Efficiency across "
                     "the analyzed configurations."
                 ),
                 x_axis_title=trace_column_description,
@@ -7259,7 +7259,7 @@ def _build_execution_domains_guidance_html():
             toward Host Parallel Efficiency and Host Computation Scalability.
             Host Parallel Efficiency distinguishes losses associated with 
             host-side parallel execution from losses in supplying work to the accelerator
-            through Device Offload Efficiency.
+            through Offloading Efficiency.
         </p>
     """ + _build_metric_interaction_hint_html() + """
     </details>
@@ -13898,7 +13898,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
                         title="Host Parallel Efficiency",
                         description=(
                             "Compare Host Parallel Efficiency with MPI Parallel "
-                            "Efficiency and Device Offload Efficiency across "
+                            "Efficiency and Offloading Efficiency across "
                             "the analyzed configurations."
                         ),
                         x_axis_title=trace_column_description,

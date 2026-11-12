@@ -522,9 +522,9 @@ as shown :numref:`fig-report-metrics-details`.
 .. figure:: images/report-metrics-details.png
    :align: center
    :width: 95%
-   :alt: Metric Details view for Device Offload Efficiency
+   :alt: Metric Details view for Offloading Efficiency
 
-   Metric Details view for Device Offload Efficiency. The dialog provides the
+   Metric Details view for Offloading Efficiency. The dialog provides the
    metric definition, interpretation of the selected value, and recommended
    next diagnostic steps.
 

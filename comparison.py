@@ -327,7 +327,7 @@ def build_comparison_cells(trace_list, trace_mode, mod_factors,
             rows.append((label.format(runtime), cells))
 
     if has_gpu:
-        rows.append(row('-- Device Offload efficiency', {
+        rows.append(row('-- Offloading efficiency', {
             'gpu': (host_factors, 'dev_offload_eff'),
         }))
 

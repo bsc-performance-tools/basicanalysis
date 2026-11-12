@@ -71,7 +71,7 @@ _HOST_FACTOR_METRICS = (
     ),
     (
         "dev_offload_eff",
-        "Device Offload efficiency",
+        "Offloading efficiency",
         "offload",
         2,
     ),

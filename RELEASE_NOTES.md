@@ -107,7 +107,7 @@
   write GPU metric samples after it, and Paraver then extends the trace to
   the last event, which made the period without application activity count
   as idle Device time and as useful Host time.
-- Add Host metrics for nsys2prv traces: Device Offload efficiency, Host
+- Add Host metrics for nsys2prv traces: Offloading efficiency, Host
   Parallel efficiency and Host Computation scalability. Since these traces
   have no state records, the useful host time is the elapsed time minus the
   time in CUDA calls. Only the processes with GPU streams are analyzed.
@@ -165,6 +165,26 @@
   Execution Overview of the report also shows.
 
 ### Changes
+
+- Metric definitions reviewed against the POP3 Tools Metrics document. The
+  interpretation, possible causes, and next steps in Metric Details and in the
+  User Guide now explain, among others: the asymmetry of Load Balance; that
+  Communication Efficiency is not the time in MPI; the cyclic dependence
+  chains behind Serialization Efficiency; how IPC is computed; the effect of
+  operating-system noise on Frequency Scalability and Transfer Efficiency; the
+  causes of low Device Orchestration Efficiency; and the reading of Host
+  metrics in GPU-centric applications. New definitions of Hybrid
+  Serialization and Hybrid Transfer Efficiency (`--hyb-mpiomp`), from which
+  the OpenMP Serialization and Transfer Efficiencies are derived. The User
+  Guide documents the three perspectives of the Hybrid model and two
+  limitations: GPU labels without UUID, and GPU work overlapping MPI calls.
+  The formulas and values do not change.
+
+- The Host metric *Device Offload Efficiency* is now named **Offloading
+  Efficiency**: it measures the Host time spent in the accelerator runtime
+  (offloading and waiting for the device), and it is shown in the Host table,
+  where "Device" was confusing. The metric key (`dev_offload_eff`) and its
+  values do not change.
 
 - Workload indicators in the report. The metrics computed with a
   user-defined workload ratio are marked with ⚠ in the efficiency tables
@@ -275,13 +295,13 @@
 
 ### Fixes
 
-- **Device Offload Efficiency of nsys2prv traces counted the helper threads
+- **Offloading Efficiency of nsys2prv traces counted the helper threads
   as useful Host time.** Nsight Systems records every thread of a process
   (for example, 7 per process in NCCL ring benchmarks), and the threads that
-  never call CUDA counted as 100% useful, so Device Offload Efficiency stayed
+  never call CUDA counted as 100% useful, so Offloading Efficiency stayed
   around 86–88% whatever the application did. Each process with GPU streams
   is now one Host unit: the thread with the most time inside CUDA calls,
-  printed in the standard output. In a 4-GPU ring benchmark, Device Offload
+  printed in the standard output. In a 4-GPU ring benchmark, Offloading
   Efficiency changes from 88.06% to 17.00%. The change also applies to Host
   Parallel and Global Efficiency, the Parallel Runtime Model, and the number
   of units in the configuration label. Traces with one host thread per

@@ -38,7 +38,7 @@
        ];
 
        device_offload [
-           label="Device Offload Efficiency",
+           label="Offloading Efficiency",
            fillcolor="#FFF3E0"
        ];
 

@@ -49,7 +49,7 @@ digraph HostExecutionDomain {
     ];
 
     offload [
-        label="Device Offload\nEfficiency",
+        label="Offloading\nEfficiency",
         fillcolor="#E8F5E9",
         color="#EF6C00"
     ];

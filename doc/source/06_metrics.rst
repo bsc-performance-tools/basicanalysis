@@ -183,6 +183,9 @@ decomposition:
 
    Par\_Eff = LB\_Eff \cdot Comm\_Eff
 
+When Load Balance and Communication Efficiency have similar values, analyze
+them together: they can influence each other.
+
 
 Load Balance
 ~~~~~~~~~~~~
@@ -204,6 +207,17 @@ BasicAnalysis computes:
 A value close to 100% indicates that useful computation is similarly
 distributed among the parallel execution units. Lower values indicate
 increasing workload imbalance.
+
+Load Balance is set by the most loaded unit: one unit with much more useful
+computation than the others lowers it strongly, while one unit with much less
+barely changes it, because the execution time is determined by the longest
+unit. It refers to the total useful computation in the analyzed region, not to
+the balance at each instant.
+
+In hybrid executions, the units are all the threads (or the Host units and
+accelerator streams): a low value means that some thread computes longer than
+the others, without blaming the MPI or the inner level. Compare MPI Load
+Balance and the Load Balance contribution of the inner runtime to locate it.
 
 
 Communication Efficiency
@@ -227,6 +241,13 @@ A value close to 100% indicates that little execution time is lost outside the
 longest useful-computation path. Lower values indicate increasing overhead
 associated with communication, synchronization, or other parallel-runtime
 effects.
+
+Communication Efficiency is not the time spent in communication calls.
+Processes can spend a long time inside MPI without lengthening the execution,
+for example when they wait in a collective for the most loaded process, which
+is a Load Balance problem. Communication Efficiency measures how much the
+interaction between processes (their dependencies and the data transfer)
+limits the execution.
 
 For MPI applications, BasicAnalysis can further decompose Communication
 Efficiency into Serialization Efficiency and Transfer Efficiency.
@@ -255,6 +276,12 @@ execution time.
 
 Lower Serialization Efficiency indicates increasing losses associated with
 dependencies and serialization among MPI processes.
+
+These losses come from cyclic dependence chains: the process that delays the
+others changes along the analyzed region, through chains of point-to-point
+messages or through collective phases where the last process to arrive
+changes. In hybrid executions, the reported MPI Serialization Efficiency is
+the MPI-level value: only the MPI level is simulated.
 
 If the resulting Serialization Efficiency exceeds 100%, the measured and
 simulated executions do not provide a valid conventional efficiency
@@ -306,6 +333,12 @@ where :math:`T` is the measured application execution time.
 A lower Transfer Efficiency indicates increasing communication-transfer cost
 relative to the idealized execution.
 
+Besides the bandwidth and latency of the network and the overhead of the MPI
+implementation, perturbations that lengthen MPI calls, such as
+operating-system noise, also lower it. Simulating the execution with
+different network latencies and bandwidths helps estimate the impact of the
+network.
+
 If the resulting Transfer Efficiency exceeds 100%, BasicAnalysis reports
 ``Warning!`` instead of the numerical value.
 
@@ -340,6 +373,9 @@ Computation Scalability
 
 **Computation Scalability** characterizes how the useful computation evolves
 relative to a reference execution as the execution configuration changes.
+
+With its Instruction, IPC, and Frequency components, it can also compare
+executions with different algorithms, compilers, or platforms.
 
 BasicAnalysis uses the total useful-computation duration,
 :math:`Useful_{tot}`, and distinguishes between strong- and weak-scaling
@@ -480,6 +516,13 @@ where :math:`Instructions` is the number of instructions executed during
 useful computation and :math:`Cycles` is the corresponding number of processor
 cycles.
 
+IPC is the total number of instructions divided by the total number of cycles
+of the useful computation, not an average of the IPC of each computation
+region (an average of ratios would give a different value). Only the
+computation outside the parallel runtimes is included: busy-wait loops inside
+the runtimes can have a high IPC that would hide the behavior of the
+application.
+
 The hardware counters (instructions, cycles, and frequency) are read on the
 host threads only. In GPU traces, the rows of the GPU streams are excluded:
 Extrae may write a few counter values on them, which do not measure GPU work.
@@ -534,6 +577,10 @@ expected relative to the reference configuration. This may reflect changes in
 the executed code path, additional computational work, or other effects that
 increase the instruction count.
 
+Typical reasons are changes in the computational complexity of the
+algorithm, packing or unpacking data for communication, and differences in
+the compiler, its options, or JIT-compiled code.
+
 
 Frequency Scalability
 ~~~~~~~~~~~~~~~~~~~~~
@@ -568,6 +615,10 @@ Frequency changes may result from hardware power-management mechanisms,
 thermal constraints, processor utilization, or other system-level effects.
 The metric identifies the contribution of frequency variation to Computation
 Scalability but does not by itself determine the cause of that variation.
+
+Operating-system noise also lowers the measured frequency: while a thread is
+preempted, its cycle counter stops but time advances. Computation regions
+with a very low effective frequency (outliers) may indicate this effect.
 
 
 Hybrid MPI+X Metrics for CPU-Based Applications
@@ -730,6 +781,10 @@ MPI Parallel Efficiency
 
 **MPI Parallel Efficiency** measures the efficiency associated with the MPI
 component of the hybrid execution.
+
+OutsideMPI is measured on the thread of each rank that calls MPI. In MPI+GPU
+executions, the time in the accelerator runtime counts as outside MPI, so GPU
+work that overlaps MPI calls is not seen at this level.
 
 For the general case, where MPI ranks may have different numbers of host
 execution units, BasicAnalysis computes:
@@ -1236,6 +1291,13 @@ efficiency above the theoretical maximum. Instead, it indicates that the
 application-level metric is greater than the corresponding MPI-level metric,
 resulting in a multiplicative inner-runtime contribution above 100%.
 
+For example, with two MPI processes between collectives, one computing briefly
+with one thread and the other much longer with many threads, MPI Parallel
+Efficiency is low while the efficiency of all the threads is higher. The
+effect of the inner level cannot be obtained by averaging per-process metrics
+of the inner runtime, because it depends on how the delays propagate through
+the MPI level.
+
 
 Hybrid MPI+GPU Metrics
 ======================
@@ -1659,7 +1721,7 @@ The Host Parallel Efficiency hierarchy is:
 .. math::
 
    Host\_Par\_Eff =
-   MPI\_Par\_Eff \cdot DeviceOffload\_Eff
+   MPI\_Par\_Eff \cdot Offloading\_Eff
 
 with:
 
@@ -1676,10 +1738,10 @@ and, when the required MPI-ideal simulation is available:
    MPI\_Ser\_Eff \cdot MPI\_Transfer\_Eff
 
 
-Device Offload Efficiency
-^^^^^^^^^^^^^^^^^^^^^^^^^
+Offloading Efficiency
+^^^^^^^^^^^^^^^^^^^^^
 
-**Device Offload Efficiency** characterizes the fraction of the time outside
+**Offloading Efficiency** characterizes the fraction of the time outside
 MPI that corresponds to useful Host computation.
 
 Let :math:`UsefulHost` denote the accumulated useful Host-computation time and
@@ -1689,23 +1751,28 @@ BasicAnalysis computes:
 
 .. math::
 
-   DeviceOffload\_Eff =
+   Offloading\_Eff =
    \frac{
       UsefulHost
    }{
       OutsideMPI
    }
 
-A low Device Offload Efficiency indicates that a significant fraction of the
+A low Offloading Efficiency indicates that a significant fraction of the
 Host execution outside MPI does not correspond to useful Host computation.
 
 This time can include accelerator-runtime activity such as kernel launches,
 synchronization, memory-management operations, or other Host-side activity
 associated with supplying and coordinating work on the accelerator.
 
-Device Offload Efficiency does not measure the efficiency of GPU kernel
+Offloading Efficiency does not measure the efficiency of GPU kernel
 execution itself. Device-side behavior is characterized separately by the
 Device Execution Domain.
+
+In GPU-centric applications, where the host mainly feeds the devices, low
+values are normal and do not by themselves indicate a performance problem. A
+value that grows with scale indicates that the Host work between accelerator
+calls does not shrink, and that the CPU is gaining relevance.
 
 
 Host Parallel Efficiency
@@ -1719,7 +1786,7 @@ BasicAnalysis decomposes it as:
 .. math::
 
    Host\_Par\_Eff =
-   MPI\_Par\_Eff \cdot DeviceOffload\_Eff
+   MPI\_Par\_Eff \cdot Offloading\_Eff
 
 For a homogeneous Host configuration, this relationship can be expressed as:
 
@@ -1732,7 +1799,7 @@ and:
 
 .. math::
 
-   DeviceOffload\_Eff =
+   Offloading\_Eff =
    \frac{UsefulHost}{OutsideMPI}
 
 therefore:
@@ -1743,6 +1810,9 @@ therefore:
    \frac{UsefulHost}{HT}
 
 where :math:`H` is the number of Host execution units.
+
+A low Host Parallel Efficiency is not necessarily a problem in GPU-centric
+applications; what matters there is that the devices are used well.
 
 
 Host Computation Scalability
@@ -1771,6 +1841,10 @@ with:
 Under ideal strong scaling, the total Host computational work remains
 approximately constant and Host Computation Scalability therefore remains
 close to 100%.
+
+Host Computation Scalability mainly matters when Offloading Efficiency is
+high, that is, when the Host does significant work of its own, and that work
+does not overlap the device work.
 
 For weak scaling:
 
@@ -1946,7 +2020,7 @@ Therefore:
 
    Host\_Global\_Eff =
    MPI\_Par\_Eff
-   \cdot DeviceOffload\_Eff
+   \cdot Offloading\_Eff
    \cdot Host\_CompScale
 
 For a single-trace analysis, where Host Computation Scalability cannot be
@@ -1990,6 +2064,11 @@ BasicAnalysis computes:
 where :math:`D` is the number of physical devices after stream-to-device
 mapping.
 
+Each physical GPU is one unit, with the activity of all its streams
+aggregated; time in which computation overlaps data movement on the same GPU
+counts as computation. Identifying the physical GPU of each stream requires
+GPU labels that distinguish the devices (see :doc:`09_limitations`).
+
 
 Device Load Balance
 ^^^^^^^^^^^^^^^^^^^
@@ -2009,6 +2088,9 @@ among the physical devices:
 A value close to 100% indicates that useful computation is similarly
 distributed among the physical devices. Lower values indicate increasing
 imbalance in useful device activity.
+
+As for processes, one device with much more work than the others lowers it
+strongly, while one device with much less work barely changes it.
 
 
 Device Communication Efficiency
@@ -2035,6 +2117,12 @@ A low Device Communication Efficiency indicates that non-overlapped
 memory-transfer activity contributes substantially to the maximum device
 active time relative to the maximum useful-computation time observed across
 the devices.
+
+Unlike Communication Efficiency at the MPI level, it is relative to the active
+time of the devices (computation plus data movement), not to the elapsed
+time; the idle time of the devices is characterized by Device Orchestration
+Efficiency. Serialization and transfer are not separated: low values can also
+come from dependence chains between the devices.
 
 
 Device Orchestration Efficiency
@@ -2063,6 +2151,13 @@ Host-side orchestration delays, synchronization, dependencies, or other
 effects that leave the devices without active work. The metric identifies the
 presence of these inactive periods but does not by itself determine their
 cause.
+
+Typical reasons are kernels shorter than the time the host needs to launch
+the next one (the code between calls plus the API overhead), the host waiting
+for previous kernels before launching the next ones, and dependence chains
+between processes (for example through MPI) that delay new work. Not all idle
+time lowers this metric: idle time caused by other losses, such as load
+imbalance in other processes, is attributed to them.
 
 
 Device Parallel-Efficiency Decomposition
@@ -2133,6 +2228,10 @@ with:
 Under ideal strong scaling, aggregate useful device computation remains
 approximately constant.
 
+It can change even when the same kernels are executed, for example when
+replicated work does not shrink with more devices; in AI frameworks, the
+kernels chosen at run time often change with the input size.
+
 For weak scaling:
 
 .. math::
@@ -2164,6 +2263,8 @@ Computation Scalability:
 
    Device\_Global\_Eff =
    Device\_Par\_Eff \cdot Device\_CompScale
+
+A good and a bad component can hide each other in the product: inspect both.
 
 Expanding the Device Parallel Efficiency decomposition:
 
@@ -2205,7 +2306,7 @@ Parallel Runtime Model identifies the runtime contribution associated with
 parallel inefficiency, while the Host and Device execution-domain metrics
 localize where accelerator-related inefficiency manifests.
 
-Within the Host domain, Device Offload Efficiency helps distinguish useful
+Within the Host domain, Offloading Efficiency helps distinguish useful
 Host computation from Host-side accelerator interaction, while the Host
 Computation Scalability factors characterize changes in the computational
 behavior of useful Host work.
@@ -2441,14 +2542,14 @@ With :math:`H` Host units, BasicAnalysis computes:
 
 .. math::
 
-   DeviceOffload\_Eff =
+   Offloading\_Eff =
    \frac{
       \sum_h UsefulHost_h
    }{
       H \cdot T
    }
 
-There is no MPI level, so Host Parallel Efficiency equals Device Offload
+There is no MPI level, so Host Parallel Efficiency equals Offloading
 Efficiency. Host Computation Scalability and Host Global Efficiency are
 computed from :math:`UsefulHost` as for Extrae traces. IPC, Instruction, and
 Frequency Scalability are not available, because *nsys2prv* traces contain no

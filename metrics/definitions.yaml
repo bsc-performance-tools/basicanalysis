@@ -37,10 +37,14 @@ metrics:
       text: GE = PE × CompScale
       latex: GE = PE \\times CompScale
     interpretation:
-      low: Low values indicate that parallel-execution overhead, poor computation scaling, or both limit the overall
-        parallel performance.
-      high: High values indicate small parallel-execution overhead and good computation scaling relative to the
-        selected reference execution.
+      low: >
+        Low values indicate that parallel-execution overhead, poor computation scaling, or both
+        limit the overall parallel performance. The reference execution itself can be below 100%,
+        because its own Parallel Efficiency is included.
+      high: >
+        High values indicate small parallel-execution overhead and good computation scaling relative
+        to the selected reference execution. As a normalized measure of performance relative to the
+        reference, it can be used to compare executions.
       above_100: Values above 100% can occur when favorable computation scaling more than compensates parallel-execution
         overhead; interpret them relative to the reference execution.
     typical_causes:
@@ -89,6 +93,8 @@ metrics:
     next_steps:
     - Inspect Load Balance.
     - Inspect Communication Efficiency.
+    - 'When Load Balance and Communication Efficiency have similar values, analyze them together:
+      they can influence each other.'
     children:
     - load_balance
     - comm_eff
@@ -101,7 +107,11 @@ metrics:
     family: global
     analysis_level: application
     metric_type: efficiency
-    definition: Measures how evenly useful computation is distributed across the parallel execution units.
+    definition: >
+      Measures how evenly useful computation is distributed across the parallel execution units. In
+      hybrid executions, the units are all the threads or accelerator streams: a low value means
+      that some thread computes longer than the others, without blaming the MPI or the inner level;
+      compare MPI Load Balance and the Load Balance contribution of the inner runtime to locate it.
     formula:
       text: LB = average useful time / maximum useful time
       latex: LB = \\frac{\\frac{1}{P}\\sum_{i=1}^{P} Useful_i}{\\max_i(Useful_i)}
@@ -109,7 +119,12 @@ metrics:
         P: Number of resources in the selected model
         Useful_i: Useful computation time of resource i
     interpretation:
-      low: Low values indicate that useful computation is unevenly distributed across resources.
+      low: >
+        Low values indicate that useful computation is unevenly distributed across resources. Load
+        Balance is set by the most loaded unit: one unit with much more useful computation than the
+        others lowers it strongly, while one unit with much less barely changes it, because the
+        elapsed time is determined by the longest unit. It refers to the total useful computation in
+        the analyzed region, not to the balance at each instant.
       high: High values indicate an even distribution of useful computation across resources.
       above_100: Values above 100% are not expected for Load Balance and should be checked.
     typical_causes:
@@ -130,8 +145,11 @@ metrics:
     family: global
     analysis_level: application
     metric_type: compound_efficiency
-    definition: Measures the efficiency of parallel execution with respect to communication,
-     synchronization, and other parallel-runtime overheads.
+    definition: >
+      Measures the efficiency of parallel execution with respect to communication, synchronization,
+      and other parallel-runtime overheads. In hybrid executions, it includes the interactions at
+      both levels; compare MPI Communication Efficiency and the Communication contribution of the
+      inner runtime to locate the loss.
     formula:
       text: CommE = maximum useful computation time / total runtime = SerE × TE
       latex: CommE = \frac{\max_i(Useful_i)}{T} = SerE \times TE
@@ -141,8 +159,13 @@ metrics:
         SerE: Serialization Efficiency
         TE: Transfer Efficiency
     interpretation:
-      low: Low values indicate that communication, synchronization, or parallel-runtime activity consumes a significant
-        fraction of the execution time.
+      low: >
+        Low values indicate that communication, synchronization, or parallel-runtime activity
+        consumes a significant fraction of the execution time. Communication Efficiency is not the
+        time spent in communication calls: processes can spend a long time inside MPI without
+        lengthening the execution, for example when they wait in a collective for the most loaded
+        process, which is a Load Balance problem. It measures how much the interaction between
+        processes (dependencies and data transfer) limits the execution.
       high: High values indicate that communication-related and parallel-runtime overhead is small.
       above_100: Values above 100% are not expected for Communication Efficiency and should be checked.
     typical_causes:
@@ -165,9 +188,12 @@ metrics:
     family: mpi
     analysis_level: runtime_specific
     metric_type: efficiency
-    definition: Measures communication inefficiency caused by dependencies between MPI ranks that make ranks wait
-      at communication points (temporal serialization), rather than by physical data-transfer time. It is obtained
-      from an ideal-network simulation with zero latency and infinite bandwidth.
+    definition: >
+      Measures communication inefficiency caused by dependencies between MPI ranks that make ranks
+      wait at communication points (temporal serialization), rather than by physical data-transfer
+      time. It is obtained from an ideal-network simulation with zero latency and infinite
+      bandwidth. In hybrid executions, it is the MPI-level value: only the MPI level is simulated,
+      and the inner runtime is kept as measured.
     formula:
       text: SerE = maximum useful computation time on ideal network / total runtime on ideal network
       latex: SerE = \frac{\max_i(Useful_i^{ideal})}{T_{ideal}}
@@ -175,8 +201,11 @@ metrics:
         Useful_i^{ideal}: Useful computation time of MPI rank i in the ideal-network simulation
         T_ideal: Total runtime simulated with zero latency and infinite bandwidth
     interpretation:
-      low: Low values indicate significant waiting caused by dependencies and temporal serialization between MPI
-        ranks.
+      low: >
+        Low values indicate significant waiting caused by dependencies and temporal serialization
+        between MPI ranks. These are cyclic dependence chains: the rank that delays the others
+        changes along the region, through chains of point-to-point messages or through collective
+        phases where the last rank to arrive changes.
       high: High values indicate little communication loss due to temporal serialization.
       above_100: Values above 100% are not expected and may indicate inconsistencies in the simulation or input
         data.
@@ -217,9 +246,12 @@ metrics:
     - Many small messages
     - Network contention
     - Inefficient collectives
+    - Operating-system noise or other perturbations that lengthen communication calls
     next_steps:
     - Inspect message sizes and communication frequency.
     - Inspect network topology and process mapping.
+    - Simulate the execution with different network latencies and bandwidths to estimate the impact
+      of the network.
     children: []
     sources:
     - pop_standard_metrics
@@ -238,7 +270,10 @@ metrics:
     interpretation:
       low: Low values indicate that the total useful-computation cost increases at scale relative to the reference
         execution.
-      high: High values indicate that the total useful-computation cost is preserved relative to the reference execution.
+      high: >
+        High values indicate that the total useful-computation cost is preserved relative to the
+        reference execution. With its Instruction, IPC, and Frequency components, it can also
+        compare executions with different algorithms, compilers, or platforms.
       above_100: Values above 100% indicate that the target execution requires less total useful-computation time
         than the reference, corresponding to favorable or superlinear computation scaling.
     typical_causes:
@@ -262,8 +297,12 @@ metrics:
     family: global
     analysis_level: scalability
     metric_type: scalability
-    definition: Measures how the number of instructions executed per processor cycle changes
-     relative to a reference execution as the application scales.
+    definition: >
+      Measures how the number of instructions executed per processor cycle changes relative to a
+      reference execution as the application scales. IPC is computed as the total instructions
+      divided by the total cycles of the useful computation, not as an average of the IPC of each
+      region, and it includes only the computation outside the parallel runtimes: busy-wait loops
+      inside the runtimes can have high IPC and would hide the behavior of the application.
     formula:
       text: IPCScale = IPC_target / IPC_reference
       latex: IPCScale = \\frac{IPC_{target}}{IPC_{ref}}
@@ -304,6 +343,9 @@ metrics:
     - Algorithmic work growth
     - Redundant computation
     - Instrumentation effects
+    - Changes in the computational complexity of the algorithm
+    - Packing or unpacking data for communication
+    - Different compiler, compiler options, or JIT-compiled code
     next_steps:
     - Compare useful instruction counts by phase.
     - Check for redundant or replicated work.
@@ -352,10 +394,14 @@ metrics:
       - Thermal throttling
       - Turbo-frequency changes
       - Changes in CPU core occupancy
+      - 'Operating-system noise: while a thread is preempted, the cycle counter stops but time
+        advances, lowering the effective frequency'
 
     next_steps:
       - Inspect CPU frequency and power behavior.
       - Compare frequency behavior across the analyzed configurations.
+      - Look for computation regions with very low effective frequency (outliers), which may
+        indicate preemption by the operating system.
 
     children: []
 
@@ -368,10 +414,13 @@ metrics:
     family: hybrid
     analysis_level: composed_runtime
     metric_type: compound_efficiency
-    definition: Measures the parallel efficiency of the complete hybrid execution,
-     accounting for the combined contribution of the active parallel runtimes.
+    definition: >
+      Measures the average fraction of the runtime in which all the execution units of the hybrid
+      execution (the threads of every MPI process, or the Host units and accelerator streams)
+      perform useful computation. It does not attribute the loss to a level; its decomposition into
+      MPI and inner-runtime contributions does.
     formula:
-      text: HybridPE = HybridLB × HybridCommE = MPI_PE × Runtime_PE
+      text: HybridPE = sum Useful_u / (U × T) = HybridLB × HybridCommE = MPI_PE × Runtime_PE
       latex: HybridPE = HybridLB \times HybridCommE = MPI\_PE \times Runtime\_PE
     interpretation:
       low: Low values indicate that one or more active parallel runtimes contribute substantial inefficiency.
@@ -395,9 +444,12 @@ metrics:
     family: mpi
     analysis_level: runtime_specific
     metric_type: compound_efficiency
-    definition:   Measures the contribution of the MPI level to the Parallel Efficiency of
-      the hybrid execution. From the MPI perspective, activity outside MPI calls,
-      including computation and inner-runtime activity, is considered productive.
+    definition: >
+      Measures the contribution of the MPI level to the Parallel Efficiency of the hybrid execution.
+      From the MPI perspective, activity outside MPI calls, including computation and inner-runtime
+      activity, is considered productive. OutsideMPI is measured on the thread of each rank that
+      calls MPI; in MPI+GPU executions, the time in the accelerator runtime counts as outside MPI,
+      so GPU work that overlaps MPI calls is not seen at this level.
     formula:
       text: MPI_PE = sum OutsideMPI_i / (P × T) = MPI_LB × MPI_CommE
       latex: MPI\_PE = \frac{\sum_{i=1}^{P} OutsideMPI_i}{P \cdot T} = MPI\_LB \times MPI\_CommE
@@ -469,7 +521,11 @@ metrics:
       text: MPI_CommE = maximum OutsideMPI / runtime
       latex: MPI\\_CommE = \\frac{\\max_i(OutsideMPI_i)}{T}
     interpretation:
-      low: Low values indicate significant efficiency loss associated with MPI communication.
+      low: >
+        Low values indicate significant efficiency loss associated with MPI communication. MPI
+        Communication Efficiency is not the time spent in MPI calls: ranks can wait inside MPI
+        without lengthening the execution, for example for a more loaded rank, which is a load-
+        balance problem.
       high: High values indicate that MPI communication introduces little efficiency loss.
       above_100: Values above 100% are not expected for the directly computed MPI component and should be checked.
     typical_causes:
@@ -510,11 +566,15 @@ metrics:
         attributed to the {runtime} component.
 
       above_100_template: >
-        Values above 100% do not represent an isolated {runtime} efficiency greater
-        than 100%. They indicate that the MPI-first decomposition has attributed
-        more efficiency loss to the MPI level than is reflected in the complete
-        hybrid Parallel Efficiency. This may occur when delays originating in the
-        {runtime} level manifest as MPI waiting and are therefore attributed to MPI.
+        Values above 100% do not represent an isolated {runtime} efficiency greater than 100%. They
+        indicate that the MPI-first decomposition has attributed more efficiency loss to the MPI
+        level than is reflected in the complete hybrid Parallel Efficiency. This may occur when
+        delays originating in the {runtime} level manifest as MPI waiting and are therefore
+        attributed to MPI. For example, with two MPI processes between collectives, one computing
+        briefly with one thread and the other much longer with many threads, MPI Parallel Efficiency
+        is low while the efficiency of all the threads is higher. The effect of the {runtime} level
+        cannot be obtained by averaging per-process {runtime} metrics, because it depends on how the
+        delays propagate through the MPI level.
     typical_causes_template:
     - '{runtime} load imbalance'
     - '{runtime} communication, synchronization, or runtime overhead'
@@ -717,6 +777,72 @@ metrics:
     children: []
     sources:
     - basicanalysis_hybrid_openmp_decomposition
+  hybrid_serial_eff:
+    name: Hybrid Serialization Efficiency
+    short_name: Hybrid SerE
+    family: hybrid
+    analysis_level: composed_runtime
+    metric_type: simulation_efficiency
+    definition: >
+      Measures the communication inefficiency of the complete MPI+OpenMP
+      execution caused by dependencies between the execution units, at both
+      the MPI and the OpenMP level, rather than by data transfer or
+      runtime overhead. It is obtained from a simulation in which both the
+      network and the OpenMP runtime are ideal (zero latency, infinite
+      bandwidth, no OpenMP runtime overhead), preserving the dependencies.
+      Computed with --hyb-mpiomp; used to derive OpenMP Serialization
+      Efficiency.
+    formula:
+      text: Hybrid_SerE = maximum useful time in the ideal hybrid simulation / runtime of the ideal hybrid simulation
+      latex: Hybrid\_SerE = \frac{\max_u(Useful_u^{ideal})}{T_{ideal}^{hybrid}}
+    interpretation:
+      low: Low values indicate significant waiting caused by dependencies between the execution units, at the
+        MPI level, the OpenMP level, or both.
+      high: High values indicate little loss due to dependencies between the execution units.
+      above_100: Values above 100% are not expected and may indicate inconsistencies in the simulation or input
+        data.
+    typical_causes:
+    - Dependencies between MPI ranks
+    - Serialized OpenMP regions or limited thread-level parallelism
+    next_steps:
+    - Compare with MPI Serialization Efficiency; their ratio is the OpenMP Serialization Efficiency.
+    children:
+    - serial_eff
+    - omp_serial_eff
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
+  hybrid_transfer_eff:
+    name: Hybrid Transfer Efficiency
+    short_name: Hybrid TransferE
+    family: hybrid
+    analysis_level: composed_runtime
+    metric_type: simulation_efficiency
+    definition: >
+      Measures the communication inefficiency of the complete MPI+OpenMP
+      execution that remains once the dependencies are separated: data
+      transfer over the network and overhead of the OpenMP runtime. It is
+      the Hybrid Communication Efficiency divided by the Hybrid
+      Serialization Efficiency. Computed with --hyb-mpiomp; used to derive
+      OpenMP Transfer Efficiency.
+    formula:
+      text: Hybrid_TransferE = Hybrid_CommE / Hybrid_SerE
+      latex: Hybrid\_TransferE = \frac{Hybrid\_CommE}{Hybrid\_SerE}
+    interpretation:
+      low: Low values indicate that network data transfer, OpenMP runtime overhead, or both are a significant
+        source of communication inefficiency.
+      high: High values indicate little loss due to data transfer and OpenMP runtime overhead.
+      above_100: Values above 100% are not expected and may indicate inconsistencies in the simulation or input
+        data.
+    typical_causes:
+    - Network data transfer
+    - OpenMP synchronization, scheduling, and fork/join overhead
+    next_steps:
+    - Compare with MPI Transfer Efficiency; their ratio is the OpenMP Transfer Efficiency.
+    children:
+    - transfer_eff
+    - omp_transfer_eff
+    sources:
+    - basicanalysis_hybrid_openmp_decomposition
   omp_talp_parallel_eff:
     name: OpenMP Parallel Efficiency
     short_name: OMP PE
@@ -889,12 +1015,14 @@ metrics:
       losses associated with MPI execution and with offloading, managing, and
       waiting for accelerator activity.
     formula:
-      text: HostPE = MPI_PE × DeviceOffloadE
-      latex: HostPE = MPI\_PE \times DeviceOffloadE
+      text: HostPE = MPI_PE × OffloadingE
+      latex: HostPE = MPI\_PE \times OffloadingE
     interpretation:
       low: >
-        Low values indicate significant Host-side efficiency loss associated with
-        MPI execution, accelerator offload activity, or both.
+        Low values indicate significant Host-side efficiency loss associated with MPI execution,
+        accelerator offload activity, or both. A low value is not necessarily a problem in GPU-
+        centric applications, where the host mainly feeds the devices; what matters there is that
+        the devices are used well.
       high: >
         High values indicate small Host-side efficiency losses from MPI execution
         and accelerator offload activity.
@@ -907,14 +1035,14 @@ metrics:
     - Host-device data movement
     - Waiting for accelerator execution
     next_steps:
-      - Compare MPI Parallel Efficiency and Device Offload Efficiency.
+      - Compare MPI Parallel Efficiency and Offloading Efficiency.
     children:
     - mpi_parallel_eff
     - dev_offload_eff
     sources:
     - basicanalysis_host_device
   dev_offload_eff:
-    name: Device Offload Efficiency
+    name: Offloading Efficiency
     short_name: Offload
     family: host
     analysis_level: execution_domain
@@ -925,16 +1053,20 @@ metrics:
       waiting for accelerator activity rather than performing useful Host
       computation.
     formula:
-      text: DeviceOffloadE = sum C_i / sum(C_i + W_i)
-      latex: DeviceOffloadE = \frac{\sum_{i=1}^{P} C_i}{\sum_{i=1}^{P} C_i + \sum_{i=1}^{P} W_i}
+      text: OffloadingE = sum C_i / sum(C_i + W_i)
+      latex: OffloadingE = \frac{\sum_{i=1}^{P} C_i}{\sum_{i=1}^{P} C_i + \sum_{i=1}^{P} W_i}
       variables:
         C_i: Useful CPU time of host process i
         W_i: CPU time waiting for or managing accelerator activity for process i
         P: Number of host processes
       status: model_specific
     interpretation:
-      low: Low values indicate that a large fraction of host-side time is spent managing or waiting for accelerator
-        activity. Very low values can be expected in applications whose host mainly feeds and waits for the device.
+      low: >
+        Low values indicate that a large fraction of host-side time is spent managing or waiting for
+        accelerator activity. Very low values can be expected in applications whose host mainly
+        feeds and waits for the device. In GPU-centric applications low values are normal; a value
+        that grows with scale indicates that the host work between accelerator calls does not shrink
+        and the CPU is gaining relevance.
       high: >
         High values indicate that a small fraction of Host-side time is spent
         managing or waiting for accelerator activity relative to useful Host
@@ -967,8 +1099,10 @@ metrics:
       latex: HostCompScale = \\frac{HostUseful_{ref}}{HostUseful_{target}}
     interpretation:
       low: >
-        Low values indicate that useful Host computation becomes more expensive
-        relative to the reference execution as the application scales.
+        Low values indicate that useful Host computation becomes more expensive relative to the
+        reference execution as the application scales. It mainly matters when Offloading Efficiency
+        is high (the host does significant work of its own) and that work does not overlap the
+        device work.
       high: >
         Values near 100% indicate that the cost of useful Host computation is
         preserved relative to the reference execution.
@@ -1118,9 +1252,9 @@ metrics:
       latex: DeviceGE = DevicePE \times DeviceCompScale
     interpretation:
       low: >
-        Low values indicate that parallel Device execution, changes in Device
-        computation scalability, or both limit the efficiency of the Device
-        execution domain.
+        Low values indicate that parallel Device execution, changes in Device computation
+        scalability, or both limit the efficiency of the Device execution domain. A good and a bad
+        component can hide each other: inspect both.
       high: >
         High values indicate efficient Device execution with small parallel losses
         and favorable Device computation scalability.
@@ -1149,9 +1283,10 @@ metrics:
     analysis_level: execution_domain
     metric_type: compound_efficiency
     definition: >
-      Measures the parallel efficiency of the Device execution domain in terms of
-      the fraction of aggregate Device execution time spent performing useful
-      Device computation.
+      Measures the parallel efficiency of the Device execution domain in terms of the fraction of
+      aggregate Device execution time spent performing useful Device computation. Each physical GPU
+      is one unit, with the activity of all its streams aggregated; time in which computation
+      overlaps data movement on the same GPU counts as computation.
     formula:
       text: DevicePE = sum G_i / (T × N) = DeviceLB × DeviceCommE × DeviceOrchesE
       latex: DevicePE = \frac{\sum_{i=1}^{N} G_i}{T \cdot N} = DeviceLB \times DeviceCommE \times DeviceOrchesE
@@ -1200,8 +1335,9 @@ metrics:
         N: Number of devices
     interpretation:
       low: >
-        Low values indicate that useful computation time is unevenly distributed
-        across the Devices.
+        Low values indicate that useful computation time is unevenly distributed across the Devices.
+        As for processes, one GPU with much more work than the others lowers it strongly, while one
+        GPU with much less work barely changes it.
       high: >
         High values indicate that useful computation time is evenly distributed
         across the Devices.
@@ -1236,8 +1372,11 @@ metrics:
       status: model_specific
     interpretation:
       low: >
-        Low values indicate significant efficiency loss associated with
-        non-overlapped Device data movement.
+        Low values indicate significant efficiency loss associated with non-overlapped Device data
+        movement. Unlike MPI Communication Efficiency, it is relative to the active time of the
+        devices (computation plus data movement), not to the elapsed time; idle time is in Device
+        Orchestration Efficiency. Serialization and transfer are not separated: low values can also
+        come from dependence chains.
       high: >
         High values indicate that non-overlapped Device data-movement overhead is
         small relative to useful Device computation.
@@ -1276,8 +1415,12 @@ metrics:
       status: model_specific
     interpretation:
       low: >
-        Low values indicate substantial periods in which executable Device work is
-        unavailable.
+        Low values indicate substantial periods in which executable Device work is unavailable.
+        Typical reasons: kernels shorter than the time the host needs to launch the next one (code
+        between calls plus API overhead), the host waiting for previous kernels before launching the
+        next ones, or dependence chains between processes (e.g. MPI) that delay new work. Not all
+        idle time lowers it: idle time caused by other losses, such as load imbalance in other
+        processes, is attributed to them.
       high: >
         High values indicate that the Device is supplied with executable work for
         most of the execution.
@@ -1312,8 +1455,11 @@ metrics:
       status: implemented
 
     interpretation:
-      low: Low values indicate that useful computation on the devices takes longer than expected relative to the reference
-        execution, reducing device-side computation scalability.
+      low: >
+        Low values indicate that useful computation on the devices takes longer than expected
+        relative to the reference execution, reducing device-side computation scalability. It can
+        change even with the same kernels, for example when replicated work does not shrink with
+        more devices, and in AI frameworks the kernels chosen often change with the input size.
       high: Values close to 100% indicate that device useful-computation time scales as expected relative to the reference
         execution.
       above_100: Values above 100% indicate that device useful-computation time improved beyond the reference-based scaling

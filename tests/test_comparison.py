@@ -158,7 +158,7 @@ class ComparisonRowsTests(_ComparisonFixture):
         self.assertEqual(omp_pe[MPI], NOT_APPLICABLE)
         self.assertEqual(omp_pe[OMP], 30.0)
 
-        offload = rows['-- Device Offload efficiency']
+        offload = rows['-- Offloading efficiency']
         self.assertEqual(offload[CUDA], 100.0)
         self.assertEqual(offload[MPI], NOT_APPLICABLE)
         self.assertEqual(offload[OMP], NOT_APPLICABLE)
@@ -168,7 +168,7 @@ class ComparisonRowsTests(_ComparisonFixture):
 
         self.assertIn('Parallel efficiency', rows)
         self.assertNotIn('Host Parallel efficiency', rows)
-        self.assertNotIn('-- Device Offload efficiency', rows)
+        self.assertNotIn('-- Offloading efficiency', rows)
 
         device_rows = build_comparison_device_rows(
             [MPI, OMP], self.trace_mode, self.device_factors

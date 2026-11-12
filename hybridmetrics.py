@@ -137,7 +137,7 @@ mod_host_factors_doc = OrderedDict([
                                ('mpi_comm_eff', '       -- MPI Communication efficiency'),
                                ('serial_eff', '          -- Serialization efficiency'),
                                ('transfer_eff', '          -- Transfer efficiency'),
-                               ('dev_offload_eff', '   == Device Offload efficiency'),
+                               ('dev_offload_eff', '   == Offloading efficiency'),
                                ('host_comp_scale', '-- Host Computation scalability'),
                                ('host_ipc_scale', '   == IPC scalability'),
                                ('host_inst_scale', '   == Instruction scalability'),

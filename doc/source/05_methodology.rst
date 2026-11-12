@@ -243,6 +243,22 @@ parallel runtimes.
    :align: center
 
 
+The Hybrid model describes the execution from three complementary
+perspectives, and the analyst can move between them to explain the behavior:
+
+* the **global** perspective describes how efficiently all the resources (all
+  the threads, or the Host units and accelerator streams) are used,
+  irrespective of the runtime level they belong to;
+* the **outer (MPI)** perspective describes the efficiency of the interactions
+  at the MPI level, treating the inner activity of each process as if it were
+  frozen, without visibility into it;
+* the **inner** perspective describes the contribution of the inner runtime
+  (OpenMP, CUDA, HIP) to the global efficiency, in the context of the MPI
+  level.
+
+In the report, these are the Hybrid (MPI+X) model and its Outer and Inner
+levels.
+
 To isolate the contribution of the outer runtime, the execution is analyzed
 from its perspective. Activity associated with the outer runtime is treated
 as parallel-runtime overhead, while execution outside that runtime is
@@ -638,7 +654,7 @@ Device metrics:
 
 * **Host_PE**: Host Parallel Efficiency
 * **MPI_PE**: MPI Parallel Efficiency
-* **Device_Offload**: Device Offload Efficiency
+* **Offloading**: Offloading Efficiency
 * **Host_GE**: Host Global Efficiency
 * **Host_CompScale**: Host Computation Scalability
 * **Device_GE**: Device Global Efficiency
@@ -681,14 +697,14 @@ and an accelerator-offload contribution:
 
 .. math::
 
-   Host\_PE = MPI\_PE \times Device\_Offload
+   Host\_PE = MPI\_PE \times Offloading
 
 **MPI Parallel Efficiency** characterizes the contribution associated with the
 MPI parallelization. When evaluating this contribution, time spent outside MPI,
 including Host activity associated with managing the accelerator, is considered
 computation from the MPI perspective.
 
-**Device Offload Efficiency** characterizes the remaining Host-side loss
+**Offloading Efficiency** characterizes the remaining Host-side loss
 associated with using the accelerator. This includes activity such as
 launching accelerator work, transferring data, and waiting for accelerator
 operations to complete.
@@ -1084,7 +1100,7 @@ defined for every MPI-based programming model:
      - —
      - OpenMP contribution
      - —
-   * - Device Offload Efficiency
+   * - Offloading Efficiency
      - —
      - —
      - Host metric
@@ -1100,7 +1116,7 @@ contribution and the contribution of the second level, when present:
 * MPI: Parallel Efficiency equals MPI Parallel Efficiency.
 * MPI+OpenMP: Parallel Efficiency = MPI Parallel Efficiency × OpenMP Parallel
   Efficiency.
-* MPI+GPU: Host Parallel Efficiency = MPI Parallel Efficiency × Device Offload
+* MPI+GPU: Host Parallel Efficiency = MPI Parallel Efficiency × Offloading
   Efficiency.
 
 The top-level metric is therefore comparable across programming models. When

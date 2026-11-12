@@ -130,6 +130,21 @@ configurations for which the stream-to-device mapping cannot be established
 correctly, cannot be fully characterized by the Device execution-domain
 metrics.
 
+The device of each stream is identified from the GPU labels of the ``.row``
+file. Labels with the device number as seen by each process (``GPU-D1.S1``,
+``CUDA-D1.S1-<host>``) do not distinguish the GPUs of a node when each process
+is bound to its own GPU through its visible devices (for example ``mpirun
+--gpu-bind``, ``srun --gpus-per-task``, or ``ROCR_VISIBLE_DEVICES``): every
+process labels its GPU as device 1, and BasicAnalysis counts a single GPU per
+node. The configuration label (``[1D]`` instead of ``[4D]``, for example) and
+the Execution Overview show the number of devices found. Labels with the GPU
+UUID (``GPU_<uuid>``, written by some Extrae versions) identify the physical
+GPU in all cases.
+
+At the MPI level, the time in the accelerator runtime counts as outside MPI.
+GPU work that overlaps MPI calls is therefore not represented in the MPI
+metrics; it is visible only in the Device metrics.
+
 
 GPU Trace Sources: Extrae and nsys2prv
 --------------------------------------
@@ -158,8 +173,8 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
        communication; it appears as idle device time
      - Counted as a memory operation (communication)
    * - ``memset`` on the host
-     - Time in the call: Device Offload loss
-     - Time in the call: Device Offload loss
+     - Time in the call: Offloading loss
+     - Time in the call: Offloading loss
    * - Useful Host time
      - *Running* state of the host threads
      - Elapsed time minus the time in CUDA calls
@@ -179,7 +194,7 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
 * **Useful Host time.** Without state records, the useful Host time is the
   elapsed time minus the time inside CUDA runtime and driver calls. It
   includes any Host time outside those calls, such as interpreter, waiting,
-  or I/O time in Python applications. Device Offload Efficiency is therefore
+  or I/O time in Python applications. Offloading Efficiency is therefore
   an upper bound of the efficiency that would be obtained with state records.
 * **One Host unit per process.** Each process with GPU streams is analyzed
   through the thread with the most time inside CUDA calls; the helper threads
