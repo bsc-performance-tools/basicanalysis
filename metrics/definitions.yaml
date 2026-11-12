@@ -524,8 +524,8 @@ metrics:
       low: >
         Low values indicate significant efficiency loss associated with MPI communication. MPI
         Communication Efficiency is not the time spent in MPI calls: ranks can wait inside MPI
-        without lengthening the execution, for example for a more loaded rank, which is a load-
-        balance problem.
+        without lengthening the execution, for example for a more loaded rank, which is a load-balance
+        problem.
       high: High values indicate that MPI communication introduces little efficiency loss.
       above_100: Values above 100% are not expected for the directly computed MPI component and should be checked.
     typical_causes:
@@ -1020,8 +1020,8 @@ metrics:
     interpretation:
       low: >
         Low values indicate significant Host-side efficiency loss associated with MPI execution,
-        accelerator offload activity, or both. A low value is not necessarily a problem in GPU-
-        centric applications, where the host mainly feeds the devices; what matters there is that
+        accelerator offload activity, or both. A low value is not necessarily a problem in GPU-centric
+        applications, where the host mainly feeds the devices; what matters there is that
         the devices are used well.
       high: >
         High values indicate small Host-side efficiency losses from MPI execution
