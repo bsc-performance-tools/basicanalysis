@@ -8,7 +8,7 @@
   one CPU thread per MPI process). BasicAnalysis detects the OpenMP target
   (OMPT, event type 70008) and OpenACC (66000000) constructs in the `.pcf`,
   excludes the time inside them from the useful Host time, and decomposes
-  Offloading Efficiency into **Offloading Load Balance** = Host LB / MPI LB
+  Offloading Efficiency into **Offloading Balance Contribution** = Host LB / MPI LB
   and **Offloading Communication Efficiency** = Host CommE / MPI CommE,
   shown under Offloading Efficiency in the Host table. Other applications
   do not change.

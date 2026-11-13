@@ -1775,7 +1775,7 @@ value that grows with scale indicates that the Host work between accelerator
 calls does not shrink, and that the CPU is gaining relevance.
 
 Offloading with directives
-""
+""""""""""""""""""""""""""
 
 When the application offloads with OpenMP target or OpenACC directives
 (the trace has the OMPT target events, type 70008, or the OpenACC events,
@@ -1787,16 +1787,21 @@ Efficiency, like the MPI Parallel Efficiency:
 
 .. math::
 
-   Offloading\_LB = \frac{Host\_LB}{MPI\_LB}, \qquad
+   Offloading\_Bal = \frac{Host\_LB}{MPI\_LB}, \qquad
    Offloading\_CommE = \frac{Host\_CommE}{MPI\_CommE}
 
 with :math:`Host\_LB = avg(UsefulHost) / max(UsefulHost)` and
 :math:`Host\_CommE = max(UsefulHost) / T`, so that
-:math:`Offloading\_Eff = Offloading\_LB \cdot Offloading\_CommE`.
+:math:`Offloading\_Eff = Offloading\_Bal \cdot Offloading\_CommE`.
 
-**Offloading Load Balance** above 100% means that the offloading compensates
-the MPI imbalance (the processes with more time outside MPI spend more of it
-offloading); below 100%, it adds imbalance. **Offloading Communication
+**Offloading Balance Contribution** is not the balance of a computation:
+the offloading runtime does not compute on the CPU. It compares the balance
+of the useful CPU time with the balance of the time outside MPI. Above 100%,
+the useful CPU time is more evenly distributed than the time outside MPI, so
+the imbalance is in the offloaded work (the processes with more time outside
+MPI spend it offloading); check the Device Load Balance, which measures the
+balance of the work on the devices. Below 100%, the useful CPU time is less
+evenly distributed than the time outside MPI. **Offloading Communication
 Efficiency** measures the CPU time lost to launching work on the
 accelerator and waiting for it: low values mean that the CPU threads wait
 in the offloading (synchronous offloading) instead of computing.

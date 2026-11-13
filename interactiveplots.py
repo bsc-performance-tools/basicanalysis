@@ -708,8 +708,8 @@ def _build_talp_metric_info():
             "short_label": "   == Offload",
         },
         "offload_load_balance": {
-            "label": "       -- Offloading Load balance",
-            "short_label": "      -- Offload LB",
+            "label": "       -- Offloading Balance contribution",
+            "short_label": "      -- Offload Bal",
         },
         "offload_comm_eff": {
             "label": "       -- Offloading Communication efficiency",

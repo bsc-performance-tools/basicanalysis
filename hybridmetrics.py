@@ -138,7 +138,7 @@ mod_host_factors_doc = OrderedDict([
                                ('serial_eff', '          -- Serialization efficiency'),
                                ('transfer_eff', '          -- Transfer efficiency'),
                                ('dev_offload_eff', '   == Offloading efficiency'),
-                               ('offload_load_balance', '       -- Offloading Load balance'),
+                               ('offload_load_balance', '       -- Offloading Balance contribution'),
                                ('offload_comm_eff', '       -- Offloading Communication efficiency'),
                                ('host_comp_scale', '-- Host Computation scalability'),
                                ('host_ipc_scale', '   == IPC scalability'),
@@ -1759,7 +1759,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             host_factors['host_parallel_eff'][trace] = 'NaN'    
 
-        ### Offloading Load Balance and Communication (three parallel
+        ### Offloading Balance contribution and Communication (three parallel
         ### runtimes, case 1: the CPU runtime only offloads with OpenMP
         ### target or OpenACC directives, one CPU thread per MPI process).
         ### Offloading Efficiency = Host PE / MPI PE, split as

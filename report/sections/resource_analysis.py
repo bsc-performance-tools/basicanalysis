@@ -77,7 +77,7 @@ _HOST_FACTOR_METRICS = (
     ),
     (
         "offload_load_balance",
-        "Offloading Load balance",
+        "Offloading Balance contribution",
         "offload",
         3,
     ),

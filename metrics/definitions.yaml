@@ -1086,31 +1086,36 @@ metrics:
     sources:
     - basicanalysis_host_device
   offload_load_balance:
-    name: Offloading Load Balance
-    short_name: Offload LB
+    name: Offloading Balance Contribution
+    short_name: Offload Bal
     family: host
     analysis_level: execution_domain
     metric_type: efficiency_contribution
     definition: >
-      Measures the contribution of the offloading to the Load Balance of
-      the Host, in applications that offload with OpenMP target or OpenACC
-      directives and run one CPU thread per MPI process. It compares how
-      evenly the useful Host computation is distributed across the processes
-      with how evenly the time outside MPI is distributed.
+      Contribution of the offloading to the Load Balance of the Host, in
+      applications that offload with OpenMP target or OpenACC directives and
+      run one CPU thread per MPI process. It is not the balance of a
+      computation, because the offloading runtime does not compute on the
+      CPU. It compares how evenly the useful CPU time is distributed across
+      the processes with how evenly the time outside MPI is distributed, and
+      so it shows whether the imbalance of the time outside MPI is in the
+      useful CPU time or in the offloaded work.
     formula:
-      text: OffloadingLB = HostLB / MPI_LB, with HostLB = average UsefulHost / maximum UsefulHost
-      latex: OffloadingLB = \frac{HostLB}{MPI\_LB}
+      text: OffloadingBalance = HostLB / MPI_LB, with HostLB = average UsefulHost / maximum UsefulHost
+      latex: OffloadingBalance = \frac{HostLB}{MPI\_LB}
     interpretation:
-      low: Values below 100% indicate that the offloading adds imbalance to the Host, because some processes spend
-        a larger share of their time outside MPI in the offloading than others.
-      high: Values near 100% indicate that the offloading does not change the balance of the Host.
-      above_100: Values above 100% indicate that the offloading compensates the MPI imbalance (the processes
-        with more time outside MPI spend more of it offloading). It is a relative contribution, not an
-        efficiency above 100%.
+      low: Values below 100% indicate that the useful CPU time is less evenly distributed than the time outside
+        MPI, because some processes spend a larger share of their time outside MPI offloading than others.
+      high: Values near 100% indicate that the useful CPU time and the time outside MPI are equally balanced.
+      above_100: Values above 100% indicate that the useful CPU time is more evenly distributed than the time
+        outside MPI, so the imbalance is in the offloaded work (the processes with more time outside MPI spend
+        it offloading). Check the Device Load Balance. It is a relative contribution, not an efficiency above
+        100%.
     typical_causes:
-    - Different amount of offloaded work per process
+    - Different amount of work offloaded to the device per process
     - Different offloading or waiting time per process
     next_steps:
+    - Compare with the Device Load Balance, which measures the balance of the work on the devices.
     - Compare the time in the offloading constructs and accelerator calls per process.
     children: []
     sources:
