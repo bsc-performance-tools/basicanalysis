@@ -243,6 +243,22 @@ def parse_total_average_max(path):
     return total, avg, maximum
 
 
+NO_RUNNING_STATE_WARNING = (
+    "==WARNING== {}: the Host threads are never in the Running state, so "
+    "the useful Host time cannot be measured and the Host metrics are "
+    "reported as Non-Avail.\n"
+    "            Possible causes: a cut trace whose state records are not "
+    "closed correctly (states that span the whole cut, or overlapping "
+    "states); try cutting another part of the trace, or the full trace. "
+    "It can also come from the tracing configuration (state records "
+    "disabled).")
+
+
+# Label of the Running column (state 1): 'Unknown state 1' when Paraver has
+# no .pcf with the state names.
+RUNNING_COLUMN_LABELS = ('Running', 'Unknown state 1', '1')
+
+
 def parse_host_useful_stats(path):
     """
     Parse useful_host.stats.csv using only real host execution rows.
@@ -255,15 +271,23 @@ def parse_host_useful_stats(path):
     where boundary effects may produce small spurious Running values on
     GPU rows.
 
+    Only the Running column is read. When no host thread is ever in the
+    Running state, Paraver writes a single Idle column (the value 0) with
+    the whole runtime; reading it as useful time would report every host
+    thread as useful all the time.
+
     Returns:
         (total, maximum)
 
     where:
         total   = sum of useful duration across host threads
         maximum = maximum useful duration among host threads
+
+    (None, None) when there are no host rows or no Running column.
     """
 
     host_values = []
+    running_column = None
 
     with open(path) as f:
         for raw_line in f:
@@ -280,24 +304,40 @@ def parse_host_useful_stats(path):
 
             row_label = parts[0].strip()
 
+            # Header line: the column labels (Paraver state names).
+            if running_column is None and not row_label:
+                labels = [field.strip() for field in parts]
+                found = [i for i, label in enumerate(labels)
+                         if label in RUNNING_COLUMN_LABELS]
+                if not found:
+                    return None, None
+                running_column = found[0]
+                continue
+
             # Keep only host execution contexts.
             if not row_label.startswith('THREAD '):
                 continue
 
             value = None
 
-            # Find the first numeric field after the row label.
-            for field in parts[1:]:
-                field = field.strip()
-
-                if not field:
-                    continue
-
+            if running_column is not None:
                 try:
-                    value = float(field)
-                    break
-                except ValueError:
-                    continue
+                    value = float(parts[running_column])
+                except (IndexError, ValueError):
+                    value = None
+            else:
+                # No header line: the first numeric field after the label.
+                for field in parts[1:]:
+                    field = field.strip()
+
+                    if not field:
+                        continue
+
+                    try:
+                        value = float(field)
+                        break
+                    except ValueError:
+                        continue
 
             if value is not None:
                 host_values.append(value)
@@ -3713,10 +3753,11 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
                 trace_raw_data['useful_host'] = float(useful_host_total)
                 trace_raw_data['useful_host_max'] = float(useful_host_max)
             else:
-                trace_raw_data['useful_host'] = 0.0
-                trace_raw_data['useful_host_max'] = 0.0
+                trace_raw_data['useful_host'] = 'Non-Avail'
+                trace_raw_data['useful_host_max'] = 'Non-Avail'
+                print(NO_RUNNING_STATE_WARNING.format(trace))
             
-            if cmdl_args.debug:
+            if cmdl_args.debug and useful_host_total is not None:
                 paraver_total, _, paraver_max = parse_total_average_max(
                     trace_name + '.useful_host.stats.csv'
                 )

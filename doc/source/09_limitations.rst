@@ -145,6 +145,17 @@ At the MPI level, the time in the accelerator runtime counts as outside MPI.
 GPU work that overlaps MPI calls is therefore not represented in the MPI
 metrics; it is visible only in the Device metrics.
 
+The useful Host time is the time of the Host threads in the Running state
+(outside MPI, the accelerator calls, and the offloading constructs). When
+the Host threads are never in the Running state, BasicAnalysis cannot
+measure it: it prints a warning and reports the Host metrics that depend
+on it (Offloading Efficiency, Host Parallel Efficiency, Host Global
+Efficiency) as Non-Avail. This was seen in a cut trace whose Host threads
+had a state record spanning the whole cut and overlapping the other
+states; cutting another part of the trace, or analyzing the full trace,
+usually avoids it. A tracing configuration that disables the state records
+has the same effect.
+
 
 GPU Trace Sources: Extrae and nsys2prv
 --------------------------------------

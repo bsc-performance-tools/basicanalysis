@@ -303,6 +303,15 @@
 
 ### Fixes
 
+- **Host threads without Running state were reported as useful all the
+  time.** When no Host thread is ever in the Running state (for example a
+  badly cut trace, with state records that span the whole cut), Paraver
+  writes only an Idle column in the useful Host profile, and BasicAnalysis
+  read it as useful time: Host Parallel Efficiency 100% and Offloading
+  Efficiency above 100%. BasicAnalysis now reads only the Running column,
+  prints a warning that names the possible causes, and reports the Host
+  metrics as Non-Avail.
+
 - **Offloading Efficiency of nsys2prv traces counted the helper threads
   as useful Host time.** Nsight Systems records every thread of a process
   (for example, 7 per process in NCCL ring benchmarks), and the threads that

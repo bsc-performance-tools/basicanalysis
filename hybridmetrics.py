@@ -257,7 +257,8 @@ def _offload_contributions(raw_data, host_factors, trace, is_mpi_gpu,
         host_threads, ranks = 0, -1
     if not (directives and is_mpi_gpu and host_threads == ranks):
         return 'N/A', 'N/A'
-    if not outmpi_measures:
+    if (not outmpi_measures
+            or raw_data['useful_host'].get(trace) == 'Non-Avail'):
         return 'Non-Avail', 'Non-Avail'
     try:
         useful = float(raw_data['useful_host'][trace])
@@ -1722,8 +1723,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         
         ### Offloading
         try:  # except NaN
-            if is_host_gpu and raw_data['useful_host'][trace] == 'Non-Avail':
-                # nsys2prv traces: no state records to measure host useful.
+            if ((is_host_gpu or is_mpi_gpu)
+                    and raw_data['useful_host'][trace] == 'Non-Avail'):
+                # nsys2prv traces, or traces whose Host threads are never
+                # Running: no host useful time.
                 host_factors['dev_offload_eff'][trace] = 'Non-Avail'
             elif is_host_gpu:
                 # Without MPI, the host time available for useful
@@ -1750,6 +1753,9 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 host_factors['host_parallel_eff'][trace] = \
                     host_factors['dev_offload_eff'][trace]
             elif not outmpi_measures:
+                host_factors['host_parallel_eff'][trace] = 'Non-Avail'
+            elif (is_mpi_gpu
+                  and host_factors['dev_offload_eff'][trace] == 'Non-Avail'):
                 host_factors['host_parallel_eff'][trace] = 'Non-Avail'
             elif is_mpi_gpu:
                 host_factors['host_parallel_eff'][trace] = (host_factors['mpi_parallel_eff'][trace]/100) \
