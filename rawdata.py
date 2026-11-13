@@ -12,7 +12,7 @@ import json
 from utils import which
 from collections import OrderedDict, defaultdict
 from nsys2prvmetrics import process_one_nsys2prv_trace, hwc_raw_data_doc
-from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label, is_host_gpu_mode, is_nsys2prv_mode, CUDA_LEGACY_LABEL_RE
+from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label, is_host_gpu_mode, is_nsys2prv_mode, CUDA_LEGACY_LABEL_RE, detect_offload_directives, offload_directives_label
 from utils import run_command, move_files,remove_files, create_temp_folder
 from simulatedtraces import skip_resimulation
 
@@ -70,6 +70,7 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('procs_ins', 'Procs with instructions (total)'),
                             ('useful_host', 'Useful Total duration on the Host'),
                             ('useful_host_max', 'Useful duration on the Host (maximum)'),
+                            ('offload_directives', 'Offloading directives (1 OpenMP target, 2 OpenACC, 3 both)'),
                             ('useful_hybrid_gpu_tot', 'Hybrid MPI+GPU useful duration (total)'),
                             ('useful_hybrid_gpu_avg', 'Hybrid MPI+GPU useful duration (average)'),
                             ('useful_hybrid_gpu_max', 'Hybrid MPI+GPU useful duration (maximum)'),
@@ -2826,6 +2827,10 @@ def init_cfgs():
 
     ### HIP
     cfgs['useful_host_hip'] = os.path.join(cfgs['root_dir'], 'useful_host_hip.cfg')
+    # Applications that offload with OpenMP target or OpenACC directives:
+    # the time inside the constructs is not useful Host time either.
+    cfgs['useful_host_offload'] = os.path.join(cfgs['root_dir'], 'useful_host_offload.cfg')
+    cfgs['useful_host_hip_offload'] = os.path.join(cfgs['root_dir'], 'useful_host_hip_offload.cfg')
     cfgs['useful_streams_hip'] = os.path.join(cfgs['root_dir'], 'useful_streams_state.cfg')
     cfgs['memtransfer_streams_hip'] = os.path.join(cfgs['root_dir'], 'memtransfer_streams_state.cfg')
 
@@ -3133,6 +3138,14 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
     
     
     if is_talp_gpu or is_mpi_gpu:
+        offload_directives = detect_offload_directives(trace)
+        trace_raw_data['offload_directives'] = offload_directives
+        if offload_directives:
+            useful_host_cfg = cfgs['useful_host_hip_offload' if is_hip
+                                   else 'useful_host_offload']
+            print("==> Offloading directives: {} (the time inside the "
+                  "constructs is not useful Host time)".format(
+                      offload_directives_label(offload_directives)))
         cmd_base.extend([
             useful_host_cfg,
             trace_name + '.useful_host.stats.csv'

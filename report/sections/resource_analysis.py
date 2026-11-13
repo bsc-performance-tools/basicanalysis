@@ -76,6 +76,18 @@ _HOST_FACTOR_METRICS = (
         2,
     ),
     (
+        "offload_load_balance",
+        "Offloading Load balance",
+        "offload",
+        3,
+    ),
+    (
+        "offload_comm_eff",
+        "Offloading Communication efficiency",
+        "offload",
+        3,
+    ),
+    (
         "host_comp_scale",
         "Host Computation scalability",
         "host",
@@ -463,6 +475,14 @@ class ResourceAnalysisBuilder:
                             ),
                             MetricAnalysisTreeNode(
                                 metric_id="dev_offload_eff",
+                                children=(
+                                    MetricAnalysisTreeNode(
+                                        metric_id="offload_load_balance",
+                                    ),
+                                    MetricAnalysisTreeNode(
+                                        metric_id="offload_comm_eff",
+                                    ),
+                                ),
                             ),
                         ),
                     ),

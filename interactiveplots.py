@@ -707,6 +707,14 @@ def _build_talp_metric_info():
             "label": "   == Offloading efficiency",
             "short_label": "   == Offload",
         },
+        "offload_load_balance": {
+            "label": "       -- Offloading Load balance",
+            "short_label": "      -- Offload LB",
+        },
+        "offload_comm_eff": {
+            "label": "       -- Offloading Communication efficiency",
+            "short_label": "      -- Offload Comm",
+        },
         "host_comp_scale": {
             "label": "-- Host Computation scalability",
             "short_label": "-- Host scale",
@@ -989,7 +997,10 @@ TALP_TREE = [
                     _tree_node("transfer_eff"),
                 ]),
             ]),
-            _tree_node("dev_offload_eff"),
+            _tree_node("dev_offload_eff", [
+                _tree_node("offload_load_balance"),
+                _tree_node("offload_comm_eff"),
+            ]),
         ]),
         _tree_node("host_comp_scale", [
             _tree_node("host_ipc_scale"),
@@ -1017,7 +1028,10 @@ HOST_TREE = [
                     _tree_node("transfer_eff"),
                 ]),
             ]),
-            _tree_node("dev_offload_eff"),
+            _tree_node("dev_offload_eff", [
+                _tree_node("offload_load_balance"),
+                _tree_node("offload_comm_eff"),
+            ]),
         ]),
         _tree_node("host_comp_scale", [
             _tree_node("host_ipc_scale"),
@@ -5494,7 +5508,7 @@ def _metric_family(metric_key, label=""):
     if "openmp" in label_lower:
         return "openmp"
 
-    if key == "dev_offload_eff":
+    if key in ("dev_offload_eff", "offload_load_balance", "offload_comm_eff"):
         return "host"
 
     if "mpi " in label_lower or key.startswith("mpi_"):
@@ -13247,6 +13261,8 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             "serial_eff",
             "transfer_eff",
             "dev_offload_eff",
+            "offload_load_balance",
+            "offload_comm_eff",
             "host_comp_scale",
             "host_ipc_scale",
             "host_inst_scale",
@@ -15083,6 +15099,8 @@ def _build_basicanalysis_printable_report_html(
             "serial_eff",
             "transfer_eff",
             "dev_offload_eff",
+            "offload_load_balance",
+            "offload_comm_eff",
             "host_comp_scale",
             "host_ipc_scale",
             "host_inst_scale",

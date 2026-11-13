@@ -788,6 +788,52 @@ def check_supported_models(trace_list, trace_mode):
     sys.exit(1)
 
 
+# --------------------------------------------------------------
+# Offloading directives (three parallel runtimes, case 1: the CPU
+# runtime is used only to offload). Extrae writes the OpenMP target
+# constructs (OMPT, event type 70008) and the OpenACC constructs
+# (66000000). See doc/design/three_runtime_hybrid.rst.
+# --------------------------------------------------------------
+
+OFFLOAD_OPENMP_TARGET = 1
+OFFLOAD_OPENACC = 2
+_OFFLOAD_DIRECTIVE_NAMES = ((OFFLOAD_OPENMP_TARGET, 'OpenMP target'),
+                            (OFFLOAD_OPENACC, 'OpenACC'))
+_PCF_OMP_TARGET_RE = re.compile(rb'^\s*\d+\s+70008\s', re.M)
+_PCF_OPENACC_RE = re.compile(rb'^\s*\d+\s+66000000\s', re.M)
+
+
+def detect_offload_directives(prv_file):
+    """Offloading directives defined in the .pcf of a trace, as a bit mask
+    (OFFLOAD_OPENMP_TARGET, OFFLOAD_OPENACC); 0 when there are none or the
+    .pcf is missing."""
+    if prv_file.endswith('.prv.gz'):
+        file_pcf = prv_file[:-7] + '.pcf'
+    else:
+        file_pcf = prv_file[:-4] + '.pcf'
+    try:
+        with open(file_pcf, 'rb') as handle:
+            text = handle.read()
+    except OSError:
+        return 0
+    mask = 0
+    if _PCF_OMP_TARGET_RE.search(text):
+        mask |= OFFLOAD_OPENMP_TARGET
+    if _PCF_OPENACC_RE.search(text):
+        mask |= OFFLOAD_OPENACC
+    return mask
+
+
+def offload_directives_label(mask):
+    """Names of the offloading directives of a mask, e.g. 'OpenMP target'."""
+    try:
+        mask = int(float(mask))
+    except (TypeError, ValueError):
+        return ''
+    return ' + '.join(name for bit, name in _OFFLOAD_DIRECTIVE_NAMES
+                      if mask & bit)
+
+
 # nsys2prv traces are CUDA traces: the trace mode names only the tool.
 NSYS2PRV_DISPLAY_MODE = 'nsys2prv'
 

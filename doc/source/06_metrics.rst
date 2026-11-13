@@ -1774,6 +1774,37 @@ values are normal and do not by themselves indicate a performance problem. A
 value that grows with scale indicates that the Host work between accelerator
 calls does not shrink, and that the CPU is gaining relevance.
 
+Offloading with directives
+""
+
+When the application offloads with OpenMP target or OpenACC directives
+(the trace has the OMPT target events, type 70008, or the OpenACC events,
+type 66000000) and runs one CPU thread per MPI process, the CPU runtime is
+used only to offload. The time inside the offloading constructs is then
+not useful Host time either, and BasicAnalysis decomposes Offloading
+Efficiency into its contributions to Load Balance and Communication
+Efficiency, like the MPI Parallel Efficiency:
+
+.. math::
+
+   Offloading\_LB = \frac{Host\_LB}{MPI\_LB}, \qquad
+   Offloading\_CommE = \frac{Host\_CommE}{MPI\_CommE}
+
+with :math:`Host\_LB = avg(UsefulHost) / max(UsefulHost)` and
+:math:`Host\_CommE = max(UsefulHost) / T`, so that
+:math:`Offloading\_Eff = Offloading\_LB \cdot Offloading\_CommE`.
+
+**Offloading Load Balance** above 100% means that the offloading compensates
+the MPI imbalance (the processes with more time outside MPI spend more of it
+offloading); below 100%, it adds imbalance. **Offloading Communication
+Efficiency** measures the CPU time lost to launching work on the
+accelerator and waiting for it: low values mean that the CPU threads wait
+in the offloading (synchronous offloading) instead of computing.
+
+The two rows are shown only for these applications. Applications that also
+compute with CPU threads (MPI + OpenMP threads + offloading) are not
+supported yet; see the design note ``doc/design/three_runtime_hybrid.rst``.
+
 
 Host Parallel Efficiency
 ^^^^^^^^^^^^^^^^^^^^^^^^

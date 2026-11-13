@@ -138,6 +138,8 @@ mod_host_factors_doc = OrderedDict([
                                ('serial_eff', '          -- Serialization efficiency'),
                                ('transfer_eff', '          -- Transfer efficiency'),
                                ('dev_offload_eff', '   == Offloading efficiency'),
+                               ('offload_load_balance', '       -- Offloading Load balance'),
+                               ('offload_comm_eff', '       -- Offloading Communication efficiency'),
                                ('host_comp_scale', '-- Host Computation scalability'),
                                ('host_ipc_scale', '   == IPC scalability'),
                                ('host_inst_scale', '   == Instruction scalability'),
@@ -236,6 +238,39 @@ def create_mod_device_factors(trace_list):
         device_factors[key] = trace_dict
 
     return device_factors
+
+def _offload_contributions(raw_data, host_factors, trace, is_mpi_gpu,
+                           outmpi_measures, list_mpi_procs_count):
+    """Load Balance and Communication contributions of Offloading
+    Efficiency, for MPI+GPU applications that offload with directives and
+    run one CPU thread per MPI process (doc/design/three_runtime_hybrid.rst,
+    case 1). 'N/A' for the other applications."""
+    try:
+        directives = int(float(raw_data.get('offload_directives', {})
+                               .get(trace, 0) or 0))
+    except (TypeError, ValueError):
+        directives = 0
+    try:
+        host_threads = int(raw_data['count_host_threads'][trace])
+        ranks = int(list_mpi_procs_count.get(trace, 0))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        host_threads, ranks = 0, -1
+    if not (directives and is_mpi_gpu and host_threads == ranks):
+        return 'N/A', 'N/A'
+    if not outmpi_measures:
+        return 'Non-Avail', 'Non-Avail'
+    try:
+        useful = float(raw_data['useful_host'][trace])
+        useful_max = float(raw_data['useful_host_max'][trace])
+        runtime = float(raw_data['runtime'][trace])
+        host_lb = (useful / host_threads) / useful_max
+        host_comm = useful_max / runtime
+        mpi_lb = float(host_factors['mpi_load_balance'][trace]) / 100
+        mpi_comm = float(host_factors['mpi_comm_eff'][trace]) / 100
+        return 100 * host_lb / mpi_lb, 100 * host_comm / mpi_comm
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return 'NaN', 'NaN'
+
 
 def create_mod_host_factors(trace_list):
     """Creates 2D dictionary of the host factors at host level and initializes with an empty
@@ -970,6 +1005,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
     mod_factors_scale_plus_io = create_mod_factors_scale_io(trace_list)
     device_factors = create_mod_device_factors(trace_list)
     host_factors = create_mod_host_factors(trace_list)
+    # Shown only for applications that offload with directives (see
+    # _offload_contributions); 'N/A' hides them for the others.
+    for key in ('offload_load_balance', 'offload_comm_eff'):
+        host_factors[key] = {trace: 'N/A' for trace in trace_list}
     hyb_comm_omp_factors = create_hyb_comm_omp_factors(trace_list)
     omp_talp_factors = create_omp_talp_factors(trace_list)
 
@@ -1720,6 +1759,16 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         except:
             host_factors['host_parallel_eff'][trace] = 'NaN'    
 
+        ### Offloading Load Balance and Communication (three parallel
+        ### runtimes, case 1: the CPU runtime only offloads with OpenMP
+        ### target or OpenACC directives, one CPU thread per MPI process).
+        ### Offloading Efficiency = Host PE / MPI PE, split as
+        ### (Host LB / MPI LB) x (Host CommE / MPI CommE).
+        host_factors['offload_load_balance'][trace], \
+            host_factors['offload_comm_eff'][trace] = _offload_contributions(
+                raw_data, host_factors, trace, is_mpi_gpu, outmpi_measures,
+                list_mpi_procs_count)
+
     # ------->  Devices metrics
         try:  # except NaN
             if not outmpi_measures and not is_host_gpu:
@@ -2460,7 +2509,11 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
     print('\n Overview of the Efficiency metrics:')
 
     longest_name = len(sorted(mod_hybrid_factors_doc.values(), key=len)[-1])
-    
+    # Wider when the Host table shows longer labels (Offloading rows).
+    longest_name = max([longest_name] + [
+        len(mod_host_factors_doc[key])
+        for key in _talp_host_keys(host_factors, trace_list)])
+
     line = 'Configuration'.rjust(longest_name)
     line_trace_mode = 'Trace mode'.rjust(longest_name)
 

@@ -1085,6 +1085,66 @@ metrics:
     children: []
     sources:
     - basicanalysis_host_device
+  offload_load_balance:
+    name: Offloading Load Balance
+    short_name: Offload LB
+    family: host
+    analysis_level: execution_domain
+    metric_type: efficiency_contribution
+    definition: >
+      Measures the contribution of the offloading to the Load Balance of
+      the Host, in applications that offload with OpenMP target or OpenACC
+      directives and run one CPU thread per MPI process. It compares how
+      evenly the useful Host computation is distributed across the processes
+      with how evenly the time outside MPI is distributed.
+    formula:
+      text: OffloadingLB = HostLB / MPI_LB, with HostLB = average UsefulHost / maximum UsefulHost
+      latex: OffloadingLB = \frac{HostLB}{MPI\_LB}
+    interpretation:
+      low: Values below 100% indicate that the offloading adds imbalance to the Host, because some processes spend
+        a larger share of their time outside MPI in the offloading than others.
+      high: Values near 100% indicate that the offloading does not change the balance of the Host.
+      above_100: Values above 100% indicate that the offloading compensates the MPI imbalance (the processes
+        with more time outside MPI spend more of it offloading). It is a relative contribution, not an
+        efficiency above 100%.
+    typical_causes:
+    - Different amount of offloaded work per process
+    - Different offloading or waiting time per process
+    next_steps:
+    - Compare the time in the offloading constructs and accelerator calls per process.
+    children: []
+    sources:
+    - basicanalysis_host_device
+  offload_comm_eff:
+    name: Offloading Communication Efficiency
+    short_name: Offload Comm
+    family: host
+    analysis_level: execution_domain
+    metric_type: efficiency_contribution
+    definition: >
+      Measures the contribution of the offloading to the Communication
+      Efficiency of the Host, in applications that offload with OpenMP
+      target or OpenACC directives and run one CPU thread per MPI process:
+      the CPU time lost to launching work on the accelerator and, mainly,
+      waiting for it, beyond the MPI losses.
+    formula:
+      text: OffloadingCommE = HostCommE / MPI_CommE, with HostCommE = maximum UsefulHost / runtime
+      latex: OffloadingCommE = \frac{HostCommE}{MPI\_CommE}
+    interpretation:
+      low: Low values indicate that the CPU threads wait in the offloading (synchronous offloading) instead
+        of computing or communicating. In GPU-centric applications this is expected; it matters when the
+        CPU could overlap work with the device.
+      high: High values indicate that the offloading takes little CPU time.
+      above_100: Values above 100% are not expected and should be checked.
+    typical_causes:
+    - Synchronous offloading (waiting for each kernel)
+    - Frequent small kernels or data transfers
+    next_steps:
+    - Inspect the time in the offloading constructs and in the synchronization calls of the accelerator.
+    - Consider asynchronous offloading (nowait, async) to overlap CPU work with the device.
+    children: []
+    sources:
+    - basicanalysis_host_device
   host_comp_scale:
     name: Host Computation Scalability
     short_name: Host Scale
