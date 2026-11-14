@@ -791,15 +791,32 @@ def check_supported_models(trace_list, trace_mode):
 # --------------------------------------------------------------
 # Offloading directives (three parallel runtimes, case 1: the CPU
 # runtime is used only to offload). Extrae writes the OpenMP target
-# constructs (OMPT, event type 70008) and the OpenACC constructs
-# (66000000). See doc/design/three_runtime_hybrid.rst.
+# constructs as event type 70008 (OMPT-based tracer), 60000034 (released
+# Extrae, GCC runtime, OpenMP support of the *ompitrace libraries) or 60010
+# (released Extrae, GCC runtime, *newompitrace libraries), and the OpenACC
+# constructs as 66000000. See doc/design/three_runtime_hybrid.rst.
 # --------------------------------------------------------------
 
 OFFLOAD_OPENMP_TARGET = 1
 OFFLOAD_OPENACC = 2
 _OFFLOAD_DIRECTIVE_NAMES = ((OFFLOAD_OPENMP_TARGET, 'OpenMP target'),
                             (OFFLOAD_OPENACC, 'OpenACC'))
-_PCF_OMP_TARGET_RE = re.compile(rb'^\s*\d+\s+70008\s', re.M)
+OMP_TARGET_EVENT_TYPES = ('70008', '60000034', '60010')
+_PCF_OMP_TARGET_RE = re.compile(
+    rb'^\s*\d+\s+(?:' + '|'.join(OMP_TARGET_EVENT_TYPES).encode() + rb')\s',
+    re.M)
+# OpenMP parallel regions: 60000001 (ompitrace), 60002 (newompitrace),
+# 70003 (OMPT-based tracer). Without them, the OpenMP events of a trace are
+# only target constructs: the CPU threads do not run OpenMP regions.
+_PCF_OMP_PARALLEL_RE = re.compile(rb'^\s*\d+\s+(?:60000001|60002|70003)\s',
+                                  re.M)
+
+
+def is_openmp_offload_only(pcf_text):
+    """True when the OpenMP events of a .pcf are only OpenMP target
+    constructs, without parallel regions: OpenMP is used only to offload."""
+    return (_PCF_OMP_TARGET_RE.search(pcf_text) is not None
+            and _PCF_OMP_PARALLEL_RE.search(pcf_text) is None)
 _PCF_OPENACC_RE = re.compile(rb'^\s*\d+\s+66000000\s', re.M)
 
 
@@ -1057,6 +1074,9 @@ def _detect_mode_from_pcf(file_pcf, base_mode):
         has_pthreads = mm.find(PCF_PTHREADS) != -1
         has_omp = (mm.find(PCF_OMP) != -1 and
                    mm.find(PCF_OMP_EXCLUDE) != mm.find(PCF_OMP))
+        # OpenMP target constructs alone are offloading, not CPU threading
+        if has_omp and is_openmp_offload_only(mm[:]):
+            has_omp = False
         has_cuda = (mm.find(PCF_CUDA_1) != -1 or
                     mm.find(PCF_CUDA_2) != -1 or
                     mm.find(PCF_CUDA_3) != -1)

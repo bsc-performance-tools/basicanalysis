@@ -33,10 +33,47 @@ class DetectOffloadDirectivesTest(unittest.TestCase):
         self.assertEqual(
             tracemetadata.detect_offload_directives('/nonexistent/x.prv'), 0)
 
+    def test_released_extrae_openmp_target(self):
+        # GCC runtime traced by the released Extrae: ompitrace (60000034)
+        # and newompitrace (60010)
+        for code in ('60000034', '60010'):
+            prv = self._pcf("EVENT_TYPE\n0    %s    OpenMP target\n" % code)
+            self.assertEqual(tracemetadata.detect_offload_directives(prv),
+                             tracemetadata.OFFLOAD_OPENMP_TARGET, code)
+
     def test_label(self):
         self.assertEqual(tracemetadata.offload_directives_label(3),
                          'OpenMP target + OpenACC')
         self.assertEqual(tracemetadata.offload_directives_label(0), '')
+
+
+MPI_CUDA_PCF = ("EVENT_TYPE\n"
+                "0    50000001    MPI Point-to-point\n"
+                "0    63000000    CUDA library call\n")
+
+
+class OpenMPOffloadModeTest(unittest.TestCase):
+    """OpenMP target constructs alone are offloading, not CPU threading:
+    the trace stays MPI+CUDA instead of the unsupported MPI+OpenMP+CUDA."""
+
+    def _mode(self, extra):
+        folder = tempfile.mkdtemp()
+        path = os.path.join(folder, 'app.pcf')
+        with open(path, 'w') as handle:
+            handle.write(MPI_CUDA_PCF + extra)
+        return tracemetadata._detect_mode_from_pcf(path, 'Detailed')
+
+    def test_target_only_is_not_openmp(self):
+        for extra in ("0    60000034    OpenMP target\n",
+                      "0    60000    OpenMP call\n0    60010    OpenMP Target\n"):
+            self.assertEqual(self._mode(extra), 'Detailed+MPI+CUDA', extra)
+
+    def test_parallel_regions_are_openmp(self):
+        for extra in ("0    60000001    Parallel (OMP)\n0    60000034    OpenMP target\n",
+                      "0    60000    OpenMP call\n0    60002    OpenMP Parallel\n"
+                      "0    60010    OpenMP Target\n",
+                      "0    60000018    Parallel function\n"):
+            self.assertEqual(self._mode(extra), 'Detailed+MPI+OpenMP+CUDA', extra)
 
 
 class OffloadContributionsTest(unittest.TestCase):

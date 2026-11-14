@@ -6,12 +6,16 @@
 
 - Offloading with directives (MPI + OpenMP target or OpenACC + CUDA/HIP,
   one CPU thread per MPI process). BasicAnalysis detects the OpenMP target
-  (OMPT, event type 70008) and OpenACC (66000000) constructs in the `.pcf`,
-  excludes the time inside them from the useful Host time, and decomposes
+  constructs (event type 70008 of the OMPT-based tracer of Extrae; 60000034
+  and 60010 of the released Extrae for programs built with GCC) and the
+  OpenACC constructs (66000000) in the `.pcf`, excludes the time inside
+  them from the useful Host time, and decomposes
   Offloading Efficiency into **Offloading Balance Contribution** = Host LB / MPI LB
   and **Offloading Communication Efficiency** = Host CommE / MPI CommE,
-  shown under Offloading Efficiency in the Host table. Other applications
-  do not change.
+  shown under Offloading Efficiency in the Host table. A trace whose only
+  OpenMP events are target constructs, without parallel regions, is analyzed
+  as MPI+CUDA or MPI+HIP with offloading, not as MPI+OpenMP+CUDA. Other
+  applications do not change.
 - Adjustable efficiency thresholds. `--thresholds CRITICAL,ATTENTION`
   (default 60,85) sets the thresholds of every efficiency metric: the colors
   of the efficiency tables of the report and of the static heatmaps, the

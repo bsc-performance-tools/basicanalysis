@@ -1777,10 +1777,17 @@ calls does not shrink, and that the CPU is gaining relevance.
 Offloading with directives
 """"""""""""""""""""""""""
 
-When the application offloads with OpenMP target or OpenACC directives
-(the trace has the OMPT target events, type 70008, or the OpenACC events,
-type 66000000) and runs one CPU thread per MPI process, the CPU runtime is
-used only to offload. The time inside the offloading constructs is then
+When the application offloads with OpenMP target or OpenACC directives and
+runs one CPU thread per MPI process, the CPU runtime is used only to
+offload. BasicAnalysis recognizes the OpenMP target constructs written by
+the OMPT-based tracer of Extrae (event type 70008) and by the released
+Extrae for programs built with GCC (60000034 with the ``*ompitrace``
+libraries, 60010 with the ``*newompitrace`` libraries), and the OpenACC
+constructs (66000000). The released Extrae records the OpenMP target
+constructs only through the GCC OpenMP runtime: programs built with other
+compilers, such as the NVIDIA HPC SDK, show no OpenMP events. A trace whose
+only OpenMP events are target constructs, without parallel regions, is
+analyzed as MPI+CUDA or MPI+HIP with offloading, not as MPI+OpenMP+CUDA. The time inside the offloading constructs is then
 not useful Host time either, and BasicAnalysis decomposes Offloading
 Efficiency into its contributions to Load Balance and Communication
 Efficiency, like the MPI Parallel Efficiency:
