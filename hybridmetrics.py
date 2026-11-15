@@ -546,6 +546,26 @@ def _build_hybrid_configuration_labels(
                 total_gpu_streams = None
                 streams_per_rank = -1
 
+            # The streams counted in the .row, when there are host threads
+            # besides one per rank (for example threads that were never
+            # created): the rows of the trace are not ranks + streams then.
+            try:
+                row_streams = int(float(
+                    raw_data.get('count_gpu_streams', {}).get(trace, 0)))
+                host_threads = int(float(
+                    raw_data.get('count_host_threads', {}).get(trace, 0)))
+            except (TypeError, ValueError, AttributeError):
+                row_streams, host_threads = 0, 0
+            if row_streams > 0 and row_streams != total_gpu_streams:
+                total_gpu_streams = row_streams
+                try:
+                    streams_per_rank = int(float(
+                        raw_data['gpu_streams_per_rank'][trace]))
+                except (KeyError, TypeError, ValueError):
+                    streams_per_rank = -1
+                parallel_units = (host_threads or int(mpi_ranks)) \
+                    + row_streams
+
             label = format_configuration_label(
                 model_key="mpi_gpu",
                 processes=parallel_units,

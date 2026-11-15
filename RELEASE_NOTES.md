@@ -307,6 +307,26 @@
 
 ### Fixes
 
+- **Host threads that were never created were counted.** Extrae writes a
+  row for each thread of `OMP_NUM_THREADS`, also when the application never
+  starts them (for example, OpenMP target with one CPU thread per process,
+  run with `srun`, which sets `OMP_NUM_THREADS` to the `-c` value). A Laplace
+  OpenMP target trace with 4 processes and 20 threads per process gave the
+  configuration `84 (4x20) [4D]` and hid the Offloading Balance Contribution
+  and Offloading Communication Efficiency rows (80 Host threads, not one per
+  process). Host threads that are at least 99% of the time in the Not
+  created state are no longer counted, and the standard output says how
+  many: the same trace gives `8 (4x1) [4D]` and the two rows.
+
+- **Average frequency of 72.91 GHz.** The frequency histogram computed its
+  range from the data, so one wrong counter value (4.8 million cycles/us,
+  written by Extrae on an empty thread when it flushes its buffer at the end)
+  made the bins 25,000 cycles/us wide. The histogram now has a fixed range of
+  1 to 10,001 cycles/us (up to 10 GHz) in bins of 10 cycles/us; values out of
+  it (no cycles, or impossible frequencies) are left out. The trace above
+  gives 2.13 GHz; traces without empty threads change by less than 0.05 GHz
+  (CloverLeaf CUDA 2.15 to 2.14 GHz, Laplace OpenACC 1.95 to 1.91 GHz).
+
 - **Host threads without Running state were reported as useful all the
   time.** When no Host thread is ever in the Running state (for example a
   badly cut trace, with state records that span the whole cut), Paraver

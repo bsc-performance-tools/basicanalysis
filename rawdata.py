@@ -80,6 +80,7 @@ raw_data_doc = OrderedDict([('runtime', 'Runtime (us)'),
                             ('useful_memtransf_device_max', 'Useful+MemoryTransfer on the device (maximum)'),
                             ('count_devices', 'Count of Devices'),
                             ('count_host_threads', 'Count of Host Threads'),
+                            ('count_host_threads_never_created', 'Host threads never created (not counted)'),
                             ('count_gpu_streams', 'Count of GPU streams'),
                             ('gpu_streams_per_rank', 'GPU streams per MPI rank'),
                             ('time_no_omp', 'Useful + MPI time.'),
@@ -197,6 +198,61 @@ def count_host_threads_from_row(row_path):
         for label in thread_to_label.values()
         if str(label).strip().startswith("THREAD ")
     )
+
+
+# Label of the Not created column (state 2): 'Unknown state 2' when Paraver
+# has no .pcf with the state names.
+NOT_CREATED_COLUMN_LABELS = ('Not created', 'Unknown state 2', '2')
+
+# A host thread is taken as never created when at least this fraction of its
+# time is in the Not created state. Extrae writes a very short record at the
+# end of the run (the flush of its buffer) also on these threads.
+NEVER_CREATED_FRACTION = 0.99
+
+
+def count_never_created_host_threads(path):
+    """Number of host threads (THREAD app.task.thread rows) of timings.stats
+    that are almost all the time in the Not created state.
+
+    Extrae creates a row for each thread of OMP_NUM_THREADS, also when the
+    application never starts them (for example, OpenMP target regions with
+    one CPU thread per process and OMP_NUM_THREADS left at the number of
+    cores). These rows are not execution units of the run. Returns 0 when
+    the file has no Not created column.
+    """
+    with open(path) as f:
+        header = f.readline().rstrip('\n').split('\t')
+
+        columns = [field.strip() for field in header]
+        try:
+            not_created = next(
+                index for index, field in enumerate(columns)
+                if field in NOT_CREATED_COLUMN_LABELS)
+        except StopIteration:
+            return 0
+
+        count = 0
+        for raw_line in f:
+            parts = raw_line.rstrip('\n').split('\t')
+            if not parts or not is_host_row_label(parts[0]):
+                continue
+
+            values = []
+            for field in parts[1:]:
+                field = field.strip()
+                try:
+                    values.append(float(field) if field else 0.0)
+                except ValueError:
+                    values.append(0.0)
+
+            total = sum(value for value in values if value > 0.0)
+            index = not_created - 1
+            if total <= 0.0 or index >= len(values):
+                continue
+            if values[index] >= NEVER_CREATED_FRACTION * total:
+                count += 1
+
+    return count
 
 # ----------------------------------------------------------------------
 # Helper functions to parser data from paramedir outputs.
@@ -3605,7 +3661,20 @@ def process_one_trace(trace, trace_process_count, trace_task_per_node_value,
         trace_raw_data['io_state_max'] = timings_data['io_state_max']
         trace_raw_data['useful_plus_io_avg'] = timings_data['useful_plus_io_avg']
         trace_raw_data['useful_plus_io_max'] = timings_data['useful_plus_io_max']
+
+        # Host threads that the application never started are not counted.
+        never_created = count_never_created_host_threads(
+            trace_name + '.timings.stats.csv')
+        trace_raw_data['count_host_threads_never_created'] = never_created
+        if never_created and trace_raw_data.get('count_host_threads'):
+            trace_raw_data['count_host_threads'] = max(
+                0, int(trace_raw_data['count_host_threads']) - never_created)
+            print("==> Host threads never created (not counted): {} of {}"
+                  .format(never_created,
+                          trace_raw_data['count_host_threads']
+                          + never_created))
     else:
+        trace_raw_data['count_host_threads_never_created'] = 0
         trace_raw_data['useful_tot'] = 'NaN'
         trace_raw_data['useful_avg'] = 'NaN'
         trace_raw_data['useful_max'] = 'NaN'
