@@ -8745,7 +8745,6 @@ def _build_interactive_report_document(workspace_html,
         .threshold-slider {
             position: relative;
             flex: 1 1 260px;
-            max-width: 420px;
             height: 34px;
             margin: 0 8px;
         }
@@ -8854,6 +8853,26 @@ def _build_interactive_report_document(workspace_html,
 
         [data-basicanalysis-printable-report] .efficiency-threshold-controls {
             display: none;
+        }
+
+        /* On screen the slider is the colour bar of the scale. The fixed
+           bar stays only where the slider is hidden: the printable report
+           and the printed page. */
+        @media screen {
+            .efficiency-scale-panel:not([data-basicanalysis-printable-report] *) .efficiency-gradient {
+                display: none;
+            }
+
+            .efficiency-scale-panel:not([data-basicanalysis-printable-report] *) .efficiency-scale-compact-labels {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 2px 18px;
+            }
+
+            .efficiency-scale-panel:not([data-basicanalysis-printable-report] *) .efficiency-scale-compact-labels span {
+                padding: 0;
+                text-align: left;
+            }
         }
 
         .efficiency-threshold-note {
