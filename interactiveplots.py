@@ -382,17 +382,24 @@ _THRESHOLD_SCRIPT = """
     // Bands, value bubbles and accessible values of the threshold slider.
     var THUMB = 16;
 
-    function paintSlider(panel, t) {
-        var bands = {
-            critical: t.critical,
-            attention: t.attention - t.critical,
-            good: Math.max(0, 100 - t.attention)
-        };
-        Object.keys(bands).forEach(function (key) {
-            var band = panel.querySelector(
-                "[data-threshold-band='" + key + "']");
-            if (band) { band.style.width = bands[key] + "%"; }
+    // The track shows, at each value, the colour a cell with that value
+    // gets with thresholds `t`: the same colours as the table cells.
+    function sliderGradient(t) {
+        var values = [t.critical, t.attention];
+        for (var v = 0; v <= 100; v += 2.5) { values.push(v); }
+        values.sort(function (a, b) { return a - b; });
+        var stops = [];
+        values.forEach(function (value, i) {
+            if (i === 0 || value !== values[i - 1]) {
+                stops.push(color(value, t) + " " + value + "%");
+            }
         });
+        return "linear-gradient(to right, " + stops.join(", ") + ")";
+    }
+
+    function paintSlider(panel, t) {
+        var track = panel.querySelector(".threshold-slider-track");
+        if (track) { track.style.background = sliderGradient(t); }
         var names = {critical: "Critical below ", attention: "Good from "};
         ["critical", "attention"].forEach(function (key) {
             var bubble = panel.querySelector(
@@ -4480,17 +4487,7 @@ def _build_efficiency_scale_html(thresholds=None):
         <div class="efficiency-threshold-controls">
             <span class="threshold-slider-label">Thresholds</span>
             <div class="threshold-slider" data-threshold-slider>
-                <div class="threshold-slider-track" aria-hidden="true">
-                    <span class="threshold-band-critical"
-                          data-threshold-band="critical"
-                          style="width: {critical:g}%;"></span>
-                    <span class="threshold-band-attention"
-                          data-threshold-band="attention"
-                          style="width: {attention_band:g}%;"></span>
-                    <span class="threshold-band-good"
-                          data-threshold-band="good"
-                          style="width: {good_band:g}%;"></span>
-                </div>
+                <div class="threshold-slider-track" aria-hidden="true"></div>
                 <input type="range" data-threshold-input="critical"
                        min="0.5" max="99.5" step="0.5" value="{critical:g}"
                        aria-label="Critical below (%)"
@@ -4530,8 +4527,6 @@ def _build_efficiency_scale_html(thresholds=None):
         critical_width=critical_width,
         attention_width=attention_width,
         acceptable_width=acceptable_width,
-        attention_band=float(attention) - float(critical),
-        good_band=max(0.0, 100.0 - float(attention)),
         note=_threshold_origin_note(),
     )
 
@@ -8764,11 +8759,15 @@ def _build_interactive_report_document(workspace_html,
             height: 8px;
             border-radius: 4px;
             overflow: hidden;
+            /* Colours of the default thresholds; the script repaints the
+               track with the colours of the thresholds of the view. */
+            background: linear-gradient(
+                to right,
+                #b2182b 0%, #ef6548 20%, #fdbb84 40%,
+                #fee8a8 60%, #ffffbf 75%, #d9ef8b 85%,
+                #b8e186 92%, #4dac26 100%
+            );
         }
-
-        .threshold-band-critical { background: #f4a582; }
-        .threshold-band-attention { background: #fee08b; }
-        .threshold-band-good { background: #a6d96a; }
 
         .threshold-slider input[type="range"] {
             position: absolute;
