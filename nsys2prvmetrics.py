@@ -852,6 +852,15 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
                     thread_obj, host_calls.get(thread_obj, 0.0),
                     runtime - host_calls.get(thread_obj, 0.0)))
 
+    # paramedir writes no file when none of the events of a filter is in the
+    # trace. Without the kernel timeline the Device useful time is 0, and the
+    # Device metrics are 0 or NaN: say why.
+    if os.path.exists(stats['runtime']) and not os.path.exists(
+            stats['kernels_streams']):
+        print('==WARNING== paramedir found no CUDA kernel events (63000006) '
+              'on the GPU streams: the Device useful time is 0 and the '
+              'Device metrics are not meaningful.')
+
     time_agg = time.time()
     gpu_agg = aggregate_nsys2prv_device_metrics(
         parse_nsys2prv_timeline(stats['kernels_streams']),

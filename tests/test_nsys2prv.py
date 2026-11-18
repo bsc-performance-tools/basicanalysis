@@ -459,3 +459,30 @@ class TestNsys2prvHostUnits(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Nsys2prvCfgFilterTests(unittest.TestCase):
+    """The cfgs of the fixed nsys2prv events select them by code only.
+
+    nsys2prv renamed 63000006 from "CUDA kernel" to "CUDA kernel execution";
+    paramedir drops a filter whose label is not in the .pcf, and the Device
+    useful time became 0.
+    """
+
+    CFG_DIR = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), 'cfgs', 'nsys2prv')
+
+    def test_fixed_events_have_no_label(self):
+        expected = {
+            'kernels_streams.cfg': '63000006',
+            'memcpy_streams.cfg': '63000001',
+            'nccl_streams.cfg': '63000007',
+            'cuda_calls_host.cfg': '63000000',
+        }
+        for name, code in expected.items():
+            with open(os.path.join(self.CFG_DIR, name)) as cfg:
+                content = cfg.read()
+            self.assertIn('window_filter_module evt_type 1 ' + code, content,
+                          name)
+            self.assertNotIn('window_filter_module evt_type_label', content,
+                             name)
