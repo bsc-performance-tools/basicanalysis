@@ -83,6 +83,12 @@ def build_argument_parser():
                                      unit,
                                      ', and Speedup and Scaling Efficiency use the Device workload'
                                      if domain == 'device' else ''))
+    parser.add_argument("--nsys2prv-events", metavar="FILE", type=_nsys2prv_events_argument,
+                        default=None,
+                        help='nsys2prv traces: file with the codes or labels of the events, one '
+                             '"name = code" or "name = label" line per event (kernel, memcpy, nccl, '
+                             'cuda_calls, and the GPU hardware counters). Only needed when an event '
+                             'is not found in the .pcf of the traces')
     parser.add_argument("--thresholds", metavar="CRITICAL,ATTENTION", type=_thresholds_argument,
                         default=None,
                         help='efficiency thresholds, in %%, of the colors of the efficiency tables and '
@@ -147,6 +153,15 @@ def add_sort_arguments(parser, workload_options=True):
     parser.add_argument('-ord', '--order_traces', dest='order_traces', choices=['yes', 'not'],
                         action=_DeprecatedOrderAction,
                         help='deprecated: use --no-sort instead of "-ord not"')
+
+
+def _nsys2prv_events_argument(path):
+    """argparse type of --nsys2prv-events: the event map, read once."""
+    from nsys2prvevents import read_event_map
+    try:
+        return read_event_map(path)
+    except (OSError, ValueError) as error:
+        raise argparse.ArgumentTypeError(str(error))
 
 
 def _thresholds_argument(text):

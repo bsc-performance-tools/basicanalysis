@@ -1127,7 +1127,18 @@ def is_nsys2prv_pcf(file_pcf):
     if has_states:
         return False
 
-    return any(label in content for label in NSYS2PRV_PCF_LABELS)
+    if any(label in content for label in NSYS2PRV_PCF_LABELS):
+        return True
+
+    # Newer or older nsys2prv versions may rename these events: look for the
+    # label patterns of the nsys2prv events (nsys2prvevents.FIXED_EVENTS).
+    from nsys2prvevents import FIXED_EVENTS, parse_pcf_event_types
+    patterns = [re.compile(spec.pattern, re.IGNORECASE)
+                for name, spec in FIXED_EVENTS.items()
+                if name in ('memcpy', 'nccl') and spec.pattern]
+    return any(pattern.search(label.strip())
+               for _code, label in parse_pcf_event_types(file_pcf)
+               for pattern in patterns)
 
 
 def get_trace_mode(prv_file, cmdl_args, trace_mode):

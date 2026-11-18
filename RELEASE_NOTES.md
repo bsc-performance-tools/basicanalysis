@@ -164,6 +164,19 @@
   line of the standard output is the command line of the run, which the
   Execution Overview of the report also shows.
 
+- Event codes of nsys2prv traces found in each trace. The labels, and
+  sometimes the codes, of the nsys2prv events change between nsys2prv and
+  Nsight Systems versions. BasicAnalysis looks up each event it needs in the
+  `.pcf` of each trace (known labels, then a label pattern, then the usual
+  code), rewrites its configurations for that trace with the codes found,
+  and lists them in the standard output. The values of the memory copy
+  event are also found by their labels. An event with a new code and a new
+  label is reported, and its code can be given with
+  `--nsys2prv-events FILE`. `python3 nsys2prvevents.py` rewrites other
+  Paraver configurations (for example, the user's own) for a trace in the
+  same way, optionally translating every event from the `.pcf` of a trace
+  the configurations already work with (`--reference`).
+
 ### Changes
 
 - Workload indicators in the report. The metrics computed with a
@@ -275,6 +288,12 @@
 
 ### Fixes
 
+- **Device metrics of nsys2prv traces were 0 or NaN with newer nsys2prv
+  versions.** nsys2prv renamed the GPU kernel event (`63000006`) from
+  `CUDA kernel` to `CUDA kernel execution`, and paramedir drops a filter whose
+  label is not in the `.pcf`: no kernel was found, and the Device useful
+  time was 0. The configurations of the CUDA events now select them by code
+  only, and BasicAnalysis warns when no kernel is found.
 - **Device Offload Efficiency of nsys2prv traces counted the helper threads
   as useful Host time.** Nsight Systems records every thread of a process
   (for example, 7 per process in NCCL ring benchmarks), and the threads that

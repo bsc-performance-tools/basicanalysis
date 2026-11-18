@@ -519,6 +519,68 @@ The thresholds can also be changed in each view of the report, without
 running BasicAnalysis again (see :ref:`sec:report-thresholds`).
 
 
+.. _sec:nsys2prv-events:
+
+Event codes of nsys2prv traces
+==============================
+
+The labels, and sometimes the codes, of the events written by *nsys2prv*
+change between *nsys2prv* versions, Nsight Systems versions, and machines
+(for example, the GPU kernel event ``63000006`` was ``CUDA kernel`` and is
+now ``CUDA kernel execution``). BasicAnalysis therefore looks up each event
+it needs in the ``.pcf`` file of each trace: first by its known labels, then
+by a label pattern (for example ``HIP kernel``), and finally by its usual
+code, when only the label changed. The hardware counters are only looked up
+by their label, because their codes depend on the sampled metric set. The
+configurations are then rewritten for that trace with the codes found and
+without labels. The standard output lists the code found for each event and
+how it was found:
+
+.. code-block:: text
+
+   ==> nsys2prv events found in the .pcf:
+       kernel             63000006   "CUDA kernel execution" (label)
+       memcpy             63000001   "CUDA memcpy kernel" (label)
+       ...
+       memcpy values      d2d=3, d2h=4, h2d=5, memset=6 (value labels)
+
+When an event has both a new code and a new label, it is not found, and
+BasicAnalysis prints a warning. Its code (or its label) can then be given in
+a file:
+
+.. code-block:: text
+
+   --nsys2prv-events <file>
+
+with one ``name = code`` or ``name = "label"`` line per event, for example:
+
+.. code-block:: text
+
+   # traces of machine X
+   kernel = 63000009
+   memcpy = "CUDA memcpy kernel"
+
+The names are ``kernel``, ``memcpy``, ``nccl``, ``cuda_calls``, and the
+hardware counters ``gpc_clock``, ``gr_active``, ``sms_active``,
+``sm_issue``, ``tensor_active``, ``warps_in_flight``,
+``unallocated_warps``, ``dram_read``, and ``dram_write``.
+
+The same lookup can rewrite your own Paraver configurations for a trace:
+
+.. code-block:: text
+
+   python3 nsys2prvevents.py --pcf <trace>.pcf [--reference <old trace>.pcf] \
+       [--nsys2prv-events <file>] [-o <folder>] <cfg> [<cfg> ...]
+
+Without ``--reference``, the configurations are taken to use the usual
+codes (``63000006`` for the kernels...). With ``--reference``, the ``.pcf``
+of a trace the configurations already work with, every event of the
+configurations is translated, including events BasicAnalysis does not use
+(for example NVTX), by its label. The rewritten configurations are written
+to ``cfgs-<trace name>`` (or the folder given with ``-o``), and the codes
+used are printed.
+
+
 Maximum trace size
 ==================
 

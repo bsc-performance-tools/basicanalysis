@@ -48,6 +48,7 @@ from tracemetadata import (
     NSYS2PRV_METRICS_LABEL_RE,
 )
 from utils import run_command, move_files
+import nsys2prvevents
 
 
 # Values of the CUDA memcpy event (63000001) in nsys2prv traces.
@@ -563,7 +564,8 @@ def create_device_hwc_factors(raw_data, trace_list):
 
 
 def aggregate_nsys2prv_device_metrics(kernel_rows, memcpy_rows, nccl_rows,
-                                      stream_to_device):
+                                      stream_to_device,
+                                      memory_values=MEMORY_OPERATION_VALUES):
     """Aggregate the Device activity per device.
 
     Each *_rows argument is a list of (thread_obj, start, end, value) in
@@ -576,7 +578,11 @@ def aggregate_nsys2prv_device_metrics(kernel_rows, memcpy_rows, nccl_rows,
     Per stream (for the Parallel Runtime Model, as the Running state of each
     stream in Extrae traces):
       useful        = | union(kernels of the stream) |
+
+    memory_values: values of the memcpy event that are memory operations
+    (found in the .pcf of the trace, nsys2prvevents.resolve_memory_values).
     """
+    memory_values = {float(value) for value in memory_values}
     from rawdata import merge_intervals, subtract_intervals, sum_intervals
 
     useful_by_device = defaultdict(list)
@@ -591,7 +597,7 @@ def aggregate_nsys2prv_device_metrics(kernel_rows, memcpy_rows, nccl_rows,
 
     for thread_obj, start, end, value in memcpy_rows:
         device_key = stream_to_device.get(thread_obj)
-        if device_key is not None and value in MEMORY_OPERATION_VALUES:
+        if device_key is not None and value in memory_values:
             comm_by_device[device_key].append((start, end))
 
     for thread_obj, start, end, value in nccl_rows:
@@ -672,6 +678,69 @@ def parse_nsys2prv_timeline(path):
             ))
 
     return rows
+
+
+def resolve_nsys2prv_events(pcf_path, event_map=None):
+    """Find the nsys2prv events in the .pcf of a trace and print them.
+
+    Returns {'resolution': {name: Resolution}, 'codes': {reference code:
+    code in the trace, or None}, 'memory_values': values of the memcpy
+    event that are memory operations}.
+    """
+    from rawdata import parse_pcf_event_values
+
+    resolution = nsys2prvevents.resolve_events(pcf_path, event_map)
+    memcpy_code = resolution['memcpy'].code
+    if memcpy_code is not None:
+        memory, memory_how = nsys2prvevents.resolve_memory_values(
+            parse_pcf_event_values(pcf_path, memcpy_code))
+    else:
+        memory, memory_how = (nsys2prvevents.DEFAULT_MEMORY_VALUES,
+                              'reference values')
+
+    print('==> nsys2prv events found in the .pcf:')
+    for line in nsys2prvevents.format_resolution(resolution, memory, memory_how):
+        print(line)
+    missing = [name for name, found in resolution.items()
+               if found.code is None and name in nsys2prvevents.FIXED_EVENTS]
+    if missing:
+        print('==WARNING== nsys2prv events not found in the .pcf: {}. Give '
+              'their codes with --nsys2prv-events.'.format(', '.join(missing)))
+    shared = nsys2prvevents.ambiguous_codes(pcf_path, resolution)
+    if shared:
+        print('==WARNING== The .pcf uses the event code(s) {} for more than one '
+              'event: their values may be mixed.'.format(
+                  ', '.join(str(code) for code in shared)))
+
+    codes = {nsys2prvevents.ALL_EVENTS[name].code: found.code
+             for name, found in resolution.items()}
+    return {'resolution': resolution, 'codes': codes,
+            'memory_values': tuple(memory.values())}
+
+
+def write_trace_cfgs(cfgs, keys, codes, dest_dir):
+    """Write the cfgs of one trace with the event codes of the trace.
+
+    codes: {reference code: code in the trace, or None}. A cfg that needs an
+    event that the trace does not have is not written.
+
+    Returns ({key: path of the written cfg}, [keys not written]).
+    """
+    written = {}
+    missing = []
+    os.makedirs(dest_dir, exist_ok=True)
+    for key in keys:
+        with open(cfgs[key]) as cfg_file:
+            text = cfg_file.read()
+        needed = nsys2prvevents.cfg_reference_codes(text)
+        if any(codes.get(code, code) is None for code in needed):
+            missing.append(key)
+            continue
+        path = os.path.join(dest_dir, os.path.basename(cfgs[key]))
+        with open(path, 'w') as out:
+            out.write(nsys2prvevents.rewrite_cfg(text, codes))
+        written[key] = path
+    return written, missing
 
 
 def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_value,
@@ -795,10 +864,22 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
             hwc_stats['hwc_' + key] = trace_name + '.hwc_' + key + '.stats.csv'
     stats.update(hwc_stats)
 
+    # The codes of the events change between nsys2prv versions: find them
+    # in the .pcf of the trace and rewrite the cfgs with them.
+    events = resolve_nsys2prv_events(
+        trace_name_control + '.pcf',
+        getattr(cmdl_args, 'nsys2prv_events', None))
+    trace_cfgs, missing_cfgs = write_trace_cfgs(
+        nsys_cfgs, ('kernels_streams', 'memcpy_streams', 'nccl_streams',
+                    'cuda_calls_host') + tuple(hwc_stats),
+        events['codes'], os.path.join(local_path_dest, 'cfgs-nsys2prv'))
+    trace_cfgs['runtime'] = nsys_cfgs['runtime']
+
     cmd = ['paramedir', trace]
     for key in ('runtime', 'kernels_streams', 'memcpy_streams', 'nccl_streams',
                 'cuda_calls_host') + tuple(hwc_stats):
-        cmd.extend([nsys_cfgs[key], stats[key]])
+        if key in trace_cfgs:
+            cmd.extend([trace_cfgs[key], stats[key]])
 
     time_pmd = time.time()
     run_command(cmd, cmdl_args)
@@ -855,11 +936,16 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     # paramedir writes no file when none of the events of a filter is in the
     # trace. Without the kernel timeline the Device useful time is 0, and the
     # Device metrics are 0 or NaN: say why.
-    if os.path.exists(stats['runtime']) and not os.path.exists(
+    if 'kernels_streams' in missing_cfgs:
+        print('==WARNING== The GPU kernel event was not found in the .pcf: '
+              'the Device useful time is 0 and the Device metrics are not '
+              'meaningful. Give its code with --nsys2prv-events.')
+    elif os.path.exists(stats['runtime']) and not os.path.exists(
             stats['kernels_streams']):
-        print('==WARNING== paramedir found no CUDA kernel events (63000006) '
+        print('==WARNING== paramedir found no GPU kernel events ({}) '
               'on the GPU streams: the Device useful time is 0 and the '
-              'Device metrics are not meaningful.')
+              'Device metrics are not meaningful.'.format(
+                  events['resolution']['kernel'].code))
 
     time_agg = time.time()
     gpu_agg = aggregate_nsys2prv_device_metrics(
@@ -867,6 +953,7 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         parse_nsys2prv_timeline(stats['memcpy_streams']),
         parse_nsys2prv_timeline(stats['nccl_streams']),
         stream_to_device,
+        memory_values=events['memory_values'],
     )
     time_agg = time.time() - time_agg
     print('Successfully aggregated GPU time in {0:.1f} seconds.'.format(time_agg))
@@ -904,8 +991,13 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         print("==> GPU hardware counters: {} device(s) with sampled metrics".format(
             trace_raw_data['hwc_devices']))
     elif threads['metrics']:
+        missing_hwc = sorted(name for name in nsys2prvevents.HWC_EVENTS
+                             if events['resolution'][name].code is None)
         print('==WARNING== The GPU hardware counters of the Metrics GPU threads '
-              'could not be computed.')
+              'could not be computed{}.'.format(
+                  ': counters not found in the .pcf: ' + ', '.join(missing_hwc)
+                  + ' (give their codes with --nsys2prv-events)'
+                  if missing_hwc else ''))
 
     trace_raw_data['useful_device'] = gpu_agg['useful_device_total']
     trace_raw_data['useful_device_max'] = gpu_agg['useful_device_max']

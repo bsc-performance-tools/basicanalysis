@@ -204,6 +204,14 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
   end. BasicAnalysis reports one set of metrics for the analyzed trace and
   does not break them down per NVTX range: comparing phases is part of the
   detailed analysis in Paraver.
+* **Event codes.** The events are looked up in the ``.pcf`` of each trace
+  by their known labels, a label pattern, or their usual code (see
+  :ref:`sec:nsys2prv-events`). An event with both a new code and a new
+  label is not found: BasicAnalysis warns, and its code must be given with
+  ``--nsys2prv-events``. When the ``.pcf`` uses the same code for two events
+  (*nsys2prv* has written ``9500`` for an NVTX domain and for a network
+  metric), paramedir cannot tell them apart, and BasicAnalysis warns if one
+  of them is an event it uses.
 * **Programming models and validation.** Only CUDA is supported; the
   configurations use the CUDA event types of *nsys2prv*. The metrics have
   been validated with single-GPU traces and with a multi-node trace of 32
