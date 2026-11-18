@@ -294,6 +294,12 @@
   label is not in the `.pcf`: no kernel was found, and the Device useful
   time was 0. The configurations of the CUDA events now select them by code
   only, and BasicAnalysis warns when no kernel is found.
+- **Memory operations of some nsys2prv traces were not counted as Device
+  communication.** The values of the memory copy event (`63000001`) were
+  assumed to be 3 to 6 (Device-to-Device, Device-to-Host, Host-to-Device,
+  memset), but other nsys2prv versions number them differently (39 to 42 in
+  NCCL ring traces of 2026-11), and their copies and memsets were ignored.
+  The values are now found by their labels in the `.pcf`.
 - **Device Offload Efficiency of nsys2prv traces counted the helper threads
   as useful Host time.** Nsight Systems records every thread of a process
   (for example, 7 per process in NCCL ring benchmarks), and the threads that
