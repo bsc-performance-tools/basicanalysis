@@ -297,9 +297,14 @@
 - **Memory operations of some nsys2prv traces were not counted as Device
   communication.** The values of the memory copy event (`63000001`) were
   assumed to be 3 to 6 (Device-to-Device, Device-to-Host, Host-to-Device,
-  memset), but other nsys2prv versions number them differently (39 to 42 in
-  NCCL ring traces of 2026-11), and their copies and memsets were ignored.
-  The values are now found by their labels in the `.pcf`.
+  memset), as in the vLLM traces, but other nsys2prv versions number them
+  differently (35 to 38 in an axolotl fine-tuning trace, 39 to 42 in NCCL
+  ring traces of 2026-11), and their copies and memsets were ignored. The
+  values are now found by their labels in the `.pcf`. Only Device
+  Communication and Device Orchestration efficiency change, and only in
+  those traces: in the axolotl trace (32 GPUs) the ignored operations
+  overlapped kernels almost entirely (Device Communication efficiency
+  97.08% -> 97.06%).
 - **Device Offload Efficiency of nsys2prv traces counted the helper threads
   as useful Host time.** Nsight Systems records every thread of a process
   (for example, 7 per process in NCCL ring benchmarks), and the threads that
