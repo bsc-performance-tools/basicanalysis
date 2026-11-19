@@ -228,3 +228,9 @@ p.guidance-line { border-top: 1px solid var(--line); padding-top: 6px; }
 .metric-value:focus { outline: 2px solid #4f86c6; outline-offset: 2px; }
 .metric-value.plain { background: #f6f8fb; color: #29435f; font-weight: 600; }
 .metric-value.na { color: #8796a8; font-style: italic; font-weight: 400; }
+
+/* Formulas (KaTeX). */
+.formula-math { margin: 8px 0; padding: 6px 10px; background: #f5f8fc; border: 1px solid var(--line);
+  border-radius: 8px; overflow-x: auto; color: #1b2a3a; }
+.formula-math .katex-display { margin: 4px 0; }
+.formula-math .katex { font-size: 1.05em; }

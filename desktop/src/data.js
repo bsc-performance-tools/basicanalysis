@@ -121,10 +121,14 @@ export function guidance(metricKey, results) {
     return undefined;
   };
   const formula = entry.formula || {};
+  const latex = formula.latex || (formula.latex_template && resolveTemplate(formula.latex_template, runtime));
   return {
     name: field('name'),
     definition: field('definition'),
     formula: formula.text || (formula.text_template && resolveTemplate(formula.text_template, runtime)),
+    // Some entries of definitions.yaml double the backslash of the LaTeX
+    // commands (\\frac): reduce it to one before rendering.
+    latex: latex ? String(latex).replace(/\\\\(?=[A-Za-z_{}])/g, '\\') : null,
     interpretation: entry.interpretation || {},
     causes: field('typical_causes') || [],
     nextSteps: field('next_steps') || [],

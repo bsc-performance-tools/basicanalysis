@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import { useAnalysis } from '../App.jsx';
 import { deeperAnalysisActions, formatValue, guidance, lossStatus } from '../data.js';
 
@@ -7,6 +9,32 @@ const STATUS_TEXT = {
   attention: 'Attention: a moderate loss. The deeper analysis below helps to find its cause.',
   good: 'Good in all the traces.',
 };
+
+/** Formula of a metric, rendered from its LaTeX in definitions.yaml
+ *  (KaTeX, bundled); the plain-text formula when there is no LaTeX. */
+// Names of quantities (Useful, LB, HybridPE, ideal...) in upright text;
+// single letters (P, T, i) stay as variables, commands (\\frac) unchanged.
+function uprightNames(latex) {
+  return latex.replace(/(?<![\\A-Za-z])([A-Za-z]{2,})/g, '\\mathrm{$1}');
+}
+
+function Formula({ latex, text }) {
+  const rendered = useMemo(() => {
+    if (!latex) return null;
+    latex = uprightNames(latex);
+    try {
+      // The LaTeX comes from metrics/definitions.yaml of BasicAnalysis, not
+      // from the results file; trust is off (no \\href, \\url...).
+      return katex.renderToString(latex, { displayMode: true, throwOnError: false, trust: false });
+    } catch {
+      return null;
+    }
+  }, [latex]);
+  if (rendered) {
+    return <div className="formula-math" title={text || ''} dangerouslySetInnerHTML={{ __html: rendered }} />;
+  }
+  return text ? <p className="formula">{text}</p> : null;
+}
 
 export default function MetricPanel() {
   const { results, selected, activeView, thresholdsFor } = useAnalysis();
@@ -29,7 +57,7 @@ export default function MetricPanel() {
       </div>
       {status && <p className={`status ${status}`}>{STATUS_TEXT[status]}</p>}
       {info.definition && <p>{info.definition}</p>}
-      {info.formula && <p className="formula">{info.formula}</p>}
+      <Formula latex={info.latex} text={info.formula} />
       {(interpretation.low || interpretation.high) && (
         <>
           <h3>How to read it</h3>
