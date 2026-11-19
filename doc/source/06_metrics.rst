@@ -2362,11 +2362,11 @@ BasicAnalysis classifies the threads of the trace from the ``.row`` file:
   thread of each process is printed in the standard output. If no thread of
   a process calls CUDA, its first host thread is used.
 
-The configuration label of the standard output uses the same format as
-MPI+GPU traces: ``units (processes x streams per process) [devices]``, where
-the units are the Host units and GPU streams of the processes with GPU
-streams, for example ``5 (1x4) [1D]``. The performance report labels GPU
-configurations as processes × GPUs per process, for example ``1 × 1 GPU``.
+As for MPI+GPU traces, the configuration is labelled as processes × GPUs
+per process, for example ``1 × 1 GPU``, in the performance report, the
+standard output, the CSV files, and the static plots. The Host units, GPU
+streams, and devices are printed in the standard output and listed in the
+Execution Overview of the report.
 
 
 Device metrics

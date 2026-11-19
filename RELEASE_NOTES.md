@@ -179,6 +179,20 @@
 
 ### Changes
 
+- GPU configurations are labelled as processes × GPUs per process
+  (`4 × 1 GPU`) also in the standard output, the CSV files (column names of
+  `talp_metrics.csv`, `device_hwc_metrics.csv`...), and the static plots, as
+  in the report, instead of `units (processes x streams) [devices]`
+  (`48 (8x5) [8D]`). The header of the configuration column of the standard
+  output tables is *Processes × GPUs per process*. Configurations with the
+  same label get the trace identifier of the report (`[T1]`, `[T2]`) instead
+  of `[1]`, `[2]`. Scripts that read those CSV columns by name must use the
+  new labels. The static plots of GPU applications explain the label in a
+  small caption (*Configuration: processes × GPUs per process*), and the Speedup and
+  Efficiency plots of hybrid and GPU applications place the configurations
+  in the order of their trace identifier (T1, T2, ...), evenly spaced,
+  instead of by number of execution units.
+
 - Workload indicators in the report. The metrics computed with a
   user-defined workload ratio are marked with ⚠ in the efficiency tables
   and in the General metrics (Speedup, Efficiency); the tooltip gives the

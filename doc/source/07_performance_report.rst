@@ -67,7 +67,8 @@ The first column of every efficiency table names the model or level of that
 table, for example *Application*, *Hybrid (MPI+CUDA)*, *Outer (MPI)*,
 *Device*, or *Host*. The other columns are the analyzed configurations. For
 GPU applications the configuration is given as processes × GPUs per process,
-for example ``4 × 1 GPU``, in every table; the GPU streams are listed in the
+for example ``4 × 1 GPU``, in every table, as in the standard output, the
+CSV files, and the static plots; the GPU streams are listed in the
 Execution Overview. When the GPUs are shared by the processes, the label gives
 both totals, for example ``8 (4 GPUs)``.
 

@@ -2,6 +2,8 @@
 
 """Utilities for BasicAnalysis execution-configuration labels."""
 
+import re
+
 
 def format_configuration_label(
         model_key,
@@ -174,10 +176,10 @@ def add_plot_trace_ids(labels):
 
     for index, label in enumerate(labels):
         label = str(label)
-        suffix = " [{}]".format(index + 1)
 
-        if label.endswith(suffix):
-            label = label[:-len(suffix)]
+        for suffix in (" [{}]".format(index + 1), " [T{}]".format(index + 1)):
+            if label.endswith(suffix):
+                label = label[:-len(suffix)]
 
         result.append("{} [T{}]".format(label, index + 1))
 
@@ -259,3 +261,26 @@ def format_gpu_configuration_label(
         label += " [{}]".format(trace_id)
 
     return label
+
+
+_GPU_LABEL_RE = re.compile(r"^(\d+) × (\d+) GPUs?\b")
+_SHARED_GPU_LABEL_RE = re.compile(r"^(\d+) \((\d+) GPUs?\)")
+
+# Font size of the caption, smaller than the plot text.
+GPU_CAPTION_FONTSIZE = 9
+
+
+def gpu_configuration_caption(labels):
+    """Caption that says what the GPU configuration labels of a plot mean:
+    "Configuration: processes × GPUs per process [Tn = trace ID]".
+
+    Returns None when no label is a GPU configuration.
+    """
+    labels = [str(label) for label in labels]
+    if not any(_GPU_LABEL_RE.match(label) or _SHARED_GPU_LABEL_RE.match(label)
+               for label in labels):
+        return None
+
+    trace_ids = any("[T" in label for label in labels)
+    return "Configuration: processes × GPUs per process{}".format(
+        " [Tn = trace ID]" if trace_ids else "")

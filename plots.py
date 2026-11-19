@@ -5,10 +5,11 @@
 from __future__ import print_function, division
 import os
 from collections import OrderedDict
-from tracemetadata import is_nsys2prv_mode
+from tracemetadata import is_host_gpu_mode, is_nsys2prv_mode
 
 from configuration import (
     format_configuration_label,
+    format_gpu_configuration_label,
     disambiguate_configuration_labels,
 )
 
@@ -140,58 +141,15 @@ def _build_hybrid_plot_axis(
 
     for trace in trace_list:
 
-        # MPI + GPU
-        if is_mpi_gpu_mode(trace_mode[trace]):
+        # GPU traces (MPI+GPU, GPU without MPI, nsys2prv): processes x GPUs
+        # per process, as in the report.
+        if (is_mpi_gpu_mode(trace_mode[trace])
+                or is_host_gpu_mode(trace_mode[trace])
+                or is_nsys2prv_mode(trace_mode[trace])):
 
-            parallel_units = trace_processes[trace]
-            mpi_ranks = trace_tasks[trace]
-            devices = raw_data['count_devices'][trace]
-
-            try:
-                total_gpu_streams = (
-                    int(parallel_units)
-                    - int(mpi_ranks)
-                )
-
-                if int(mpi_ranks) > 0:
-                    if (
-                            total_gpu_streams
-                            % int(mpi_ranks)
-                            == 0
-                    ):
-                        streams_per_rank = (
-                            total_gpu_streams
-                            // int(mpi_ranks)
-                        )
-                    else:
-                        streams_per_rank = -1
-                else:
-                    streams_per_rank = -1
-
-            except (TypeError, ValueError):
-                total_gpu_streams = None
-                streams_per_rank = -1
-
-            label = format_configuration_label(
-                model_key='mpi_gpu',
-                processes=parallel_units,
-                mpi_ranks=mpi_ranks,
-                gpu_streams=total_gpu_streams,
-                streams_per_rank=streams_per_rank,
-                devices=devices,
-                separator='x',
-            )
-
-        # GPU traces generated with nsys2prv
-        elif is_nsys2prv_mode(trace_mode[trace]):
-
-            label = format_configuration_label(
-                model_key='tasks_gpu',
-                processes=trace_processes[trace],
-                mpi_ranks=trace_tasks[trace],
-                streams_per_rank=int(raw_data['gpu_streams_per_rank'][trace]),
-                devices=int(raw_data['count_devices'][trace]),
-                separator='x',
+            label = format_gpu_configuration_label(
+                processes=trace_tasks[trace],
+                devices=raw_data.get('count_devices', {}).get(trace),
             )
 
         # MPI + threaded/runtime model
@@ -223,7 +181,7 @@ def _build_hybrid_plot_axis(
     # --------------------------------------------------
 
     trace_ids = [
-        index + 1
+        'T{}'.format(index + 1)
         for index in range(len(trace_list))
     ]
 
@@ -308,6 +266,12 @@ def plot_hybrid_metrics(
         is_mpi_gpu_mode(trace_mode[trace])
         for trace in trace_list
     )
+
+    if all(is_mpi_gpu_mode(trace_mode[trace])
+           or is_host_gpu_mode(trace_mode[trace])
+           or is_nsys2prv_mode(trace_mode[trace])
+           for trace in trace_list):
+        x_axis_label = 'set xlabel "Processes × GPUs per process"'
 
     configuration_labels, plot_x_values = (
         _build_hybrid_plot_axis(

@@ -30,6 +30,9 @@ from comparison import (
 from configuration import (
     add_plot_trace_ids,
     format_configuration_label,
+    format_gpu_configuration_label,
+    gpu_configuration_caption,
+    GPU_CAPTION_FONTSIZE,
     disambiguate_configuration_labels,
 )
 
@@ -409,14 +412,12 @@ def _build_hybrid_xaxis_label(
     # --------------------------------------------------
 
     if all(
-            is_mpi_gpu_mode(trace_mode[trace])
+            _is_gpu_trace_mode(trace_mode[trace])
             for trace in trace_list
     ):
         return (
-            'Parallel units\n'
             'Configuration: '
-            '(MPI ranks × streams/rank) '
-            '[nD = devices]'
+            'Processes × GPUs per process'
             + trace_id_suffix
         )
 
@@ -453,17 +454,28 @@ def _build_hybrid_xaxis_label(
     return 'Parallel units'
 
 
-def _nsys2prv_configuration_label(trace, trace_processes, trace_tasks,
-                                  raw_data, separator='x'):
-    """Configuration label of an nsys2prv trace, e.g. 5 (1x4) [1D]."""
-    return format_configuration_label(
-        model_key="tasks_gpu",
-        processes=trace_processes[trace],
-        mpi_ranks=trace_tasks[trace],
-        streams_per_rank=int(raw_data['gpu_streams_per_rank'][trace]),
-        devices=int(raw_data['count_devices'][trace]),
-        separator=separator,
+def _is_gpu_trace_mode(mode):
+    """MPI+GPU, GPU without MPI, and nsys2prv traces."""
+    return is_mpi_gpu_mode(mode) or is_host_gpu_mode(mode) or is_nsys2prv_mode(mode)
+
+
+def _gpu_configuration_label(trace, trace_tasks, raw_data):
+    """Label of a GPU configuration, as in the report: processes x GPUs
+    per process, e.g. 4 × 1 GPU (configuration.format_gpu_configuration_label).
+    """
+    return format_gpu_configuration_label(
+        processes=trace_tasks[trace],
+        devices=raw_data.get('count_devices', {}).get(trace),
     )
+
+
+def _configuration_header(trace_list, trace_mode):
+    """Header of the trace columns of the stdout tables: for GPU traces it
+    describes the labels, as the report does."""
+    if trace_list and all(_is_gpu_trace_mode(trace_mode[trace])
+                          for trace in trace_list):
+        return 'Processes × GPUs per process'
+    return 'Configuration'
 
 
 def _build_hybrid_configuration_labels(
@@ -481,52 +493,12 @@ def _build_hybrid_configuration_labels(
     for trace in trace_list:
 
         # --------------------------------------------------
-        # MPI + GPU
+        # GPU traces (MPI+GPU, GPU without MPI, nsys2prv): the same
+        # label as the report, processes x GPUs per process.
         # --------------------------------------------------
 
-        if is_mpi_gpu_mode(trace_mode[trace]):
-            parallel_units = trace_processes[trace]
-            mpi_ranks = trace_tasks[trace]
-            devices = raw_data['count_devices'][trace]
-
-            try:
-                total_gpu_streams = (
-                    int(parallel_units)
-                    - int(mpi_ranks)
-                )
-
-                if int(mpi_ranks) > 0:
-                    if total_gpu_streams % int(mpi_ranks) == 0:
-                        streams_per_rank = (
-                            total_gpu_streams
-                            // int(mpi_ranks)
-                        )
-                    else:
-                        streams_per_rank = -1
-                else:
-                    streams_per_rank = -1
-
-            except (TypeError, ValueError):
-                total_gpu_streams = None
-                streams_per_rank = -1
-
-            label = format_configuration_label(
-                model_key="mpi_gpu",
-                processes=parallel_units,
-                mpi_ranks=mpi_ranks,
-                gpu_streams=total_gpu_streams,
-                streams_per_rank=streams_per_rank,
-                devices=devices,
-                separator=separator,
-            )
-
-        # --------------------------------------------------
-        # GPU traces generated with nsys2prv
-        # --------------------------------------------------
-
-        elif is_nsys2prv_mode(trace_mode[trace]):
-            label = _nsys2prv_configuration_label(
-                trace, trace_processes, trace_tasks, raw_data, separator)
+        if _is_gpu_trace_mode(trace_mode[trace]):
+            label = _gpu_configuration_label(trace, trace_tasks, raw_data)
 
         # --------------------------------------------------
         # MPI + other runtime
@@ -556,8 +528,10 @@ def _build_hybrid_configuration_labels(
 
         labels.append(label)
 
+    # Trace IDs as in the report ([T1], [T2]...), only where two
+    # configurations have the same label.
     trace_ids = [
-        index + 1
+        'T{}'.format(index + 1)
         for index in range(len(trace_list))
     ]
 
@@ -719,9 +693,11 @@ def _plot_efficiency_heatmap(df, output_name, separator_row=None):
     #
     #     64 (8x8)
     #
+    # Plus a gap, so that neighbouring headers do not touch (labels
+    # such as "8 × 1 GPU [T1]" have many wide characters).
     header_column_width = max(
         1.25,
-        max_header_chars * 0.105
+        max_header_chars * 0.105 + 0.3
     )
 
     column_width = max(
@@ -942,6 +918,12 @@ def _plot_efficiency_heatmap(df, output_name, separator_row=None):
             fontsize=11,
             labelpad=8
         )
+
+    # GPU configuration labels are explained below the table.
+    caption = gpu_configuration_caption(list(df.columns))
+    if caption:
+        fig.text(0.5, 0.0, caption, ha='center', va='top',
+                 fontsize=GPU_CAPTION_FONTSIZE)
 
     # --------------------------------------------------
     # Output
@@ -2257,7 +2239,9 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
     if show_hyb_comm_omp:
         longest_name = max(longest_name, len(sorted(mod_hyb_comm_omp_factors_doc.values(), key=len)[-1]))
 
-    line = 'Configuration'.rjust(longest_name)
+    configuration_header = _configuration_header(trace_list, trace_mode)
+    longest_name = max(longest_name, len(configuration_header))
+    line = configuration_header.rjust(longest_name)
 
     line_trace_mode = 'Trace mode'.rjust(longest_name)
 
@@ -2461,7 +2445,9 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
 
     longest_name = len(sorted(mod_hybrid_factors_doc.values(), key=len)[-1])
     
-    line = 'Configuration'.rjust(longest_name)
+    configuration_header = _configuration_header(trace_list, trace_mode)
+    longest_name = max(longest_name, len(configuration_header))
+    line = configuration_header.rjust(longest_name)
     line_trace_mode = 'Trace mode'.rjust(longest_name)
 
     configuration_labels = _build_hybrid_configuration_labels(
@@ -2785,7 +2771,9 @@ def print_other_metrics_table(
         )[-1]
     )
 
-    line = 'Configuration'.rjust(longest_name)
+    configuration_header = _configuration_header(trace_list, trace_mode)
+    longest_name = max(longest_name, len(configuration_header))
+    line = configuration_header.rjust(longest_name)
 
     # --------------------------------------------------
     # Build hybrid configuration labels
@@ -3747,37 +3735,16 @@ def plots_speedup_matplot(
     # Numeric x coordinates
     # --------------------------------------------------
 
-    # Keep plotting coordinates separate from labels.
-    #
-    # If several traces have the same number of parallel units,
-    # move subsequent points slightly to the right so that they
-    # remain individually visible.
-    x_values = []
+    # The traces are shown in the order of their trace ID (T1, T2, ...),
+    # evenly spaced, as the columns of the tables: the labels describe the
+    # configurations, which do not always grow in the same direction.
+    x_values = list(range(1, len(trace_list) + 1))
 
-    previous_units = None
-    repeated_count = 0
-
-    for trace in trace_list:
-
-        parallel_units = int(
-            float(trace_processes[trace])
-        )
-
-        if previous_units == parallel_units:
-            repeated_count += 1
-
-            x = (
-                parallel_units
-                + 2 * repeated_count
-            )
-
-        else:
-            repeated_count = 0
-            x = parallel_units
-
-        x_values.append(x)
-
-        previous_units = parallel_units
+    x_label_fontsize = 12
+    caption = gpu_configuration_caption(configuration_labels)
+    if caption:
+        x_axis_label = caption
+        x_label_fontsize = GPU_CAPTION_FONTSIZE
 
     # --------------------------------------------------
     # Ideal values
@@ -3854,7 +3821,7 @@ def plots_speedup_matplot(
 
     ax.set_xlabel(
         x_axis_label,
-        fontsize=12,
+        fontsize=x_label_fontsize,
         labelpad=10
     )
 
@@ -3974,7 +3941,7 @@ def plots_speedup_matplot(
 
     ax.set_xlabel(
         x_axis_label,
-        fontsize=12,
+        fontsize=x_label_fontsize,
         labelpad=10
     )
 
@@ -4251,7 +4218,9 @@ def print_device_hwc_table(device_hwc_factors, trace_list, trace_processes,
     longest_name = max(longest_name, len('Configuration'))
     value_to_adjust = max(14, max(len(label) for label in configuration_labels) + 1)
 
-    line = 'Configuration'.rjust(longest_name)
+    configuration_header = _configuration_header(trace_list, trace_mode)
+    longest_name = max(longest_name, len(configuration_header))
+    line = configuration_header.rjust(longest_name)
     for label in configuration_labels:
         line += ' | ' + label.rjust(value_to_adjust)
 
@@ -4374,7 +4343,7 @@ def plots_device_hwc_indicators_matplot(device_hwc_factors, trace_list,
 
     label_width = max(3.4, max(len(label) for label in labels) * 0.12)
     max_header_chars = max(len(label) for label in configuration_labels)
-    column_width = max(1.25, max_header_chars * 0.105)
+    column_width = max(1.25, max_header_chars * 0.105 + 0.3)
 
     fig = plt.figure(figsize=(label_width + ncols * column_width + 0.35,
                               max(3.0, nrows * 0.54)))
@@ -4421,6 +4390,11 @@ def plots_device_hwc_indicators_matplot(device_hwc_factors, trace_list,
     for row, label in enumerate(labels):
         label_ax.text(0.01, row + 0.5, label, fontsize=12, ha='left',
                       va='center', clip_on=False)
+
+    caption = gpu_configuration_caption(configuration_labels)
+    if caption:
+        fig.text(0.5, 0.0, caption, ha='center', va='top',
+                 fontsize=GPU_CAPTION_FONTSIZE)
 
     fig.savefig('table_device_hwc_indicators_matplot.png', dpi=400,
                 bbox_inches='tight')
