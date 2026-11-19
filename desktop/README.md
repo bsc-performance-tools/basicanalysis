@@ -1,40 +1,59 @@
-# BasicAnalysis Desktop (prototype)
+# BasicAnalysis Analyzer (desktop application, prototype)
 
 Design: [`doc/design/desktop_app.rst`](../doc/design/desktop_app.rst).
 
 BasicAnalysis runs on the cluster as always (the Python scripts, nothing to
-install). Since this branch, every run also writes `results.json` next to the
-CSV files. The desktop application opens that file on the laptop.
+install). Every run writes `results.json` next to the CSV files. The analyzer
+opens that results folder on the laptop: it shows the performance model,
+explains each metric, and proposes the deeper analysis with the BSC tools
+(Paraver with a cfg, Dimemas, Clustering tools) when a metric shows a loss.
 
-## Try the prototype now (no installation)
+Phase 2 prototype: a left menu with the views of the HTML report (Execution
+Overview, Runtime Model, Heterogeneous Model, I/O Metrics, GPU Hardware
+Counters, Scaling, and the Outer/Inner levels and runtimes), each view in a
+dockable panel (⧉ opens a view beside the others), with the efficiency tables
+(▼ critical, ▽ attention) and the zoomable scaling plot; on the right, the
+details of the selected metric with the proposed deeper analysis. The deeper-analysis actions are shown but not run
+yet (Paraver: Phase 3; Dimemas and Clustering: Phase 5).
 
-1. Run BasicAnalysis on some traces, on the cluster or locally:
-   `python3 modelfactors.py traces/*.prv`
-2. Copy the output folder to your laptop (it contains `results.json`).
-3. Open `desktop/ui/index.html` in a browser (Firefox or Chrome) and open the
-   `results.json` file with **Open results.json**, or drop it on the page.
+## Run it (developers)
 
-To try it without running BasicAnalysis, open one of the examples in
-`desktop/examples/` (Laplace MPI with 4, 8 and 16 ranks; Laplace MPI+OpenMP
-with 14x4 and 28x4).
+Requirements, on the laptop only: Rust, Node.js, and the Tauri system
+libraries (see the design note). Then, in this folder:
 
-The page shows the run, the traces with their configuration labels, Speedup
-and Efficiency, and one table per model (General, Application, Hybrid, Host,
-Device, OpenMP runtime, GPU hardware counters), with the efficiency colours of
-the report. Nothing is uploaded: the file is read in the browser.
+```
+npm install            # once: JavaScript dependencies
+npm run tauri dev      # opens the application window (first build: several minutes)
+npm run tauri build    # .deb and AppImage in src-tauri/target/release/bundle/
+```
 
-## Next: the Tauri application (Phase 2)
+In the window, **Open results folder** and pick a BasicAnalysis output folder
+(the one with `results.json`), or one of `examples/`.
 
-The same page (`desktop/ui/`) becomes the window of the Tauri application,
-which adds what a browser cannot do: open project folders, run paramedir,
-Paraver and BasicAnalysis, and connect to the cluster. Building it needs Rust
-and the Tauri system libraries on the laptop (see the design note).
+Without Tauri, the same front end runs in a browser:
+
+```
+npm run dev            # then open http://localhost:5173/
+```
+
+and **Open results.json** reads the file in the browser.
 
 ## Layout
 
 ```
 desktop/
 |-- README.md
-|-- ui/            front end: index.html, app.js, style.css
-`-- src-tauri/     (Phase 2) Rust backend of the Tauri application
+|-- package.json        JavaScript dependencies and scripts
+|-- index.html, vite.config.js
+|-- src/                React front end
+|   |-- App.jsx         window, dockable layout (dockview), shared state
+|   |-- Sidebar.jsx     left menu with the views of the report
+|   |-- data.js         results.json, guidance (metrics/definitions.yaml),
+|   |                   efficiency colours, deeper-analysis actions
+|   |-- backend.js      calls to the Rust backend
+|   `-- panels/         View (page of the report), Model tables, Metric details,
+|                       Traces, Scaling (Plotly)
+|-- src-tauri/          Rust backend (Tauri v2): open_results command
+|-- examples/           results.json of Laplace MPI and MPI+OpenMP runs
+`-- html-viewer/        first plain HTML/JS viewer of results.json (Phase 1)
 ```
