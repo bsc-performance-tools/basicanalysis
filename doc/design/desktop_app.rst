@@ -1,7 +1,9 @@
 BasicAnalysis Desktop Application (Tauri)
 =========================================
 
-:Status: Design, for review by the team
+:Status: Design; Phase 1 (``results.json``) implemented; front end decided
+         (React with dockable panels, 2026-11-19); priorities: performance
+         model and guidance, Paraver with cfgs, POP assessment
 :Date: 2026-11-19
 :Branch: ``feature/desktop-app``
 :Related: ``assessment.rst`` (branch ``feature/assessment``),
@@ -12,6 +14,20 @@ The team agreed on 2026-11-19 to start a desktop application for
 BasicAnalysis with `Tauri <https://tauri.app>`_. This document proposes how
 the application fits with the current tool, what it does in each phase, and
 the decisions that are still open.
+
+**Objective.** BasicAnalysis is a performance analysis tool: it provides
+performance models, guides the analyst to understand the metrics, and helps
+to write an assessment following the POP methodology. The application is
+the **BasicAnalysis analyzer**: when the model detects a performance loss,
+it leads the analyst to the deeper analysis with the right BSC tool and
+configuration (Paraver with a cfg, Dimemas with network configurations, the
+Clustering tools on IPC and instructions...), brings the results back, and
+adds them to the assessment. This orchestration of tools is why a desktop
+framework with a backend is needed. From MemDive we take the framework
+(Tauri, React, dockable panels) and its flexibility, not its features:
+BasicAnalysis is not a twin of MemDive. A view of parts of the trace inside
+the application may come later, but it is not a priority: Paraver remains
+the tool for the detailed view.
 
 
 Context
@@ -42,7 +58,8 @@ Options considered for levels 2 and 3:
   reads and writes Paraver traces, generates Extrae configurations, and
   offers a local MCP server to AI assistants.
 
-**Decision (2026-11-19): Tauri.**
+**Decision (2026-11-19): Tauri**, with a React front end of dockable panels
+(see `The front end: React with dockable panels`_).
 
 
 The main constraint: analysis on the cluster, exploration on the laptop
@@ -132,8 +149,8 @@ Components
 ::
 
     +------------------- BasicAnalysis Desktop -------------------+
-    | Front end (system WebView)                                   |
-    |   project browser | report views | assessment | tool runs    |
+    | Front end: React, dockable panels (system WebView)           |
+    |   tables | plots | metric guidance | POP assessment | runs  |
     |            ^  Tauri commands and events (IPC)                |
     |            v                                                 |
     | Rust backend                                                 |
@@ -144,9 +161,9 @@ Components
     |   MCP server (later): local socket, project state as tools   |
     +--------------------------------------------------------------+
 
-* **Front end**: the windows and views, written in HTML/JS and shown in the
-  system WebView (WebKitGTK on Linux, WKWebView on macOS, WebView2 on
-  Windows). See `Open decision: the front end`_.
+* **Front end**: React components arranged in dockable panels, shown in
+  the system WebView (WebKitGTK on Linux, WKWebView on macOS, WebView2 on
+  Windows). See `The front end: React with dockable panels`_.
 * **Rust backend**: everything a browser page cannot do: files of the
   project, running programs, the network (SSH), and the MCP server. The
   front end calls it through Tauri *commands*; long tasks report progress
@@ -197,7 +214,7 @@ Large traces stay on the cluster. Level 3 features that need a trace use:
 1. a **cut trace** copied to the laptop (Paraver Cutter around the region of
    interest), which is the usual practice for detailed analysis; or
 2. later, the **cluster**: the backend runs paramedir there over SSH and
-   copies back the small result files (see Phase 6).
+   copies back the small result files (see Phase 7).
 
 Python on the laptop
 ~~~~~~~~~~~~~~~~~~~~
@@ -210,33 +227,112 @@ version as the application. Bundling a Python runtime is postponed, since
 it makes the installer much larger and must be done per OS.
 
 
-Open decision: the front end
-----------------------------
+The front end: React with dockable panels
+-----------------------------------------
 
-Option A: reuse the current HTML/JS of the report (recommended to start)
-   The report views are already HTML, CSS, and JavaScript with Plotly. The
-   application loads them from ``results.json`` instead of data embedded
-   in the HTML file, and adds a small shell (project browser, menus, tool
-   panel) in plain JavaScript. No Node.js build step is needed at the
-   beginning, and the views stay identical to the static report.
+The team saw MemDive and wants the same flexibility: several views at the
+same time, arranged by the user, and zoomable plots of the efficiency
+metrics. That flexibility comes from how the window is built, not from
+Tauri, and the current HTML report cannot give it: it is one long page
+generated as text by ``interactiveplots.py``.
 
-Option B: a new front end with React (as MemDive)
-   Better suited to complex layouts (dockable panels, the assessment
-   editor) and closer to MemDive if components are shared later. It needs
-   Node.js and a build step, and the report views must be rewritten.
+**Decision (2026-11-19)**: a new front end built with **React**, where every
+view is a component in a **dockable panel** (panels can be opened, closed,
+docked side by side, stacked as tabs, or detached; the layout is saved with
+the project). The panels follow the analysis workflow of BasicAnalysis, in
+order of priority:
 
-Recommendation: start with option A for Phases 1 and 2, keeping the views
-as independent JavaScript modules that read ``results.json``. Decide on
-React before Phase 4 (assessment editor), when the needs of the editor are
-known. The Rust backend and the project format do not depend on this
-choice.
+1. **Performance model and guidance** (Level 1): the efficiency tables of
+   each model (Application, Runtime Model, Hybrid levels, Host, Device, GPU
+   hardware counters, I/O), zoomable scaling plots, and the **metric
+   details** that guide the analyst: definition, formula, interpretation
+   of the value, typical causes, and next steps (``metrics/definitions.yaml``,
+   as in the Metric Details of the report).
+2. **Guided deeper analysis** (Level 3): from a metric with a loss, the
+   actions that analyze it with the BSC tools (see `Guided deeper analysis:
+   from a loss to the right tool`_), and their results as panels.
+3. **POP assessment editor** (Level 2): an editable panel where the analyst
+   writes the assessment following the POP template (sections of
+   ``assessment.rst``), adds evidence from the other panels (a table, a
+   plot, a metric with its interpretation, a Paraver image, a Dimemas
+   prediction, a clustering result) with comments, and exports it to PDF
+   and to the POP PowerPoint template.
 
-A prerequisite of both options is to separate the report **data** from its
-**rendering**: the views read ``results.json`` (or the same JSON embedded
-in the static HTML report) instead of values written into the HTML by
-``interactiveplots.py``. The static report and the application then share
-the same views.
+**MCP** lives in the Rust backend, which knows the open project, the panels,
+and the current selection. It does not depend on the front-end technology.
 
+Consequences:
+
+* The data/rendering separation is done through ``results.json`` (Phase 1,
+  implemented): React reads it directly.
+* The static HTML report stays as it is, for users without the
+  application; its views are not rewritten. Whether the static report
+  reuses the React components later is decided after Phase 3.
+* The plain HTML/JS viewer in ``desktop/ui/`` (prototype of Phase 1) is
+  replaced by the React front end; it shows what each panel needs from
+  ``results.json``.
+
+**From MemDive**: ask Victor which framework pieces can be shared: the
+docking layout and chart libraries, the conventions of the MCP server,
+settings, and packaging. Not its features (trace views, memory analysis).
+
+
+Guided deeper analysis: from a loss to the right tool
+-----------------------------------------------------
+
+The model tells *where* the performance is lost; the BSC tools tell *why*.
+For each metric with a loss (below the Critical or Attention threshold, or
+on demand), the application offers **actions**: run a tool with a
+configuration prepared by BasicAnalysis, show its result in a panel, and
+offer it as evidence for the assessment. Examples:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 26 48
+
+   * - Loss detected
+     - Tool and configuration
+     - Result
+   * - Load Balance, Communication, Serialization, Transfer, Offload,
+       Orchestration, I/O, Frequency...
+     - **Paraver** with the cfg of the metric (the cfgs of BasicAnalysis,
+       ``cfgs/`` and ``cfgs-report/``)
+     - The view that shows the loss (useful duration per process, MPI
+       calls, CUDA kernels and transfers, I/O calls...), to analyze in
+       Paraver; its image saved as evidence.
+   * - Communication Efficiency (Serialization vs Transfer)
+     - **Dimemas** with network configurations (ideal network, bandwidth and
+       latency sweeps)
+     - Predicted execution time and efficiencies for each network: how much
+       of the loss is due to the network and how much to dependencies.
+   * - Computation Scalability, IPC Scalability, Instruction Scalability,
+       Load Balance of computation
+     - **Clustering tools** on the computation bursts (IPC × Instructions)
+     - Clusters (code regions with the same behaviour), and the metrics of
+       each cluster (IPC, instructions, time, scalability per cluster):
+       which region loses performance and why.
+   * - Others (to be defined)
+     - paramedir cfgs, Folding, tools of other groups
+     - New result panels.
+
+Design:
+
+* **Actions are declared, not hard-coded**: a file (for example
+  ``actions.yaml``, next to ``definitions.yaml``) maps metrics and
+  conditions to actions: tool, configuration files, parameters, and how to
+  read the result. Adding an analysis is adding an entry; the ``next_steps``
+  of each metric in ``definitions.yaml`` can link to its actions.
+* **Tool adapters in the Rust backend**: one adapter per tool (Paraver,
+  paramedir, Dimemas, Clustering tools...) knows how to prepare its inputs,
+  run it as a sidecar, follow its progress, and collect its outputs into
+  the project (``project/analyses/<action>-<date>/``). The tools are not
+  bundled; their paths are configured.
+* **Where the tools run**: on the laptop for cut traces; for large traces,
+  Dimemas and the Clustering tools need the cluster (Phase 7, SSH). The
+  action is the same; only the place of execution changes.
+* **Results as data**: each adapter turns the tool output into JSON
+  (predicted times, clusters and their metrics), so that the panels, the
+  assessment, and MCP use it as any other result.
 
 Security
 --------
@@ -249,9 +345,9 @@ Security
   except the files the user picks explicitly.
 * Results folders can come from other users: their content (labels, notes,
   file names) is shown as text, never as HTML.
-* SSH (Phase 6) uses the user's own SSH configuration and keys; the
+* SSH (Phase 7) uses the user's own SSH configuration and keys; the
   application stores no passwords.
-* The MCP server (Phase 7) listens on a local socket owned by the user.
+* The MCP server (Phase 8) listens on a local socket owned by the user.
 
 
 Packaging and distribution
@@ -278,19 +374,29 @@ next one.
 0. **Design** (this document) and the ``results.json`` schema.
 1. **``results.json`` export** in the Python core (cluster side), with
    tests and documentation. Useful without the application.
-2. **Application skeleton**: Tauri v2 project in ``desktop/``; open a
-   results folder or project; show the overview and the efficiency tables
-   from ``results.json``; Linux build.
-3. **All report views** in the application, shared with the static report
-   (data/rendering separation); comparison of runs in a project.
-4. **Assessment editor** (Level 2) saving into the project; PDF and POP
-   PPTX export.
-5. **Local tools** (Level 3): open Paraver on a trace and cfg, run
-   paramedir cfgs and Dimemas, re-run BasicAnalysis on small traces.
-6. **Cluster connection**: run BasicAnalysis and paramedir on the cluster
-   over SSH and copy the results back into the project.
-7. **MCP server** for AI assistants (``ai_assistance.rst``), exposing the
-   project, its metrics, and the tool runs.
+   *Implemented, with a plain HTML/JS viewer as prototype.*
+2. **Application skeleton**: Tauri v2 + React project in ``desktop/``; open
+   a results folder; dockable panels with the traces, the efficiency tables,
+   zoomable scaling plots, and the metric details (guidance) from
+   ``results.json`` and ``definitions.yaml``; Linux build.
+3. **Guided deeper analysis I: Paraver**: actions file and tool adapters;
+   from a metric with a loss, open Paraver on a (cut) trace with the cfg of
+   the metric, and save the image of the view into the project as evidence.
+4. **POP assessment editor** (Level 2): editable panel with the POP
+   sections, evidence from the panels and from the tools, comments; saved
+   in the project; PDF and POP PPTX export.
+5. **Guided deeper analysis II: Dimemas and Clustering**: network what-if
+   for communication losses; clustering of IPC × Instructions with the
+   metrics of each cluster for computation losses; their result panels.
+6. **More views**: I/O and GPU hardware counter panels, comparison of runs
+   in a project, re-run BasicAnalysis on small traces.
+7. **Cluster connection**: run BasicAnalysis, paramedir, Dimemas, and the
+   Clustering tools on the cluster over SSH and copy the results back into
+   the project.
+8. **MCP server** for AI assistants (``ai_assistance.rst``), exposing the
+   project, its metrics, the actions, and their results.
+9. *Later, not a priority*: a view of parts of the trace inside the
+   application.
 
 Repository layout (Phase 2):
 
@@ -301,12 +407,13 @@ Repository layout (Phase 2):
     |-- doc/design/desktop_app.rst
     `-- desktop/
         |-- src-tauri/          Rust: Cargo.toml, src/, tauri.conf.json, icons
-        `-- ui/                 HTML/JS of the application window
+        `-- ui/                 React front end (Vite project)
 
-Development requirements (laptop only): Rust (``rustup``), the Tauri system
-libraries (on Ubuntu 22.04: ``libwebkit2gtk-4.1-dev``, ``libgtk-3-dev``,
-``librsvg2-dev``, ``libayatana-appindicator3-dev``, ``build-essential``,
-``libssl-dev``), and Node.js only if option B is chosen.
+Development requirements (laptop only, not for users of the installed
+application): Rust (``rustup``), Node.js (``nvm``, LTS), and the Tauri
+system libraries (on Ubuntu 22.04: ``libwebkit2gtk-4.1-dev``,
+``build-essential``, ``curl``, ``wget``, ``file``, ``libxdo-dev``,
+``libssl-dev``, ``libayatana-appindicator3-dev``, ``librsvg2-dev``).
 
 
 Risks
@@ -315,26 +422,37 @@ Risks
 * **Rust maintenance**: the team works in Python today. Mitigation: keep the
   backend small (files, processes, SSH, MCP) and all metric logic in Python.
 * **Two front ends** (static report and application) diverging. Mitigation:
-  shared views reading the same JSON.
+  both read the same metrics (``results.json`` and the same definitions);
+  decide after Phase 3 whether the static report reuses the components.
+* **Scope creep towards MemDive**: adding features because MemDive has
+  them. Mitigation: every panel must serve the performance model, the
+  guidance, the deeper analysis with the BSC tools, or the POP assessment.
+* **Tool versions and outputs**: Dimemas and the Clustering tools change
+  their inputs and outputs between versions. Mitigation: one adapter per
+  tool with tests on real outputs, and versions recorded in each result.
 * **Per-OS builds and signing** need a CI pipeline and certificates.
 * **WebView differences** between OSes (WebKitGTK is behind Chromium in some
   features). Mitigation: test the views on Linux WebKitGTK first.
-* **Overlap with MemDive**: both are Tauri applications at BSC with Paraver
-  integration and MCP. Opportunity to share components (Paraver file
-  readers, MCP conventions, settings); to be discussed with Victor.
+* **Overlap with MemDive**: both are Tauri applications at BSC with MCP.
+  Opportunity to share framework pieces (docking, charts, MCP conventions,
+  packaging); to be discussed with Victor.
 
 
 Open questions
 --------------
 
-1. Front end: option A (reuse our HTML/JS) or option B (React)?
-2. Should ``results.json`` be written always, or only with an option
-   (``--json``)? Proposal: always, as the CSV files.
-3. Which components or conventions to share with MemDive (Paraver file
-   handling, MCP tools, look and feel)?
+1. Should ``results.json`` be written always, or only with an option
+   (``--json``)? Implemented: always, as the CSV files.
+2. Which framework pieces to share with MemDive (docking layout, charts,
+   MCP conventions, packaging, look and feel)?
+3. Paraver on the laptop needs a (cut) trace: is it enough, or should the
+   application also open Paraver on the cluster (remote display) in
+   Phase 7?
 4. Which OS after Linux: macOS or Windows?
-5. Cluster connection (Phase 6): which clusters first (MareNostrum 5), and
+5. Cluster connection (Phase 7): which clusters first (MareNostrum 5), and
    are batch jobs (Slurm) needed for large traces, or only interactive
    runs on the login node for small ones?
 6. Distribution: GitLab releases with installers, or BSC tools download page
    as Paraver?
+7. Which Dimemas network configurations and which Clustering tools
+   parameters (and versions) should the first actions use?
