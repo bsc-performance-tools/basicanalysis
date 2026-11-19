@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BasicAnalysis Desktop</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">BasicAnalysis <span>Desktop prototype</span></div>
+  <label class="open-button">
+    Open results.json
+    <input id="file-input" type="file" accept=".json,application/json" hidden>
+  </label>
+</header>
+
+<main id="main">
+  <section id="drop-zone" class="drop-zone">
+    <h1>Open the results of a BasicAnalysis run</h1>
+    <p>Run BasicAnalysis on the cluster as usual, copy its output folder to
+       this computer, and open the <code>results.json</code> file of that
+       folder, with the button above or by dropping it here.</p>
+    <p class="hint">Nothing is uploaded: the file is read in this window.</p>
+  </section>
+
+  <section id="results" hidden>
+    <div id="run" class="card"></div>
+    <div class="card">
+      <h2>Traces</h2>
+      <p id="configuration-meaning" class="caption"></p>
+      <table id="traces" class="data"></table>
+    </div>
+    <div id="speedup-card" class="card" hidden>
+      <h2>Speedup and efficiency</h2>
+      <div id="speedup"></div>
+    </div>
+    <nav id="model-tabs" class="tabs"></nav>
+    <div id="models"></div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

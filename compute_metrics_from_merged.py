@@ -10,6 +10,7 @@ from comparison import check_comparison_support
 from tracemetadata import check_supported_models
 from scaling import build_workload_map
 from pipeline import count_hybrid_traces, compute_metrics, generate_reports, generate_plots
+from resultsjson import write_results_json
 from utils import build_argument_parser, start_run_log, apply_efficiency_thresholds
 from argparse import SUPPRESS
 
@@ -102,6 +103,18 @@ def main():
     )
 
     generate_plots(
+        metrics_result,
+        analysis_result,
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        cmdl_args,
+    )
+
+    # All the results in one machine-readable file (resultsjson.py).
+    write_results_json(
         metrics_result,
         analysis_result,
         trace_list,

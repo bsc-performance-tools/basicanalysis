@@ -4,6 +4,15 @@
 
 ### New Features
 
+- `results.json`: all the results of a run in one machine-readable file,
+  written next to the CSV files: the run (version, commit, command line,
+  options, scaling model), the traces with their configuration labels and
+  meaning, every metric of every model per trace with its name, unit and
+  position in the hierarchy, and the raw data. The file is versioned
+  (`schema_version`). It is the contract between the analysis, which runs
+  on the cluster, and the tools that explore the results on the laptop,
+  starting with the BasicAnalysis desktop application.
+
 - Adjustable efficiency thresholds. `--thresholds CRITICAL,ATTENTION`
   (default 60,85) sets the thresholds of every efficiency metric: the colors
   of the efficiency tables of the report and of the static heatmaps, the

@@ -1,0 +1,813 @@
+{
+ "schema": "basicanalysis-results",
+ "schema_version": 1,
+ "basicanalysis": {
+  "version": "2026.10.05",
+  "commit": "45b68b7"
+ },
+ "run": {
+  "date": "2026-11-19T13:54:58+01:00",
+  "command": "python3 modelfactors.py -skip-simul laplace-mpi-omp_14p+4t.prv laplace-mpi-omp_28p+4t.prv",
+  "directory": "example/laplace-mpi-openmp-14x4-28x4",
+  "analysis_kind": "hybrid",
+  "options": {
+   "metrics": "hybrid",
+   "scaling": "auto",
+   "workload": null,
+   "pop_model_to_apply": "talp",
+   "skip_simulation": true,
+   "simulation_openmp": false,
+   "simulation_cuda": false,
+   "ideal_omp": false,
+   "hyb_mpiomp": false,
+   "trace_mode_detection": "pcf",
+   "order_traces": "yes",
+   "limit": null,
+   "max_trace_size": 1024.0
+  },
+  "scaling": {
+   "has_scaling_analysis": true,
+   "detected": "strong",
+   "selected": "strong",
+   "selection_mode": "auto",
+   "overridden": false,
+   "normalized_inst_ratio": 0.5078633203460079,
+   "normalized_runtime_ratio": 0.8407554404583597,
+   "normalized_useful_avg_ratio": 0.7222028411814683,
+   "threshold": 0.9,
+   "status_message": null,
+   "workload_values": null,
+   "workload_ratios": null,
+   "workload_option": null,
+   "domain_workload_values": {},
+   "domain_workload_ratios": {},
+   "domain_workload_options": {},
+   "domain_modes": {},
+   "domain_selection": {},
+   "domain_detection": {}
+  }
+ },
+ "configuration_meaning": "Parallel units (MPI ranks × threads/rank)",
+ "traces": [
+  {
+   "id": "T1",
+   "name": "laplace-mpi-omp_14p+4t.prv",
+   "path": "laplace-mpi-omp_14p+4t.prv",
+   "mode": "Detailed+MPI+OpenMP",
+   "display_mode": "MPI+OpenMP",
+   "label": "56 (14×4)",
+   "processes": 56,
+   "mpi_ranks": 14,
+   "threads": 4,
+   "devices": 0,
+   "gpu_streams": 0,
+   "gpu_streams_per_rank": 0,
+   "simulated": false,
+   "inconsistent_simulation": false
+  },
+  {
+   "id": "T2",
+   "name": "laplace-mpi-omp_28p+4t.prv",
+   "path": "laplace-mpi-omp_28p+4t.prv",
+   "mode": "Detailed+MPI+OpenMP",
+   "display_mode": "MPI+OpenMP",
+   "label": "112 (28×4)",
+   "processes": 112,
+   "mpi_ranks": 28,
+   "threads": 4,
+   "devices": 0,
+   "gpu_streams": 0,
+   "gpu_streams_per_rank": 0,
+   "simulated": false,
+   "inconsistent_simulation": false
+  }
+ ],
+ "models": [
+  {
+   "id": "general",
+   "name": "General",
+   "metrics": [
+    {
+     "key": "elapsed_time",
+     "name": "Elapsed time (sec)",
+     "label": "Elapsed time (sec)",
+     "level": 0,
+     "parent": null,
+     "unit": "s",
+     "values": {
+      "T1": 0.37384441999999996,
+      "T2": 0.31431172999999996
+     }
+    },
+    {
+     "key": "efficiency",
+     "name": "Efficiency",
+     "label": "Efficiency",
+     "level": 0,
+     "parent": null,
+     "unit": null,
+     "values": {
+      "T1": 1.0,
+      "T2": 0.5947032584498199
+     }
+    },
+    {
+     "key": "speedup",
+     "name": "Speedup",
+     "label": "Speedup",
+     "level": 0,
+     "parent": null,
+     "unit": null,
+     "values": {
+      "T1": 1.0,
+      "T2": 1.1894065168996397
+     }
+    },
+    {
+     "key": "ipc",
+     "name": "Average IPC",
+     "label": "Average IPC",
+     "level": 0,
+     "parent": null,
+     "unit": null,
+     "values": {
+      "T1": 3.731288935620791,
+      "T2": 2.8963521536712666
+     }
+    },
+    {
+     "key": "freq",
+     "name": "Average frequency (GHz)",
+     "label": "Average frequency (GHz)",
+     "level": 0,
+     "parent": null,
+     "unit": "GHz",
+     "values": {
+      "T1": 2.923175025079347,
+      "T2": 2.6326978399760326
+     }
+    },
+    {
+     "key": "flushing",
+     "name": "Flushing (%)",
+     "label": "Flushing (%)",
+     "level": 0,
+     "parent": null,
+     "unit": "%",
+     "values": {
+      "T1": 0.8051285650554084,
+      "T2": 1.969611506385715
+     }
+    },
+    {
+     "key": "io_eff",
+     "name": "I/O Efficiency",
+     "label": "I/O Efficiency (%)",
+     "level": 0,
+     "parent": null,
+     "unit": "%",
+     "values": {
+      "T1": "Non-Avail",
+      "T2": "Non-Avail"
+     }
+    },
+    {
+     "key": "io_da_eff",
+     "name": "Data Access Efficiency",
+     "label": "Data Access Efficiency (%)",
+     "level": 1,
+     "parent": "io_eff",
+     "unit": "%",
+     "values": {
+      "T1": "Non-Avail",
+      "T2": "Non-Avail"
+     }
+    },
+    {
+     "key": "io_fm_eff",
+     "name": "File Management Efficiency",
+     "label": "File Management Efficiency (%)",
+     "level": 1,
+     "parent": "io_eff",
+     "unit": "%",
+     "values": {
+      "T1": "Non-Avail",
+      "T2": "Non-Avail"
+     }
+    },
+    {
+     "key": "io_lb",
+     "name": "I/O Load Balance",
+     "label": "I/O Load Balance (%)",
+     "level": 0,
+     "parent": null,
+     "unit": "%",
+     "values": {
+      "T1": "Non-Avail",
+      "T2": "Non-Avail"
+     }
+    },
+    {
+     "key": "io_cp_eff",
+     "name": "I/O Critical-Path Efficiency",
+     "label": "I/O Critical-Path Efficiency (%)",
+     "level": 0,
+     "parent": null,
+     "unit": "%",
+     "values": {
+      "T1": "Non-Avail",
+      "T2": "Non-Avail"
+     }
+    }
+   ]
+  },
+  {
+   "id": "application",
+   "name": "Application",
+   "metrics": [
+    {
+     "key": "global_eff",
+     "name": "Global Efficiency",
+     "label": "Global efficiency",
+     "level": 0,
+     "parent": null,
+     "unit": "%",
+     "values": {
+      "T1": 81.15388749148644,
+      "T2": 48.26248106484998
+     }
+    },
+    {
+     "key": "parallel_eff",
+     "name": "Parallel Efficiency",
+     "label": "Parallel efficiency",
+     "level": 1,
+     "parent": "global_eff",
+     "unit": "%",
+     "values": {
+      "T1": 81.15388749148644,
+      "T2": 69.71060227373634
+     }
+    },
+    {
+     "key": "load_balance",
+     "name": "Load Balance",
+     "label": "Load balance",
+     "level": 2,
+     "parent": "parallel_eff",
+     "unit": "%",
+     "values": {
+      "T1": 89.7670684175868,
+      "T2": 87.58240907406083
+     }
+    },
+    {
+     "key": "comm_eff",
+     "name": "Communication Efficiency",
+     "label": "Communication efficiency",
+     "level": 2,
+     "parent": "parallel_eff",
+     "unit": "%",
+     "values": {
+      "T1": 90.40496578763968,
+      "T2": 79.59429640121927
+     }
+    },
+    {
+     "key": "comp_scale",
+     "name": "Computation Scalability",
+     "label": "Computation scalability",
+     "level": 1,
+     "parent": "global_eff",
+     "unit": "%",
+     "values": {
+      "T1": 100.0,
+      "T2": 69.23262673206455
+     }
+    },
+    {
+     "key": "ipc_scale",
+     "name": "IPC Scalability",
+     "label": "IPC scalability",
+     "level": 2,
+     "parent": "comp_scale",
+     "unit": "%",
+     "values": {
+      "T1": 100.0,
+      "T2": 77.62336832243703
+     }
+    },
+    {
+     "key": "inst_scale",
+     "name": "Instruction Scalability",
+     "label": "Instruction scalability",
+     "level": 2,
+     "parent": "comp_scale",
+     "unit": "%",
+     "values": {
+      "T1": 100.0,
+      "T2": 98.45168571326425
+     }
+    },
+    {
+     "key": "freq_scale",
+     "name": "Frequency Scalability",
+     "label": "Frequency scalability",
+     "level": 2,
+     "parent": "comp_scale",
+     "unit": "%",
+     "values": {
+      "T1": 100.0,
+      "T2": 90.59310963087064
+     }
+    }
+   ]
+  },
+  {
+   "id": "hybrid",
+   "name": "Hybrid",
+   "metrics": [
+    {
+     "key": "hybrid_eff",
+     "name": "Hybrid Parallel Efficiency",
+     "label": "Hybrid Parallel efficiency",
+     "level": 0,
+     "parent": null,
+     "unit": "%",
+     "values": {
+      "T1": 81.15388749148646,
+      "T2": 69.71060227373633
+     }
+    },
+    {
+     "key": "mpi_parallel_eff",
+     "name": "MPI Parallel Efficiency",
+     "label": "MPI Parallel efficiency",
+     "level": 1,
+     "parent": "hybrid_eff",
+     "unit": "%",
+     "values": {
+      "T1": 99.13345102221936,
+      "T2": 97.36964023400772
+     }
+    },
+    {
+     "key": "mpi_load_balance",
+     "name": "MPI Load Balance",
+     "label": "MPI Load balance",
+     "level": 2,
+     "parent": "mpi_parallel_eff",
+     "unit": "%",
+     "values": {
+      "T1": 99.52849599515868,
+      "T2": 98.56676941067379
+     }
+    },
+    {
+     "key": "mpi_comm_eff",
+     "name": "MPI Communication Efficiency",
+     "label": "MPI Communication efficiency",
+     "level": 2,
+     "parent": "mpi_parallel_eff",
+     "unit": "%",
+     "values": {
+      "T1": 99.60308355010355,
+      "T2": 98.78546371781925
+     }
+    },
+    {
+     "key": "serial_eff",
+     "name": "MPI Serialization Efficiency",
+     "label": "MPI Serialization efficiency",
+     "level": 3,
+     "parent": "mpi_comm_eff",
+     "unit": "%",
+     "values": {
+      "T1": "Non-Avail",
+      "T2": "Non-Avail"
+     }
+    },
+    {
+     "key": "transfer_eff",
+     "name": "MPI Transfer Efficiency",
+     "label": "MPI Transfer efficiency",
+     "level": 3,
+     "parent": "mpi_comm_eff",
+     "unit": "%",
+     "values": {
+      "T1": "Non-Avail",
+      "T2": "Non-Avail"
+     }
+    },
+    {
+     "key": "omp_parallel_eff",
+     "name": "OpenMP Parallel efficiency",
+     "label": "OpenMP Parallel efficiency",
+     "level": 1,
+     "parent": "hybrid_eff",
+     "unit": "%",
+     "values": {
+      "T1": 81.86327284550697,
+      "T2": 71.5937761567172
+     }
+    },
+    {
+     "key": "omp_load_balance",
+     "name": "OpenMP Load Balance",
+     "label": "OpenMP Load Balance",
+     "level": 2,
+     "parent": "omp_parallel_eff",
+     "unit": "%",
+     "values": {
+      "T1": 90.1923288602224,
+      "T2": 88.85591928974851
+     }
+    },
+    {
+     "key": "omp_comm_eff",
+     "name": "OpenMP Communication efficiency",
+     "label": "OpenMP Communication efficiency",
+     "level": 2,
+     "parent": "omp_parallel_eff",
+     "unit": "%",
+     "values": {
+      "T1": 90.76522790799251,
+      "T2": 80.57288330252761
+     }
+    }
+   ]
+  },
+  {
+   "id": "openmp_runtime",
+   "name": "OpenMP runtime",
+   "metrics": [
+    {
+     "key": "omp_talp_parallel_eff",
+     "name": "OpenMP Parallel Efficiency",
+     "label": "OpenMP Parallel Efficiency",
+     "level": 0,
+     "parent": null,
+     "unit": "%",
+     "values": {
+      "T1": 86.98925314043521,
+      "T2": 80.18819955084444
+     }
+    },
+    {
+     "key": "omp_talp_serial_eff",
+     "name": "OpenMP Serial Efficiency",
+     "label": "OpenMP Serial Efficiency",
+     "level": 1,
+     "parent": "omp_talp_parallel_eff",
+     "unit": "%",
+     "values": {
+      "T1": 88.81912667010326,
+      "T2": 85.79079598677653
+     }
+    },
+    {
+     "key": "omp_talp_load_balance",
+     "name": "OpenMP Region Load Balance",
+     "label": "OpenMP Load Balance",
+     "level": 1,
+     "parent": "omp_talp_parallel_eff",
+     "unit": "%",
+     "values": {
+      "T1": 98.5882790719035,
+      "T2": 95.10111128444576
+     }
+    },
+    {
+     "key": "omp_talp_scheduling_eff",
+     "name": "OpenMP Scheduling Efficiency",
+     "label": "OpenMP Scheduling Efficiency",
+     "level": 1,
+     "parent": "omp_talp_parallel_eff",
+     "unit": "%",
+     "values": {
+      "T1": 99.3422101343022,
+      "T2": 98.28430552762613
+     }
+    }
+   ]
+  }
+ ],
+ "raw_data": {
+  "runtime": {
+   "T1": 373844.42,
+   "T2": 314311.73
+  },
+  "runtime_dim": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hybrid_runtime_dim": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "useful_avg": {
+   "T1": 303389.28,
+   "T2": 219108.6
+  },
+  "useful_max": {
+   "T1": 337973.92,
+   "T2": 250174.21
+  },
+  "useful_tot": {
+   "T1": 16989799.47,
+   "T2": 24540163.03
+  },
+  "useful_io_tot": {
+   "T1": 16989799.46,
+   "T2": 24540163.090000004
+  },
+  "useful_dim": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hybrid_useful_dim": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "useful_ins": {
+   "T1": 186063734354.0,
+   "T2": 188989891850.0
+  },
+  "useful_cyc": {
+   "T1": 49865807115.0,
+   "T2": 65251006032.0
+  },
+  "frequency": {
+   "T1": 2923.175025079347,
+   "T2": 2632.6978399760324
+  },
+  "outsidempi_avg": {
+   "T1": 370604.875,
+   "T2": 306044.20071428566
+  },
+  "outsidempi_max": {
+   "T1": 372360.57,
+   "T2": 310494.3
+  },
+  "outsidempi_dim": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hybrid_outsidempi_dim": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "outsidempi_tot": {
+   "T1": 5188468.25,
+   "T2": 8569237.62
+  },
+  "mpicomm_tot": {
+   "T1": 45353.67,
+   "T2": 231490.69
+  },
+  "outsidempi_tot_diff": {
+   "T1": 5188468.25,
+   "T2": 8569237.62
+  },
+  "flushing_avg": {
+   "T1": 12039.71,
+   "T2": 24762.88
+  },
+  "flushing_max": {
+   "T1": 22699.23,
+   "T2": 35058.16
+  },
+  "flushing_tot": {
+   "T1": 168555.98,
+   "T2": 693360.64
+  },
+  "flushing_cyc": {
+   "T1": 16594829,
+   "T2": 40018351
+  },
+  "flushing_ins": {
+   "T1": 10806035,
+   "T2": 23634132
+  },
+  "io_tot": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "io_max": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "io_avg": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "io_std": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "io_cyc": {
+   "T1": 0,
+   "T2": 0
+  },
+  "io_ins": {
+   "T1": 0,
+   "T2": 0
+  },
+  "useful_plus_io_avg": {
+   "T1": 303389.2760714286,
+   "T2": 219108.59901785717
+  },
+  "useful_plus_io_max": {
+   "T1": 337973.92,
+   "T2": 250174.21
+  },
+  "io_state_tot": {
+   "T1": 168555.98,
+   "T2": 693360.64
+  },
+  "io_state_avg": {
+   "T1": 12039.71,
+   "T2": 24762.88
+  },
+  "io_state_max": {
+   "T1": 22699.23,
+   "T2": 35058.16
+  },
+  "mpiio_tot": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "mpiio_max": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "mpiio_avg": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "mpiio_std": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "mpiio_cyc": {
+   "T1": 0,
+   "T2": 0
+  },
+  "mpiio_ins": {
+   "T1": 0,
+   "T2": 0
+  },
+  "burst_useful_tot": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "burst_useful_max": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "burst_useful_avg": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "useful_not_0_avg": {
+   "T1": 303389.2760714286,
+   "T2": 219108.59901785717
+  },
+  "useful_not_0_max": {
+   "T1": 337973.92,
+   "T2": 250174.21
+  },
+  "useful_not_0_tot": {
+   "T1": 16989799.46,
+   "T2": 24540163.090000004
+  },
+  "procs_ins": {
+   "T1": 56,
+   "T2": 112
+  },
+  "useful_host": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "useful_host_max": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "useful_hybrid_gpu_tot": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "useful_hybrid_gpu_avg": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "useful_hybrid_gpu_max": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "useful_device": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "useful_device_max": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "useful_memtransf_device": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "useful_memtransf_device_max": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "count_devices": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "count_host_threads": {
+   "T1": 56,
+   "T2": 112
+  },
+  "count_gpu_streams": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "gpu_streams_per_rank": {
+   "T1": 0.0,
+   "T2": 0.0
+  },
+  "time_no_omp": {
+   "T1": 17035153.13,
+   "T2": 24771653.71
+  },
+  "time_omp_imbalance": {
+   "T1": 274639.57,
+   "T2": 1487394.89
+  },
+  "time_omp_schedule": {
+   "T1": 128815.35,
+   "T2": 530010.52
+  },
+  "time_omp_serial": {
+   "T1": 2144446.7699999996,
+   "T2": 4102835.0099999993
+  },
+  "hwc_devices": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hwc_elapsed": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hwc_gr_active_int": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hwc_sms_active_int": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hwc_sm_issue_int": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hwc_tensor_active_int": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hwc_warps_in_flight_int": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hwc_unallocated_warps_int": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hwc_dram_read_int": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hwc_dram_write_int": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hwc_gpc_clock_int": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hwc_dram_read_unweighted_int": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  },
+  "hwc_dram_write_unweighted_int": {
+   "T1": "Non-Avail",
+   "T2": "Non-Avail"
+  }
+ },
+ "files": {
+  "report": "basicanalysis_interactive_report.html",
+  "cfgs_report": "cfgs-report"
+ }
+}

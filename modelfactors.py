@@ -6,6 +6,7 @@ from __future__ import print_function, division
 
 from comparison import check_comparison_support
 from pipeline import count_hybrid_traces, compute_metrics, generate_reports, generate_plots
+from resultsjson import write_results_json
 from rawdata import gather_raw_data, print_raw_data_csv
 from tracemetadata import get_traces_from_args
 from utils import parse_arguments, check_installation, start_run_log, apply_efficiency_thresholds
@@ -78,6 +79,18 @@ def main():
     )
 
     generate_plots(
+        metrics_result,
+        analysis_result,
+        trace_list,
+        trace_processes,
+        trace_tasks,
+        trace_threads,
+        trace_mode,
+        cmdl_args,
+    )
+
+    # All the results in one machine-readable file (resultsjson.py).
+    write_results_json(
         metrics_result,
         analysis_result,
         trace_list,

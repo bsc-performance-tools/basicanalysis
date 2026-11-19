@@ -120,6 +120,22 @@ also writes ``device_hwc_metrics.csv`` with the GPU hardware counter metrics
 (percentages, and the GPC clock in MHz) and adds the integrals of the
 counters to ``rawdata.csv``.
 
+All the results are also written to one machine-readable file:
+
+``results.json``
+   The run (BasicAnalysis version and commit, command line, date, options,
+   and scaling model), the traces (trace identifier ``T1``, ``T2``...,
+   configuration label and its meaning, processes, MPI ranks, threads,
+   devices), every metric of every model per trace with its name, unit, and
+   position in the hierarchy (level and parent metric), and the raw data.
+   Values that are not available keep their marker (``Non-Avail``,
+   ``N/A``, ``NaN``). The file has a ``schema`` and a ``schema_version``:
+   tools that read it should check them. It is the input of the
+   BasicAnalysis desktop application (a prototype on the
+   ``feature/desktop-app`` branch), and it is easier to use from scripts
+   than the CSV files, whose labels are meant for people. If it cannot be
+   written, a warning is printed and the other outputs are not affected.
+
 When the analyzed traces use different programming models, BasicAnalysis
 also writes:
 
