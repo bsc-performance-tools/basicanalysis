@@ -15,6 +15,7 @@ from plotly.subplots import make_subplots
 from configuration import (
     format_configuration_label,
     format_gpu_configuration_label,
+    configuration_description,
 )
 from tracemetadata import is_host_gpu_mode
 from simulatedtraces import simulated_trace_note_html
@@ -4773,57 +4774,16 @@ def _build_report_trace_labels(report_traces):
 
 
 def _build_trace_column_description(report):
-    """Return the model-aware meaning of efficiency-table columns."""
+    """Return the model-aware meaning of efficiency-table columns
+    (configuration.CONFIGURATION_DESCRIPTIONS, shared with the standard
+    output and the static plots)."""
 
     traces = report.get("traces", [])
 
     if not traces:
         return ""
 
-    collection_mode, programming_model = _split_trace_mode(
-        traces[0].get("mode", "unknown")
-    )
-
-    model_key = _programming_model_key(
-        programming_model
-    )
-
-    # GPU configurations: processes × GPUs per process (the GPU streams are
-    # in the Execution Overview).
-    if collection_mode == "nsys2prv":
-        return "Processes × GPUs per process"
-
-    descriptions = {
-        "mpi": (
-            "MPI ranks"
-        ),
-        "openmp": (
-            "Threads"
-        ),
-        "pthreads": (
-            "Threads"
-        ),
-        "ompss": (
-            "Workers"
-        ),
-        "gpu": (
-            "Processes × GPUs per process"
-        ),
-        "mpi_threads": (
-            "Parallel units (MPI ranks × threads/rank)"
-        ),
-        "mpi_ompss": (
-            "Parallel units (MPI ranks × workers/rank)"
-        ),
-        "mpi_gpu": (
-            "MPI ranks × GPUs per rank"
-        ),
-        "generic": (
-            "Parallel units"
-        ),
-    }
-
-    return descriptions[model_key]
+    return configuration_description([traces[0].get("mode", "unknown")])
 
 
 def _build_trace_header_note(

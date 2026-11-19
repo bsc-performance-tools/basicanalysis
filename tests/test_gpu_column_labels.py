@@ -1,6 +1,10 @@
 import unittest
 
-from configuration import add_plot_trace_ids, gpu_configuration_caption
+from configuration import (
+    add_plot_trace_ids,
+    configuration_caption,
+    configuration_description,
+)
 from hybridmetrics import _build_hybrid_configuration_labels, _configuration_header
 
 
@@ -35,21 +39,36 @@ class GpuColumnLabelTests(unittest.TestCase):
         self.assertEqual(_configuration_header(traces, {traces[0]: 'nsys2prv+CUDA'}),
                          'Processes × GPUs per process')
         self.assertEqual(_configuration_header(traces, {traces[0]: 'Detailed+MPI'}),
-                         'Configuration')
+                         'MPI ranks')
+        self.assertEqual(_configuration_header(traces, {}), 'Configuration')
 
 
-class GpuCaptionTests(unittest.TestCase):
+class ConfigurationDescriptionTests(unittest.TestCase):
+    """The stdout headers and the plot captions say what the configuration
+    labels mean, with the text of the report."""
 
-    def test_caption_says_what_the_label_means(self):
-        self.assertEqual(
-            gpu_configuration_caption(['8 × 1 GPU [T1]', '8 × 1 GPU [T2]']),
-            'Configuration: processes × GPUs per process [Tn = trace ID]')
-        self.assertEqual(gpu_configuration_caption(['2 × 4 GPUs']),
-                         'Configuration: processes × GPUs per process')
-        self.assertIsNotNone(gpu_configuration_caption(['8 (4 GPUs) [T1]']))
+    def test_descriptions(self):
+        cases = {
+            'Detailed+MPI': 'MPI ranks',
+            'Burst+MPI': 'MPI ranks',
+            'Detailed+OpenMP': 'Threads',
+            'Detailed+MPI+OpenMP': 'Parallel units (MPI ranks × threads/rank)',
+            'Detailed+MPI+CUDA': 'MPI ranks × GPUs per rank',
+            'Detailed+CUDA': 'Processes × GPUs per process',
+            'nsys2prv+CUDA': 'Processes × GPUs per process',
+        }
+        for mode, text in cases.items():
+            self.assertEqual(configuration_description([mode, mode]), text, mode)
 
-    def test_no_caption_without_gpus(self):
-        self.assertIsNone(gpu_configuration_caption(['64 (8x8) [T1]', '128']))
+    def test_different_models_have_no_common_description(self):
+        self.assertIsNone(configuration_description(['Detailed+MPI', 'Detailed+MPI+OpenMP']))
+
+    def test_caption(self):
+        self.assertEqual(configuration_caption(['Detailed+MPI+OpenMP']),
+                         'Configuration: Parallel units (MPI ranks × threads/rank)'
+                         ' [Tn = trace ID]')
+        self.assertEqual(configuration_caption(['Detailed+MPI'], trace_ids=False),
+                         'Configuration: MPI ranks')
 
 if __name__ == '__main__':
     unittest.main()

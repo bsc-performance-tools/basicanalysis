@@ -11,6 +11,12 @@ from metrics import SCALE_ANCHORS, efficiency_scale_position, get_default_provid
 from scaling import get_scaling_info
 from iometrics import IO_FACTORS_DOC, io_useful_time, print_io_tables
 from tracemetadata import NSYS2PRV_DISPLAY_MODE, print_trace_mode_header
+from configuration import (
+    add_plot_trace_ids,
+    configuration_caption,
+    configuration_description,
+    CONFIGURATION_CAPTION_FONTSIZE,
+)
 
 # error import variables
 error_import_pandas = False
@@ -213,7 +219,16 @@ def _format_heatmap_metric_labels(labels, output_name=None):
     return formatted_labels, indent_levels
 
 
-def _plot_efficiency_heatmap(df, output_name, separator_row=None):
+def _configuration_caption(trace_list, trace_mode, trace_ids=True):
+    """Caption of the static plots: "Configuration: MPI ranks [Tn = trace ID]".
+    None without the trace modes."""
+    if not trace_mode or any(trace not in trace_mode for trace in trace_list):
+        return None
+    return configuration_caption([trace_mode[trace] for trace in trace_list],
+                                 trace_ids=trace_ids)
+
+
+def _plot_efficiency_heatmap(df, output_name, separator_row=None, caption=None):
     """
     Render an efficiency table as a publication-quality heatmap.
 
@@ -224,6 +239,10 @@ def _plot_efficiency_heatmap(df, output_name, separator_row=None):
     the actual text so that long metric names and configuration
     headers are not clipped or overlapped.
     """
+
+    # Columns are referenced with the trace ID of the report.
+    df = df.copy()
+    df.columns = add_plot_trace_ids(list(df.columns))
 
     nrows, ncols = df.shape
 
@@ -512,6 +531,11 @@ def _plot_efficiency_heatmap(df, output_name, separator_row=None):
             fontsize=11,
             labelpad=8
         )
+
+    # What the configuration labels mean, below the table.
+    if caption:
+        fig.text(0.5, 0.0, caption, ha='center', va='top',
+                 fontsize=CONFIGURATION_CAPTION_FONTSIZE)
 
     # --------------------------------------------------
     # Output
@@ -1163,7 +1187,10 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
 
     # line = ''.rjust(longest_name)
 
-    line = 'Processes [Trace Order]'.rjust(longest_name)
+    header = (configuration_description([trace_mode[trace] for trace in trace_list])
+              or 'Processes') + ' [Trace ID]'
+    longest_name = max(longest_name, len(header))
+    line = header.rjust(longest_name)
     line_trace_mode = 'Trace mode'.rjust(longest_name)
 
     if len(trace_list) == 1:
@@ -1265,7 +1292,8 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
 def print_other_metrics_table(
         other_metrics,
         trace_list,
-        trace_processes):
+        trace_processes,
+        trace_mode=None):
 
     """Print general performance indicators and complementary metrics."""
 
@@ -1285,7 +1313,12 @@ def print_other_metrics_table(
         )[-1]
     )
 
-    line = ''.rjust(longest_name)
+    header = ''
+    if trace_mode:
+        header = configuration_description(
+            [trace_mode[trace] for trace in trace_list]) or ''
+    longest_name = max(longest_name, len(header))
+    line = header.rjust(longest_name)
 
     if len(trace_list) == 1:
         limit_min = trace_processes[trace_list[0]]
@@ -1700,7 +1733,8 @@ def plots_efficiency_table_matplot(
         trace_processes,
         trace_tasks,
         trace_threads,
-        cmdl_args):
+        cmdl_args,
+        trace_mode=None):
     """Render the simple-model efficiency table using Matplotlib."""
 
     file_path = os.path.join(
@@ -1748,7 +1782,8 @@ def plots_efficiency_table_matplot(
 
     _plot_efficiency_heatmap(
         df_plot,
-        'efficiency_table-matplot'
+        'efficiency_table-matplot',
+        caption=_configuration_caption(trace_list, trace_mode)
     )
 
 
@@ -1818,7 +1853,8 @@ def plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, trace_ta
     plt.plot(traces_procs, list_data[2], 'X:', color='red', linewidth=2, label='Load Balance')
     plt.plot(traces_procs, list_data[3], 'x-.', color='green', label='Communication efficiency')
     plt.plot(traces_procs, list_data[6], 'v--', color='blue', label='Computation scalability')
-    plt.xlabel("Number of Processes")
+    plt.xlabel(_configuration_caption(trace_list, trace_mode, trace_ids=False)
+               or "Number of Processes", fontsize=CONFIGURATION_CAPTION_FONTSIZE)
     plt.ylabel("Efficiency (%)")
     plt.xticks(tuple(traces_procs), tuple(label_xtics))
     # print(max_global)
@@ -1837,7 +1873,8 @@ def plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, trace_ta
             plt.plot(traces_procs, list_data[3], 's-', color='green', label='Communication efficiency')
             plt.plot(traces_procs, list_data[4], 'h--', color='gold', label='Serialization efficiency')
             plt.plot(traces_procs, list_data[5], 'x:', color='tomato', label='Transfer efficiency')
-            plt.xlabel("Number of Processes")
+            plt.xlabel(_configuration_caption(trace_list, trace_mode, trace_ids=False)
+               or "Number of Processes", fontsize=CONFIGURATION_CAPTION_FONTSIZE)
             plt.ylabel("Efficiency (%)")
             plt.xticks(tuple(traces_procs), tuple(label_xtics))
         
@@ -1856,7 +1893,8 @@ def plots_modelfactors_matplot(trace_list, trace_mode, trace_processes, trace_ta
         plt.plot(traces_procs, list_data[7], 'v--', color='skyblue', label='IPC scalability')
         plt.plot(traces_procs, list_data[8], 'v:', color='gray', label='Instruction scalability')
         plt.plot(traces_procs, list_data[9], 'v-.', color='darkviolet', label='Frequency scalability')
-        plt.xlabel("Number of Processes")
+        plt.xlabel(_configuration_caption(trace_list, trace_mode, trace_ids=False)
+               or "Number of Processes", fontsize=CONFIGURATION_CAPTION_FONTSIZE)
         plt.ylabel("Efficiency (%)")
         plt.xticks(tuple(traces_procs), tuple(label_xtics))
         if float(max_scale) < 100:
@@ -1872,7 +1910,8 @@ def plots_speedup_matplot(
         trace_processes,
         trace_tasks,
         trace_threads,
-        cmdl_args):
+        cmdl_args,
+        trace_mode=None):
     """
     Plot measured Speedup and Efficiency against their ideal values.
 
@@ -1941,40 +1980,21 @@ def plots_speedup_matplot(
         for trace in trace_list
     ]
 
-    configuration_labels = []
-
-    for index, label in enumerate(base_labels):
-        if base_labels.count(label) > 1:
-            label += ' [' + str(index + 1) + ']'
-
-        configuration_labels.append(label)
+    # Every column with the trace ID of the report: 8 [T1], 16 [T2]...
+    configuration_labels = add_plot_trace_ids(base_labels)
 
     # --------------------------------------------------
-    # Numeric x coordinates
+    # x coordinates
     # --------------------------------------------------
 
-    # Preserve the previous BasicAnalysis behavior:
-    # repeated configurations receive slightly different numeric
-    # positions so that individual points and connecting lines remain
-    # visible.
-    x_values = []
+    # The traces are shown in the order of their trace ID (T1, T2, ...),
+    # evenly spaced, as the columns of the tables.
+    x_values = list(range(1, len(trace_list) + 1))
 
-    previous_procs = None
-    repeated_count = 0
-
-    for trace in trace_list:
-
-        procs = int(trace_processes[trace])
-
-        if previous_procs == procs:
-            repeated_count += 1
-            x = procs + (2 * repeated_count)
-        else:
-            repeated_count = 0
-            x = procs
-
-        x_values.append(x)
-        previous_procs = procs
+    x_axis_label = (_configuration_caption(trace_list, trace_mode)
+                    or 'Parallel units')
+    x_label_fontsize = (CONFIGURATION_CAPTION_FONTSIZE
+                        if x_axis_label != 'Parallel units' else 12)
 
     # --------------------------------------------------
     # Ideal values
@@ -2049,8 +2069,8 @@ def plots_speedup_matplot(
     )
 
     ax.set_xlabel(
-        'Parallel units',
-        fontsize=12
+        x_axis_label,
+        fontsize=x_label_fontsize
     )
 
     ax.set_ylabel(
@@ -2144,8 +2164,8 @@ def plots_speedup_matplot(
     )
 
     ax.set_xlabel(
-        'Parallel units',
-        fontsize=12
+        x_axis_label,
+        fontsize=x_label_fontsize
     )
 
     ax.set_ylabel(

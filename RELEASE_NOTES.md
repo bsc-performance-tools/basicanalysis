@@ -187,11 +187,19 @@
   output tables is *Processes × GPUs per process*. Configurations with the
   same label get the trace identifier of the report (`[T1]`, `[T2]`) instead
   of `[1]`, `[2]`. Scripts that read those CSV columns by name must use the
-  new labels. The static plots of GPU applications explain the label in a
-  small caption (*Configuration: processes × GPUs per process*), and the Speedup and
-  Efficiency plots of hybrid and GPU applications place the configurations
-  in the order of their trace identifier (T1, T2, ...), evenly spaced,
-  instead of by number of execution units.
+  new labels.
+- The configuration labels say what they mean in every output, with the
+  text of the *Trace columns* note of the report (*MPI ranks*, *Threads*,
+  *Parallel units (MPI ranks × threads/rank)*, *MPI ranks × GPUs per rank*,
+  *Processes × GPUs per process*...): as the header of the configuration
+  column of the standard output tables, instead of *Configuration* or
+  *Processes [Trace Order]*, and as a small caption below the static plots
+  and as the x-axis label of the Speedup, Efficiency and model factor plots.
+  The columns of the static plots of every model carry the trace identifier
+  of the report (`[T1]`, `[T2]`...), the Speedup and Efficiency plots place
+  the configurations in that order, evenly spaced, instead of by number of
+  execution units, and hybrid configurations use the separator of the report
+  (`56 (14×4)` instead of `56 (14x4)`, also in the CSV column names).
 
 - Workload indicators in the report. The metrics computed with a
   user-defined workload ratio are marked with ⚠ in the efficiency tables

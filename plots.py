@@ -161,7 +161,7 @@ def _build_hybrid_plot_axis(
                 processes=trace_processes[trace],
                 mpi_ranks=trace_tasks[trace],
                 inner_units=trace_threads[trace],
-                separator='x',
+                separator='×',
             )
 
         # Generic fallback
@@ -170,7 +170,7 @@ def _build_hybrid_plot_axis(
             label = format_configuration_label(
                 model_key='generic',
                 processes=trace_processes[trace],
-                separator='x',
+                separator='×',
             )
 
         base_labels.append(label)

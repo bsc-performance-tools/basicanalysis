@@ -166,10 +166,15 @@ efficiencies.
 Each column of the static plots is labelled with its configuration, with
 the same label as in the report (for GPU applications, processes × GPUs per
 process, for example ``4 × 1 GPU``), and the trace identifier used in the
-interactive report (``[T1]``, ``[T2]``, ...). For GPU applications, a
-small caption below the plot says what the label means (*Configuration:
-processes × GPUs per process*), since ``8 × 1 GPU`` alone could also be read
-as 8 processes on one GPU. The trace identifiers
+interactive report (``[T1]``, ``[T2]``, ...). A small caption below
+each plot says what the labels mean, with the same text as the *Trace
+columns* note of the report: for example *Configuration: MPI ranks*,
+*Configuration: Parallel units (MPI ranks × threads/rank)*, or
+*Configuration: Processes × GPUs per process* (``8 × 1 GPU`` alone could
+also be read as 8 processes on one GPU). The standard output tables use the
+same text as the header of the configuration column. When the traces have
+different programming models, the columns have no common meaning and no
+caption is shown. The trace identifiers
 are used
 so that the same trace can be referenced in a paper or in slides, even when
 several traces have the same configuration. Metrics without a value for
@@ -179,10 +184,9 @@ tables; the CSV files keep all the metrics.
 
 When multiple execution configurations are analyzed, BasicAnalysis also
 generates plots showing the evolution of performance metrics across the
-configurations. In the Speedup and Efficiency plots of hybrid and GPU
-applications, the configurations are placed in the order of their trace
-identifier (``T1``, ``T2``, ...), evenly spaced, as the columns of the
-tables. These include Speedup and Efficiency plots and, depending on
+configurations. In the Speedup and Efficiency plots, the configurations are
+placed in the order of their trace identifier (``T1``, ``T2``, ...), evenly
+spaced, as the columns of the tables. These include Speedup and Efficiency plots and, depending on
 the programming model and available data, plots for:
 
 * Global Efficiency and Parallel Efficiency;

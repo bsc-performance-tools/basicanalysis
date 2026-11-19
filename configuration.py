@@ -263,24 +263,92 @@ def format_gpu_configuration_label(
     return label
 
 
-_GPU_LABEL_RE = re.compile(r"^(\d+) × (\d+) GPUs?\b")
-_SHARED_GPU_LABEL_RE = re.compile(r"^(\d+) \((\d+) GPUs?\)")
+# Meaning of the configuration labels (the trace columns), per programming
+# model. The same text is used by the report ("Trace columns: ..."), the
+# standard output tables, and the captions of the static plots.
+CONFIGURATION_DESCRIPTIONS = {
+    "mpi": "MPI ranks",
+    "openmp": "Threads",
+    "pthreads": "Threads",
+    "ompss": "Workers",
+    "gpu": "Processes × GPUs per process",
+    "mpi_threads": "Parallel units (MPI ranks × threads/rank)",
+    "mpi_ompss": "Parallel units (MPI ranks × workers/rank)",
+    "mpi_gpu": "MPI ranks × GPUs per rank",
+    "nsys2prv": "Processes × GPUs per process",
+    "generic": "Parallel units",
+}
 
-# Font size of the caption, smaller than the plot text.
-GPU_CAPTION_FONTSIZE = 9
+# Font size of the caption of the static plots, smaller than the plot text.
+CONFIGURATION_CAPTION_FONTSIZE = 9
 
 
-def gpu_configuration_caption(labels):
-    """Caption that says what the GPU configuration labels of a plot mean:
-    "Configuration: processes × GPUs per process [Tn = trace ID]".
+def split_trace_mode(mode):
+    """Split a trace mode (Detailed+MPI+OpenMP) into the collection mode and
+    the programming model (Detailed, MPI + OpenMP)."""
+    parts = str(mode).split("+")
+    collection_mode = parts[0]
+    if len(parts) > 1:
+        programming_model = " + ".join(parts[1:])
+    else:
+        programming_model = "Unknown"
+    return collection_mode, programming_model
 
-    Returns None when no label is a GPU configuration.
+
+def programming_model_key(programming_model):
+    """Normalized identifier of a programming model (mpi, mpi_threads...)."""
+    model = str(programming_model).upper().replace(" ", "")
+    if model == "MPI":
+        return "mpi"
+    if model in ("OPENMP", "OMP"):
+        return "openmp"
+    if model == "PTHREADS":
+        return "pthreads"
+    if model == "OMPSS":
+        return "ompss"
+    if model in ("CUDA", "HIP"):
+        return "gpu"
+    if model in ("MPI+OPENMP", "MPI+OMP", "MPI+PTHREADS"):
+        return "mpi_threads"
+    if model == "MPI+OMPSS":
+        return "mpi_ompss"
+    if model in ("MPI+CUDA", "MPI+HIP"):
+        return "mpi_gpu"
+    return "generic"
+
+
+def configuration_model_key(mode):
+    """Key of CONFIGURATION_DESCRIPTIONS for a trace mode."""
+    collection_mode, programming_model = split_trace_mode(mode)
+    if collection_mode == "nsys2prv":
+        return "nsys2prv"
+    if collection_mode in ("Burst", "Sampling"):
+        # Burst+MPI traces are MPI traces.
+        return programming_model_key(
+            programming_model if programming_model != "Unknown" else "MPI")
+    return programming_model_key(programming_model)
+
+
+def configuration_description(trace_modes):
+    """Meaning of the configuration labels of traces with these modes, e.g.
+    "MPI ranks" or "Parallel units (MPI ranks × threads/rank)".
+
+    Returns None when the traces have different programming models (each
+    column then has its own meaning).
     """
-    labels = [str(label) for label in labels]
-    if not any(_GPU_LABEL_RE.match(label) or _SHARED_GPU_LABEL_RE.match(label)
-               for label in labels):
+    keys = {configuration_model_key(mode) for mode in trace_modes}
+    if len(keys) != 1:
         return None
+    return CONFIGURATION_DESCRIPTIONS[keys.pop()]
 
-    trace_ids = any("[T" in label for label in labels)
-    return "Configuration: processes × GPUs per process{}".format(
-        " [Tn = trace ID]" if trace_ids else "")
+
+def configuration_caption(trace_modes, trace_ids=True):
+    """Caption of a static plot: "Configuration: MPI ranks [Tn = trace ID]".
+
+    Returns None when the traces have different programming models.
+    """
+    description = configuration_description(trace_modes)
+    if description is None:
+        return None
+    return "Configuration: {}{}".format(
+        description, " [Tn = trace ID]" if trace_ids else "")

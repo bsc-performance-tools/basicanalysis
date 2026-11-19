@@ -424,7 +424,7 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
     omp_talp_factors = metrics_result["omp_talp_factors"]
 
 
-    print_other_metrics_table(other_metrics, trace_list, trace_processes)
+    print_other_metrics_table(other_metrics, trace_list, trace_processes, trace_mode)
     print_other_metrics_csv(other_metrics, trace_list, trace_processes)
     print_io_metrics_csv(other_metrics, trace_list, trace_processes)
     print_io_request_sizes_csv(other_metrics, trace_list)
@@ -613,7 +613,8 @@ def generate_simple_plots(metrics_result, analysis_result, report,
         error_plot_table = True
 
     if not error_plot_table:
-        plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, cmdl_args)
+        plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, trace_threads, cmdl_args,
+                                       trace_mode=trace_mode)
         if not error_import_interactiveplots:
             interactiveplots.plot_basicanalysis_interactive_report(
                 metrics_result,
@@ -644,7 +645,8 @@ def generate_simple_plots(metrics_result, analysis_result, report,
     if not error_plot_lineal:
         if len(trace_list) > 1:
             plots.plot_simple_metrics(mod_factors, trace_list, trace_processes, trace_mode, cmdl_args)
-            plots_speedup_matplot(trace_list, trace_processes, trace_tasks, trace_threads, cmdl_args)
+            plots_speedup_matplot(trace_list, trace_processes, trace_tasks, trace_threads, cmdl_args,
+                                  trace_mode=trace_mode)
 
     if len(trace_list) == 1:
         subprocess.check_output(["rm", "efficiency_table.gp"])

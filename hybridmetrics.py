@@ -31,8 +31,9 @@ from configuration import (
     add_plot_trace_ids,
     format_configuration_label,
     format_gpu_configuration_label,
-    gpu_configuration_caption,
-    GPU_CAPTION_FONTSIZE,
+    configuration_caption,
+    configuration_description,
+    CONFIGURATION_CAPTION_FONTSIZE,
     disambiguate_configuration_labels,
 )
 
@@ -470,12 +471,26 @@ def _gpu_configuration_label(trace, trace_tasks, raw_data):
 
 
 def _configuration_header(trace_list, trace_mode):
-    """Header of the trace columns of the stdout tables: for GPU traces it
-    describes the labels, as the report does."""
-    if trace_list and all(_is_gpu_trace_mode(trace_mode[trace])
-                          for trace in trace_list):
-        return 'Processes × GPUs per process'
-    return 'Configuration'
+    """Header of the trace columns of the stdout tables: what the labels
+    mean, as in the report ("MPI ranks", "Parallel units (MPI ranks ×
+    threads/rank)"...); "Configuration" when the traces have different
+    programming models."""
+    modes = _known_trace_modes(trace_list, trace_mode)
+    return (configuration_description(modes) if modes else None) or 'Configuration'
+
+
+def _configuration_caption(trace_list, trace_mode):
+    """Caption of the static plots: "Configuration: MPI ranks [Tn = trace ID]"."""
+    modes = _known_trace_modes(trace_list, trace_mode)
+    return configuration_caption(modes) if modes else None
+
+
+def _known_trace_modes(trace_list, trace_mode):
+    """Trace modes of all the traces, or None if one is not known."""
+    trace_mode = trace_mode or {}
+    if not trace_list or any(trace not in trace_mode for trace in trace_list):
+        return None
+    return [trace_mode[trace] for trace in trace_list]
 
 
 def _build_hybrid_configuration_labels(
@@ -485,8 +500,9 @@ def _build_hybrid_configuration_labels(
         trace_threads,
         trace_mode,
         raw_data,
-        separator='x'):
-    """Build model-aware configuration labels for hybrid output."""
+        separator='×'):
+    """Build model-aware configuration labels for hybrid output, with the
+    separator of the report (56 (14×4))."""
 
     labels = []
 
@@ -608,7 +624,7 @@ def _drop_unavailable_rows(df, separator_row=None):
     return df[available], separator_row
 
 
-def _plot_efficiency_heatmap(df, output_name, separator_row=None):
+def _plot_efficiency_heatmap(df, output_name, separator_row=None, caption=None):
     """
     Render an efficiency table as a publication-quality heatmap.
 
@@ -919,11 +935,10 @@ def _plot_efficiency_heatmap(df, output_name, separator_row=None):
             labelpad=8
         )
 
-    # GPU configuration labels are explained below the table.
-    caption = gpu_configuration_caption(list(df.columns))
+    # What the configuration labels mean, below the table.
     if caption:
         fig.text(0.5, 0.0, caption, ha='center', va='top',
-                 fontsize=GPU_CAPTION_FONTSIZE)
+                 fontsize=CONFIGURATION_CAPTION_FONTSIZE)
 
     # --------------------------------------------------
     # Output
@@ -3252,7 +3267,8 @@ def plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, tra
         columns=cols
     )
 
-    _plot_efficiency_heatmap(df, 'efficiency_table_hybrid_matplot')
+    _plot_efficiency_heatmap(df, 'efficiency_table_hybrid_matplot',
+                             caption=_configuration_caption(trace_list, trace_mode))
 
 
     # General Metrics plot
@@ -3294,7 +3310,8 @@ def plots_efficiency_table_matplot(trace_list, trace_processes, trace_tasks, tra
         columns=cols
     )
 
-    _plot_efficiency_heatmap(df, 'efficiency_table_global_matplot')
+    _plot_efficiency_heatmap(df, 'efficiency_table_global_matplot',
+                             caption=_configuration_caption(trace_list, trace_mode))
 
 def plots_modelfactors_matplot(trace_list, trace_processes,trace_tasks, trace_threads, trace_mode, cmdl_args):
     # Plotting using python
@@ -3741,10 +3758,10 @@ def plots_speedup_matplot(
     x_values = list(range(1, len(trace_list) + 1))
 
     x_label_fontsize = 12
-    caption = gpu_configuration_caption(configuration_labels)
+    caption = _configuration_caption(trace_list, trace_mode)
     if caption:
         x_axis_label = caption
-        x_label_fontsize = GPU_CAPTION_FONTSIZE
+        x_label_fontsize = CONFIGURATION_CAPTION_FONTSIZE
 
     # --------------------------------------------------
     # Ideal values
@@ -4132,10 +4149,13 @@ def plots_talp_efficiency_table_matplot(
     host_labels = set(mod_host_factors_doc.values())
     host_rows = sum(1 for metric in metrics if metric in host_labels)
 
+    caption = _configuration_caption(trace_list, trace_mode)
+
     _plot_efficiency_heatmap(
         df_plot,
         'efficiency_table_talp_matplot',
-        separator_row=host_rows
+        separator_row=host_rows,
+        caption=caption
     )
 
     # Host-only and Device-only tables, e.g. for presentations that
@@ -4143,11 +4163,13 @@ def plots_talp_efficiency_table_matplot(
     if 0 < host_rows < len(df_plot):
         _plot_efficiency_heatmap(
             df_plot.iloc[host_rows:],
-            'efficiency_table_talp_device_matplot'
+            'efficiency_table_talp_device_matplot',
+            caption=caption
         )
         _plot_efficiency_heatmap(
             df_plot.iloc[:host_rows],
-            'efficiency_table_talp_host_matplot'
+            'efficiency_table_talp_host_matplot',
+            caption=caption
         )
 
 
@@ -4306,7 +4328,8 @@ def plots_device_hwc_table_matplot(device_hwc_factors, trace_list, trace_process
         columns=configuration_labels,
     )
 
-    _plot_efficiency_heatmap(df_plot, 'efficiency_table_device_hwc_matplot')
+    _plot_efficiency_heatmap(df_plot, 'efficiency_table_device_hwc_matplot',
+                             caption=_configuration_caption(trace_list, trace_mode))
 
 
 def plots_device_hwc_indicators_matplot(device_hwc_factors, trace_list,
@@ -4391,10 +4414,10 @@ def plots_device_hwc_indicators_matplot(device_hwc_factors, trace_list,
         label_ax.text(0.01, row + 0.5, label, fontsize=12, ha='left',
                       va='center', clip_on=False)
 
-    caption = gpu_configuration_caption(configuration_labels)
+    caption = _configuration_caption(trace_list, trace_mode)
     if caption:
         fig.text(0.5, 0.0, caption, ha='center', va='top',
-                 fontsize=GPU_CAPTION_FONTSIZE)
+                 fontsize=CONFIGURATION_CAPTION_FONTSIZE)
 
     fig.savefig('table_device_hwc_indicators_matplot.png', dpi=400,
                 bbox_inches='tight')
