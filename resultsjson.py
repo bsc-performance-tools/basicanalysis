@@ -143,6 +143,58 @@ def _traces(trace_list, trace_processes, trace_tasks, trace_threads, trace_mode,
     return traces
 
 
+def _overview_tables(trace_list, trace_processes, trace_tasks, trace_threads,
+                     trace_mode, raw_data, cmdl_args):
+    """The Trace configuration and Execution mapping tables of the report,
+    with the columns that the report uses for the programming model."""
+    from reportdata import _build_traces
+    from report.renderer.html.overview import (
+        _execution_mapping_columns, _overview_model_key, _split_trace_mode,
+        _trace_resource_columns)
+    infos = _build_traces(
+        trace_list, trace_processes, trace_tasks, trace_threads, trace_mode,
+        raw_data,
+        getattr(cmdl_args, "simulated_traces", ()),
+        getattr(cmdl_args, "inconsistent_simulations", ()),
+    )
+    if not infos:
+        return None
+    collection_mode, programming_model = _split_trace_mode(infos[0]["mode"])
+    model_key = _overview_model_key(collection_mode, programming_model)
+    resource_columns = _trace_resource_columns(model_key)
+    mapping_columns = _execution_mapping_columns(model_key)
+
+    def mapping_value(mapping, field):
+        if isinstance(mapping, dict):
+            value = mapping.get(field)
+        else:
+            value = getattr(mapping, field, None) if mapping is not None else None
+        if value == -1:
+            return "Non-uniform"
+        return _count(value) if value is not None else None
+
+    configuration = OrderedDict([
+        ("columns", ["ID", "Trace", "Programming model"]
+         + [label for _field, label in resource_columns]),
+        ("rows", []),
+    ])
+    mapping = OrderedDict([
+        ("columns", ["ID", "Trace"] + [label for _field, label in mapping_columns]),
+        ("rows", []),
+    ])
+    for info in infos:
+        trace_id = "T{}".format(info["id"])
+        model = _split_trace_mode(info["mode"])[1].replace(" + ", "+")
+        configuration["rows"].append(
+            [trace_id, info["name"], model]
+            + [_count(info.get(field)) for field, _label in resource_columns])
+        mapping["rows"].append(
+            [trace_id, info["name"]]
+            + [mapping_value(info.get("mapping"), field) for field, _label in mapping_columns])
+    return OrderedDict([("trace_configuration", configuration),
+                        ("execution_mapping", mapping)])
+
+
 def _hierarchy(doc):
     """Level and parent of each metric of a table, from the indentation and
     the '--' / '==' markers of its stdout labels."""
@@ -312,6 +364,8 @@ def build_results(metrics_result, analysis_result, trace_list, trace_processes,
         ("configuration_meaning",
          configuration_description([trace_mode[trace] for trace in trace_list])),
         ("traces", traces),
+        ("overview", _overview_tables(trace_list, trace_processes, trace_tasks,
+                                      trace_threads, trace_mode, raw_data, cmdl_args)),
         ("models", _models(metrics_result, trace_list, trace_ids, trace_mode)),
         ("raw_data", _raw_data(raw_data, trace_list, trace_ids)),
         ("files", OrderedDict([

@@ -379,6 +379,8 @@ next one.
    a results folder; dockable panels with the traces, the efficiency tables,
    zoomable scaling plots, and the metric details (guidance) from
    ``results.json`` and ``definitions.yaml``; Linux build.
+   *Prototype on the branch: tables with loss marks, metric details with
+   the proposed deeper analysis (shown, not run), traces, scaling plot.*
 3. **Guided deeper analysis I: Paraver**: actions file and tool adapters;
    from a metric with a loss, open Paraver on a (cut) trace with the cfg of
    the metric, and save the image of the view into the project as evidence.
@@ -405,9 +407,8 @@ Repository layout (Phase 2):
     basicanalysis/              (branch feature/desktop-app)
     |-- modelfactors.py ...     Python core, unchanged
     |-- doc/design/desktop_app.rst
-    `-- desktop/
-        |-- src-tauri/          Rust: Cargo.toml, src/, tauri.conf.json, icons
-        `-- ui/                 React front end (Vite project)
+    `-- desktop/                React front end (Vite project: package.json, src/)
+        `-- src-tauri/          Rust: Cargo.toml, src/, tauri.conf.json, icons
 
 Development requirements (laptop only, not for users of the installed
 application): Rust (``rustup``), Node.js (``nvm``, LTS), and the Tauri
