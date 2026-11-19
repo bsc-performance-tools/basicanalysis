@@ -5,7 +5,7 @@ import { buildViews } from './views.js';
 import Sidebar from './Sidebar.jsx';
 import ViewPanel from './panels/ViewPanel.jsx';
 import PanelBoundary from './panels/PanelBoundary.jsx';
-import { openResultsDialog, isTauri } from './backend.js';
+import { openParaver, openResultsDialog, isTauri, paraverCommand } from './backend.js';
 import TracesPanel from './panels/TracesPanel.jsx';
 import ModelPanel from './panels/ModelPanel.jsx';
 import ScalingPanel from './panels/ScalingPanel.jsx';
@@ -50,6 +50,7 @@ export default function App() {
   const [results, setResults] = useState(null);
   const [selected, setSelected] = useState(null);
   const [message, setMessage] = useState('');
+  const [resultsDir, setResultsDir] = useState(null);
   const [activeView, setActiveView] = useState('overview');
   const beside = useRef(0);
   const apiRef = useRef(null);
@@ -72,7 +73,7 @@ export default function App() {
     if (isTauri()) {
       try {
         const opened = await openResultsDialog();
-        if (opened) show(opened.results, opened.path);
+        if (opened) { setResultsDir(opened.path); show(opened.results, opened.path); }
       } catch (error) {
         setMessage(String(error));
       }
@@ -170,10 +171,28 @@ export default function App() {
     });
   }, [storageKey]);
 
+  // Open Paraver on a trace with a cfg of the results folder (Tauri), or copy
+  // the command of the report (browser).
+  const runParaver = useCallback(async (trace, cfg) => {
+    if (!isTauri() || !resultsDir) {
+      const command = paraverCommand(trace, cfg);
+      try { await navigator.clipboard.writeText(command); setMessage(`Copied: ${command}`); } catch {
+        setMessage(command);
+      }
+      return;
+    }
+    try {
+      const command = await openParaver(resultsDir, trace, cfg);
+      setMessage(`Paraver started: ${command}`);
+    } catch (error) {
+      setMessage(String(error.message || error));
+    }
+  }, [resultsDir]);
+
   const context = useMemo(() => ({
     results, selected, setSelected, activeView, thresholdsFor, setThresholds,
-    customThresholds: viewThresholds,
-  }), [results, selected, activeView, thresholdsFor, setThresholds, viewThresholds]);
+    customThresholds: viewThresholds, runParaver, canRunParaver: isTauri() && !!resultsDir,
+  }), [results, selected, activeView, thresholdsFor, setThresholds, viewThresholds, runParaver, resultsDir]);
 
   return (
     <AnalysisContext.Provider value={context}>

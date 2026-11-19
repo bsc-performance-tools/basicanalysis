@@ -36,8 +36,14 @@ function Formula({ latex, text }) {
   return text ? <p className="formula">{text}</p> : null;
 }
 
+// cfgs written by BasicAnalysis to the cfgs-report/ folder of the results:
+// these actions can already run (the others need Phase 3/5).
+const RESULT_CFGS = new Set(['useful_duration.cfg']);
+const cfgName = (action) => String(action.cfg || '').replace(/^cfgs-report\//, '');
+const runnable = (action) => action.tool === 'Paraver' && RESULT_CFGS.has(cfgName(action));
+
 export default function MetricPanel() {
-  const { results, selected, activeView, thresholdsFor } = useAnalysis();
+  const { results, selected, activeView, thresholdsFor, runParaver, canRunParaver } = useAnalysis();
   if (!results || !selected) return <div className="panel muted">Select a metric in a table.</div>;
   const model = results.models.find((m) => m.id === selected.modelId);
   const metric = model && model.metrics.find((m) => m.key === selected.key);
@@ -78,11 +84,24 @@ export default function MetricPanel() {
             <div className="action-head">
               <span className={`tool ${a.tool.split(' ')[0].toLowerCase()}`}>{a.tool}</span>
               {a.cfg && <code>{a.cfg}</code>}
-              <button type="button" disabled title={`Planned for Phase ${a.phase}`}>
-                Run (Phase {a.phase})
-              </button>
+              {!runnable(a) && (
+                <button type="button" disabled title={`Planned for Phase ${a.phase}`}>
+                  Run (Phase {a.phase})
+                </button>
+              )}
             </div>
             <p>{a.what}</p>
+            {runnable(a) && (
+              <div className="trace-buttons">
+                {results.traces.map((t) => (
+                  <button key={t.id} type="button" className="paraver-button"
+                          title={`${canRunParaver ? 'Open Paraver on' : 'Copy the Paraver command for'} ${t.name}`}
+                          onClick={() => runParaver(t, cfgName(a))}>
+                    {canRunParaver ? 'Open' : 'Copy'} {t.id}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

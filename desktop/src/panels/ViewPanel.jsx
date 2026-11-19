@@ -72,6 +72,7 @@ function RunInfo({ results }) {
 }
 
 function Paraver({ results }) {
+  const { runParaver, canRunParaver } = useAnalysis();
   return (
     <>
       <p>Use the recommended Paraver views to inspect the execution in greater detail and
@@ -83,11 +84,19 @@ function Paraver({ results }) {
             <tr key={t.id}>
               <td className="text">{t.id} {t.name}</td>
               <td className="text">Useful Duration timeline <code>useful_duration.cfg</code></td>
-              <td><button type="button" disabled title="Planned for Phase 3">Open (Phase 3)</button></td>
+              <td>
+                <button type="button" className="paraver-button"
+                        onClick={() => runParaver(t, 'useful_duration.cfg')}>
+                  {canRunParaver ? 'Open in Paraver' : 'Copy Paraver command'}
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      <p className="tiny"><b>Default Paraver view:</b> Useful Duration timeline.{' '}
+        {canRunParaver ? 'Paraver opens on the trace with this cfg.'
+          : 'The command is copied; paste it in a terminal.'}</p>
     </>
   );
 }
