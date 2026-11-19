@@ -3,10 +3,10 @@
  "schema_version": 1,
  "basicanalysis": {
   "version": "2026.10.05",
-  "commit": "45b68b7"
+  "commit": "e5e73d2"
  },
  "run": {
-  "date": "2026-11-19T13:54:58+01:00",
+  "date": "2026-11-19T15:50:17+01:00",
   "command": "python3 modelfactors.py -skip-simul laplace-mpi-4p.prv laplace-mpi-8p.prv laplace-mpi-16p.prv",
   "directory": "example/laplace-mpi-4-8-16p",
   "analysis_kind": "simple",
@@ -98,6 +98,64 @@
    "inconsistent_simulation": false
   }
  ],
+ "overview": {
+  "trace_configuration": {
+   "columns": [
+    "ID",
+    "Trace",
+    "Programming model",
+    "MPI ranks"
+   ],
+   "rows": [
+    [
+     "T1",
+     "laplace-mpi-4p.prv",
+     "MPI",
+     4
+    ],
+    [
+     "T2",
+     "laplace-mpi-8p.prv",
+     "MPI",
+     8
+    ],
+    [
+     "T3",
+     "laplace-mpi-16p.prv",
+     "MPI",
+     16
+    ]
+   ]
+  },
+  "execution_mapping": {
+   "columns": [
+    "ID",
+    "Trace",
+    "Nodes",
+    "MPI ranks/node"
+   ],
+   "rows": [
+    [
+     "T1",
+     "laplace-mpi-4p.prv",
+     1,
+     4
+    ],
+    [
+     "T2",
+     "laplace-mpi-8p.prv",
+     1,
+     8
+    ],
+    [
+     "T3",
+     "laplace-mpi-16p.prv",
+     1,
+     16
+    ]
+   ]
+  }
+ },
  "models": [
   {
    "id": "general",
