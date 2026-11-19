@@ -27,3 +27,4 @@ behaviour of the released tool.
 |----------|--------|--------|
 | [I/O Performance Model and Diagnostic Metrics](io_performance_model.rst) | Implementation in progress (factors, time diagnostics, request sizes, and files done) | `feature/io-metrics` |
 | [GPU Metrics: States, Events, and the `.row` File](gpu_states_events_row.rst) | Decision recorded; future work proposed (Paraver views, fallback without `.row`) | — |
+| [GPU Assessment Metrics from the vLLM POP Assessment](gpu_assessment_metrics.rst) | Proposal, for review by the team (metrics and Paraver views in five steps) | `feature/gpu-assessment-metrics` |
