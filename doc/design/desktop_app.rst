@@ -1,9 +1,11 @@
 BasicAnalysis Desktop Application (Tauri)
 =========================================
 
-:Status: Design; Phase 1 (``results.json``) implemented; front end decided
-         (React with dockable panels, 2026-11-19); priorities: performance
-         model and guidance, Paraver with cfgs, POP assessment
+:Status: Phase 1 (``results.json``) implemented; Phase 2 prototype with
+         the views of the HTML report; Phase 3 started (Open in Paraver
+         with the Useful Duration cfg); first prototype sent to Germán
+         for design feedback (2026-11-19). See "Current state and next
+         steps".
 :Date: 2026-11-19
 :Branch: ``feature/desktop-app``
 :Related: ``assessment.rst`` (branch ``feature/assessment``),
@@ -379,11 +381,16 @@ next one.
    a results folder; dockable panels with the traces, the efficiency tables,
    zoomable scaling plots, and the metric details (guidance) from
    ``results.json`` and ``definitions.yaml``; Linux build.
-   *Prototype on the branch: tables with loss marks, metric details with
-   the proposed deeper analysis (shown, not run), traces, scaling plot.*
+   *Prototype on the branch: left menu with the views of the HTML report,
+   efficiency tables in the report format, per-view threshold slider,
+   scaling plots with the ideal, metric details with the formulas in
+   LaTeX (KaTeX) and the proposed deeper analysis; Linux AppImage and
+   deb.*
 3. **Guided deeper analysis I: Paraver**: actions file and tool adapters;
    from a metric with a loss, open Paraver on a (cut) trace with the cfg of
    the metric, and save the image of the view into the project as evidence.
+   *Started: Open in Paraver with* ``useful_duration.cfg`` *(Extrae
+   traces verified).*
 4. **POP assessment editor** (Level 2): editable panel with the POP
    sections, evidence from the panels and from the tools, comments; saved
    in the project; PDF and POP PPTX export.
@@ -415,6 +422,43 @@ application): Rust (``rustup``), Node.js (``nvm``, LTS), and the Tauri
 system libraries (on Ubuntu 22.04: ``libwebkit2gtk-4.1-dev``,
 ``build-essential``, ``curl``, ``wget``, ``file``, ``libxdo-dev``,
 ``libssl-dev``, ``libayatana-appindicator3-dev``, ``librsvg2-dev``).
+
+
+Current state and next steps
+----------------------------
+
+State on 2026-11-19 (branch ``feature/desktop-app``, ``fd5546a``, pushed):
+
+* the views of the HTML report in a left menu, with the same performance
+  model in each view, the tables in the report format, the threshold
+  slider, "How to read this view", and the scaling plots with the ideal;
+* metric details with the formulas from ``definitions.yaml`` in LaTeX;
+* Open in Paraver from "Validate in Paraver" and from the metric details,
+  with ``cfgs-report/useful_duration.cfg``; the trace is found from
+  ``results.json``, by name next to the results, or chosen by the user;
+* a first package (AppImage, deb, examples with their traces) sent to
+  Germán for feedback on the design.
+
+Open items, in order (the rule: parity with the HTML report before new
+functionality):
+
+1. **Metric details parity**: check that the metric panel shows the same
+   content as the metric details of the HTML report (description,
+   interpretation, formula, thresholds, related metrics, notes such as the
+   workload assumptions) and add what is missing.
+2. **All report cfgs in** ``cfgs-report/``: BasicAnalysis writes only
+   ``useful_duration.cfg`` there today. It should copy every cfg that the
+   report and ``definitions.yaml`` refer to (Python side), so that the
+   other Paraver actions of the metric details can be run, not only shown.
+3. **Useful Duration cfg for nsys2prv traces**: the current
+   ``useful_duration.cfg`` is based on the Running state, which nsys2prv
+   traces do not have, so Paraver shows an empty view. An events-based cfg
+   is needed, rewritten per trace with the event codes resolved from its
+   ``.pcf`` (as ``nsys2prvevents.py`` does for the metric cfgs).
+4. **Feedback from Germán** on the design of the prototype.
+
+After these: save the Paraver view image as evidence (end of Phase 3), and
+then the POP assessment editor (Phase 4).
 
 
 Risks
