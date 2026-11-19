@@ -165,12 +165,12 @@ can be copied, archived, or shared:
 ::
 
     my-analysis/
-    ├── project.json            name, created, BA version, notes, settings
-    ├── results/                one or more BasicAnalysis results folders
-    │   └── run-2026-11-19/     results.json, CSV files, report, cfgs-report/
-    ├── traces/                 optional local (cut) traces, or references
-    ├── assessment/             assessment.json + images (Level 2)
-    └── paraver/                Paraver views and images saved from the app
+    |-- project.json            name, created, BA version, notes, settings
+    |-- results/                one or more BasicAnalysis results folders
+    |   `-- run-2026-11-19/     results.json, CSV files, report, cfgs-report/
+    |-- traces/                 optional local (cut) traces, or references
+    |-- assessment/             assessment.json + images (Level 2)
+    `-- paraver/                Paraver views and images saved from the app
 
 A results folder copied from the cluster can also be opened directly; the
 application then offers to create a project around it.
@@ -297,11 +297,11 @@ Repository layout (Phase 2):
 ::
 
     basicanalysis/              (branch feature/desktop-app)
-    ├── modelfactors.py ...     Python core, unchanged
-    ├── doc/design/desktop_app.rst
-    └── desktop/
-        ├── src-tauri/          Rust: Cargo.toml, src/, tauri.conf.json, icons
-        └── ui/                 HTML/JS of the application window
+    |-- modelfactors.py ...     Python core, unchanged
+    |-- doc/design/desktop_app.rst
+    `-- desktop/
+        |-- src-tauri/          Rust: Cargo.toml, src/, tauri.conf.json, icons
+        `-- ui/                 HTML/JS of the application window
 
 Development requirements (laptop only): Rust (``rustup``), the Tauri system
 libraries (on Ubuntu 22.04: ``libwebkit2gtk-4.1-dev``, ``libgtk-3-dev``,
