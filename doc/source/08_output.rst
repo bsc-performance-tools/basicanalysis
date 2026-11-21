@@ -118,7 +118,11 @@ using the Host/Device execution-domain model can generate
 ``talp_metrics.csv``. For *nsys2prv* traces with GPU metrics, BasicAnalysis
 also writes ``device_hwc_metrics.csv`` with the GPU hardware counter metrics
 (percentages, and the GPC clock in MHz) and adds the integrals of the
-counters to ``rawdata.csv``.
+counters to ``rawdata.csv``. GPU traces also give ``device_work_metrics.csv``
+(kernel time in seconds and the Device work scalabilities in %), and
+*nsys2prv* traces ``host_cuda_calls.csv`` (Host time split in %), with the
+time of each group of CUDA calls in ``rawdata.csv`` (see
+:ref:`gpu-assessment-indicators`).
 
 When the analyzed traces use different programming models, BasicAnalysis
 also writes:

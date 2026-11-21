@@ -21,6 +21,7 @@ from simulatedtraces import (clear_simulated_metrics,
                              find_inconsistent_simulations,
                              inconsistent_simulation_warnings)
 from nsys2prvmetrics import create_device_hwc_factors
+import gpuassessment
 from scaling import (describe_detected, describe_domains, describe_scaling,
                      workload_table)
 from comparison import (
@@ -168,6 +169,10 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
             "host_factors": host_factors,
             "omp_talp_factors": omp_talp_factors,
             "device_hwc_factors": create_device_hwc_factors(raw_data, trace_list),
+            "device_work_factors": gpuassessment.create_device_work_factors(
+                raw_data, trace_list, scaling_info),
+            "host_calls_factors": gpuassessment.create_host_calls_factors(
+                raw_data, trace_list),
             "scaling_info": scaling_info,
         }, trace_list, trace_mode, cmdl_args)
 
@@ -367,6 +372,16 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
                     trace_mode,
                     raw_data,
                 )
+
+            # GPU assessment metrics: Device work and Host time split.
+            for name in ('device_work', 'host_calls'):
+                factors = metrics_result.get(name + "_factors")
+                if gpuassessment.has_metrics(factors, trace_list):
+                    for printer in (gpuassessment.print_table,
+                                    gpuassessment.print_csv):
+                        printer(name, factors, trace_list, trace_processes,
+                                trace_tasks, trace_threads, trace_mode,
+                                raw_data)
         else:
             hybridmetrics.print_mod_factors_table(
                 mod_factors, other_metrics, mod_factors_scale_plus_io,

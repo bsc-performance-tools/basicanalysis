@@ -3083,6 +3083,92 @@ sampled SM, occupancy, Tensor Core, DRAM, and clock activity, and then
 profiled with Nsight Compute to confirm these hypotheses.
 
 
+.. _gpu-assessment-indicators:
+
+Device Work and Host Time Split
+-------------------------------
+
+Two tables of indicators complete the Heterogeneous Model of GPU traces,
+with the quantities that POP assessments of GPU applications (for example AI
+inference frameworks) compute next to the Device and Host metrics. They are
+shown under the Device and Host tables of the Heterogeneous Model view, in
+the standard output, and in ``device_work_metrics.csv`` and
+``host_cuda_calls.csv``. They are indicators, **not** factors of the model.
+
+**Device work.** With :math:`G` the kernel time of all the devices (the
+Device useful time), :math:`I_X` the integral of the counter :math:`X` over
+the trace (added over the devices), and :math:`W / W_{ref}` the workload
+ratio of the Device Computation Scalability (the ``--workload`` ratio, the
+device ratio with weak scaling, or 1 with strong scaling):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - Indicator
+     - Definition
+   * - Kernel time (s)
+     - :math:`G`; available for every GPU trace.
+   * - Device Computation Scalability (not scaled)
+     - :math:`G_{ref} / G`; only when the Device Computation Scalability is
+       scaled (user-defined workload or weak scaling).
+   * - Tensor Core work scalability
+     - :math:`\frac{I_{Tensor,ref}}{I_{Tensor}} \cdot \frac{W}{W_{ref}}`,
+       with the Tensor Active counter.
+   * - DRAM read volume scalability
+     - :math:`\frac{I_{Read,ref}}{I_{Read}} \cdot \frac{W}{W_{ref}}`, with
+       the DRAM Read Bandwidth counter (proportional to the bytes read).
+   * - DRAM write volume scalability
+     - The same with the DRAM Write Bandwidth counter.
+
+The counter scalabilities need two or more traces with GPU hardware counters
+(*nsys2prv* traces with GPU metrics). As the Device Computation Scalability,
+100% means that the work grows exactly as the workload; below 100% the
+execution needs more of that work per unit of workload than the reference,
+and above 100% less. POP assessments sometimes report the plain ratio of the
+counts, :math:`I_X / I_{X,ref}`; it is the workload ratio divided by the
+scalability. Comparing them with the Device Computation Scalability shows
+whether a change of the kernel time comes with a change of the work (more
+operations or memory traffic per unit of workload) or of the rate at which
+the kernels execute it.
+
+**Host time split** (*nsys2prv* traces). The time of the Host units (see
+`Execution units`_) is split into the time outside CUDA calls (the
+framework: the application, the interpreter, the inference engine) and the
+time in each group of CUDA runtime and driver calls, in % of
+:math:`H \cdot T`. The calls are grouped by their name (the value labels of
+the CUDA call event in the ``.pcf``):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Group
+     - Calls
+   * - Kernel launch
+     - names with *launch* (``cudaLaunchKernel``, ``cuLaunchKernelEx``,
+       ``cudaGraphLaunch``...)
+   * - Synchronization
+     - *synchronize* and *query* calls (waiting for the devices)
+   * - Memory
+     - copies, memset, allocation and release, host memory registration
+   * - CUDA graph
+     - graph management (capture, instantiation, update, destruction); the
+       graph launches are launch calls
+   * - Other
+     - the other CUDA calls (events, streams, kernel attributes...)
+
+The six parts add up to 100%. In the report, the split is a grouped bar
+plot, with one group of bars per part (parts that are 0 in every trace are
+not shown) and one bar per trace, and the values in a table below it. The
+time outside CUDA calls is
+:math:`UsefulHost_h` of the Host metrics. With a low Device Orchestration
+Efficiency, a large framework share means that the devices wait for the host
+to launch the next kernels (for example, 87.5% in the framework and 11.3% in
+launch calls for a vLLM inference with batch size 1), whereas a large
+synchronization share means that the host waits for the devices.
+
+
 OpenMP Runtime-Specific Metrics
 ===============================
 

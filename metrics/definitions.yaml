@@ -24,6 +24,9 @@ sources:
   basicanalysis_gpu_hwc:
     title: BasicAnalysis Device Hardware Counter Metrics (nsys2prv GPU metrics)
     kind: internal
+  basicanalysis_gpu_assessment:
+    title: BasicAnalysis GPU Assessment Metrics (Device work and Host time split)
+    kind: internal
 metrics:
   global_eff:
     name: Global Efficiency
@@ -2090,3 +2093,367 @@ metrics:
     children: []
     sources:
       - basicanalysis_gpu_hwc
+
+  dev_kernel_time:
+    name: Kernel Time
+    short_name: Kernel time
+    family: device
+    analysis_level: execution_domain
+    metric_type: performance_indicator
+    definition: >
+      Time of the compute kernels on all the devices (the Device useful
+      time G), in seconds.
+    formula:
+      text: Kernel time = sum over devices of the time in compute kernels
+      latex: G = \sum_{i=1}^{N} G_i
+      variables:
+        G_i: >
+          Time of device i in compute kernels, without memory copies and
+          communication kernels; overlapping kernels of one device are
+          counted once.
+    interpretation:
+      reading: >
+        Absolute value, the base of the Device Computation Scalability
+        (G_ref / G). Compare it with the elapsed time and between
+        executions.
+      low: >
+        The devices spend little time in compute kernels.
+      high: >
+        The devices spend much time in compute kernels.
+    next_steps:
+      - Compare the kernel time of the executions with their workloads; the Device Computation Scalability gives this ratio.
+    children: []
+    sources:
+      - basicanalysis_gpu_assessment
+
+  dev_comp_scale_unscaled:
+    name: Device Computation Scalability (not scaled)
+    short_name: Comp. scal. not scaled
+    family: device
+    analysis_level: execution_domain
+    metric_type: performance_indicator
+    definition: >
+      Kernel time of the reference execution divided by the kernel time of
+      the execution, without the workload or device ratio. It is shown
+      only when the Device Computation Scalability is scaled (user-defined
+      workload or weak scaling).
+    formula:
+      text: Comp. scal. not scaled = G_ref / G
+      latex: \mathrm{CS_{not\,scaled}} = \frac{G_{ref}}{G}
+      variables:
+        G: >
+          Kernel time of all the devices.
+    interpretation:
+      reading: >
+        Relative kernel time. Multiplied by the workload ratio it gives the
+        Device Computation Scalability.
+      low: >
+        The execution spends more kernel time than the reference.
+      high: >
+        The execution spends less kernel time than the reference.
+    next_steps:
+      - Use the Device Computation Scalability to compare the executions per unit of workload.
+    children: []
+    sources:
+      - basicanalysis_gpu_assessment
+
+  dev_tensor_work_scale:
+    name: Tensor Core Work Scalability
+    short_name: Tensor work scal.
+    family: device
+    analysis_level: execution_domain
+    metric_type: performance_indicator
+    definition: >
+      Scalability of the Tensor Core work executed by the devices, relative to the
+      reference execution and scaled by the workload ratio, as the Device
+      Computation Scalability. It is an indicator next to the Device
+      Computation Scalability, not a factor of the model.
+    formula:
+      text: Tensor work scal. = (I_Tensor_ref / I_Tensor) x workload ratio
+      latex: \mathrm{Tensor~work~scal.} = \frac{I_{ref}}{I} \cdot \frac{W}{W_{ref}}
+      variables:
+        I_Tensor: >
+          Integral of the Tensor Active counter over the trace, added over the devices; proportional to the Tensor Core pipeline cycles.
+        workload ratio: >
+          W / W_ref: the --workload ratio of the Device domain, the device
+          ratio with weak scaling, or 1 with strong scaling.
+    interpretation:
+      reading: >
+        100% means that the Tensor Core work grows exactly as the workload.
+        Below 100% the execution needs more Tensor Core work per unit of
+        workload than the reference; above 100%, less. The plain ratio of
+        the Tensor Core work (I / I_ref, as in the POP assessments) is the
+        workload ratio divided by this value.
+      low: >
+        The execution needs more Tensor Core work per unit of workload than the reference (for example more operations, or kernels that use the Tensor Cores less efficiently).
+      high: >
+        The execution needs less Tensor Core work per unit of workload than the reference.
+    next_steps:
+      - Compare it with the Device Computation Scalability; if the Tensor Core work grows less than the kernel time, the kernels use the Tensor Cores less efficiently.
+      - Check which kernels are used in each execution; libraries choose different matrix kernels for different sizes.
+    children: []
+    sources:
+      - basicanalysis_gpu_assessment
+
+  dev_dram_read_scale:
+    name: DRAM Read Volume Scalability
+    short_name: DRAM read scal.
+    family: device
+    analysis_level: execution_domain
+    metric_type: performance_indicator
+    definition: >
+      Scalability of the data read from DRAM executed by the devices, relative to the
+      reference execution and scaled by the workload ratio, as the Device
+      Computation Scalability. It is an indicator next to the Device
+      Computation Scalability, not a factor of the model.
+    formula:
+      text: DRAM read scal. = (I_Read_ref / I_Read) x workload ratio
+      latex: \mathrm{DRAM~read~scal.} = \frac{I_{ref}}{I} \cdot \frac{W}{W_{ref}}
+      variables:
+        I_Read: >
+          Integral of the DRAM Read Bandwidth counter over the trace, added over the devices; proportional to the bytes read from DRAM.
+        workload ratio: >
+          W / W_ref: the --workload ratio of the Device domain, the device
+          ratio with weak scaling, or 1 with strong scaling.
+    interpretation:
+      reading: >
+        100% means that the data read from DRAM grows exactly as the workload.
+        Below 100% the execution needs more data read from DRAM per unit of
+        workload than the reference; above 100%, less. The plain ratio of
+        the data read from DRAM (I / I_ref, as in the POP assessments) is the
+        workload ratio divided by this value.
+      low: >
+        The execution reads more data per unit of workload than the reference.
+      high: >
+        The execution reads less data per unit of workload than the reference (for example, the model weights are read once for a larger batch).
+    next_steps:
+      - Compare it with the Device Computation Scalability to see whether the memory traffic explains the change of the kernel time.
+      - Check the DRAM bandwidth of the GPU Hardware Counters view to see whether the kernels approach the peak bandwidth.
+    children: []
+    sources:
+      - basicanalysis_gpu_assessment
+
+  dev_dram_write_scale:
+    name: DRAM Write Volume Scalability
+    short_name: DRAM write scal.
+    family: device
+    analysis_level: execution_domain
+    metric_type: performance_indicator
+    definition: >
+      Scalability of the data written to DRAM executed by the devices, relative to the
+      reference execution and scaled by the workload ratio, as the Device
+      Computation Scalability. It is an indicator next to the Device
+      Computation Scalability, not a factor of the model.
+    formula:
+      text: DRAM write scal. = (I_Write_ref / I_Write) x workload ratio
+      latex: \mathrm{DRAM~write~scal.} = \frac{I_{ref}}{I} \cdot \frac{W}{W_{ref}}
+      variables:
+        I_Write: >
+          Integral of the DRAM Write Bandwidth counter over the trace, added over the devices; proportional to the bytes written to DRAM.
+        workload ratio: >
+          W / W_ref: the --workload ratio of the Device domain, the device
+          ratio with weak scaling, or 1 with strong scaling.
+    interpretation:
+      reading: >
+        100% means that the data written to DRAM grows exactly as the workload.
+        Below 100% the execution needs more data written to DRAM per unit of
+        workload than the reference; above 100%, less. The plain ratio of
+        the data written to DRAM (I / I_ref, as in the POP assessments) is the
+        workload ratio divided by this value.
+      low: >
+        The execution writes more data per unit of workload than the reference.
+      high: >
+        The execution writes less data per unit of workload than the reference.
+    next_steps:
+      - Compare it with the Device Computation Scalability to see whether the memory traffic explains the change of the kernel time.
+      - Check the DRAM bandwidth of the GPU Hardware Counters view to see whether the kernels approach the peak bandwidth.
+    children: []
+    sources:
+      - basicanalysis_gpu_assessment
+
+  host_time_framework:
+    name: Host Time Outside CUDA Calls
+    short_name: Framework
+    family: host
+    analysis_level: execution_domain
+    metric_type: performance_indicator
+    definition: >
+      Time of the Host units outside CUDA runtime and driver calls: the framework, the application, the interpreter (Python), I/O and waits not done in CUDA calls. In % of the time of the Host units (one per process with
+      GPUs), from the CUDA calls of nsys2prv traces, grouped by the call
+      name.
+    formula:
+      text: Framework = time of the Host units outside CUDA calls / (Host units x elapsed time)
+      latex: \mathrm{Framework} = \frac{T_{calls}}{H \cdot T}
+      variables:
+        H: >
+          Number of Host units.
+        T: >
+          Elapsed time.
+    interpretation:
+      reading: >
+        The six parts of the Host time split add up to 100%.
+      low: >
+        The Host units spend most of their time in CUDA calls: launching kernels or waiting for the devices.
+      high: >
+        The Host units spend most of their time in the framework or the application. If the Device Orchestration Efficiency is low, the devices wait for the host to launch the next kernels.
+    next_steps:
+      - With a low Device Orchestration Efficiency, look at the computation of the framework between kernel launches (for example in a Paraver timeline of the CUDA calls).
+      - Consider CUDA graphs or fused kernels to reduce the host work per kernel.
+    children: []
+    sources:
+      - basicanalysis_gpu_assessment
+
+  host_time_launch:
+    name: Host Time in Kernel Launch Calls
+    short_name: Launch
+    family: host
+    analysis_level: execution_domain
+    metric_type: performance_indicator
+    definition: >
+      Time of the Host units in kernel launch calls (cudaLaunchKernel, cuLaunchKernel, cudaGraphLaunch...). In % of the time of the Host units (one per process with
+      GPUs), from the CUDA calls of nsys2prv traces, grouped by the call
+      name.
+    formula:
+      text: Launch = time of the Host units in these calls / (Host units x elapsed time)
+      latex: \mathrm{Launch} = \frac{T_{calls}}{H \cdot T}
+      variables:
+        H: >
+          Number of Host units.
+        T: >
+          Elapsed time.
+    interpretation:
+      reading: >
+        The six parts of the Host time split add up to 100%.
+      low: >
+        Launching kernels takes little host time.
+      high: >
+        Launching kernels takes much host time: many small kernels.
+    next_steps:
+      - Reduce the number of kernels (fusion) or launch them with CUDA graphs.
+    children: []
+    sources:
+      - basicanalysis_gpu_assessment
+
+  host_time_sync:
+    name: Host Time in Synchronization Calls
+    short_name: Sync
+    family: host
+    analysis_level: execution_domain
+    metric_type: performance_indicator
+    definition: >
+      Time of the Host units in synchronization calls (cudaDeviceSynchronize, cudaStreamSynchronize, cudaEventSynchronize, queries): waiting for the devices. In % of the time of the Host units (one per process with
+      GPUs), from the CUDA calls of nsys2prv traces, grouped by the call
+      name.
+    formula:
+      text: Sync = time of the Host units in these calls / (Host units x elapsed time)
+      latex: \mathrm{Sync} = \frac{T_{calls}}{H \cdot T}
+      variables:
+        H: >
+          Number of Host units.
+        T: >
+          Elapsed time.
+    interpretation:
+      reading: >
+        The six parts of the Host time split add up to 100%.
+      low: >
+        The host rarely waits for the devices.
+      high: >
+        The host waits for the devices: the devices are the bottleneck, or the host synchronizes more often than needed.
+    next_steps:
+      - Check whether each synchronization is needed; asynchronous copies and events allow the host to go on working.
+    children: []
+    sources:
+      - basicanalysis_gpu_assessment
+
+  host_time_memory:
+    name: Host Time in Memory Calls
+    short_name: Memory
+    family: host
+    analysis_level: execution_domain
+    metric_type: performance_indicator
+    definition: >
+      Time of the Host units in memory calls (allocation, copies and memset issued from the host). In % of the time of the Host units (one per process with
+      GPUs), from the CUDA calls of nsys2prv traces, grouped by the call
+      name.
+    formula:
+      text: Memory = time of the Host units in these calls / (Host units x elapsed time)
+      latex: \mathrm{Memory} = \frac{T_{calls}}{H \cdot T}
+      variables:
+        H: >
+          Number of Host units.
+        T: >
+          Elapsed time.
+    interpretation:
+      reading: >
+        The six parts of the Host time split add up to 100%.
+      low: >
+        Memory management and copies take little host time.
+      high: >
+        Memory management or synchronous copies take much host time.
+    next_steps:
+      - Reuse allocations and use asynchronous copies with pinned host memory.
+    children: []
+    sources:
+      - basicanalysis_gpu_assessment
+
+  host_time_graph:
+    name: Host Time in CUDA Graph Calls
+    short_name: Graph
+    family: host
+    analysis_level: execution_domain
+    metric_type: performance_indicator
+    definition: >
+      Time of the Host units in CUDA graph management calls (capture, instantiation, update, destruction); the graph launches are counted as launch calls. In % of the time of the Host units (one per process with
+      GPUs), from the CUDA calls of nsys2prv traces, grouped by the call
+      name.
+    formula:
+      text: Graph = time of the Host units in these calls / (Host units x elapsed time)
+      latex: \mathrm{Graph} = \frac{T_{calls}}{H \cdot T}
+      variables:
+        H: >
+          Number of Host units.
+        T: >
+          Elapsed time.
+    interpretation:
+      reading: >
+        The six parts of the Host time split add up to 100%.
+      low: >
+        Graph management takes little host time.
+      high: >
+        Creating or updating CUDA graphs takes much host time.
+    next_steps:
+      - Create the graphs once and reuse them.
+    children: []
+    sources:
+      - basicanalysis_gpu_assessment
+
+  host_time_other:
+    name: Host Time in Other CUDA Calls
+    short_name: Other calls
+    family: host
+    analysis_level: execution_domain
+    metric_type: performance_indicator
+    definition: >
+      Time of the Host units in the other CUDA calls (events, stream and device management, kernel attributes...). In % of the time of the Host units (one per process with
+      GPUs), from the CUDA calls of nsys2prv traces, grouped by the call
+      name.
+    formula:
+      text: Other calls = time of the Host units in these calls / (Host units x elapsed time)
+      latex: \mathrm{Other~calls} = \frac{T_{calls}}{H \cdot T}
+      variables:
+        H: >
+          Number of Host units.
+        T: >
+          Elapsed time.
+    interpretation:
+      reading: >
+        The six parts of the Host time split add up to 100%.
+      low: >
+        Other CUDA calls take little host time.
+      high: >
+        Other CUDA calls take much host time.
+    next_steps:
+      - Look at the CUDA calls with most time in host_cuda_calls.csv and in the Paraver timeline of the CUDA calls.
+    children: []
+    sources:
+      - basicanalysis_gpu_assessment

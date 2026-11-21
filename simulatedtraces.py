@@ -86,6 +86,8 @@ NON_MPI_LEVEL_GROUPS = (
     'host_factors',
     'omp_talp_factors',
     'device_hwc_factors',
+    'device_work_factors',
+    'host_calls_factors',
 )
 
 PURE_MPI_MODES = ('Detailed+MPI', 'Burst+MPI')

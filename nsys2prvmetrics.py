@@ -49,6 +49,8 @@ from tracemetadata import (
 )
 from utils import run_command, move_files
 import nsys2prvevents
+from gpuassessment import (host_calls_raw_data_doc, parse_cuda_calls_by_name,
+                           host_call_group_times)
 
 
 # Values of the CUDA memcpy event (63000001) in nsys2prv traces.
@@ -109,6 +111,11 @@ hwc_raw_data_doc = OrderedDict(
        for key, _event, label in HWC_COUNTERS]
 )
 
+# Optional raw data of nsys2prv traces: only written to rawdata.csv when a
+# trace has it, so that the raw data of other traces is unchanged.
+optional_raw_data_doc = OrderedDict(
+    list(hwc_raw_data_doc.items()) + list(host_calls_raw_data_doc.items()))
+
 # Device hardware counter metrics (computed from hwc_raw_data_doc).
 mod_device_hwc_factors_doc = OrderedDict([
     ('dev_hwc_gpu_active', 'GPU Active (HW counters)'),
@@ -137,6 +144,7 @@ def init_nsys2prv_cfgs(root_dir):
         'memcpy_streams': os.path.join(nsys_dir, 'memcpy_streams.cfg'),
         'nccl_streams': os.path.join(nsys_dir, 'nccl_streams.cfg'),
         'cuda_calls_host': os.path.join(nsys_dir, 'cuda_calls_host.cfg'),
+        'cuda_calls_by_name': os.path.join(nsys_dir, 'cuda_calls_by_name_host.cfg'),
     }
     for key in HWC_KEYS:
         cfgs['hwc_' + key] = os.path.join(nsys_dir, 'hwc_' + key + '.cfg')
@@ -855,6 +863,7 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         'memcpy_streams': trace_name + '.memcpy_streams.stats.csv',
         'nccl_streams': trace_name + '.nccl_streams.stats.csv',
         'cuda_calls_host': trace_name + '.cuda_calls_host.stats.csv',
+        'cuda_calls_by_name': trace_name + '.cuda_calls_by_name.stats.csv',
     }
 
     # GPU hardware counters, only when the trace has Metrics GPU<n> threads.
@@ -871,13 +880,13 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         getattr(cmdl_args, 'nsys2prv_events', None))
     trace_cfgs, missing_cfgs = write_trace_cfgs(
         nsys_cfgs, ('kernels_streams', 'memcpy_streams', 'nccl_streams',
-                    'cuda_calls_host') + tuple(hwc_stats),
+                    'cuda_calls_host', 'cuda_calls_by_name') + tuple(hwc_stats),
         events['codes'], os.path.join(local_path_dest, 'cfgs-nsys2prv'))
     trace_cfgs['runtime'] = nsys_cfgs['runtime']
 
     cmd = ['paramedir', trace]
     for key in ('runtime', 'kernels_streams', 'memcpy_streams', 'nccl_streams',
-                'cuda_calls_host') + tuple(hwc_stats):
+                'cuda_calls_host', 'cuda_calls_by_name') + tuple(hwc_stats):
         if key in trace_cfgs:
             cmd.extend([trace_cfgs[key], stats[key]])
 
@@ -932,6 +941,15 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
                 print('==DEBUG== {}: CUDA calls={:.2f}, useful={:.2f}'.format(
                     thread_obj, host_calls.get(thread_obj, 0.0),
                     runtime - host_calls.get(thread_obj, 0.0)))
+
+    # Host time split: time of the host units in each group of CUDA calls.
+    calls_by_name = parse_cuda_calls_by_name(
+        stats['cuda_calls_by_name'], threads['labels'])
+    if host_threads and calls_by_name:
+        trace_raw_data['host_calls_units'] = len(host_threads)
+        for group, time_us in host_call_group_times(
+                calls_by_name, host_threads).items():
+            trace_raw_data['host_calls_' + group] = time_us
 
     # paramedir writes no file when none of the events of a filter is in the
     # trace. Without the kernel timeline the Device useful time is 0, and the

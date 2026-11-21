@@ -4,6 +4,20 @@
 
 ### New Features
 
+- GPU assessment indicators in the Heterogeneous Model (from the POP
+  assessment of vLLM inference with nsys2prv traces). **Device work**: kernel
+  time, Device Computation Scalability not scaled, and the scalability of the
+  Tensor Core work and of the DRAM data read and written, from the integrals
+  of the GPU hardware counters, scaled by the workload ratio as the Device
+  Computation Scalability. **Host time split** (nsys2prv): time of the Host
+  units outside CUDA calls (framework) and in kernel launch, synchronization,
+  memory, CUDA graph, and other CUDA calls, grouped by the call names of the
+  `.pcf`, with a new Paraver configuration
+  (`nsys2prv/cuda_calls_by_name_host.cfg`). Shown under the Device and Host
+  tables of the Heterogeneous Model view: Device work as a table, the Host
+  time split as a grouped bar plot (one group per part, one bar per trace)
+  with the values in a table below it (with Metric Details), in the standard output, and in the new `device_work_metrics.csv`
+  and `host_cuda_calls.csv`.
 - Adjustable efficiency thresholds. `--thresholds CRITICAL,ATTENTION`
   (default 60,85) sets the thresholds of every efficiency metric: the colors
   of the efficiency tables of the report and of the static heatmaps, the

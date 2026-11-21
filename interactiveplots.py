@@ -19,6 +19,7 @@ from configuration import (
 )
 from tracemetadata import is_host_gpu_mode
 from simulatedtraces import simulated_trace_note_html
+import gpuassessment
 from iometrics import (
     ACCESS_PATTERN_CLASSES as IO_ACCESS_PATTERN_CLASSES,
     ACCESS_PATTERN_DESCRIPTIONS as IO_ACCESS_PATTERN_DESCRIPTIONS,
@@ -856,6 +857,29 @@ DEVICE_HWC_INDICATOR_ORDER = [
     "dev_hwc_dram_write",
     "dev_hwc_gpc_clock",
 ]
+
+
+def _build_gpu_assessment_metric_info():
+    """Device work and Host time split metrics (gpuassessment.py)."""
+
+    presentation = {
+        key: {"label": label, "type": "Indicator"}
+        for key, label in list(gpuassessment.mod_device_work_doc.items())
+        + list(gpuassessment.mod_host_calls_doc.items())
+    }
+
+    return METRIC_PROVIDER.build(presentation)
+
+
+GPU_ASSESSMENT_METRIC_INFO = _build_gpu_assessment_metric_info()
+
+DEVICE_WORK_ORDER = list(gpuassessment.mod_device_work_doc)
+HOST_CALLS_ORDER = list(gpuassessment.mod_host_calls_doc)
+
+GPU_ASSESSMENT_UNITS = {
+    key: ("s" if key == "dev_kernel_time" else "%")
+    for key in DEVICE_WORK_ORDER + HOST_CALLS_ORDER
+}
 
 
 HYBRID_ORDER = [
@@ -2528,6 +2552,168 @@ def _build_device_hwc_indicator_table_html(device_hwc_factors, trace_list,
 
     lines.append("</tbody></table></div>")
 
+    return "\n".join(lines)
+
+
+def _build_host_calls_plot_html(factors, metric_keys, metric_info, trace_list,
+                                trace_labels, x_axis_title=""):
+    """Grouped bar plot of the Host time split: one group of bars per part
+    of the Host time (x axis), one bar per trace, in trace order.
+
+    Parts that are 0 in every trace are not shown. Returns "" when no trace
+    has the split.
+    """
+
+    series = []
+    for trace, label in zip(trace_list, trace_labels):
+        values = [_clean_value(_read_metric(factors, key, trace))
+                  for key in metric_keys]
+        if any(value is not None for value in values):
+            series.append((label, values))
+    if not series:
+        return ""
+
+    shown = [
+        index for index, _key in enumerate(metric_keys)
+        if any(values[index] for _label, values in series)
+    ]
+    categories = [
+        _clean_metric_label(metric_info.get(metric_keys[i], {}).get(
+            "label", metric_keys[i]))
+        for i in shown
+    ]
+
+    fig = go.Figure()
+    for label, values in series:
+        y_values = [values[i] for i in shown]
+        fig.add_trace(go.Bar(
+            x=categories,
+            y=y_values,
+            name=label,
+            text=[("{:.1f}%".format(v) if v is not None else "")
+                  for v in y_values],
+            textposition="outside",
+            cliponaxis=False,
+            hovertemplate=(
+                "<b>%{x}</b><br>" + html.escape(label)
+                + ": %{y:.2f}% of the Host time<extra></extra>"
+            ),
+        ))
+
+    fig.update_layout(
+        barmode="group",
+        bargap=0.25,
+        bargroupgap=0.05,
+        height=380,
+        autosize=True,
+        margin=dict(l=65, r=30, t=55, b=70),
+        legend=dict(orientation="h", yanchor="bottom", y=1.04,
+                    xanchor="right", x=1.0,
+                    title=dict(text=x_axis_title + "  ") if x_axis_title else None),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        uniformtext=dict(minsize=9, mode="hide"),
+    )
+    fig.update_xaxes(type="category", showgrid=False, tickangle=0)
+    fig.update_yaxes(title="% of the Host time", range=[0, 110],
+                     showgrid=True, gridcolor="#e3e7ee", zeroline=True,
+                     zerolinecolor="#8f8f8f")
+
+    plot_html = fig.to_html(
+        full_html=False,
+        include_plotlyjs=False,
+        config={"responsive": True, "displaylogo": False},
+    )
+
+    return """
+    <div class="scaling-trend-card gpu-assessment-plot">
+        <div class="scaling-factor-trend-plot">
+            {plot_html}
+        </div>
+    </div>
+    """.format(plot_html=plot_html)
+
+
+def _build_indicator_card_html(factors, metric_keys, metric_info, trace_list,
+                               trace_labels, section_id, header, intro,
+                               export_name, plot_html=""):
+    """Card with a table of indicators (no efficiency colours).
+
+    Only the metrics with a value in some trace are shown. The values open
+    the Metric Details of the section. With a plot, the plot is shown and
+    the table is collapsed below it. Returns "" when no metric has a value.
+    """
+
+    def available(raw_value):
+        return raw_value not in (None, "Non-Avail", "N/A")
+
+    keys = [
+        key for key in metric_keys
+        if any(available(_read_metric(factors, key, trace))
+               for trace in trace_list)
+    ]
+    if not keys:
+        return ""
+
+    lines = [
+        "<h3 class='gpu-assessment-heading'>{}</h3>".format(html.escape(header)),
+        "<p class='trace-header-note'>{}</p>".format(intro),
+    ]
+    if plot_html:
+        lines += [
+            plot_html,
+            "<details class='gpu-assessment-values'>",
+            "<summary>Values (click a value for its details)</summary>",
+        ]
+    lines += [
+        "<div class='metric-table-card gpu-assessment-card' "
+        "data-export-name='{}'>".format(html.escape(export_name, quote=True)),
+        "<div class='efficiency-table-wrapper'>",
+        "<table class='metric-table device-hwc-indicators gpu-assessment-indicators'>",
+        "<thead><tr><th class='metric-column-header'>{}</th>".format(
+            html.escape(header)),
+    ]
+    for label in trace_labels:
+        lines.append("<th>{}</th>".format(html.escape(label)))
+    lines.append("</tr></thead><tbody>")
+
+    for metric_key in keys:
+        info = metric_info.get(metric_key, {})
+        label = _clean_metric_label(info.get("label", metric_key))
+        meaning = info.get("meaning", "")
+        lines.append("<tr>")
+        lines.append(
+            "<td class='metric-name' title='{}'>{}</td>".format(
+                html.escape(meaning, quote=True), html.escape(label)))
+        for index, trace in enumerate(trace_list):
+            raw_value = _read_metric(factors, metric_key, trace)
+            value = _clean_value(raw_value)
+            if value is None:
+                lines.append("<td>{}</td>".format(
+                    _format_unavailable_metric_value(raw_value)))
+                continue
+            text = gpuassessment.format_value(metric_key, value)
+            if metric_key == "dev_kernel_time":
+                text += "\u00a0s"
+            lines.append(
+                "<td><button type='button' class='device-hwc-indicator-value' "
+                "data-trace-index='{index}' "
+                "onclick=\"selectMetricCell(this, '{section_id}', "
+                "'{metric_key}', '{metric_label}', '{trace_label}', "
+                "{value})\">{text}</button></td>".format(
+                    section_id=html.escape(section_id, quote=True),
+                    metric_key=html.escape(metric_key, quote=True),
+                    metric_label=html.escape(label, quote=True),
+                    trace_label=html.escape(trace_labels[index], quote=True),
+                    value="{:.10f}".format(value),
+                    text=text,
+                    index=index,
+                ))
+        lines.append("</tr>")
+
+    lines.append("</tbody></table></div></div>")
+    if plot_html:
+        lines.append("</details>")
     return "\n".join(lines)
 
 
@@ -5139,7 +5325,7 @@ def _metric_value_color(value, thresholds=None):
 
 
 
-def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_sources, device_sources, trace_list, trace_labels, trace_header_note, trace_column_description="",):
+def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_sources, device_sources, trace_list, trace_labels, trace_header_note, trace_column_description="", metrics_result=None,):
     """Build the combined Host/Device Execution Domains analysis.
 
     The Execution Domains view presents Host and Device metrics as two
@@ -5155,8 +5341,57 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         + list(device_metric_keys)
     )
 
+    metrics_result = metrics_result or {}
+
+    # GPU assessment indicators next to the Device and Host tables.
+    device_work_html = _build_indicator_card_html(
+        metrics_result.get("device_work_factors") or {},
+        DEVICE_WORK_ORDER,
+        GPU_ASSESSMENT_METRIC_INFO,
+        trace_list,
+        trace_labels,
+        section_id="execution-domains",
+        header="Device work",
+        intro=(
+            "Kernel time and scalability of the work measured by the GPU "
+            "hardware counters, scaled as the Device Computation "
+            "Scalability (100% = the work grows as the workload). "
+            "Indicators next to the model, not factors of it."
+        ),
+        export_name="execution-domains-device-work",
+    )
+    host_calls_factors = metrics_result.get("host_calls_factors") or {}
+    host_calls_html = _build_indicator_card_html(
+        host_calls_factors,
+        HOST_CALLS_ORDER,
+        GPU_ASSESSMENT_METRIC_INFO,
+        trace_list,
+        trace_labels,
+        section_id="execution-domains",
+        header="Host time split",
+        intro=(
+            "Time of the Host units outside CUDA calls (framework) and in "
+            "each group of CUDA calls, in % of the Host time. A low Device "
+            "Orchestration Efficiency with a large framework share means "
+            "that the devices wait for the host to launch the next kernels."
+        ),
+        export_name="execution-domains-host-calls",
+        plot_html=_build_host_calls_plot_html(
+            host_calls_factors,
+            HOST_CALLS_ORDER,
+            GPU_ASSESSMENT_METRIC_INFO,
+            trace_list,
+            trace_labels,
+        ),
+    )
+    indicator_keys = []
+    if device_work_html:
+        indicator_keys += DEVICE_WORK_ORDER
+    if host_calls_html:
+        indicator_keys += HOST_CALLS_ORDER
+
     metric_knowledge = _build_metric_knowledge(
-        metric_keys=all_metric_keys,
+        metric_keys=all_metric_keys + indicator_keys,
     )
 
     guidance_html = _build_execution_domains_guidance_html()
@@ -5203,6 +5438,15 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         TALP_METRIC_INFO,
         metric_knowledge,
     )
+    if indicator_keys:
+        info_data = json.loads(info_json)
+        info_data.update(json.loads(_metric_info_json(
+            indicator_keys,
+            GPU_ASSESSMENT_METRIC_INFO,
+            metric_knowledge,
+            indicator_units=GPU_ASSESSMENT_UNITS,
+        )))
+        info_json = json.dumps(info_data)
 
      # --------------------------------------------------
     # Shared context
@@ -5233,6 +5477,38 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         class="execution-domains-analysis"
         aria-label="Heterogeneous Model"
     >
+        <style>
+        /* Compact indicator tables, as the efficiency tables. */
+        .gpu-assessment-card {{
+            display: inline-block;
+            max-width: 100%;
+        }}
+        .gpu-assessment-indicators {{
+            width: auto;
+        }}
+        .gpu-assessment-indicators th,
+        .gpu-assessment-indicators td {{
+            text-align: center;
+            padding: 6px 8px;
+        }}
+        .gpu-assessment-indicators th:first-child,
+        .gpu-assessment-indicators td:first-child {{
+            text-align: left;
+            padding-right: 24px;
+        }}
+        .gpu-assessment-heading {{
+            margin: 18px 0 4px;
+        }}
+        .gpu-assessment-plot {{
+            margin-bottom: 8px;
+        }}
+        .gpu-assessment-values > summary {{
+            cursor: pointer;
+            font-size: 0.85rem;
+            color: #245887;
+            margin: 4px 0 8px;
+        }}
+        </style>
         <script>
         window["metricInfo_execution-domains"] = {info_json};
         </script>
@@ -5257,6 +5533,8 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
                 {device_table_html}
             </div>
 
+            {device_work_html}
+
         </section>
 
         <section
@@ -5274,6 +5552,8 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
             {host_table_html}
             </div>
 
+            {host_calls_html}
+
         </section>
 
         {efficiency_scale_html}
@@ -5289,6 +5569,8 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         host_table_html=host_table_html,
         device_table_html=device_table_html,
         analysis_focus_html=analysis_focus_html,
+        device_work_html=device_work_html,
+        host_calls_html=host_calls_html,
     )
 
 
@@ -13302,6 +13584,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             trace_labels=trace_labels,
             trace_header_note=trace_header_note,
             trace_column_description=trace_column_description,
+            metrics_result=metrics_result,
         )        
 
     # ---- OpenMP runtime-specific efficiency metrics

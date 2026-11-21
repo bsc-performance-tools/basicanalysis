@@ -11,7 +11,7 @@ import shutil
 import json
 from utils import which
 from collections import OrderedDict, defaultdict
-from nsys2prvmetrics import process_one_nsys2prv_trace, hwc_raw_data_doc
+from nsys2prvmetrics import process_one_nsys2prv_trace, optional_raw_data_doc
 from tracemetadata import human_readable, get_tasks_threads, get_device_stream_id_mapping, get_execution_mapping, is_gpu_stream_label, is_host_gpu_mode, is_nsys2prv_mode, CUDA_LEGACY_LABEL_RE
 from utils import run_command, move_files,remove_files, create_temp_folder
 from simulatedtraces import skip_resimulation
@@ -1952,7 +1952,7 @@ def create_raw_data(trace_list):
         raw_data[key] = trace_dict
 
     # Optional raw data (GPU hardware counters of nsys2prv traces).
-    for key in hwc_raw_data_doc:
+    for key in optional_raw_data_doc:
         raw_data[key] = {trace_name: 'Non-Avail' for trace_name in trace_list}
 
     return raw_data
@@ -1962,7 +1962,7 @@ def create_raw_data(trace_list):
 def create_trace_raw_data():
     """Create flat raw-data dict for a single trace."""
     trace_raw_data = {key: 0.0 for key in raw_data_doc}
-    trace_raw_data.update({key: 'Non-Avail' for key in hwc_raw_data_doc})
+    trace_raw_data.update({key: 'Non-Avail' for key in optional_raw_data_doc})
     return trace_raw_data
 
 
@@ -4068,7 +4068,7 @@ def merge_trace_results(results, trace_list):
             raw_data[key][trace] = trace_raw_data[key]
 
         # Optional raw data, absent in results saved by older versions.
-        for key in hwc_raw_data_doc:
+        for key in optional_raw_data_doc:
             raw_data[key][trace] = trace_raw_data.get(key, 'Non-Avail')
 
         io_data[trace] = result["io_data"]
@@ -4387,12 +4387,12 @@ def print_raw_data_csv(raw_data, trace_list, trace_processes):
 
         # Optional raw data is only written when a trace has it.
         optional_keys = [
-            key for key in hwc_raw_data_doc
+            key for key in optional_raw_data_doc
             if any(raw_data.get(key, {}).get(trace, 'Non-Avail') != 'Non-Avail'
                    for trace in trace_list)
         ]
         raw_labels = OrderedDict(raw_data_doc)
-        raw_labels.update((key, hwc_raw_data_doc[key]) for key in optional_keys)
+        raw_labels.update((key, optional_raw_data_doc[key]) for key in optional_keys)
 
         for raw_key in raw_labels:
             line = '#' + raw_labels[raw_key]
