@@ -41,6 +41,26 @@ Efficiency tables can be exported from the report as PNG images. The report
 also provides export options for multiple tables and can be printed or saved as
 a PDF using the browser.
 
+The **Validate in Paraver** section of the Execution Overview copies, for
+each trace, the command that opens it in Paraver with the Useful Duration
+timeline (the duration of each useful computation burst). The cfgs are
+written to the ``cfgs-report/`` folder of the output directory:
+``useful_duration.cfg`` for Extrae traces (based on the *Running* state),
+and ``<trace>.useful_duration.cfg`` for each *nsys2prv* trace. *nsys2prv*
+traces have no states, so their timeline is built from events: the CUDA
+kernels on the GPU streams, and the intervals outside CUDA calls on the host
+threads that call CUDA, with the event codes found in the ``.pcf`` of the
+trace. Its useful time is the useful time of BasicAnalysis (the Host useful
+time and the kernel time of the Host/Device model), and, as for Extrae
+traces, the bursts are painted with a gradient where zero is not painted
+(*Not Null Gradient Color*). The interval before the first CUDA event of a
+thread has no duration in Paraver, so it is not painted, although it is
+useful time. The host threads that call CUDA but are not Host units (see
+:ref:`gpu-assessment-indicators` and the *Host threads not analyzed* note)
+are also shown. The cfg is generated with
+``cfgs/nsys2prv/generate_useful_duration_cfg.py``, which can also write a
+0/1 version with an analyzer to check it with paramedir.
+
 When the analyzed traces use different programming models, the report
 contains a Programming Model Comparison tab and one tab per programming model
 with the complete report of its traces.

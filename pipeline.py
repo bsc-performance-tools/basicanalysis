@@ -173,6 +173,8 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
                 raw_data, trace_list, scaling_info),
             "host_calls_factors": gpuassessment.create_host_calls_factors(
                 raw_data, trace_list),
+            "host_threads_not_analyzed": raw_data.get(
+                "host_threads_not_analyzed", {}),
             "scaling_info": scaling_info,
         }, trace_list, trace_mode, cmdl_args)
 

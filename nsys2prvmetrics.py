@@ -345,6 +345,40 @@ def select_host_units(threads, host_calls):
     return selected
 
 
+NOT_ANALYZED_REASONS = {
+    'no_gpu_streams': (
+        'its process has no GPU streams, so it does not offload work to the '
+        'GPU (for example, a driver or front-end process that only queries '
+        'or synchronizes the GPU)'),
+    'not_host_unit': (
+        'its process is represented by the thread with the most time in '
+        'CUDA calls, the thread that drives its GPUs'),
+}
+
+
+def host_threads_not_analyzed(threads, host_units, host_calls):
+    """Host threads with CUDA calls that are not Host units, with the reason.
+
+    Threads that never call CUDA are not listed. Returns a list of
+    {'thread', 'label', 'cuda_calls_s', 'reason'} in thread order, with the
+    reason a key of NOT_ANALYZED_REASONS.
+    """
+    labels = dict(threads.get('labels', []))
+    units = set(host_units)
+    result = []
+    for thread_obj in threads.get('host', []):
+        calls = host_calls.get(thread_obj, 0.0)
+        if thread_obj in units or calls <= 0.0:
+            continue
+        reason = ('not_host_unit' if _task_of(thread_obj) in threads['gpu_tasks']
+                  else 'no_gpu_streams')
+        result.append({'thread': thread_obj,
+                       'label': labels.get(thread_obj, thread_obj),
+                       'cuda_calls_s': calls / 1e6,
+                       'reason': reason})
+    return result
+
+
 def get_nsys2prv_resources(prv_file):
     """Execution units of an nsys2prv trace, as used in the configuration
     labels: (units, tasks, threads per task).
@@ -927,6 +961,12 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     if len(host_threads) > len(host_units_tasks):
         host_threads = select_host_units(threads, host_calls)
         print("==> Host unit of each process: " + ', '.join(host_threads))
+    trace_raw_data['host_threads_not_analyzed'] = host_threads_not_analyzed(
+        threads, host_threads, host_calls)
+    for entry in trace_raw_data['host_threads_not_analyzed']:
+        print("==> Not analyzed: {} ({:.3f} s in CUDA calls): {}".format(
+            entry['thread'], entry['cuda_calls_s'],
+            NOT_ANALYZED_REASONS[entry['reason']]))
     if host_threads and trace_raw_data['runtime'] != 'NaN' and host_calls:
         runtime = float(trace_raw_data['runtime'])
         useful_host = [

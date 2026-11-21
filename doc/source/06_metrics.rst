@@ -2362,6 +2362,15 @@ BasicAnalysis classifies the threads of the trace from the ``.row`` file:
   thread of each process is printed in the standard output. If no thread of
   a process calls CUDA, its first host thread is used.
 
+* **Host threads not analyzed**: the host threads that call CUDA but are not
+  Host units, either because their process has no GPU streams (for example,
+  a driver or front-end process that only queries or synchronizes the GPU)
+  or because another thread drives the GPUs of their process. Their time is
+  not in the Host metrics or in the Host time split. They are listed, with
+  their time in CUDA calls and the reason, in the standard output and in the
+  *Host threads not analyzed* note of the Heterogeneous Model view, below
+  the Host table. Threads that never call CUDA are not listed.
+
 As for MPI+GPU traces, the configuration is labelled as processes × GPUs
 per process, for example ``1 × 1 GPU``, in the performance report, the
 standard output, the CSV files, and the static plots. The Host units, GPU

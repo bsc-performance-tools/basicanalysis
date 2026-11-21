@@ -20,6 +20,7 @@ from configuration import (
 from tracemetadata import is_host_gpu_mode
 from simulatedtraces import simulated_trace_note_html
 import gpuassessment
+from nsys2prvmetrics import NOT_ANALYZED_REASONS
 from iometrics import (
     ACCESS_PATTERN_CLASSES as IO_ACCESS_PATTERN_CLASSES,
     ACCESS_PATTERN_DESCRIPTIONS as IO_ACCESS_PATTERN_DESCRIPTIONS,
@@ -2632,6 +2633,46 @@ def _build_host_calls_plot_html(factors, metric_keys, metric_info, trace_list,
         </div>
     </div>
     """.format(plot_html=plot_html)
+
+
+def _capitalized(text):
+    return text[:1].upper() + text[1:]
+
+
+def _build_not_analyzed_threads_html(not_analyzed, trace_list, trace_labels):
+    """Note on the host threads with CUDA calls left out of the Host metrics
+    (nsys2prv traces), with the reason for each one."""
+    rows = []
+    for trace, label in zip(trace_list, trace_labels):
+        for entry in (not_analyzed or {}).get(trace) or []:
+            thread = entry.get('thread', '')
+            row_label = entry.get('label', thread)
+            name = thread if row_label == thread else '{} ({})'.format(
+                row_label, thread)
+            rows.append(
+                "<tr><td>{}</td><td>{}</td><td>{:.3f}</td><td>{}</td></tr>".format(
+                    html.escape(label), html.escape(name),
+                    float(entry.get('cuda_calls_s', 0.0)),
+                    html.escape(_capitalized(NOT_ANALYZED_REASONS.get(
+                        entry.get('reason'), entry.get('reason', ''))))))
+    if not rows:
+        return ""
+    return "\n".join([
+        "<h3 class='gpu-assessment-heading'>Host threads not analyzed</h3>",
+        "<p class='trace-header-note'>These host threads call CUDA, but they "
+        "are not Host units: their time is not in the Host metrics or in the "
+        "Host time split. The Host domain has one unit per process with GPU "
+        "streams, the thread that drives its GPUs. They are shown in the "
+        "Useful Duration timeline of <em>Validate in Paraver</em>.</p>",
+        "<div class='metric-table-card gpu-assessment-card'>",
+        "<div class='efficiency-table-wrapper'>",
+        "<table class='metric-table gpu-assessment-indicators "
+        "host-threads-not-analyzed'>",
+        "<thead><tr><th>Trace</th><th>Thread</th>"
+        "<th>Time in CUDA calls (s)</th><th>Why it is not analyzed</th>"
+        "</tr></thead>",
+        "<tbody>",
+    ] + rows + ["</tbody></table></div></div>"])
 
 
 def _build_indicator_card_html(factors, metric_keys, metric_info, trace_list,
@@ -5384,6 +5425,11 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
             trace_labels,
         ),
     )
+    not_analyzed_html = _build_not_analyzed_threads_html(
+        metrics_result.get("host_threads_not_analyzed"),
+        trace_list,
+        trace_labels,
+    )
     indicator_keys = []
     if device_work_html:
         indicator_keys += DEVICE_WORK_ORDER
@@ -5499,6 +5545,15 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         .gpu-assessment-heading {{
             margin: 18px 0 4px;
         }}
+        .host-threads-not-analyzed th,
+        .host-threads-not-analyzed td {{
+            white-space: nowrap;
+        }}
+        .host-threads-not-analyzed td:last-child {{
+            white-space: normal;
+            text-align: left;
+            min-width: 280px;
+        }}
         .gpu-assessment-plot {{
             margin-bottom: 8px;
         }}
@@ -5552,6 +5607,8 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
             {host_table_html}
             </div>
 
+            {not_analyzed_html}
+
             {host_calls_html}
 
         </section>
@@ -5571,6 +5628,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         analysis_focus_html=analysis_focus_html,
         device_work_html=device_work_html,
         host_calls_html=host_calls_html,
+        not_analyzed_html=not_analyzed_html,
     )
 
 
