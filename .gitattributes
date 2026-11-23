@@ -1,0 +1,2 @@
+# git archive writes the commit in utils.py (version shown by --version).
+utils.py export-subst

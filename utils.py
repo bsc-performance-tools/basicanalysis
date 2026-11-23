@@ -42,10 +42,35 @@ except ImportError:
 __author__ = "Sandra Mendez"
 __copyright__ = "Copyright 2019, Barcelona Supercomputing Center (BSC)"
 
-__version_major__ = 2026
-__version_minor__ = 10
-__version_micro__ = 5
-__version__ = f"{__version_major__}.{__version_minor__:02d}.{__version_micro__:02d}"
+# Version YY.MM for the first release of a month, YY.MM.1, YY.MM.2, ... for
+# the next releases of the same month; YY.MM.dev between releases.
+__version__ = "26.11.dev"
+
+# Commit of the code. git archive writes it in place of the placeholder
+# (export-subst in .gitattributes); in a git clone it is read with git.
+_ARCHIVE_COMMIT = "$Format:%h$"
+
+
+def _code_commit():
+    """Short hash of the commit of this code, or None if unknown."""
+    if not _ARCHIVE_COMMIT.startswith("$"):
+        return _ARCHIVE_COMMIT
+    try:
+        result = subprocess.run(
+            ['git', '-C', os.path.dirname(os.path.abspath(__file__)),
+             'rev-parse', '--short', 'HEAD'],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            universal_newlines=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    commit = result.stdout.strip()
+    return commit if result.returncode == 0 and commit else None
+
+
+__commit__ = _code_commit()
+# Version with the commit, as shown by --version and in the run log.
+__version_full__ = ('{} ({})'.format(__version__, __commit__)
+                    if __commit__ else __version__)
 
 
 
@@ -59,7 +84,7 @@ def build_argument_parser():
     parser.add_argument("-m", "--metrics", choices=['simple', 'hybrid'], default='hybrid',
                         help='select the kind of efficiency metrics (single parallelism or hybrid, default: hybrid)')
     parser.add_argument("-v", "--version", action='version',
-                        version='%(prog)s {version}'.format(version=__version__))
+                        version='%(prog)s {version}'.format(version=__version_full__))
     parser.add_argument("-d", "--debug", help="increase output verbosity to debug level", action="store_true")
     parser.add_argument("-s", "--scaling",
                         help="define whether the measurements are weak or strong scaling (default: auto). "
@@ -240,7 +265,7 @@ def start_run_log(cmdl_args, default_file=DEFAULT_LOG_FILE):
         print('==WARNING== Could not open the log file {}: {}'.format(path, error))
         return None
     start = datetime.now()
-    log.write('BasicAnalysis {} ({})\n'.format(__version__, os.path.basename(sys.argv[0])))
+    log.write('BasicAnalysis {} ({})\n'.format(__version_full__, os.path.basename(sys.argv[0])))
     log.write('Date:      {}\n'.format(start.strftime('%Y-%m-%d %H:%M:%S')))
     log.write('Host:      {}\n'.format(socket.gethostname()))
     log.write('Directory: {}\n'.format(os.getcwd()))
@@ -293,7 +318,7 @@ def check_installation(cmdl_args):
             sys.exit(1)
 
     if cmdl_args.debug:
-        print('==DEBUG== Using', __file__, __version__)
+        print('==DEBUG== Using', __file__, __version_full__)
         print('==DEBUG== Using', sys.executable, ".".join(map(str, sys.version_info[:3])))
 
         try:

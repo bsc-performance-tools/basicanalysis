@@ -619,6 +619,23 @@ The installed BasicAnalysis version can be displayed with:
 
    -v, --version
 
+For example:
+
+.. code-block:: text
+
+   $ modelfactors.py --version
+   modelfactors.py 26.11.dev (8443d5d)
+
+The version follows the format ``YY.MM[.N]`` (two-digit year and month). The
+first release of a month is ``YY.MM``, for example ``26.11``, and the next
+releases of the same month add a number: ``26.11.1``, ``26.11.2``. Between
+releases, the version is the next release with ``.dev``. The value in
+parentheses is the commit of the code: it is read from the git clone, or
+written by ``git archive`` when a package is made from the repository, so
+that every copy of BasicAnalysis can be identified. It is also written at
+the beginning of the run log (see :ref:`sec:run-log`). Releases up to
+``2026.09.17`` used the format ``YYYY.MM.DD``.
+
 
 Command-line help
 =================
