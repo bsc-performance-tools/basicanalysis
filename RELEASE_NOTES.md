@@ -20,7 +20,8 @@
   reason, in the standard output and in a note below the Host table of the
   Heterogeneous Model view. Before, only the number of processes without
   GPU streams was printed, while those threads appeared in the Useful
-  Duration timeline.
+  Duration timeline. Threads with less than 1 % of the runtime each in CUDA calls
+  are counted in one sentence (FOA ring: 8 threads listed instead of 88).
 - GPU assessment indicators in the Heterogeneous Model (from the POP
   assessment of vLLM inference with nsys2prv traces). **Device work**: kernel
   time, Device Computation Scalability not scaled, and the scalability of the

@@ -1,6 +1,9 @@
 import unittest
 
-from nsys2prvmetrics import NOT_ANALYZED_REASONS, host_threads_not_analyzed
+from nsys2prvmetrics import (
+    NOT_ANALYZED_REASONS, host_threads_not_analyzed, not_analyzed_summary,
+    not_analyzed_minor_text,
+)
 from interactiveplots import _build_not_analyzed_threads_html
 
 
@@ -37,7 +40,43 @@ class HostThreadsNotAnalyzedTest(unittest.TestCase):
                                       {'THREAD 1.2.1': 10.0}), [])
 
 
+    def test_minor_threads(self):
+        # Runtime 10 s: 1 % = 0.1 s. THREAD 1.2.2 (0.0005 s) is minor.
+        calls = {'THREAD 1.1.1': 194650.0, 'THREAD 1.2.1': 1708400.0,
+                 'THREAD 1.2.2': 500.0}
+        result = host_threads_not_analyzed(THREADS, ['THREAD 1.2.1'], calls,
+                                           runtime=10e6)
+        self.assertEqual([e['minor'] for e in result], [False, True])
+        listed, count, seconds = not_analyzed_summary(result)
+        self.assertEqual([e['thread'] for e in listed], ['THREAD 1.1.1'])
+        self.assertEqual(count, 1)
+        self.assertAlmostEqual(seconds, 0.0005)
+        self.assertIn('1 more host thread with less than 1% of the runtime',
+                      not_analyzed_minor_text(count, seconds))
+
+    def test_without_runtime_nothing_is_minor(self):
+        calls = {'THREAD 1.2.2': 500.0}
+        result = host_threads_not_analyzed(THREADS, ['THREAD 1.2.1'], calls)
+        self.assertFalse(result[0]['minor'])
+
+
 class NotAnalyzedNoteTest(unittest.TestCase):
+
+    def test_minor_threads_in_one_sentence(self):
+        entries = [{'thread': 'THREAD 1.1.%d' % i, 'label': 'THREAD 1.1.%d' % i,
+                    'cuda_calls_s': 0.0001, 'reason': 'not_host_unit',
+                    'minor': True} for i in range(5)]
+        entries.append({'thread': 'THREAD 1.1.9', 'label': 'THREAD 1.1.9',
+                        'cuda_calls_s': 2.5, 'reason': 'not_host_unit',
+                        'minor': False})
+        out = _build_not_analyzed_threads_html({'a': entries}, ['a'], ['A'])
+        self.assertEqual(out.count('<tr><td>'), 1)
+        self.assertIn('THREAD 1.1.9', out)
+        self.assertIn('5 more host threads', out)
+        only_minor = _build_not_analyzed_threads_html(
+            {'a': entries[:5]}, ['a'], ['A'])
+        self.assertNotIn('<table', only_minor)
+        self.assertIn('5 more host threads', only_minor)
 
     def test_note(self):
         not_analyzed = {'b1': [{'thread': 'THREAD 1.1.1', 'label': 'THREAD 1.1.1',

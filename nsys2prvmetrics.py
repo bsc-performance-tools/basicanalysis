@@ -356,12 +356,20 @@ NOT_ANALYZED_REASONS = {
 }
 
 
-def host_threads_not_analyzed(threads, host_units, host_calls):
+# Host threads not analyzed with less than this share of the runtime in
+# CUDA calls (helper threads that only initialize or query the GPU) are
+# counted in one summary line instead of one line each.
+NOT_ANALYZED_MIN_SHARE = 0.01
+
+
+def host_threads_not_analyzed(threads, host_units, host_calls, runtime=None):
     """Host threads with CUDA calls that are not Host units, with the reason.
 
     Threads that never call CUDA are not listed. Returns a list of
-    {'thread', 'label', 'cuda_calls_s', 'reason'} in thread order, with the
-    reason a key of NOT_ANALYZED_REASONS.
+    {'thread', 'label', 'cuda_calls_s', 'reason', 'minor'} in thread order,
+    with the reason a key of NOT_ANALYZED_REASONS. 'minor' is True when the
+    thread spends less than NOT_ANALYZED_MIN_SHARE of the runtime (us) in
+    CUDA calls; without the runtime no thread is minor.
     """
     labels = dict(threads.get('labels', []))
     units = set(host_units)
@@ -375,8 +383,26 @@ def host_threads_not_analyzed(threads, host_units, host_calls):
         result.append({'thread': thread_obj,
                        'label': labels.get(thread_obj, thread_obj),
                        'cuda_calls_s': calls / 1e6,
-                       'reason': reason})
+                       'reason': reason,
+                       'minor': bool(runtime) and
+                                calls < NOT_ANALYZED_MIN_SHARE * runtime})
     return result
+
+
+def not_analyzed_summary(entries):
+    """(listed entries, number of minor entries, their time in CUDA calls, s)."""
+    listed = [e for e in entries if not e.get('minor')]
+    minor = [e for e in entries if e.get('minor')]
+    return listed, len(minor), sum(e.get('cuda_calls_s', 0.0) for e in minor)
+
+
+def not_analyzed_minor_text(count, seconds):
+    """Sentence for the threads not listed one by one."""
+    return ('{} more host thread{} with less than {:g}% of the runtime each in '
+            'CUDA calls ({:.3f} s in total) {} not listed.').format(
+                count, '' if count == 1 else 's',
+                NOT_ANALYZED_MIN_SHARE * 100, seconds,
+                'is' if count == 1 else 'are')
 
 
 def get_nsys2prv_resources(prv_file):
@@ -962,11 +988,17 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         host_threads = select_host_units(threads, host_calls)
         print("==> Host unit of each process: " + ', '.join(host_threads))
     trace_raw_data['host_threads_not_analyzed'] = host_threads_not_analyzed(
-        threads, host_threads, host_calls)
-    for entry in trace_raw_data['host_threads_not_analyzed']:
+        threads, host_threads, host_calls,
+        runtime=(float(trace_raw_data['runtime'])
+                 if trace_raw_data['runtime'] != 'NaN' else None))
+    listed, minor_count, minor_s = not_analyzed_summary(
+        trace_raw_data['host_threads_not_analyzed'])
+    for entry in listed:
         print("==> Not analyzed: {} ({:.3f} s in CUDA calls): {}".format(
             entry['thread'], entry['cuda_calls_s'],
             NOT_ANALYZED_REASONS[entry['reason']]))
+    if minor_count:
+        print("==> Not analyzed: " + not_analyzed_minor_text(minor_count, minor_s))
     if host_threads and trace_raw_data['runtime'] != 'NaN' and host_calls:
         runtime = float(trace_raw_data['runtime'])
         useful_host = [

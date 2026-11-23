@@ -20,7 +20,9 @@ from configuration import (
 from tracemetadata import is_host_gpu_mode
 from simulatedtraces import simulated_trace_note_html
 import gpuassessment
-from nsys2prvmetrics import NOT_ANALYZED_REASONS
+from nsys2prvmetrics import (
+    NOT_ANALYZED_REASONS, not_analyzed_summary, not_analyzed_minor_text,
+)
 from iometrics import (
     ACCESS_PATTERN_CLASSES as IO_ACCESS_PATTERN_CLASSES,
     ACCESS_PATTERN_DESCRIPTIONS as IO_ACCESS_PATTERN_DESCRIPTIONS,
@@ -2643,8 +2645,15 @@ def _build_not_analyzed_threads_html(not_analyzed, trace_list, trace_labels):
     """Note on the host threads with CUDA calls left out of the Host metrics
     (nsys2prv traces), with the reason for each one."""
     rows = []
+    minor_notes = []
     for trace, label in zip(trace_list, trace_labels):
-        for entry in (not_analyzed or {}).get(trace) or []:
+        listed, minor_count, minor_s = not_analyzed_summary(
+            (not_analyzed or {}).get(trace) or [])
+        if minor_count:
+            minor_notes.append("{}: {}".format(
+                html.escape(label),
+                html.escape(not_analyzed_minor_text(minor_count, minor_s))))
+        for entry in listed:
             thread = entry.get('thread', '')
             row_label = entry.get('label', thread)
             name = thread if row_label == thread else '{} ({})'.format(
@@ -2655,8 +2664,15 @@ def _build_not_analyzed_threads_html(not_analyzed, trace_list, trace_labels):
                     float(entry.get('cuda_calls_s', 0.0)),
                     html.escape(_capitalized(NOT_ANALYZED_REASONS.get(
                         entry.get('reason'), entry.get('reason', ''))))))
-    if not rows:
+    if not rows and not minor_notes:
         return ""
+    minor_html = "".join(
+        "<p class='trace-header-note'>{}</p>".format(note)
+        for note in minor_notes)
+    if not rows:
+        return "\n".join([
+            "<h3 class='gpu-assessment-heading'>Host threads not analyzed</h3>",
+            minor_html])
     return "\n".join([
         "<h3 class='gpu-assessment-heading'>Host threads not analyzed</h3>",
         "<p class='trace-header-note'>These host threads call CUDA, but they "
@@ -2672,7 +2688,7 @@ def _build_not_analyzed_threads_html(not_analyzed, trace_list, trace_labels):
         "<th>Time in CUDA calls (s)</th><th>Why it is not analyzed</th>"
         "</tr></thead>",
         "<tbody>",
-    ] + rows + ["</tbody></table></div></div>"])
+    ] + rows + ["</tbody></table></div></div>", minor_html])
 
 
 def _build_indicator_card_html(factors, metric_keys, metric_info, trace_list,
