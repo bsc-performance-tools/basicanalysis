@@ -16,6 +16,8 @@
   `git archive` in packages made from the repository.
 - `2026.10.05` was prepared but never released: its changes are now part of
   this release.
+- The design notes in `doc/design/` are internal and are no longer included
+  in the packages made with `git archive` (`export-ignore`).
 
 ### New Features
 

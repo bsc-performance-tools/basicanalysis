@@ -35,6 +35,10 @@ class VersionFormatTest(unittest.TestCase):
         with open(os.path.join(ROOT, '.gitattributes')) as attributes:
             self.assertIn('utils.py export-subst', attributes.read())
 
+    def test_design_notes_not_in_packages(self):
+        with open(os.path.join(ROOT, '.gitattributes')) as attributes:
+            self.assertIn('doc/design export-ignore', attributes.read())
+
 
 if __name__ == '__main__':
     unittest.main()
