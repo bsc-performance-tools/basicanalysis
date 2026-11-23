@@ -4071,6 +4071,11 @@ def merge_trace_results(results, trace_list):
         for key in hwc_raw_data_doc:
             raw_data[key][trace] = trace_raw_data.get(key, 'Non-Avail')
 
+        # Host threads with CUDA calls left out of the Host metrics
+        # (nsys2prv), for the report; not written to rawdata.csv.
+        raw_data.setdefault('host_threads_not_analyzed', {})[trace] = \
+            trace_raw_data.get('host_threads_not_analyzed', [])
+
         io_data[trace] = result["io_data"]
 
         if result["mpi_proc_count"] is not None:

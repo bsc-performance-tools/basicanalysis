@@ -2330,6 +2330,8 @@ because it must be obtained from events instead of states. The assumptions
 of these definitions are summarized in :doc:`09_limitations`.
 
 
+.. _nsys2prv-execution-units:
+
 Execution units
 ---------------
 
@@ -2361,6 +2363,18 @@ BasicAnalysis classifies the threads of the trace from the ``.row`` file:
   the process. When a process has more than one host thread, the selected
   thread of each process is printed in the standard output. If no thread of
   a process calls CUDA, its first host thread is used.
+
+* **Host threads not analyzed**: the host threads that call CUDA but are not
+  Host units, either because their process has no GPU streams (for example,
+  a driver or front-end process that only queries or synchronizes the GPU)
+  or because another thread drives the GPUs of their process. Their time is
+  not in the Host metrics. They are listed, with
+  their time in CUDA calls and the reason, in the standard output and in the
+  *Host threads not analyzed* note of the Heterogeneous Model view, below
+  the Host table. Threads that never call CUDA are not listed, and the
+  threads with less than 1 % of the runtime each in CUDA calls (helper
+  threads that only initialize or query the GPU) are counted in one
+  sentence, with their total time in CUDA calls, instead of one line each.
 
 As for MPI+GPU traces, the configuration is labelled as processes × GPUs
 per process, for example ``1 × 1 GPU``, in the performance report, the

@@ -8,7 +8,11 @@ from __future__ import print_function, division
 import os
 import shutil
 
-from tracemetadata import get_execution_mapping
+from tracemetadata import get_execution_mapping, is_nsys2prv_mode
+import nsys2prvevents
+
+# Useful Duration of nsys2prv traces (cfgs/nsys2prv/generate_useful_duration_cfg.py).
+NSYS2PRV_USEFUL_CFG = "useful_duration_nsys2prv.cfg"
 
 def build_report(metrics_result,
                  analysis_result,
@@ -39,7 +43,9 @@ def build_report(metrics_result,
             getattr(cmdl_args, "simulated_traces", ()),
             getattr(cmdl_args, "inconsistent_simulations", ()),
         ),
-        "resources": _build_resources(trace_list, output_dir),
+        "resources": _build_resources(
+            trace_list, output_dir, trace_mode,
+            getattr(cmdl_args, "nsys2prv_events", None)),
         "metrics": metrics_result,
         "diagnosis": [],
         "evidence": [],
@@ -147,7 +153,44 @@ def _ensure_report_cfg(output_dir, cfg_name):
     return dst_path
 
 
-def _build_resources(trace_list, output_dir):
+def _nsys2prv_useful_cfg(trace, output_dir, event_map=None):
+    """Write the Useful Duration cfg of an nsys2prv trace, with the event
+    codes of its .pcf, to <output_dir>/cfgs-report/<trace>.useful_duration.cfg.
+
+    Returns its path, or None if the template is missing or the trace has
+    not the kernel or CUDA call events.
+    """
+    template = os.path.join(_cfgs_report_source_dir(), NSYS2PRV_USEFUL_CFG)
+    pcf = _strip_trace_extension(trace) + ".pcf"
+    if not os.path.exists(template) or not os.path.exists(pcf):
+        return None
+
+    try:
+        resolution = nsys2prvevents.resolve_events(pcf, event_map)
+    except (OSError, ValueError):
+        return None
+    codes = {
+        nsys2prvevents.ALL_EVENTS[name].code: found.code
+        for name, found in resolution.items()
+    }
+
+    with open(template) as cfg_file:
+        text = cfg_file.read()
+    if any(codes.get(code, code) is None
+           for code in nsys2prvevents.cfg_reference_codes(text)):
+        return None
+
+    dst_dir = os.path.join(output_dir, "cfgs-report")
+    os.makedirs(dst_dir, exist_ok=True)
+    dst_path = os.path.join(
+        dst_dir,
+        os.path.basename(_strip_trace_extension(trace)) + ".useful_duration.cfg")
+    with open(dst_path, "w") as out:
+        out.write(nsys2prvevents.rewrite_cfg(text, codes))
+    return dst_path
+
+
+def _build_resources(trace_list, output_dir, trace_mode=None, event_map=None):
     resources = []
 
     cfg_path = _ensure_report_cfg(output_dir, "useful_duration.cfg")
@@ -155,12 +198,18 @@ def _build_resources(trace_list, output_dir):
     for trace in trace_list:
         base = _strip_trace_extension(trace)
 
+        # nsys2prv traces have no states: their own Useful Duration cfg.
+        overview_cfg = cfg_path
+        if trace_mode and is_nsys2prv_mode(trace_mode.get(trace, "")):
+            overview_cfg = (
+                _nsys2prv_useful_cfg(trace, output_dir, event_map) or cfg_path)
+
         resources.append({
             "trace": trace,
             "prv": trace,
             "pcf": base + ".pcf",
             "row": base + ".row",
-            "overview_cfg": cfg_path,
+            "overview_cfg": overview_cfg,
             "cfgs": [],
             "images": [],
         })

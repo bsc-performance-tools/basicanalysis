@@ -19,6 +19,9 @@ from configuration import (
 )
 from tracemetadata import is_host_gpu_mode
 from simulatedtraces import simulated_trace_note_html
+from nsys2prvmetrics import (
+    NOT_ANALYZED_REASONS, not_analyzed_summary, not_analyzed_minor_text,
+)
 from iometrics import (
     ACCESS_PATTERN_CLASSES as IO_ACCESS_PATTERN_CLASSES,
     ACCESS_PATTERN_DESCRIPTIONS as IO_ACCESS_PATTERN_DESCRIPTIONS,
@@ -5139,7 +5142,61 @@ def _metric_value_color(value, thresholds=None):
 
 
 
-def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_sources, device_sources, trace_list, trace_labels, trace_header_note, trace_column_description="",):
+def _capitalized(text):
+    return text[:1].upper() + text[1:]
+
+
+def _build_not_analyzed_threads_html(not_analyzed, trace_list, trace_labels):
+    """Note on the host threads with CUDA calls left out of the Host metrics
+    (nsys2prv traces), with the reason for each one."""
+    rows = []
+    minor_notes = []
+    for trace, label in zip(trace_list, trace_labels):
+        listed, minor_count, minor_s = not_analyzed_summary(
+            (not_analyzed or {}).get(trace) or [])
+        if minor_count:
+            minor_notes.append("{}: {}".format(
+                html.escape(label),
+                html.escape(not_analyzed_minor_text(minor_count, minor_s))))
+        for entry in listed:
+            thread = entry.get('thread', '')
+            row_label = entry.get('label', thread)
+            name = thread if row_label == thread else '{} ({})'.format(
+                row_label, thread)
+            rows.append(
+                "<tr><td>{}</td><td>{}</td><td>{:.3f}</td><td>{}</td></tr>".format(
+                    html.escape(label), html.escape(name),
+                    float(entry.get('cuda_calls_s', 0.0)),
+                    html.escape(_capitalized(NOT_ANALYZED_REASONS.get(
+                        entry.get('reason'), entry.get('reason', ''))))))
+    if not rows and not minor_notes:
+        return ""
+    minor_html = "".join(
+        "<p class='trace-header-note'>{}</p>".format(note)
+        for note in minor_notes)
+    if not rows:
+        return "\n".join([
+            "<h3 class='gpu-assessment-heading'>Host threads not analyzed</h3>",
+            minor_html])
+    return "\n".join([
+        "<h3 class='gpu-assessment-heading'>Host threads not analyzed</h3>",
+        "<p class='trace-header-note'>These host threads call CUDA, but they "
+        "are not Host units: their time is not in the Host metrics. The Host "
+        "domain has one unit per process with GPU "
+        "streams, the thread that drives its GPUs. They are shown in the "
+        "Useful Duration timeline of <em>Validate in Paraver</em>.</p>",
+        "<div class='metric-table-card gpu-assessment-card'>",
+        "<div class='efficiency-table-wrapper'>",
+        "<table class='metric-table gpu-assessment-indicators "
+        "host-threads-not-analyzed'>",
+        "<thead><tr><th>Trace</th><th>Thread</th>"
+        "<th>Time in CUDA calls (s)</th><th>Why it is not analyzed</th>"
+        "</tr></thead>",
+        "<tbody>",
+    ] + rows + ["</tbody></table></div></div>", minor_html])
+
+
+def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_sources, device_sources, trace_list, trace_labels, trace_header_note, trace_column_description="", metrics_result=None,):
     """Build the combined Host/Device Execution Domains analysis.
 
     The Execution Domains view presents Host and Device metrics as two
@@ -5176,6 +5233,12 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         tree=HOST_TREE,
         header_label=HOST_DOMAIN,
         metric_knowledge=metric_knowledge,
+    )
+
+    not_analyzed_html = _build_not_analyzed_threads_html(
+        (metrics_result or {}).get("host_threads_not_analyzed"),
+        trace_list,
+        trace_labels,
     )
 
     # --------------------------------------------------
@@ -5233,6 +5296,38 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         class="execution-domains-analysis"
         aria-label="Heterogeneous Model"
     >
+        <style>
+        /* Compact table of the host threads not analyzed (nsys2prv). */
+        .gpu-assessment-card {{
+            display: inline-block;
+            max-width: 100%;
+        }}
+        .gpu-assessment-indicators {{
+            width: auto;
+        }}
+        .gpu-assessment-indicators th,
+        .gpu-assessment-indicators td {{
+            text-align: center;
+            padding: 6px 8px;
+        }}
+        .gpu-assessment-indicators th:first-child,
+        .gpu-assessment-indicators td:first-child {{
+            text-align: left;
+            padding-right: 24px;
+        }}
+        .gpu-assessment-heading {{
+            margin: 18px 0 4px;
+        }}
+        .host-threads-not-analyzed th,
+        .host-threads-not-analyzed td {{
+            white-space: nowrap;
+        }}
+        .host-threads-not-analyzed td:last-child {{
+            white-space: normal;
+            text-align: left;
+            min-width: 280px;
+        }}
+        </style>
         <script>
         window["metricInfo_execution-domains"] = {info_json};
         </script>
@@ -5274,6 +5369,8 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
             {host_table_html}
             </div>
 
+            {not_analyzed_html}
+
         </section>
 
         {efficiency_scale_html}
@@ -5289,6 +5386,7 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
         host_table_html=host_table_html,
         device_table_html=device_table_html,
         analysis_focus_html=analysis_focus_html,
+        not_analyzed_html=not_analyzed_html,
     )
 
 
@@ -13302,6 +13400,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
             trace_labels=trace_labels,
             trace_header_note=trace_header_note,
             trace_column_description=trace_column_description,
+            metrics_result=metrics_result,
         )        
 
     # ---- OpenMP runtime-specific efficiency metrics

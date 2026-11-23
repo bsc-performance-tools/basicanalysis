@@ -188,7 +188,10 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
   analyzed.
 * **Processes without GPU streams.** Only the processes with GPU streams are
   analyzed as Host. Processes that do not offload work to the accelerator are
-  reported in the standard output and are not included in the metrics.
+  reported in the standard output and are not included in the metrics. When
+  their threads call CUDA (for example, a driver process that synchronizes
+  the GPU), they are listed in the *Host threads not analyzed* note of the
+  report, with the reason.
 * **Memory operations.** Following the TALP device model, ``memset`` and all
   memory copies count as communication. *nsys2prv* does not distinguish
   Device-to-Device copies within a GPU from copies between GPUs, so both are

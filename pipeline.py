@@ -168,6 +168,8 @@ def compute_metrics(analysis_result, trace_list, trace_processes, trace_tasks,
             "host_factors": host_factors,
             "omp_talp_factors": omp_talp_factors,
             "device_hwc_factors": create_device_hwc_factors(raw_data, trace_list),
+            "host_threads_not_analyzed": raw_data.get(
+                "host_threads_not_analyzed", {}),
             "scaling_info": scaling_info,
         }, trace_list, trace_mode, cmdl_args)
 
