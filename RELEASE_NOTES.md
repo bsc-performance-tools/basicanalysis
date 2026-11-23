@@ -21,7 +21,7 @@
   Heterogeneous Model view. Before, only the number of processes without
   GPU streams was printed, while those threads appeared in the Useful
   Duration timeline. Threads with less than 1 % of the runtime each in CUDA calls
-  are counted in one sentence (FOA ring: 4 threads listed instead of 179).
+  are counted in one sentence (FOA ring: 8 threads listed instead of 88).
 - Adjustable efficiency thresholds. `--thresholds CRITICAL,ATTENTION`
   (default 60,85) sets the thresholds of every efficiency metric: the colors
   of the efficiency tables of the report and of the static heatmaps, the
