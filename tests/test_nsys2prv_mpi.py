@@ -73,6 +73,12 @@ class ModeTest(unittest.TestCase):
         self.assertEqual(mpi_second_runtime('Detailed+MPI+OpenMP'), 'OpenMP')
         self.assertEqual(mpi_second_runtime(NSYS2PRV_MPI_MODE), 'CUDA')
 
+    def test_runtime_model_inner_name(self):
+        import interactiveplots
+        name = interactiveplots._inner_model_name
+        self.assertEqual(name({'t': NSYS2PRV_MPI_MODE}, ['t']), 'CUDA')
+        self.assertEqual(name({'t': 'Detailed+MPI+OpenMP'}, ['t']), 'OpenMP')
+
     def test_configuration_label(self):
         self.assertEqual(configuration_model_key(NSYS2PRV_MPI_MODE), 'mpi_gpu')
         self.assertEqual(configuration_model_key('nsys2prv+CUDA'), 'nsys2prv')

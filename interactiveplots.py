@@ -17,7 +17,7 @@ from configuration import (
     format_gpu_configuration_label,
     configuration_description,
 )
-from tracemetadata import is_host_gpu_mode, is_mpi_gpu_mode
+from tracemetadata import is_host_gpu_mode, is_mpi_gpu_mode, mpi_second_runtime
 from simulatedtraces import simulated_trace_note_html
 from nsys2prvmetrics import (
     NOT_ANALYZED_REASONS, not_analyzed_summary, not_analyzed_minor_text,
@@ -3113,12 +3113,11 @@ def _cell_text_color(value, thresholds=None):
     return "#333333"
 
 def _inner_model_name(trace_mode, trace_list):
-    """Return X from Detailed+MPI+X."""
+    """Return X from Detailed+MPI+X or nsys2prv+MPI+X."""
     for trace in trace_list:
-        mode = trace_mode[trace]
-        prefix = "Detailed+MPI+"
-        if mode.startswith(prefix):
-            return mode[len(prefix):]
+        runtime = mpi_second_runtime(trace_mode[trace])
+        if runtime:
+            return runtime
     return "X"
 
 
