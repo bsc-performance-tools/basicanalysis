@@ -170,6 +170,11 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
      - Not available
      - Available when the report includes GPU metrics (``Metrics GPU<n>``
        threads)
+   * - MPI level (MPI+CUDA)
+     - *Running* state outside MPI and MPI events
+     - MPI events (``50000001``-``50000005``) of ``nsys2prv -t
+       mpi_event_trace``; region from the end of ``MPI_Init`` to the start of
+       ``MPI_Finalize`` by default
    * - *Dimemas* simulation
      - Available for MPI+CUDA
      - Not available
@@ -177,8 +182,9 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
 **Assumptions for nsys2prv traces**
 
 * **Useful Host time.** Without state records, the useful Host time is the
-  elapsed time minus the time inside CUDA runtime and driver calls. It
-  includes any Host time outside those calls, such as interpreter, waiting,
+  elapsed time minus the time inside CUDA runtime and driver calls (and MPI
+  calls, when the trace has MPI events). It includes any Host time outside
+  those calls, such as interpreter, waiting,
   or I/O time in Python applications. Device Offload Efficiency is therefore
   an upper bound of the efficiency that would be obtained with state records.
 * **One Host unit per process.** Each process with GPU streams is analyzed
@@ -196,7 +202,15 @@ different assumptions. The definitions are described in :doc:`06_metrics`.
   memory copies count as communication. *nsys2prv* does not distinguish
   Device-to-Device copies within a GPU from copies between GPUs, so both are
   counted as communication.
-* **Region of interest.** The metrics are computed over the whole trace,
+* **MPI events.** Without the MPI events (``nsys2prv -t mpi_event_trace``),
+  the time in MPI calls is counted as useful Host time and the MPI level is
+  not computed. With them, a rank is represented by its thread that calls
+  MPI; applications that call MPI from several threads of a process are
+  not modelled.
+* **Region of interest.** For traces with MPI events, the metrics are
+  computed by default from the end of ``MPI_Init`` to the start of
+  ``MPI_Finalize`` (``--nsys2prv-whole-trace`` analyzes the whole trace).
+  Otherwise the metrics are computed over the whole trace,
   which BasicAnalysis assumes is the region of interest, as for Extrae
   traces. When the trace includes initialization (for example, loading model
   weights), that phase is part of the metrics, and it can dominate them: in

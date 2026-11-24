@@ -14,6 +14,10 @@ from iometrics import IO_FACTORS_DOC, io_useful_time, print_io_tables
 from tracemetadata import (
     NSYS2PRV_DISPLAY_MODE,
     is_host_gpu_mode,
+    is_mpi_cuda_mode,
+    is_mpi_gpu_mode,
+    is_mpi_hybrid_mode,
+    mpi_second_runtime,
     is_nsys2prv_mode,
     print_trace_mode_header,
 )
@@ -303,13 +307,6 @@ def create_omp_talp_factors(trace_list):
 
     return omp_talp_factors
 
-def is_mpi_gpu_mode(mode):
-    return mode in (
-    'Detailed+MPI+CUDA',
-    'Detailed+MPI+HIP',
-    )  
-
-
 def mpi_gpu_useful_per_device(raw_data, trace):
     """Average and maximum useful time of the application level of MPI+GPU.
 
@@ -427,12 +424,10 @@ def _build_hybrid_xaxis_label(
     # --------------------------------------------------
 
     if all(
-            trace_mode[trace].startswith('Detailed+MPI+')
+            is_mpi_hybrid_mode(trace_mode[trace])
             for trace in trace_list
     ):
-        runtime_name = trace_mode[trace_list[0]][
-            len('Detailed+MPI+'):
-        ]
+        runtime_name = mpi_second_runtime(trace_mode[trace_list[0]])
 
         if runtime_name == 'OpenMP':
             return (
@@ -985,7 +980,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             trace_processes,
             cmdl_args,
             has_domains=any(
-                trace_mode[trace] in ('Detailed+MPI+CUDA', 'Detailed+MPI+HIP')
+                is_mpi_gpu_mode(trace_mode[trace])
                 or (is_host_gpu_mode(trace_mode[trace])
                     and cmdl_args.pop_model_to_apply == 'talp')
                 for trace in trace_list
@@ -1006,7 +1001,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
    
         total_procs = trace_processes[trace]
 
-        is_mpi_gpu = trace_mode[trace] in ('Detailed+MPI+CUDA','Detailed+MPI+HIP',)        
+        is_mpi_gpu = is_mpi_gpu_mode(trace_mode[trace])
+        # nsys2prv traces are not simulated with Dimemas (yet): no
+        # Serialization and Transfer.
+        no_simulation = cmdl_args.skip_simulation or is_nsys2prv_mode(trace_mode[trace])
 
         # GPU without MPI (serial host): Host/Device model with the
         # TALP-style metrics. The classic model uses the simple metrics.
@@ -1393,7 +1391,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             if not outmpi_measures:
                 hybrid_factors['mpi_load_balance'][trace] = 'Non-Avail'
-            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            elif is_mpi_hybrid_mode(trace_mode[trace]):
                 hybrid_factors['mpi_load_balance'][trace] = float(raw_data['outsidempi_avg'][trace]) \
                                                         / float(raw_data['outsidempi_max'][trace]) * 100.0
             else:
@@ -1404,7 +1402,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             if not outmpi_measures:
                 hybrid_factors['mpi_comm_eff'][trace] = 'Non-Avail'
-            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            elif is_mpi_hybrid_mode(trace_mode[trace]):
                 hybrid_factors['mpi_comm_eff'][trace] = float(raw_data['outsidempi_max'][trace]) \
                                                     / float(raw_data['runtime'][trace]) * 100.0
             else:
@@ -1414,7 +1412,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
 
         # ------------> BEGIN MPI communication sub-metrics
         try:  # except NaN
-            if (not outmpi_measures) or cmdl_args.skip_simulation:
+            if (not outmpi_measures) or no_simulation:
                 hybrid_factors['serial_eff'][trace] = 'Non-Avail'
                 if trace_mode[trace] == "Detailed+MPI":
                     mod_factors['serial_eff'][trace] = 'Non-Avail'
@@ -1427,7 +1425,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 hybrid_factors['serial_eff'][trace] = float(raw_data['outsidempi_dim'][trace]) \
                 / float(raw_data['runtime_dim'][trace]) * 100.0           
             elif trace_mode[trace] == "Detailed+MPI+OpenMP" \
-                        or trace_mode[trace] == 'Detailed+MPI+CUDA':
+                        or is_mpi_cuda_mode(trace_mode[trace]):
                 hybrid_factors['serial_eff'][trace] = float(raw_data['outsidempi_dim'][trace]) \
                                                / float(raw_data['runtime_dim'][trace]) * 100.0
                 mod_factors['serial_eff'][trace] = 'N/A'
@@ -1438,7 +1436,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 # Same check as the classic MPI metrics (simplemetrics.py).
                 if round(mod_factors['serial_eff'][trace]) > 100:
                     mod_factors['serial_eff'][trace] = 'Warning!'
-            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            elif is_mpi_hybrid_mode(trace_mode[trace]):
                 mod_factors['serial_eff'][trace] = 'N/A'
                 hybrid_factors['serial_eff'][trace] = 'Non-Avail'
             else:
@@ -1449,12 +1447,12 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                 hybrid_factors['serial_eff'][trace] = 'Warning!'
         except:    
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
-                    or trace_mode[trace] == 'Detailed+MPI+CUDA':
+                    or is_mpi_cuda_mode(trace_mode[trace]):
                 if hybrid_factors['serial_eff'][trace] != 'Non-Avail' and hybrid_factors['serial_eff'][trace] != 'N/A':
                     hybrid_factors['serial_eff'][trace] = 'NaN'
 
         try:  # except NaN
-            if (not outmpi_measures) or cmdl_args.skip_simulation:
+            if (not outmpi_measures) or no_simulation:
                 hybrid_factors['transfer_eff'][trace] = 'Non-Avail'
                 if trace_mode[trace] == "Detailed+MPI":
                     mod_factors['transfer_eff'][trace] = 'Non-Avail'
@@ -1469,7 +1467,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     hybrid_factors['transfer_eff'][trace] = float(hybrid_factors['mpi_comm_eff'][trace]) \
                     / float(hybrid_factors['serial_eff'][trace]) * 100.0                   
                 elif trace_mode[trace] == "Detailed+MPI+OpenMP" \
-                        or trace_mode[trace] == 'Detailed+MPI+CUDA':
+                        or is_mpi_cuda_mode(trace_mode[trace]):
                     hybrid_factors['transfer_eff'][trace] = float(hybrid_factors['mpi_comm_eff'][trace]) \
                                                         / float(hybrid_factors['serial_eff'][trace]) * 100.0
                     mod_factors['transfer_eff'][trace] = 'N/A'
@@ -1484,7 +1482,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
                     if round(mod_factors['transfer_eff'][trace]) > 100:
                         mod_factors['transfer_eff'][trace] = 'Warning!'
                     hybrid_factors['transfer_eff'][trace] = 'N/A'
-                elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+                elif is_mpi_hybrid_mode(trace_mode[trace]):
                     hybrid_factors['transfer_eff'][trace] = 'Non-Avail'
                     mod_factors['transfer_eff'][trace] = 'N/A'
                 else:
@@ -1497,13 +1495,13 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             
         except:
             if trace_mode[trace] == 'Detailed+MPI' or trace_mode[trace] == 'Detailed+MPI+OpenMP' \
-                    or trace_mode[trace] == 'Detailed+MPI+CUDA':
+                    or is_mpi_cuda_mode(trace_mode[trace]):
                 if hybrid_factors['transfer_eff'][trace] != 'N/A' and hybrid_factors['transfer_eff'][trace] != 'Non-Avail':
                     hybrid_factors['transfer_eff'][trace] = 'NaN'
 
         # submetrics communication openmp part in hybrid codes
         try:  # except NaN
-            if (not outmpi_measures) or cmdl_args.skip_simulation:
+            if (not outmpi_measures) or no_simulation:
                 hyb_comm_omp_factors['omp_transfer_eff'][trace] = 'Non-Avail'
                 hyb_comm_omp_factors['omp_serial_eff'][trace] = 'Non-Avail'
             elif trace_mode[trace] == "Detailed+MPI+OpenMP" and cmdl_args.hyb_mpiomp:
@@ -1521,7 +1519,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             if not outmpi_measures:
                 hybrid_factors['mpi_parallel_eff'][trace] = 'Non-Avail'
-            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            elif is_mpi_hybrid_mode(trace_mode[trace]):
                 if raw_data['outsidempi_tot'][trace] == raw_data['outsidempi_tot_diff'][trace]:
                     hybrid_factors['mpi_parallel_eff'][trace] = float(raw_data['outsidempi_tot'][trace] /
                                                                   (raw_data['runtime'][trace]
@@ -1539,7 +1537,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             if not outmpi_measures:
                 hybrid_factors['omp_comm_eff'][trace] = 'Non-Avail'
-            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            elif is_mpi_hybrid_mode(trace_mode[trace]):
                 hybrid_factors['omp_comm_eff'][trace] = float(mod_factors['comm_eff'][trace]) \
                                                         / float(hybrid_factors['mpi_comm_eff'][trace]) * 100.0
             else:
@@ -1550,7 +1548,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             if not outmpi_measures:
                 hybrid_factors['omp_load_balance'][trace] = 'Non-Avail'
-            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            elif is_mpi_hybrid_mode(trace_mode[trace]):
                 hybrid_factors['omp_load_balance'][trace] = float(mod_factors['load_balance'][trace]) \
                                                             / float(hybrid_factors['mpi_load_balance'][trace]) * 100.0
             else:
@@ -1561,7 +1559,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
         try:  # except NaN
             if not outmpi_measures:
                 hybrid_factors['omp_parallel_eff'][trace] = 'Non-Avail'
-            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            elif is_mpi_hybrid_mode(trace_mode[trace]):
                 hybrid_factors['omp_parallel_eff'][trace] = float(mod_factors['parallel_eff'][trace]) \
                                                             / float(hybrid_factors['mpi_parallel_eff'][trace]) * 100.0
             else:
@@ -1645,10 +1643,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             if is_host_gpu:
                 host_factors['serial_eff'][trace] = 'N/A'
 
-            elif not outmpi_measures or cmdl_args.skip_simulation:
+            elif not outmpi_measures or no_simulation:
                 host_factors['serial_eff'][trace] = 'Non-Avail'
 
-            elif trace_mode[trace] == 'Detailed+MPI+CUDA':
+            elif is_mpi_cuda_mode(trace_mode[trace]):
                 host_factors['serial_eff'][trace] = \
                     hybrid_factors['serial_eff'][trace]
 
@@ -1663,10 +1661,10 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             if is_host_gpu:
                 host_factors['transfer_eff'][trace] = 'N/A'
 
-            elif not outmpi_measures or cmdl_args.skip_simulation:
+            elif not outmpi_measures or no_simulation:
                 host_factors['transfer_eff'][trace] = 'Non-Avail'
 
-            elif trace_mode[trace] == 'Detailed+MPI+CUDA':
+            elif is_mpi_cuda_mode(trace_mode[trace]):
                 host_factors['transfer_eff'][trace] = \
                     hybrid_factors['transfer_eff'][trace]
 
@@ -1823,7 +1821,7 @@ def compute_model_factors(raw_data, trace_list, trace_processes, trace_mode, lis
             if not outmpi_measures:
                 hybrid_factors['hybrid_eff'][trace] = 'Non-Avail'
 
-            elif trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            elif is_mpi_hybrid_mode(trace_mode[trace]):
                 hybrid_factors['hybrid_eff'][trace] = float(hybrid_factors['mpi_parallel_eff'][trace]) \
                                             * float(hybrid_factors['omp_parallel_eff'][trace]) / 100.0
             else:
@@ -2229,7 +2227,7 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
 
     count_mode = 0
     for trace in trace_list:
-        if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+        if is_mpi_hybrid_mode(trace_mode[trace]):
             count_mode += 1
 
     if count_mode == len(trace_list):
@@ -2240,13 +2238,13 @@ def print_mod_factors_table(mod_factors, other_metrics, mod_factors_scale_plus_i
 
     # Update the hybrid parallelism mode
     trace_mode_doc = trace_mode[trace_list[0]]
-    if trace_mode_doc[0:len("Detailed+MPI+")] == "Detailed+MPI+":
+    if is_mpi_hybrid_mode(trace_mode_doc):
         mod_hybrid_factors_doc['omp_parallel_eff'] = "   -- " + \
-                                                     trace_mode_doc[len("Detailed+MPI+"):] + " Parallel efficiency"
+                                                     mpi_second_runtime(trace_mode_doc) + " Parallel efficiency"
         mod_hybrid_factors_doc['omp_load_balance'] = "      -- " + \
-                                                     trace_mode_doc[len("Detailed+MPI+"):] + " Load Balance"
+                                                     mpi_second_runtime(trace_mode_doc) + " Load Balance"
         mod_hybrid_factors_doc['omp_comm_eff'] = "      -- " + \
-                                                 trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
+                                                 mpi_second_runtime(trace_mode_doc) + " Communication efficiency"
 
     print('\n Overview of the Efficiency metrics:')
 
@@ -2436,7 +2434,7 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
 
     count_mode = 0
     for trace in trace_list:
-        if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+        if is_mpi_hybrid_mode(trace_mode[trace]):
             count_mode += 1
 
     if count_mode == len(trace_list):
@@ -2447,13 +2445,13 @@ def print_mod_factors_table_talp(mod_factors, other_metrics, mod_factors_scale_p
 
     # Update the hybrid parallelism mode
     trace_mode_doc = trace_mode[trace_list[0]]
-    if trace_mode_doc[0:len("Detailed+MPI+")] == "Detailed+MPI+":
+    if is_mpi_hybrid_mode(trace_mode_doc):
         mod_hybrid_factors_doc['omp_parallel_eff'] = "   -- " + \
-                                                     trace_mode_doc[len("Detailed+MPI+"):] + " Parallel efficiency"
+                                                     mpi_second_runtime(trace_mode_doc) + " Parallel efficiency"
         mod_hybrid_factors_doc['omp_load_balance'] = "      -- " + \
-                                                     trace_mode_doc[len("Detailed+MPI+"):] + " Load Balance"
+                                                     mpi_second_runtime(trace_mode_doc) + " Load Balance"
         mod_hybrid_factors_doc['omp_comm_eff'] = "      -- " + \
-                                                 trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
+                                                 mpi_second_runtime(trace_mode_doc) + " Communication efficiency"
     
     # print('')
     print('\n Overview of the Efficiency metrics:')
@@ -3318,7 +3316,7 @@ def plots_modelfactors_matplot(trace_list, trace_processes,trace_tasks, trace_th
     # For plotting using python, read the csv file
     count_mode = 0
     for trace in trace_list:
-        if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+        if is_mpi_hybrid_mode(trace_mode[trace]):
             count_mode += 1
 
     is_mpi_gpu_analysis = all(
@@ -3401,7 +3399,7 @@ def plots_modelfactors_matplot(trace_list, trace_processes,trace_tasks, trace_th
         if int(limit) == int(limit_min) and same_procs:
             s_xtics = str(trace_processes[trace]) + '[' + str(index + 1) + ']'
         else:
-            if trace_mode[trace][0:len("Detailed+MPI+")] == "Detailed+MPI+":
+            if is_mpi_hybrid_mode(trace_mode[trace]):
                 s_xtics = str(trace_processes[trace]) + '(' + str(tasks) + 'x' + str(threads) + ')'
                 label_xtics_hybrid.append(s_xtics+'[' + str(index + 1) + ']')
             else:
@@ -3507,7 +3505,7 @@ def plots_modelfactors_matplot(trace_list, trace_processes,trace_tasks, trace_th
             max(list_data_hybrid[8])
         ])
 
-        runtime_name = trace_mode[trace_list[0]][len("Detailed+MPI+"):]
+        runtime_name = mpi_second_runtime(trace_mode[trace_list[0]])
 
         plt.plot(
             traces_procs_hybrid,

@@ -2322,10 +2322,13 @@ Extrae traces.
 A trace is identified as an *nsys2prv* trace when its ``.pcf`` file has no
 ``STATES`` section and contains event labels that Extrae does not use
 (``CUDA memcpy kernel`` or ``NCCL kernel``). Its trace mode is reported as
-``nsys2prv`` with the ``CUDA`` programming model.
+``nsys2prv`` with the ``CUDA`` programming model, or with ``MPI+CUDA`` when
+the ``.pcf`` also has the MPI event types (see `nsys2prv traces with MPI
+events`_).
 
-The metrics use the same formulas as for GPU applications without MPI in
-Extrae traces. Only the definition of useful time and communication changes,
+Without MPI events, the metrics use the same formulas as for GPU
+applications without MPI in Extrae traces; with MPI events, the formulas of
+MPI+CUDA Extrae traces. Only the definition of useful time and communication changes,
 because it must be obtained from events instead of states. The assumptions
 of these definitions are summarized in :doc:`09_limitations`.
 
@@ -2462,11 +2465,61 @@ With :math:`H` Host units, BasicAnalysis computes:
       H \cdot T
    }
 
-There is no MPI level, so Host Parallel Efficiency equals Device Offload
-Efficiency. Host Computation Scalability and Host Global Efficiency are
+Without MPI events there is no MPI level, so Host Parallel Efficiency equals
+Device Offload Efficiency. For traces with MPI events, :math:`W_h` also
+includes the time in MPI calls, and the MPI level is computed (see `nsys2prv
+traces with MPI events`_). Host Computation Scalability and Host Global Efficiency are
 computed from :math:`UsefulHost` as for Extrae traces. IPC, Instruction, and
 Frequency Scalability are not available, because *nsys2prv* traces contain no
 Host hardware counters.
+
+
+nsys2prv traces with MPI events
+-------------------------------
+
+When the Nsight Systems reports are converted with the MPI events
+(``nsys2prv -t mpi_event_trace``), *nsys2prv* writes the MPI calls with the
+Extrae event types (``50000001`` to ``50000005``). The trace mode is then
+``nsys2prv+MPI+CUDA``, and the metrics use the MPI+CUDA model of Extrae
+traces: an MPI level (MPI Load Balance and MPI Communication Efficiency)
+and the Host and Device levels.
+
+* **Time outside MPI.** As for Extrae traces, the time outside MPI calls of
+  each MPI rank is measured from the MPI events
+  (``cfgs/nsys2prv/mpi_outside_host.cfg``, the window of
+  ``mpi-call-outside.cfg`` without the label filter). A rank is represented
+  by its thread with the most time in MPI calls, the thread that calls MPI.
+
+* **Useful Host time.** The time of the Host unit inside CUDA calls or MPI
+  calls is removed:
+
+  .. math::
+
+     UsefulHost_h = T - (W_h + M_h - O_h)
+
+  where :math:`M_h` is the time of thread :math:`h` in MPI calls and
+  :math:`O_h` the time of its CUDA calls that run inside MPI calls (for
+  example, with CUDA-aware MPI), counted once
+  (``cfgs/nsys2prv/cuda_calls_in_mpi.cfg``). Both are printed per Host
+  unit in the standard output.
+
+* **Region analyzed.** Nsight Systems records the whole process, including
+  ``MPI_Init`` and ``MPI_Finalize``, while Extrae starts recording after
+  ``MPI_Init``. By default, the metrics of these traces are therefore
+  computed from the end of ``MPI_Init`` (the last rank to leave it) to the
+  start of ``MPI_Finalize`` (the first rank to enter it): :math:`T` is the
+  duration of this region, and every measure (Host, MPI, and Device) is
+  restricted to it. The region is printed in the standard output.
+  ``--nsys2prv-whole-trace`` analyzes the whole trace instead.
+
+* **Serialization and Transfer Efficiency** are not available: the traces
+  are not simulated with *Dimemas*.
+
+For example, in a trace of four MPI ranks with one GH200 GPU each,
+``MPI_Init`` took 2.2 to 4.3 s of the 22.2 s of the trace. Over the whole
+trace, MPI Load Balance and MPI Communication Efficiency were 94.9 % and
+85.7 %, most of it waiting in ``MPI_Init``; in the region analyzed by
+default (17.5 s), they were 99.2 % and 96.5 %.
 
 
 Parallel Runtime Model

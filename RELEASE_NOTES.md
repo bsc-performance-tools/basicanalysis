@@ -21,6 +21,22 @@
 
 ### New Features
 
+- **MPI in nsys2prv traces (MPI+CUDA model).** Traces converted with the
+  MPI events (`nsys2prv -t mpi_event_trace`, Extrae codes
+  `50000001`-`50000005`) are detected as `nsys2prv+MPI+CUDA` and analyzed
+  with the MPI+CUDA model of Extrae traces: MPI Load Balance and MPI
+  Communication Efficiency from the time outside MPI calls of each rank,
+  and the Host useful time outside CUDA calls and MPI calls (the CUDA calls
+  inside MPI calls, for example with CUDA-aware MPI, counted once; both
+  printed per Host unit). By default the region analyzed goes from the end
+  of `MPI_Init` to the start of `MPI_Finalize`, as Extrae records it:
+  Nsight Systems records the whole process, and `MPI_Init` can dominate the
+  MPI metrics (four ranks on GH200: MPI Communication Efficiency 85.7 % over
+  the whole trace, 96.5 % in the region). `--nsys2prv-whole-trace` analyzes
+  the whole trace. The Useful Duration timeline of *Validate in Paraver*
+  has an MPI version (`cfgs-report/useful_duration_nsys2prv_mpi.cfg`).
+  Serialization and Transfer are not available (no *Dimemas* simulation).
+  nsys2prv traces without MPI events are analyzed as before.
 - Useful Duration timeline for nsys2prv traces in **Validate in Paraver**.
   The Extrae `useful_duration.cfg` uses the Running state, which nsys2prv
   traces do not have, so Paraver showed an empty timeline. Each nsys2prv

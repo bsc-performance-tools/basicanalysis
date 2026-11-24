@@ -8,11 +8,13 @@ from __future__ import print_function, division
 import os
 import shutil
 
-from tracemetadata import get_execution_mapping, is_nsys2prv_mode
+from tracemetadata import NSYS2PRV_MPI_MODE, get_execution_mapping, is_nsys2prv_mode
 import nsys2prvevents
 
 # Useful Duration of nsys2prv traces (cfgs/nsys2prv/generate_useful_duration_cfg.py).
 NSYS2PRV_USEFUL_CFG = "useful_duration_nsys2prv.cfg"
+# Traces with MPI events: the host useful intervals are also outside MPI.
+NSYS2PRV_MPI_USEFUL_CFG = "useful_duration_nsys2prv_mpi.cfg"
 
 def build_report(metrics_result,
                  analysis_result,
@@ -153,14 +155,15 @@ def _ensure_report_cfg(output_dir, cfg_name):
     return dst_path
 
 
-def _nsys2prv_useful_cfg(trace, output_dir, event_map=None):
+def _nsys2prv_useful_cfg(trace, output_dir, event_map=None, mpi=False):
     """Write the Useful Duration cfg of an nsys2prv trace, with the event
     codes of its .pcf, to <output_dir>/cfgs-report/<trace>.useful_duration.cfg.
 
     Returns its path, or None if the template is missing or the trace has
     not the kernel or CUDA call events.
     """
-    template = os.path.join(_cfgs_report_source_dir(), NSYS2PRV_USEFUL_CFG)
+    template = os.path.join(_cfgs_report_source_dir(),
+                            NSYS2PRV_MPI_USEFUL_CFG if mpi else NSYS2PRV_USEFUL_CFG)
     pcf = _strip_trace_extension(trace) + ".pcf"
     if not os.path.exists(template) or not os.path.exists(pcf):
         return None
@@ -202,7 +205,10 @@ def _build_resources(trace_list, output_dir, trace_mode=None, event_map=None):
         overview_cfg = cfg_path
         if trace_mode and is_nsys2prv_mode(trace_mode.get(trace, "")):
             overview_cfg = (
-                _nsys2prv_useful_cfg(trace, output_dir, event_map) or cfg_path)
+                _nsys2prv_useful_cfg(
+                    trace, output_dir, event_map,
+                    mpi=trace_mode.get(trace) == NSYS2PRV_MPI_MODE)
+                or cfg_path)
 
         resources.append({
             "trace": trace,

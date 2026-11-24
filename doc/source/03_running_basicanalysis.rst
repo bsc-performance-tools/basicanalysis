@@ -559,6 +559,15 @@ how it was found:
        ...
        memcpy values      d2d=3, d2h=4, h2d=5, memset=6 (value labels)
 
+For traces converted with the MPI events (``nsys2prv -t mpi_event_trace``),
+the region analyzed goes from the end of ``MPI_Init`` to the start of
+``MPI_Finalize``, as Extrae records it, and it is printed in the standard
+output. To analyze the whole trace instead:
+
+.. code-block:: text
+
+   --nsys2prv-whole-trace
+
 When an event has both a new code and a new label, it is not found, and
 BasicAnalysis prints a warning. Its code (or its label) can then be given in
 a file:

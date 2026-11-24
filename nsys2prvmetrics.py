@@ -43,6 +43,7 @@ import time
 from collections import OrderedDict, defaultdict
 
 from tracemetadata import (
+    NSYS2PRV_MPI_MODE,
     _read_header_line,
     parse_trace_header,
     NSYS2PRV_METRICS_LABEL_RE,
@@ -137,6 +138,9 @@ def init_nsys2prv_cfgs(root_dir):
         'memcpy_streams': os.path.join(nsys_dir, 'memcpy_streams.cfg'),
         'nccl_streams': os.path.join(nsys_dir, 'nccl_streams.cfg'),
         'cuda_calls_host': os.path.join(nsys_dir, 'cuda_calls_host.cfg'),
+        # Traces with MPI events (nsys2prv -t mpi_event_trace).
+        'mpi_outside_host': os.path.join(nsys_dir, 'mpi_outside_host.cfg'),
+        'cuda_calls_in_mpi': os.path.join(nsys_dir, 'cuda_calls_in_mpi.cfg'),
     }
     for key in HWC_KEYS:
         cfgs['hwc_' + key] = os.path.join(nsys_dir, 'hwc_' + key + '.cfg')
@@ -511,6 +515,120 @@ def parse_nsys2prv_host_calls(path, threads):
     return values
 
 
+MPI_OTHER_TYPE = 50000003
+MPI_INIT_VALUE = 31
+MPI_FINALIZE_VALUE = 32
+
+
+def nsys2prv_mpi_region(prv_file):
+    """Region of an nsys2prv trace with MPI events that Extrae would record:
+    from the end of MPI_Init (the last rank to leave it) to the start of
+    MPI_Finalize (the first rank to enter it), in nanoseconds.
+
+    Nsight Systems records the whole process, MPI_Init included, while
+    Extrae starts after MPI_Init. The records are not sorted by time in
+    merged nsys2prv traces, so the events are sorted per thread.
+
+    Returns (begin, end), with begin 0 when there is no MPI_Init and end
+    None when there is no MPI_Finalize, or None when the trace has neither.
+    """
+    marker = ':{}:'.format(MPI_OTHER_TYPE)
+    events = defaultdict(list)
+    with open(prv_file) as trace_file:
+        trace_file.readline()
+        for line in trace_file:
+            if line[0] != '2' or marker not in line:
+                continue
+            parts = line.rstrip('\n').split(':')
+            values = parts[6:]
+            for i in range(0, len(values) - 1, 2):
+                if values[i] == str(MPI_OTHER_TYPE):
+                    events[(parts[3], parts[4])].append(
+                        (int(parts[5]), int(values[i + 1])))
+    init_ends = []
+    finalize_starts = []
+    for thread_events in events.values():
+        thread_events.sort()
+        in_init = False
+        for timestamp, value in thread_events:
+            if value == MPI_INIT_VALUE:
+                in_init = True
+            elif value == 0 and in_init:
+                init_ends.append(timestamp)
+                in_init = False
+            elif value == MPI_FINALIZE_VALUE:
+                finalize_starts.append(timestamp)
+    if not init_ends and not finalize_starts:
+        return None
+    begin = max(init_ends) if init_ends else 0
+    end = min(finalize_starts) if finalize_starts else None
+    if end is not None and end <= begin:
+        return None
+    return begin, end
+
+
+def apply_time_window(text, begin_relative, end_relative):
+    """Restrict a Paraver cfg to a time window (relative to the trace end):
+    the windows start and end there, and the analyzers use the window
+    (Allwindow) instead of the whole trace."""
+    lines = []
+    for line in text.splitlines(True):
+        if line.startswith('window_begin_time_relative '):
+            line = 'window_begin_time_relative {:.12f}\n'.format(begin_relative)
+        elif line.startswith('window_end_time_relative '):
+            line = 'window_end_time_relative {:.12f}\n'.format(end_relative)
+        elif line.startswith('Analyzer2D.AnalysisLimits:'):
+            line = 'Analyzer2D.AnalysisLimits: Allwindow\n'
+        lines.append(line)
+    return ''.join(lines)
+
+
+def nsys2prv_mpi_times(threads, host_units, runtime, outside_mpi,
+                       cuda_calls, cuda_in_mpi):
+    """MPI time of the processes of an nsys2prv trace with MPI events, and
+    the Host useful time of their Host units (microseconds).
+
+    outside_mpi: {thread: time outside MPI calls} (mpi_outside_host.cfg);
+    a thread without MPI events has the whole runtime. cuda_calls and
+    cuda_in_mpi: {thread: time in CUDA calls} and {thread: time in CUDA
+    calls inside MPI calls} (cuda_calls_in_mpi.cfg).
+
+    The MPI rank of a process is represented by its thread with the most
+    time in MPI calls (the thread that calls MPI), as the first thread of
+    each rank in Extrae traces. The Host useful time of a Host unit is the
+    runtime minus its time in CUDA calls or MPI calls, the CUDA calls inside
+    MPI calls counted once.
+
+    Returns {'outside_by_task': {task: time}, 'mpi_thread': {task: thread},
+             'useful_host': {host unit: time},
+             'mpi_host': {host unit: time in MPI}, 'overlap_host': {...}}.
+    """
+    host_tasks = {_task_of(unit) for unit in host_units}
+    mpi_thread = {}
+    for thread_obj in threads.get('host', []):
+        task = _task_of(thread_obj)
+        if task not in host_tasks or thread_obj not in outside_mpi:
+            continue
+        best = mpi_thread.get(task)
+        if best is None or outside_mpi[thread_obj] < outside_mpi[best]:
+            mpi_thread[task] = thread_obj
+    outside_by_task = {task: outside_mpi[thread_obj]
+                       for task, thread_obj in mpi_thread.items()}
+    useful_host = {}
+    mpi_host = {}
+    overlap_host = {}
+    for unit in host_units:
+        in_mpi = max(runtime - outside_mpi.get(unit, runtime), 0.0)
+        overlap = min(cuda_in_mpi.get(unit, 0.0), in_mpi)
+        busy = cuda_calls.get(unit, 0.0) + in_mpi - overlap
+        useful_host[unit] = max(runtime - busy, 0.0)
+        mpi_host[unit] = in_mpi
+        overlap_host[unit] = overlap
+    return {'outside_by_task': outside_by_task, 'mpi_thread': mpi_thread,
+            'useful_host': useful_host, 'mpi_host': mpi_host,
+            'overlap_host': overlap_host}
+
+
 def parse_nsys2prv_hwc_integral(path):
     """Integral of a hardware counter from the analyzer of an hwc_<key>.cfg.
 
@@ -703,9 +821,11 @@ def aggregate_nsys2prv_device_metrics(kernel_rows, memcpy_rows, nccl_rows,
     return result
 
 
-def parse_nsys2prv_timeline(path):
+def parse_nsys2prv_timeline(path, window=None):
     """Parse a paramedir timeline exported in nanoseconds.
 
+    window: (begin, end) in microseconds; the bursts are clipped to it (the
+    export of a window starts with the burst that contains its beginning).
     Returns a list of (thread_obj, start, end, value) in microseconds.
     A missing file (e.g. no NCCL events in the trace) returns [].
     """
@@ -730,10 +850,17 @@ def parse_nsys2prv_timeline(path):
                 continue
             if duration <= 0.0 or value == 0.0:
                 continue
+            begin_us = start / NS_PER_US
+            end_us = (start + duration) / NS_PER_US
+            if window is not None:
+                begin_us = max(begin_us, window[0])
+                end_us = min(end_us, window[1])
+                if end_us <= begin_us:
+                    continue
             rows.append((
                 normalize_thread_object(parts[0].strip()),
-                start / NS_PER_US,
-                (start + duration) / NS_PER_US,
+                begin_us,
+                end_us,
                 value,
             ))
 
@@ -778,11 +905,12 @@ def resolve_nsys2prv_events(pcf_path, event_map=None):
             'memory_values': tuple(memory.values())}
 
 
-def write_trace_cfgs(cfgs, keys, codes, dest_dir):
+def write_trace_cfgs(cfgs, keys, codes, dest_dir, window=None):
     """Write the cfgs of one trace with the event codes of the trace.
 
     codes: {reference code: code in the trace, or None}. A cfg that needs an
-    event that the trace does not have is not written.
+    event that the trace does not have is not written. window: (begin, end)
+    relative to the trace end, to restrict the cfgs to a region.
 
     Returns ({key: path of the written cfg}, [keys not written]).
     """
@@ -797,8 +925,11 @@ def write_trace_cfgs(cfgs, keys, codes, dest_dir):
             missing.append(key)
             continue
         path = os.path.join(dest_dir, os.path.basename(cfgs[key]))
+        text = nsys2prvevents.rewrite_cfg(text, codes)
+        if window is not None:
+            text = apply_time_window(text, window[0], window[1])
         with open(path, 'w') as out:
-            out.write(nsys2prvevents.rewrite_cfg(text, codes))
+            out.write(text)
         written[key] = path
     return written, missing
 
@@ -838,9 +969,12 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     print(line)
 
     time_tot = time.time()
+    # MPI events (nsys2prv -t mpi_event_trace): MPI+CUDA model.
+    has_mpi = trace_mode_value == NSYS2PRV_MPI_MODE
 
     # Metrics that need state records, hardware counters or MPI are not
-    # available in nsys2prv traces.
+    # available in nsys2prv traces (the outside-MPI times are replaced
+    # below for traces with MPI events).
     for key in ('useful_tot', 'useful_avg', 'useful_max',
                 'useful_not_0_tot', 'useful_not_0_avg', 'useful_not_0_max',
                 'useful_cyc', 'useful_ins', 'frequency',
@@ -880,7 +1014,11 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     other_tasks = sorted({_task_of(t) for t in threads['host']} - threads['gpu_tasks'])
 
     print("==> nsys2prv trace: Device metrics from kernel and memory operation events,")
-    print("    Host metrics from the time outside CUDA calls.")
+    if has_mpi:
+        print("    MPI metrics from the MPI events, Host metrics from the time outside")
+        print("    CUDA and MPI calls.")
+    else:
+        print("    Host metrics from the time outside CUDA calls.")
     print("==> Count of devices: ", len(devices))
     if threads.get('gpu_identity') == 'process':
         print("==INFO== The trace has more GPU metrics threads ({}) than GPUs "
@@ -916,6 +1054,11 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         'nccl_streams': trace_name + '.nccl_streams.stats.csv',
         'cuda_calls_host': trace_name + '.cuda_calls_host.stats.csv',
     }
+    mpi_keys = ()
+    if has_mpi:
+        mpi_keys = ('mpi_outside_host', 'cuda_calls_in_mpi')
+        stats['mpi_outside_host'] = trace_name + '.mpi_outside_host.stats.csv'
+        stats['cuda_calls_in_mpi'] = trace_name + '.cuda_calls_in_mpi.stats.csv'
 
     # GPU hardware counters, only when the trace has Metrics GPU<n> threads.
     hwc_stats = {}
@@ -924,6 +1067,27 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
             hwc_stats['hwc_' + key] = trace_name + '.hwc_' + key + '.stats.csv'
     stats.update(hwc_stats)
 
+    # Region analyzed of traces with MPI events: from the end of MPI_Init to
+    # the start of MPI_Finalize, as Extrae records it (nsys2prv_mpi_region).
+    region = None          # (begin, end) in microseconds
+    window = None          # (begin, end) relative to the trace end
+    header_end = trace_header_end_us(trace)
+    if has_mpi and header_end and not getattr(cmdl_args, 'nsys2prv_whole_trace', False):
+        mpi_region = nsys2prv_mpi_region(trace)
+        if mpi_region is not None:
+            begin_us = mpi_region[0] / NS_PER_US
+            end_us = (mpi_region[1] / NS_PER_US if mpi_region[1] is not None
+                      else header_end)
+            region = (begin_us, min(end_us, header_end))
+            window = (region[0] / header_end, region[1] / header_end)
+            print('==> Region analyzed: from the end of MPI_Init ({:.3f} s) to the '
+                  'start of MPI_Finalize ({:.3f} s), {:.3f} s of {:.3f} s ({:.1f} %), '
+                  'as Extrae records it. Use --nsys2prv-whole-trace to analyze the '
+                  'whole trace.'.format(
+                      region[0] / 1e6, region[1] / 1e6,
+                      (region[1] - region[0]) / 1e6, header_end / 1e6,
+                      100.0 * (region[1] - region[0]) / header_end))
+
     # The codes of the events change between nsys2prv versions: find them
     # in the .pcf of the trace and rewrite the cfgs with them.
     events = resolve_nsys2prv_events(
@@ -931,13 +1095,14 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         getattr(cmdl_args, 'nsys2prv_events', None))
     trace_cfgs, missing_cfgs = write_trace_cfgs(
         nsys_cfgs, ('kernels_streams', 'memcpy_streams', 'nccl_streams',
-                    'cuda_calls_host') + tuple(hwc_stats),
-        events['codes'], os.path.join(local_path_dest, 'cfgs-nsys2prv'))
+                    'cuda_calls_host') + mpi_keys + tuple(hwc_stats),
+        events['codes'], os.path.join(local_path_dest, 'cfgs-nsys2prv'),
+        window=window)
     trace_cfgs['runtime'] = nsys_cfgs['runtime']
 
     cmd = ['paramedir', trace]
     for key in ('runtime', 'kernels_streams', 'memcpy_streams', 'nccl_streams',
-                'cuda_calls_host') + tuple(hwc_stats):
+                'cuda_calls_host') + mpi_keys + tuple(hwc_stats):
         if key in trace_cfgs:
             cmd.extend([trace_cfgs[key], stats[key]])
 
@@ -961,10 +1126,11 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     # nsys2prv can write events (GPU metric samples) after the end declared
     # in the header; Paraver then extends the trace to the last event. The
     # metrics use the declared end, which covers the application activity.
-    header_end = trace_header_end_us(trace)
     trace_raw_data['runtime'] = (
         header_end if header_end is not None else paraver_runtime)
-    if (header_end is not None and paraver_runtime != 'NaN'
+    if region is not None:
+        trace_raw_data['runtime'] = region[1] - region[0]
+    elif (header_end is not None and paraver_runtime != 'NaN'
             and paraver_runtime > header_end * 1.001):
         print('==INFO== The trace has events after the end declared in its '
               'header ({0:.3f} s); Paraver extends it to {1:.3f} s. The '
@@ -990,12 +1156,42 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
             NOT_ANALYZED_REASONS[entry['reason']]))
     if minor_count:
         print("==> Not analyzed: " + not_analyzed_minor_text(minor_count, minor_s))
+    mpi_proc_count = None
     if host_threads and trace_raw_data['runtime'] != 'NaN' and host_calls:
         runtime = float(trace_raw_data['runtime'])
         useful_host = [
             max(runtime - host_calls.get(thread_obj, 0.0), 0.0)
             for thread_obj in host_threads
         ]
+        outside_mpi = (parse_nsys2prv_host_calls(stats['mpi_outside_host'], threads)
+                       if has_mpi else {})
+        if has_mpi and not outside_mpi:
+            print('==WARNING== The time outside MPI calls could not be computed: '
+                  'the MPI metrics are not available, and the Host useful time '
+                  'includes the time in MPI calls.')
+        if outside_mpi:
+            mpi = nsys2prv_mpi_times(
+                threads, host_threads, runtime, outside_mpi, host_calls,
+                parse_nsys2prv_host_calls(stats['cuda_calls_in_mpi'], threads))
+            useful_host = [mpi['useful_host'][unit] for unit in host_threads]
+            outside = [mpi['outside_by_task'][task]
+                       for task in sorted(mpi['outside_by_task'])]
+            if outside:
+                mpi_proc_count = len(outside)
+                trace_raw_data['outsidempi_tot'] = sum(outside)
+                trace_raw_data['outsidempi_tot_diff'] = sum(outside)
+                trace_raw_data['outsidempi_avg'] = sum(outside) / len(outside)
+                trace_raw_data['outsidempi_max'] = max(outside)
+                trace_raw_data['mpicomm_tot'] = sum(runtime - value for value in outside)
+            for unit in host_threads:
+                task = _task_of(unit)
+                note = ''
+                if mpi['mpi_thread'].get(task, unit) != unit:
+                    note = ' (MPI called from {})'.format(mpi['mpi_thread'][task])
+                print('==> MPI: {} {:.3f} s in MPI calls, {:.3f} s of CUDA calls '
+                      'inside MPI calls{}'.format(
+                          unit, mpi['mpi_host'][unit] / 1e6,
+                          mpi['overlap_host'][unit] / 1e6, note))
         trace_raw_data['useful_host'] = sum(useful_host)
         trace_raw_data['useful_host_max'] = max(useful_host)
 
@@ -1021,9 +1217,9 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
 
     time_agg = time.time()
     gpu_agg = aggregate_nsys2prv_device_metrics(
-        parse_nsys2prv_timeline(stats['kernels_streams']),
-        parse_nsys2prv_timeline(stats['memcpy_streams']),
-        parse_nsys2prv_timeline(stats['nccl_streams']),
+        parse_nsys2prv_timeline(stats['kernels_streams'], region),
+        parse_nsys2prv_timeline(stats['memcpy_streams'], region),
+        parse_nsys2prv_timeline(stats['nccl_streams'], region),
         stream_to_device,
         memory_values=events['memory_values'],
     )
@@ -1057,7 +1253,8 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     hwc_devices = {value[1] for value in hwc_values.values() if value}
     if all(hwc_values.values()) and len(hwc_devices) == 1:
         trace_raw_data['hwc_devices'] = hwc_devices.pop()
-        trace_raw_data['hwc_elapsed'] = paraver_runtime
+        trace_raw_data['hwc_elapsed'] = (
+            region[1] - region[0] if region is not None else paraver_runtime)
         for key, (integral, _devices) in hwc_values.items():
             trace_raw_data['hwc_' + key + '_int'] = integral
         print("==> GPU hardware counters: {} device(s) with sampled metrics".format(
@@ -1096,5 +1293,5 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
         "execution_mapping": execution_mapping,
         "raw_data": trace_raw_data,
         "io_data": trace_io_data,
-        "mpi_proc_count": None,
+        "mpi_proc_count": mpi_proc_count,
     }

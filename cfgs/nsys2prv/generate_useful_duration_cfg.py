@@ -21,6 +21,12 @@ Value of each useful burst: its duration in microseconds.
 
 BasicAnalysis rewrites the event codes for each trace (nsys2prvevents).
 
+With --mpi, it writes the version for traces with MPI events (nsys2prv
+-t mpi_event_trace), cfgs-report/useful_duration_nsys2prv_mpi.cfg: the host
+intervals are also outside MPI calls (events 50000001-50000005), as the
+Host useful time of BasicAnalysis for those traces, and the duration of
+each host burst ends at the CUDA and MPI events.
+
 With --mask PATH, it also writes a 0/1 version of the useful timeline with
 an analyzer of the time where it is 1, to check the cfg against the useful
 times of BasicAnalysis with paramedir:
@@ -28,13 +34,14 @@ times of BasicAnalysis with paramedir:
   paramedir trace.prv mask.cfg mask.csv
   (host threads = elapsed - time in CUDA calls; streams = kernel time)
 
-Usage: generate_useful_duration_cfg.py [OUTPUT] [--mask PATH]
+Usage: generate_useful_duration_cfg.py [OUTPUT] [--mpi] [--mask PATH]
 """
 
 import os
 import sys
 
 KERNEL, CALL = 63000006, 63000000
+MPI_TYPES = (50000001, 50000002, 50000003, 50000004, 50000005)
 COMMON = """window_position_x 400
 window_position_y 100
 window_width 600
@@ -70,7 +77,8 @@ window_labels_to_draw 1
 window_object_axis_position 0
 """
 
-def single(wid, name, func, event, compose_thread='As Is', top2='As Is', top1='As Is'):
+def single(wid, name, func, event, compose_thread='As Is', top2='As Is', top1='As Is',
+           evt_func='='):
     return ("################################################################################\n"
             "< NEW DISPLAYING WINDOW {n} >\n"
             "################################################################################\n"
@@ -78,12 +86,15 @@ def single(wid, name, func, event, compose_thread='As Is', top2='As Is', top1='A
         COMMON.format(maxy='1.000000000000', computey='false', open='false') + (
             "window_selected_functions { 14, { {cpu, Active Thd}, {appl, Adding}, {task, Adding}, "
             "{thread, %s}, {node, Adding}, {system, Adding}, {workload, Adding}, {from_obj, All}, "
-            "{to_obj, All}, {tag_msg, All}, {size_msg, All}, {bw_msg, All}, {evt_type, =}, "
+            "{to_obj, All}, {tag_msg, All}, {size_msg, All}, {bw_msg, All}, {evt_type, %s}, "
             "{evt_value, All} } }\n"
             "window_compose_functions { 9, { {compose_cpu, As Is}, {compose_appl, As Is}, "
             "{compose_task, As Is}, {compose_thread, %s}, {compose_node, As Is}, {compose_system, As Is}, "
             "{compose_workload, As Is}, {topcompose1, %s}, {topcompose2, %s} } }\n"
-            "window_filter_module evt_type 1 %d\n\n") % (func, compose_thread, top1, top2, event)
+            "window_filter_module evt_type %d %s\n\n") % (
+                func, evt_func, compose_thread, top1, top2,
+                len(event) if isinstance(event, tuple) else 1,
+                ' '.join(str(e) for e in event) if isinstance(event, tuple) else event)
 
 def composed(wid, name, op, a, b, open_=False, maxy='1.000000000000', computey='false', top2='As Is'):
     return ("################################################################################\n"
@@ -107,7 +118,16 @@ BasicAnalysis; threads without CUDA calls show 0. The event codes are
 rewritten for each trace with the codes found in its .pcf.
 """
 
-def build(mask=False):
+DESC_MPI = """Useful Duration for nsys2prv traces with MPI events: as the nsys2prv
+version, but the host intervals are also outside MPI calls (events
+50000001-50000005), as the Host useful time of BasicAnalysis for these
+traces.
+"""
+
+
+def build(mask=False, mpi=False):
+    if mpi:
+        return build_mpi(mask)
     w = []
     if mask:
         # 0/1 mask: 1 in a kernel (streams) or outside CUDA calls (host threads that call CUDA).
@@ -139,6 +159,44 @@ def build(mask=False):
     if mask:
         text += ANALYZER.format(final=final)
     return text
+
+def build_mpi(mask=False):
+    w = []
+    outside_mpi = dict(compose_thread='As Is', top2='1-Sign', evt_func='[x,y]')
+    if mask:
+        w.append(single(1, 'in-kernel', 'Last Evt Val', KERNEL, compose_thread='Nesting level', top1='Join Bursts', top2='Sign'))
+        w.append(single(2, 'outside-call', 'Last Evt Val', CALL, compose_thread='Nesting level', top1='Join Bursts', top2='1-Sign'))
+        w.append(single(3, 'call-follows', 'Next Evt Val', CALL, top2='Sign'))
+        w.append(single(4, 'call-seen', 'Last Evt Type', CALL, top2='Sign'))
+        w.append(composed(5, 'calls-thread', 'add', 3, 4, top2='Sign'))
+        w.append(single(6, 'outside-mpi', 'Last Evt Val', (MPI_TYPES[0], MPI_TYPES[-1]), **outside_mpi))
+        w.append(composed(7, 'outside-call-and-mpi', 'product', 2, 6))
+        w.append(composed(8, 'host-useful', 'product', 7, 5))
+        w.append(composed(9, 'useful-mask', 'add', 1, 8, open_=True))
+        n, final = 9, 9
+    else:
+        w.append(single(1, 'kernel-interval', 'Int. Between Evt', KERNEL))
+        w.append(single(2, 'in-kernel', 'Last Evt Val', KERNEL, compose_thread='Nesting level', top1='Join Bursts', top2='Sign'))
+        w.append(composed(3, 'kernel-duration', 'product', 1, 2))
+        w.append(single(4, 'call-or-mpi-interval', 'Int. Between Evt', (CALL,) + MPI_TYPES))
+        w.append(single(5, 'outside-call', 'Last Evt Val', CALL, compose_thread='Nesting level', top1='Join Bursts', top2='1-Sign'))
+        w.append(single(6, 'call-follows', 'Next Evt Val', CALL, top2='Sign'))
+        w.append(single(7, 'call-seen', 'Last Evt Type', CALL, top2='Sign'))
+        w.append(composed(8, 'calls-thread', 'add', 6, 7, top2='Sign'))
+        w.append(single(9, 'outside-mpi', 'Last Evt Val', (MPI_TYPES[0], MPI_TYPES[-1]), **outside_mpi))
+        w.append(composed(10, 'outside-call-and-mpi', 'product', 5, 9))
+        w.append(composed(11, 'host-useful', 'product', 10, 8))
+        w.append(composed(12, 'host-useful-duration', 'product', 4, 11))
+        w.append(composed(13, 'Useful Duration (nsys2prv)', 'add', 3, 12, open_=True,
+                          maxy='1000.000000000000', computey='true'))
+        n, final = 13, 13
+    text = ("#ParaverCFG\nConfigFile.Version: 3.4\nConfigFile.NumWindows: %d\n"
+            "ConfigFile.BeginDescription\n%sConfigFile.EndDescription\nConfigFile.SyncGroups \n\n") % (n, DESC_MPI)
+    text += ''.join(w)
+    if mask:
+        text += ANALYZER.format(final=final)
+    return text
+
 
 ANALYZER = """< NEW ANALYZER2D >
 Analyzer2D.Name: useful-mask-time
@@ -185,6 +243,10 @@ def main(argv):
     output = os.path.join(here, '..', '..', 'cfgs-report', 'useful_duration_nsys2prv.cfg')
     mask_path = None
     args = list(argv)
+    mpi = '--mpi' in args
+    if mpi:
+        args.remove('--mpi')
+        output = os.path.join(here, '..', '..', 'cfgs-report', 'useful_duration_nsys2prv_mpi.cfg')
     if '--mask' in args:
         index = args.index('--mask')
         mask_path = args[index + 1]
@@ -192,10 +254,10 @@ def main(argv):
     if args:
         output = args[0]
     with open(output, 'w') as out:
-        out.write(build(mask=False))
+        out.write(build(mask=False, mpi=mpi))
     if mask_path:
         with open(mask_path, 'w') as out:
-            out.write(build(mask=True))
+            out.write(build(mask=True, mpi=mpi))
 
 
 if __name__ == '__main__':

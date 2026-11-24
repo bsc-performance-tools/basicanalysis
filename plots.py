@@ -6,6 +6,8 @@ from __future__ import print_function, division
 import os
 from collections import OrderedDict
 from tracemetadata import is_host_gpu_mode, is_nsys2prv_mode
+from tracemetadata import is_mpi_gpu_mode as _is_mpi_gpu_mode
+from tracemetadata import is_mpi_hybrid_mode, mpi_second_runtime
 
 from configuration import (
     format_configuration_label,
@@ -45,10 +47,7 @@ mod_hybrid_factors_doc = OrderedDict([
 
 def is_mpi_gpu_mode(mode):
     """Return True for supported MPI+GPU execution modes."""
-    return mode in (
-        'Detailed+MPI+CUDA',
-        'Detailed+MPI+HIP',
-    )
+    return _is_mpi_gpu_mode(mode)
 
 
 def _build_simple_plot_axis(
@@ -247,13 +246,13 @@ def plot_hybrid_metrics(
 
     # Update the hybrid parallelism mode
     trace_mode_doc = trace_mode[trace_list[0]]
-    if trace_mode_doc[0:len("Detailed+MPI+")] == "Detailed+MPI+":
+    if is_mpi_hybrid_mode(trace_mode_doc):
         mod_hybrid_factors_doc['omp_parallel_eff'] = "   -- " + \
-                                                     trace_mode_doc[len("Detailed+MPI+"):] + " Parallel efficiency"
+                                                     mpi_second_runtime(trace_mode_doc) + " Parallel efficiency"
         mod_hybrid_factors_doc['omp_load_balance'] = "      -- " + \
-                                                     trace_mode_doc[len("Detailed+MPI+"):] + " Load Balance"
+                                                     mpi_second_runtime(trace_mode_doc) + " Load Balance"
         mod_hybrid_factors_doc['omp_comm_eff'] = "      -- " + \
-                                                 trace_mode_doc[len("Detailed+MPI+"):] + " Communication efficiency"
+                                                 mpi_second_runtime(trace_mode_doc) + " Communication efficiency"
 
     if cmdl_args.debug:
         print('==DEBUG== Plotting Modelfactors metrics.')

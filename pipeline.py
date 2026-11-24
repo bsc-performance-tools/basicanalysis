@@ -16,7 +16,7 @@ import reportdata
 from report import build_analysis_context, build_report_model
 import html_to_pdf
 import os
-from tracemetadata import is_host_gpu_mode
+from tracemetadata import is_host_gpu_mode, is_mpi_gpu_mode, is_mpi_hybrid_mode
 from simulatedtraces import (clear_simulated_metrics,
                              find_inconsistent_simulations,
                              inconsistent_simulation_warnings)
@@ -106,7 +106,7 @@ def count_hybrid_traces(trace_list, trace_mode):
     """Count traces that should use the hybrid metrics path."""
     trace_metrics = 0
     for trace in trace_list:
-        if trace_mode[trace].startswith("Detailed+MPI+"):
+        if is_mpi_hybrid_mode(trace_mode[trace]):
             trace_metrics += 1
     return trace_metrics
 
@@ -300,10 +300,7 @@ def generate_reports(metrics_result, analysis_result, trace_list, trace_processe
         
         # MPI+GPU and GPU without MPI share the Host/Device model.
         is_mpi_gpu = (
-            trace_mode[trace_list[0]] in (
-                "Detailed+MPI+CUDA",
-                "Detailed+MPI+HIP",
-            )
+            is_mpi_gpu_mode(trace_mode[trace_list[0]])
             or is_host_gpu_mode(trace_mode[trace_list[0]])
         )
 
@@ -494,10 +491,7 @@ def generate_hybrid_plots(metrics_result, analysis_result, report,
 
     # MPI+GPU and GPU without MPI share the Host/Device model.
     is_mpi_gpu = (
-        trace_mode[trace_list[0]] in (
-            "Detailed+MPI+CUDA",
-            "Detailed+MPI+HIP",
-        )
+        is_mpi_gpu_mode(trace_mode[trace_list[0]])
         or is_host_gpu_mode(trace_mode[trace_list[0]])
     )    
 

@@ -114,6 +114,10 @@ def build_argument_parser():
                              '"name = code" or "name = label" line per event (kernel, memcpy, nccl, '
                              'cuda_calls, and the GPU hardware counters). Only needed when an event '
                              'is not found in the .pcf of the traces')
+    parser.add_argument("--nsys2prv-whole-trace", action="store_true",
+                        help='nsys2prv traces with MPI events: analyze the whole trace. By default '
+                             'the region analyzed goes from the end of MPI_Init to the start of '
+                             'MPI_Finalize, as in Extrae traces, which start after MPI_Init')
     parser.add_argument("--thresholds", metavar="CRITICAL,ATTENTION", type=_thresholds_argument,
                         default=None,
                         help='efficiency thresholds, in %%, of the colors of the efficiency tables and '

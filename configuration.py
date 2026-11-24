@@ -321,7 +321,8 @@ def configuration_model_key(mode):
     """Key of CONFIGURATION_DESCRIPTIONS for a trace mode."""
     collection_mode, programming_model = split_trace_mode(mode)
     if collection_mode == "nsys2prv":
-        return "nsys2prv"
+        # nsys2prv traces with MPI events are MPI+CUDA traces.
+        return "mpi_gpu" if programming_model.startswith("MPI") else "nsys2prv"
     if collection_mode in ("Burst", "Sampling"):
         # Burst+MPI traces are MPI traces.
         return programming_model_key(

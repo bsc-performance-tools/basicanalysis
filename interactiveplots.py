@@ -17,7 +17,7 @@ from configuration import (
     format_gpu_configuration_label,
     configuration_description,
 )
-from tracemetadata import is_host_gpu_mode
+from tracemetadata import is_host_gpu_mode, is_mpi_gpu_mode
 from simulatedtraces import simulated_trace_note_html
 from nsys2prvmetrics import (
     NOT_ANALYZED_REASONS, not_analyzed_summary, not_analyzed_minor_text,
@@ -13307,7 +13307,7 @@ def build_basicanalysis_interactive_report_html(metrics_result,
     if (
         metrics_result["kind"] == "hybrid"
         and (
-            trace_mode[trace_list[0]] in ("Detailed+MPI+CUDA","Detailed+MPI+HIP")
+            is_mpi_gpu_mode(trace_mode[trace_list[0]])
             or is_host_gpu_mode(trace_mode[trace_list[0]])
         )
     ):

@@ -55,7 +55,12 @@ time and the kernel time of the Host/Device model), and, as for Extrae
 traces, the bursts are painted with a gradient where zero is not painted
 (*Not Null Gradient Color*). The interval before the first CUDA event of a
 thread has no duration in Paraver, so it is not painted, although it is
-useful time. The host threads that call CUDA but are not Host units (see
+useful time. For traces with MPI events, the host intervals are also outside
+MPI calls (``cfgs-report/useful_duration_nsys2prv_mpi.cfg``, generated with
+``--mpi``); the timeline covers the whole trace, while the metrics use the
+region from the end of ``MPI_Init`` to the start of ``MPI_Finalize`` by
+default, so the useful time of the timeline also includes ``MPI_Init``
+time outside MPI calls. The host threads that call CUDA but are not Host units (see
 :ref:`nsys2prv-execution-units` and the *Host threads not analyzed* note)
 are also shown. The cfg is generated with
 ``cfgs/nsys2prv/generate_useful_duration_cfg.py``, which can also write a
