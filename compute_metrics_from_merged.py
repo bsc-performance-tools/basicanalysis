@@ -10,7 +10,7 @@ from comparison import check_comparison_support
 from tracemetadata import check_supported_models
 from scaling import build_workload_map
 from pipeline import count_hybrid_traces, compute_metrics, generate_reports, generate_plots
-from utils import build_argument_parser, start_run_log, apply_efficiency_thresholds
+from utils import build_argument_parser, start_run_log, apply_efficiency_thresholds, check_working_directory
 from argparse import SUPPRESS
 
 def parse_args():
@@ -49,6 +49,7 @@ def parse_args():
 
 def main():
     cmdl_args = parse_args()
+    check_working_directory()
     start_run_log(cmdl_args)
     apply_efficiency_thresholds(cmdl_args)
 

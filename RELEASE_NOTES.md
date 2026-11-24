@@ -358,6 +358,13 @@
 
 ### Fixes
 
+- **Running BasicAnalysis from its own folder crashed at the end** with
+  `shutil.SameFileError` while copying `cfgs-report/useful_duration.cfg`, and
+  no report was written; the outputs were also mixed with the code.
+  BasicAnalysis now stops before the analysis when the working directory is
+  the BasicAnalysis folder, and shows the command to run it from the folder
+  of the traces (`modelfactors.py`, `analyze_trace.py`,
+  `compute_metrics_from_merged.py`).
 - **Device metrics of nsys2prv traces were 0 or NaN with newer nsys2prv
   versions.** nsys2prv renamed the GPU kernel event (`63000006`) from
   `CUDA kernel` to `CUDA kernel execution`, and paramedir drops a filter whose

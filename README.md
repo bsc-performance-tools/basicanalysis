@@ -147,6 +147,9 @@ modelfactors.py [options] <list-of-traces>
 ```
 
 The input can contain one or more Paraver traces (`.prv` or `.prv.gz`).
+Run it from the folder of the traces (or another working folder), not from
+the BasicAnalysis folder: the outputs are written in the working directory,
+and BasicAnalysis stops if it is the BasicAnalysis folder.
 For example, to analyze all Paraver traces in the current directory:
 
 ```bash

@@ -8,7 +8,7 @@ from comparison import check_comparison_support
 from pipeline import count_hybrid_traces, compute_metrics, generate_reports, generate_plots
 from rawdata import gather_raw_data, print_raw_data_csv
 from tracemetadata import get_traces_from_args
-from utils import parse_arguments, check_installation, start_run_log, apply_efficiency_thresholds
+from utils import parse_arguments, check_installation, start_run_log, apply_efficiency_thresholds, check_working_directory
 
 
 def analyze_traces(trace_list, trace_processes, trace_task_per_node,
@@ -33,6 +33,7 @@ def analyze_traces(trace_list, trace_processes, trace_task_per_node,
 
 def main():
     cmdl_args = parse_arguments()
+    check_working_directory()
     start_run_log(cmdl_args)
     apply_efficiency_thresholds(cmdl_args)
 

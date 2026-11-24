@@ -24,6 +24,21 @@ The standard BasicAnalysis workflow is executed with ``modelfactors.py``:
 The command accepts one or more Paraver traces in either uncompressed
 ``.prv`` format or compressed ``.prv.gz`` format.
 
+BasicAnalysis writes its outputs (CSV files, plots, the Performance Report,
+``scratch_out_basicanalysis``, ``cfgs-report``, and the run log) in the
+working directory. Run it from the folder of the traces or another working
+folder, not from the BasicAnalysis folder:
+
+.. code-block:: sh
+
+   cd <folder of the traces>
+   <basicanalysis-dir>/modelfactors.py <trace>.prv
+
+When the working directory is the BasicAnalysis folder, the outputs would be
+mixed with the BasicAnalysis files, and ``cfgs-report`` is the folder of its
+Paraver configuration templates, so BasicAnalysis stops before the analysis
+with a message that shows the command to use.
+
 Trace filenames can be specified explicitly:
 
 .. code-block:: sh

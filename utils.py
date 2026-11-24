@@ -297,6 +297,31 @@ def which(cmd):
     return None
 
 
+def basicanalysis_dir():
+    """Folder of the BasicAnalysis scripts."""
+    return os.path.dirname(os.path.realpath(__file__))
+
+
+def check_working_directory(work_dir=None):
+    """Stop when the run would write its outputs in the BasicAnalysis folder.
+
+    The outputs (CSV files, report, scratch_out_basicanalysis, cfgs-report)
+    are written in the working directory. In the BasicAnalysis folder they
+    would be mixed with the code, and cfgs-report is the folder of the
+    Paraver configuration templates, so the run stops before any analysis.
+    """
+    work_dir = os.path.realpath(work_dir or os.getcwd())
+    ba_dir = basicanalysis_dir()
+    if work_dir != ba_dir:
+        return
+    prog = os.path.basename(sys.argv[0]) or 'modelfactors.py'
+    print('==ERROR== The working directory is the BasicAnalysis folder ({}).'.format(ba_dir))
+    print('          The outputs would be written among the BasicAnalysis files. Run {} from'.format(prog))
+    print('          the folder of the traces or another working folder, for example:')
+    print('            cd <folder of the traces> && {} <trace>.prv'.format(os.path.join(ba_dir, prog)))
+    sys.exit(1)
+
+
 def check_installation(cmdl_args):
     """Check if Dimemas and paramedir are in the path."""
 
