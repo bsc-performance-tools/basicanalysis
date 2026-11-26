@@ -24,6 +24,21 @@ The standard BasicAnalysis workflow is executed with ``modelfactors.py``:
 The command accepts one or more Paraver traces in either uncompressed
 ``.prv`` format or compressed ``.prv.gz`` format.
 
+BasicAnalysis writes its outputs (CSV files, plots, the Performance Report,
+``scratch_out_basicanalysis``, ``cfgs-report``, and the run log) in the
+working directory. Run it from the folder of the traces or another working
+folder, not from the BasicAnalysis folder:
+
+.. code-block:: sh
+
+   cd <folder of the traces>
+   <basicanalysis-dir>/modelfactors.py <trace>.prv
+
+When the working directory is the BasicAnalysis folder, the outputs would be
+mixed with the BasicAnalysis files, and ``cfgs-report`` is the folder of its
+Paraver configuration templates, so BasicAnalysis stops before the analysis
+with a message that shows the command to use.
+
 Trace filenames can be specified explicitly:
 
 .. code-block:: sh
@@ -618,6 +633,23 @@ The installed BasicAnalysis version can be displayed with:
 .. code-block:: text
 
    -v, --version
+
+For example:
+
+.. code-block:: text
+
+   $ modelfactors.py --version
+   modelfactors.py 26.11.dev (8443d5d)
+
+The version follows the format ``YY.MM[.N]`` (two-digit year and month). The
+first release of a month is ``YY.MM``, for example ``26.11``, and the next
+releases of the same month add a number: ``26.11.1``, ``26.11.2``. Between
+releases, the version is the next release with ``.dev``. The value in
+parentheses is the commit of the code: it is read from the git clone, or
+written by ``git archive`` when a package is made from the repository, so
+that every copy of BasicAnalysis can be identified. It is also written at
+the beginning of the run log (see :ref:`sec:run-log`). Releases up to
+``2026.09.17`` used the format ``YYYY.MM.DD``.
 
 
 Command-line help

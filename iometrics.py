@@ -16,9 +16,9 @@ the units synchronize after their I/O, the time paid is that of the slowest
 unit; the I/O on the critical path, IO_cp, is the sum over the kinds of
 operation (read, write, open, ...) of the maximum time of a unit:
 
-    I/O Critical-Path Efficiency = U_avg / (U_avg + IO_cp)
-                                 = IOEff x I/O Load Balance
-    I/O Load Balance             = (U_avg + IO_avg) / (U_avg + IO_cp)
+    Global I/O Efficiency = U_avg / (U_avg + IO_cp)
+                          = IOEff x I/O Load Balance
+    I/O Load Balance      = (U_avg + IO_avg) / (U_avg + IO_cp)
 
 The diagnostics (time fractions, contributions, load balance, operation counts,
 and mean durations) explain where the I/O time is spent. The request-size
@@ -117,13 +117,13 @@ IO_FACTORS_DOC = OrderedDict([
     ('io_da_eff', '-- Data Access Efficiency (%)'),
     ('io_fm_eff', '-- File Management Efficiency (%)'),
     ('io_lb', 'I/O Load Balance (%)'),
-    ('io_cp_eff', 'I/O Critical-Path Efficiency (%)'),
+    ('io_cp_eff', 'Global I/O Efficiency (%)'),
 ])
 
 # Hierarchy of the I/O efficiencies, in the standard output and in
 # io_metrics.csv.
 IO_EFFICIENCY_TREE = [
-    ('io_cp_eff', 'I/O Critical-Path Efficiency (%)'),
+    ('io_cp_eff', 'Global I/O Efficiency (%)'),
     ('io_eff', '-- I/O Efficiency (%)'),
     ('io_da_eff', '   -- Data Access Efficiency (%)'),
     ('io_fm_eff', '   -- File Management Efficiency (%)'),

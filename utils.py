@@ -42,10 +42,35 @@ except ImportError:
 __author__ = "Sandra Mendez"
 __copyright__ = "Copyright 2019, Barcelona Supercomputing Center (BSC)"
 
-__version_major__ = 2026
-__version_minor__ = 10
-__version_micro__ = 5
-__version__ = f"{__version_major__}.{__version_minor__:02d}.{__version_micro__:02d}"
+# Version YY.MM for the first release of a month, YY.MM.1, YY.MM.2, ... for
+# the next releases of the same month; YY.MM.dev between releases.
+__version__ = "26.11.dev"
+
+# Commit of the code. git archive writes it in place of the placeholder
+# (export-subst in .gitattributes); in a git clone it is read with git.
+_ARCHIVE_COMMIT = "$Format:%h$"
+
+
+def _code_commit():
+    """Short hash of the commit of this code, or None if unknown."""
+    if not _ARCHIVE_COMMIT.startswith("$"):
+        return _ARCHIVE_COMMIT
+    try:
+        result = subprocess.run(
+            ['git', '-C', os.path.dirname(os.path.abspath(__file__)),
+             'rev-parse', '--short', 'HEAD'],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            universal_newlines=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    commit = result.stdout.strip()
+    return commit if result.returncode == 0 and commit else None
+
+
+__commit__ = _code_commit()
+# Version with the commit, as shown by --version and in the run log.
+__version_full__ = ('{} ({})'.format(__version__, __commit__)
+                    if __commit__ else __version__)
 
 
 
@@ -59,7 +84,7 @@ def build_argument_parser():
     parser.add_argument("-m", "--metrics", choices=['simple', 'hybrid'], default='hybrid',
                         help='select the kind of efficiency metrics (single parallelism or hybrid, default: hybrid)')
     parser.add_argument("-v", "--version", action='version',
-                        version='%(prog)s {version}'.format(version=__version__))
+                        version='%(prog)s {version}'.format(version=__version_full__))
     parser.add_argument("-d", "--debug", help="increase output verbosity to debug level", action="store_true")
     parser.add_argument("-s", "--scaling",
                         help="define whether the measurements are weak or strong scaling (default: auto). "
@@ -240,7 +265,7 @@ def start_run_log(cmdl_args, default_file=DEFAULT_LOG_FILE):
         print('==WARNING== Could not open the log file {}: {}'.format(path, error))
         return None
     start = datetime.now()
-    log.write('BasicAnalysis {} ({})\n'.format(__version__, os.path.basename(sys.argv[0])))
+    log.write('BasicAnalysis {} ({})\n'.format(__version_full__, os.path.basename(sys.argv[0])))
     log.write('Date:      {}\n'.format(start.strftime('%Y-%m-%d %H:%M:%S')))
     log.write('Host:      {}\n'.format(socket.gethostname()))
     log.write('Directory: {}\n'.format(os.getcwd()))
@@ -272,6 +297,31 @@ def which(cmd):
     return None
 
 
+def basicanalysis_dir():
+    """Folder of the BasicAnalysis scripts."""
+    return os.path.dirname(os.path.realpath(__file__))
+
+
+def check_working_directory(work_dir=None):
+    """Stop when the run would write its outputs in the BasicAnalysis folder.
+
+    The outputs (CSV files, report, scratch_out_basicanalysis, cfgs-report)
+    are written in the working directory. In the BasicAnalysis folder they
+    would be mixed with the code, and cfgs-report is the folder of the
+    Paraver configuration templates, so the run stops before any analysis.
+    """
+    work_dir = os.path.realpath(work_dir or os.getcwd())
+    ba_dir = basicanalysis_dir()
+    if work_dir != ba_dir:
+        return
+    prog = os.path.basename(sys.argv[0]) or 'modelfactors.py'
+    print('==ERROR== The working directory is the BasicAnalysis folder ({}).'.format(ba_dir))
+    print('          The outputs would be written among the BasicAnalysis files. Run {} from'.format(prog))
+    print('          the folder of the traces or another working folder, for example:')
+    print('            cd <folder of the traces> && {} <trace>.prv'.format(os.path.join(ba_dir, prog)))
+    sys.exit(1)
+
+
 def check_installation(cmdl_args):
     """Check if Dimemas and paramedir are in the path."""
 
@@ -293,7 +343,7 @@ def check_installation(cmdl_args):
             sys.exit(1)
 
     if cmdl_args.debug:
-        print('==DEBUG== Using', __file__, __version__)
+        print('==DEBUG== Using', __file__, __version_full__)
         print('==DEBUG== Using', sys.executable, ".".join(map(str, sys.version_info[:3])))
 
         try:

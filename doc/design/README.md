@@ -3,7 +3,9 @@
 This directory contains the design documents of BasicAnalysis features that
 are being defined or validated. They are **not** part of the User Guide: the
 Sphinx sources are in `doc/source/`, so these documents are not included in
-the HTML or PDF documentation.
+the HTML or PDF documentation. They are for internal use only: the packages
+made with `git archive`, such as the release archives, leave this directory
+out (`export-ignore` in `.gitattributes`).
 
 Each document records the proposed metrics and definitions, the open
 questions, and the validation performed with real traces. Formulas and

@@ -1,0 +1,4 @@
+# git archive writes the commit in utils.py (version shown by --version).
+utils.py export-subst
+# Design notes are internal: they are not included in packages made with git archive.
+doc/design export-ignore

@@ -348,13 +348,14 @@ File I/O (POSIX, ANSI C, and MPI-IO calls) captured in the analyzed traces.
 .. figure:: images/report-io-analysis.png
    :width: 90%
    :align: center
-   :alt: BasicAnalysis I/O analysis
+   :alt: BasicAnalysis I/O efficiency table
 
-   I/O Analysis.
+   Efficiency table of the I/O Analysis view for five executions with
+   112 MPI processes and different I/O chunk sizes.
 
 The **I/O Analysis** view is shown in
-:numref:`fig-report-io-analysis`. Its efficiency table starts with **I/O
-Critical-Path Efficiency**, the I/O cost on the critical path of the
+:numref:`fig-report-io-analysis`. Its efficiency table starts with **Global
+I/O Efficiency**, the I/O cost on the critical path of the
 execution, which is the product of:
 
 * **I/O Efficiency**, the time spent in I/O, itself the product of **Data

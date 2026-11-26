@@ -147,6 +147,9 @@ modelfactors.py [options] <list-of-traces>
 ```
 
 The input can contain one or more Paraver traces (`.prv` or `.prv.gz`).
+Run it from the folder of the traces (or another working folder), not from
+the BasicAnalysis folder: the outputs are written in the working directory,
+and BasicAnalysis stops if it is the BasicAnalysis folder.
 For example, to analyze all Paraver traces in the current directory:
 
 ```bash
@@ -273,4 +276,11 @@ See the BasicAnalysis User Guide in the `doc/` directory.
 
 ## Versioning
 
-BasicAnalysis uses Calendar Versioning (CalVer) with the `YYYY.MM.DD` format.
+BasicAnalysis uses Calendar Versioning (CalVer) with the `YY.MM[.N]` format:
+two-digit year and month. The first release of a month is `YY.MM` (for
+example `26.11`), and the next releases of the same month add a number
+(`26.11.1`, `26.11.2`). Between releases, the version is the next release
+with `.dev` (for example `26.11.dev`). `modelfactors.py --version` and the
+run log also show the commit of the code, for example `26.11.dev (8443d5d)`.
+
+Releases up to `2026.09.17` used the `YYYY.MM.DD` format.

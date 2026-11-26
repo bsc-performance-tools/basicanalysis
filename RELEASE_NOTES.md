@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Versioning
+
+- New version format **YY.MM[.N]**: two-digit year and month, without the
+  day. The first release of a month is `YY.MM` (for example `26.11`), and the
+  next releases of the same month add a number: `26.11.1`, `26.11.2`. Tags
+  are `vYY.MM[.N]`. Earlier releases used `YYYY.MM.DD` (the last one is
+  `2026.09.17`), so tools that sort versions as numbers place `26.11` before
+  them.
+- Between releases, the version is the next release with `.dev`, for example
+  `26.11.dev`. `--version` and the run log also show the commit of the code,
+  for example `26.11.dev (8443d5d)`, read from the git clone or written by
+  `git archive` in packages made from the repository.
+- `2026.10.05` was prepared but never released: its changes are now part of
+  this release.
+- The design notes in `doc/design/` are internal and are no longer included
+  in the packages made with `git archive` (`export-ignore`).
+
 ### New Features
 
 - Useful Duration timeline for nsys2prv traces in **Validate in Paraver**.
@@ -53,7 +70,7 @@
   and write calls of every API) and **File Management** (open, close, seek,
   and control calls), and **I/O Efficiency** is decomposed as
   `I/O Efficiency = Data Access Efficiency x File Management Efficiency`.
-  **I/O Critical-Path Efficiency** = I/O Efficiency x **I/O Load Balance**
+  **Global I/O Efficiency** = I/O Efficiency x **I/O Load Balance**
   estimates the I/O cost when the units wait for the slowest one after each
   kind of I/O call (the critical-path I/O time adds, for each kind of call,
   the time of the unit that spends the most time in it).
@@ -208,6 +225,17 @@
   Paraver configurations (for example, the user's own) for a trace in the
   same way, optionally translating every event from the `.pcf` of a trace
   the configurations already work with (`--reference`).
+- Add the comparison of executions that use different programming models,
+  for example a new MPI+CUDA implementation with its MPI or MPI+OpenMP
+  version, or MPI+CUDA with MPI+HIP. Each trace is described with the
+  efficiency metrics of its own programming model. The comparison is shown
+  in the terminal, written to `comparison_metrics.csv`, and presented in a
+  new *Programming Model Comparison* tab of the interactive report, together
+  with the complete report of each programming model. See *Comparing
+  programming models* in the User Guide.
+- Add Host/Device metrics and the Execution Domains view for GPU
+  applications without MPI (CUDA and HIP with a serial host).
+  `--pop_model_to_apply classic` keeps the previous metrics.
 
 ### Changes
 
@@ -287,7 +315,7 @@
   the MPI-IO and POSIX/ANSI C contributions, the API-specific load balances
   by the per-operation load balances). In
   `other_metrics.csv`, the four rows are replaced by Data Access and File
-  Management Efficiency, I/O Load Balance, and I/O Critical-Path
+  Management Efficiency, I/O Load Balance, and Global I/O
   Efficiency. The
   other metrics do not change; in the standard output, the first column of
   the general-indicators table is narrower because its longest label was
@@ -339,9 +367,18 @@
   configuration now serves both runtimes and does not depend on the kernel
   event code used by the Extrae version. In cut traces, kernels already
   running at the beginning of the trace are now also counted.
+- The message shown when the interactive report cannot be generated now
+  includes the cause, such as a missing Python package (`plotly` or `yaml`).
 
 ### Fixes
 
+- **Running BasicAnalysis from its own folder crashed at the end** with
+  `shutil.SameFileError` while copying `cfgs-report/useful_duration.cfg`, and
+  no report was written; the outputs were also mixed with the code.
+  BasicAnalysis now stops before the analysis when the working directory is
+  the BasicAnalysis folder, and shows the command to run it from the folder
+  of the traces (`modelfactors.py`, `analyze_trace.py`,
+  `compute_metrics_from_merged.py`).
 - **Device metrics of nsys2prv traces were 0 or NaN with newer nsys2prv
   versions.** nsys2prv renamed the GPU kernel event (`63000006`) from
   `CUDA kernel` to `CUDA kernel execution`, and paramedir drops a filter whose
@@ -442,31 +479,6 @@
   GPU streams, for CUDA and HIP. In affected traces, Device Communication
   Efficiency was reported as 100% and Device Orchestration Efficiency was
   slightly underestimated.
-
-
-## 2026.10.05
-
-### New Features
-
-- Add the comparison of executions that use different programming models,
-  for example a new MPI+CUDA implementation with its MPI or MPI+OpenMP
-  version, or MPI+CUDA with MPI+HIP. Each trace is described with the
-  efficiency metrics of its own programming model. The comparison is shown
-  in the terminal, written to `comparison_metrics.csv`, and presented in a
-  new *Programming Model Comparison* tab of the interactive report, together
-  with the complete report of each programming model. See *Comparing
-  programming models* in the User Guide.
-- Add Host/Device metrics and the Execution Domains view for GPU
-  applications without MPI (CUDA and HIP with a serial host).
-  `--pop_model_to_apply classic` keeps the previous metrics.
-
-### Improvements
-
-- The message shown when the interactive report cannot be generated now
-  includes the cause, such as a missing Python package (`plotly` or `yaml`).
-
-### Fixes
-
 - Fixed the number of GPU streams reported as 0 for traces with legacy CUDA
   and HIP thread labels (`CUDA-D<n>.S<m>-<node>`, `HIP-D<n>.S<m>-<node>`).
   For HIP traces, the number of devices and the Device metrics were also

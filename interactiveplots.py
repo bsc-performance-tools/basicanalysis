@@ -795,8 +795,8 @@ def _build_io_metric_info():
 
     presentation = {
         "io_cp_eff": {
-            "label": "I/O Critical-Path Efficiency",
-            "short_label": "I/O CP Eff",
+            "label": "Global I/O Efficiency",
+            "short_label": "Global I/O Eff",
         },
         "io_eff": {
             "label": "-- I/O Efficiency",
@@ -963,7 +963,7 @@ GLOBAL_PARALLEL_TREE = [
     ])
 ]
 
-# I/O Critical-Path Efficiency = I/O Efficiency x I/O Load Balance;
+# Global I/O Efficiency = I/O Efficiency x I/O Load Balance;
 # I/O Efficiency = Data Access Efficiency x File Management Efficiency.
 IO_TREE = [
     _tree_node("io_cp_eff", [
@@ -5243,7 +5243,7 @@ def _build_trace_config_table_html(report):
 
 def _clean_metric_label(label):
     """Remove the leading visual hierarchy markers ('--', '==', '*') of a
-    label; hyphens inside the name (e.g. 'Critical-Path') are kept."""
+    label; hyphens inside the name (e.g. 'Host-to-Device') are kept."""
     return label.lstrip(" -=*").strip()
 
 
@@ -7513,7 +7513,10 @@ def _build_io_metrics_guidance_html():
             Efficiency</strong> (read and write calls) and <strong>File
             Management Efficiency</strong> (open, close, seek, and control
             calls). The lower factor identifies the I/O component to
-            investigate.
+            investigate. <strong>Global I/O Efficiency</strong>, at the
+            top of the table, multiplies I/O Efficiency by <strong>I/O Load
+            Balance</strong>: it also counts the time the units wait for
+            the slowest one in each kind of I/O call.
         </p>
 
         <p>
