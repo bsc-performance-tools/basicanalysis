@@ -56,7 +56,7 @@
   and write calls of every API) and **File Management** (open, close, seek,
   and control calls), and **I/O Efficiency** is decomposed as
   `I/O Efficiency = Data Access Efficiency x File Management Efficiency`.
-  **I/O Critical-Path Efficiency** = I/O Efficiency x **I/O Load Balance**
+  **Global I/O Efficiency** = I/O Efficiency x **I/O Load Balance**
   estimates the I/O cost when the units wait for the slowest one after each
   kind of I/O call (the critical-path I/O time adds, for each kind of call,
   the time of the unit that spends the most time in it).
@@ -301,7 +301,7 @@
   the MPI-IO and POSIX/ANSI C contributions, the API-specific load balances
   by the per-operation load balances). In
   `other_metrics.csv`, the four rows are replaced by Data Access and File
-  Management Efficiency, I/O Load Balance, and I/O Critical-Path
+  Management Efficiency, I/O Load Balance, and Global I/O
   Efficiency. The
   other metrics do not change; in the standard output, the first column of
   the general-indicators table is narrower because its longest label was

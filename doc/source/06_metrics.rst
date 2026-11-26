@@ -3670,19 +3670,19 @@ the thresholds of every metric, these included (see
 The metrics are reported as ``Non-Avail`` when no File I/O is detected.
 
 
-I/O Critical-Path Efficiency and I/O Load Balance
--------------------------------------------------
+Global I/O Efficiency and I/O Load Balance
+------------------------------------------
 
 I/O Efficiency uses the average I/O time per unit. When the units
 synchronize after their I/O (for example, in read and write phases separated
 by barriers or collectives), the time paid is that of the slowest unit, and
-the other units wait for it. **I/O Critical-Path Efficiency** measures the
+the other units wait for it. **Global I/O Efficiency** measures the
 cost of File I/O on the critical path of the execution, when each kind of
 I/O call costs the time of the slowest unit:
 
 .. math::
 
-   IO\_CP\_Eff = \frac{U_{avg}}{U_{avg} + IO_{cp}},
+   Global\_IO\_Eff = \frac{U_{avg}}{U_{avg} + IO_{cp}},
    \qquad
    IO_{cp} = \sum_{op} \max_i IO_{op,i}
 
@@ -3693,7 +3693,7 @@ the product of I/O Efficiency and **I/O Load Balance**:
 
 .. math::
 
-   IO\_CP\_Eff = IO\_Eff \times IO\_LB,
+   Global\_IO\_Eff = IO\_Eff \times IO\_LB,
    \qquad
    IO\_LB = \frac{U_{avg} + IO_{avg}}{U_{avg} + IO_{cp}}
 

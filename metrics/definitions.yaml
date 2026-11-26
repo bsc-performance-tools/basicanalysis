@@ -1386,8 +1386,8 @@ metrics:
       - basicanalysis_general_metrics
   
   io_cp_eff:
-    name: I/O Critical-Path Efficiency
-    short_name: I/O CP Eff
+    name: Global I/O Efficiency
+    short_name: Global I/O Eff
     family: io
     analysis_level: io
     metric_type: efficiency
@@ -1400,11 +1400,11 @@ metrics:
 
     formula:
       text: >
-        IO_CP_Eff = U_avg / (U_avg + IO_cp) = IO_Eff x IO_LB,
+        Global_IO_Eff = U_avg / (U_avg + IO_cp) = IO_Eff x IO_LB,
         IO_cp = sum over the kinds of call of max over units
 
       latex: >
-        IO\_CP\_Eff = \frac{U_{avg}}{U_{avg} + IO_{cp}}
+        Global\_IO\_Eff = \frac{U_{avg}}{U_{avg} + IO_{cp}}
         = IO\_Eff \times IO\_LB,
         \quad IO_{cp} = \sum_{op} \max_i IO_{op,i}
 

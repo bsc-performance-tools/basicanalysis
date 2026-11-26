@@ -367,7 +367,7 @@ class PrintTests(unittest.TestCase):
             print_io_tables(other_metrics, ['t1'], ['2[1]'], 10)
 
         text = output.getvalue()
-        self.assertIn('I/O Critical-Path Efficiency (%)', text)
+        self.assertIn('Global I/O Efficiency (%)', text)
         self.assertIn('   -- Data Access Efficiency (%)', text)
         self.assertIn('-- I/O Load Balance (%)', text)
         # Only the efficiencies: the rest is in the report and the CSV files.
@@ -528,8 +528,8 @@ class MetricLabelTests(unittest.TestCase):
     def test_inner_hyphens_are_kept(self):
         from interactiveplots import _clean_metric_label
 
-        self.assertEqual(_clean_metric_label("-- I/O Critical-Path Efficiency"),
-                         "I/O Critical-Path Efficiency")
+        self.assertEqual(_clean_metric_label("-- Host-to-Device Time"),
+                         "Host-to-Device Time")
         self.assertEqual(_clean_metric_label("   == Device Load balance"),
                          "Device Load balance")
 
