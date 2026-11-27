@@ -2558,85 +2558,6 @@ def _build_device_hwc_indicator_table_html(device_hwc_factors, trace_list,
     return "\n".join(lines)
 
 
-def _build_host_calls_plot_html(factors, metric_keys, metric_info, trace_list,
-                                trace_labels, x_axis_title=""):
-    """Grouped bar plot of the Host time split: one group of bars per part
-    of the Host time (x axis), one bar per trace, in trace order.
-
-    Parts that are 0 in every trace are not shown. Returns "" when no trace
-    has the split.
-    """
-
-    series = []
-    for trace, label in zip(trace_list, trace_labels):
-        values = [_clean_value(_read_metric(factors, key, trace))
-                  for key in metric_keys]
-        if any(value is not None for value in values):
-            series.append((label, values))
-    if not series:
-        return ""
-
-    shown = [
-        index for index, _key in enumerate(metric_keys)
-        if any(values[index] for _label, values in series)
-    ]
-    categories = [
-        _clean_metric_label(metric_info.get(metric_keys[i], {}).get(
-            "label", metric_keys[i]))
-        for i in shown
-    ]
-
-    fig = go.Figure()
-    for label, values in series:
-        y_values = [values[i] for i in shown]
-        fig.add_trace(go.Bar(
-            x=categories,
-            y=y_values,
-            name=label,
-            text=[("{:.1f}%".format(v) if v is not None else "")
-                  for v in y_values],
-            textposition="outside",
-            cliponaxis=False,
-            hovertemplate=(
-                "<b>%{x}</b><br>" + html.escape(label)
-                + ": %{y:.2f}% of the Host time<extra></extra>"
-            ),
-        ))
-
-    fig.update_layout(
-        barmode="group",
-        bargap=0.25,
-        bargroupgap=0.05,
-        height=380,
-        autosize=True,
-        margin=dict(l=65, r=30, t=55, b=70),
-        legend=dict(orientation="h", yanchor="bottom", y=1.04,
-                    xanchor="right", x=1.0,
-                    title=dict(text=x_axis_title + "  ") if x_axis_title else None),
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        uniformtext=dict(minsize=9, mode="hide"),
-    )
-    fig.update_xaxes(type="category", showgrid=False, tickangle=0)
-    fig.update_yaxes(title="% of the Host time", range=[0, 110],
-                     showgrid=True, gridcolor="#e3e7ee", zeroline=True,
-                     zerolinecolor="#8f8f8f")
-
-    plot_html = fig.to_html(
-        full_html=False,
-        include_plotlyjs=False,
-        config={"responsive": True, "displaylogo": False},
-    )
-
-    return """
-    <div class="scaling-trend-card gpu-assessment-plot">
-        <div class="scaling-factor-trend-plot">
-            {plot_html}
-        </div>
-    </div>
-    """.format(plot_html=plot_html)
-
-
 def _capitalized(text):
     return text[:1].upper() + text[1:]
 
@@ -2693,12 +2614,11 @@ def _build_not_analyzed_threads_html(not_analyzed, trace_list, trace_labels):
 
 def _build_indicator_card_html(factors, metric_keys, metric_info, trace_list,
                                trace_labels, section_id, header, intro,
-                               export_name, plot_html=""):
+                               export_name):
     """Card with a table of indicators (no efficiency colours).
 
     Only the metrics with a value in some trace are shown. The values open
-    the Metric Details of the section. With a plot, the plot is shown and
-    the table is collapsed below it. Returns "" when no metric has a value.
+    the Metric Details of the section. Returns "" when no metric has a value.
     """
 
     def available(raw_value):
@@ -2716,12 +2636,6 @@ def _build_indicator_card_html(factors, metric_keys, metric_info, trace_list,
         "<h3 class='gpu-assessment-heading'>{}</h3>".format(html.escape(header)),
         "<p class='trace-header-note'>{}</p>".format(intro),
     ]
-    if plot_html:
-        lines += [
-            plot_html,
-            "<details class='gpu-assessment-values'>",
-            "<summary>Values (click a value for its details)</summary>",
-        ]
     lines += [
         "<div class='metric-table-card gpu-assessment-card' "
         "data-export-name='{}'>".format(html.escape(export_name, quote=True)),
@@ -2769,8 +2683,6 @@ def _build_indicator_card_html(factors, metric_keys, metric_info, trace_list,
         lines.append("</tr>")
 
     lines.append("</tbody></table></div></div>")
-    if plot_html:
-        lines.append("</details>")
     return "\n".join(lines)
 
 
@@ -5433,13 +5345,6 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
             "that the devices wait for the host to launch the next kernels."
         ),
         export_name="execution-domains-host-calls",
-        plot_html=_build_host_calls_plot_html(
-            host_calls_factors,
-            HOST_CALLS_ORDER,
-            GPU_ASSESSMENT_METRIC_INFO,
-            trace_list,
-            trace_labels,
-        ),
     )
     not_analyzed_html = _build_not_analyzed_threads_html(
         metrics_result.get("host_threads_not_analyzed"),
@@ -5569,15 +5474,6 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
             white-space: normal;
             text-align: left;
             min-width: 280px;
-        }}
-        .gpu-assessment-plot {{
-            margin-bottom: 8px;
-        }}
-        .gpu-assessment-values > summary {{
-            cursor: pointer;
-            font-size: 0.85rem;
-            color: #245887;
-            margin: 4px 0 8px;
         }}
         </style>
         <script>

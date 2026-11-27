@@ -3172,10 +3172,8 @@ the CUDA call event in the ``.pcf``):
    * - Other
      - the other CUDA calls (events, streams, kernel attributes...)
 
-The six parts add up to 100%. In the report, the split is a grouped bar
-plot, with one group of bars per part (parts that are 0 in every trace are
-not shown) and one bar per trace, and the values in a table below it. The
-time outside CUDA calls is
+The six parts add up to 100%. In the report, the split is a table with one
+row per part and one column per trace. The time outside CUDA calls is
 :math:`UsefulHost_h` of the Host metrics. With a low Device Orchestration
 Efficiency, a large framework share means that the devices wait for the host
 to launch the next kernels (for example, 87.5% in the framework and 11.3% in

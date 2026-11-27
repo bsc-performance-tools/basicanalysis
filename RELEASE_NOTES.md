@@ -49,9 +49,8 @@
   memory, CUDA graph, and other CUDA calls, grouped by the call names of the
   `.pcf`, with a new Paraver configuration
   (`nsys2prv/cuda_calls_by_name_host.cfg`). Shown under the Device and Host
-  tables of the Heterogeneous Model view: Device work as a table, the Host
-  time split as a grouped bar plot (one group per part, one bar per trace)
-  with the values in a table below it (with Metric Details), in the standard output, and in the new `device_work_metrics.csv`
+  tables of the Heterogeneous Model view as two tables (with Metric
+  Details), in the standard output, and in the new `device_work_metrics.csv`
   and `host_cuda_calls.csv`.
 - Adjustable efficiency thresholds. `--thresholds CRITICAL,ATTENTION`
   (default 60,85) sets the thresholds of every efficiency metric: the colors
