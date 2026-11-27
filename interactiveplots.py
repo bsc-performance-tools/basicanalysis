@@ -5519,9 +5519,9 @@ def _build_execution_domains_section(host_metric_keys, device_metric_keys, host_
             {host_table_html}
             </div>
 
-            {not_analyzed_html}
-
             {host_calls_html}
+
+            {not_analyzed_html}
 
         </section>
 

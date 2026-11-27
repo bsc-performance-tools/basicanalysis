@@ -2371,7 +2371,7 @@ BasicAnalysis classifies the threads of the trace from the ``.row`` file:
   not in the Host metrics or in the Host time split. They are listed, with
   their time in CUDA calls and the reason, in the standard output and in the
   *Host threads not analyzed* note of the Heterogeneous Model view, below
-  the Host table. Threads that never call CUDA are not listed, and the
+  the Host time split. Threads that never call CUDA are not listed, and the
   threads with less than 1 % of the runtime each in CUDA calls (helper
   threads that only initialize or query the GPU) are counted in one
   sentence, with their total time in CUDA calls, instead of one line each.
