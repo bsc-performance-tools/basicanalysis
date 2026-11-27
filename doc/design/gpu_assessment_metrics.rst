@@ -1,9 +1,11 @@
 GPU Assessment Metrics from the vLLM POP Assessment
 ===================================================
 
-:Status: Proposal, for review by the team
-:Date: 2026-11-19
-:Branch: ``feature/gpu-assessment-metrics`` (to create from ``devel``)
+:Status: Part of step 1 and the Host time split of step 4 implemented,
+         sent to Jesús for validation (see `State on 2026-11-27`_); the
+         rest is a proposal, for review by the team
+:Date: 2026-11-19 (state updated 2026-11-27)
+:Branch: ``feature/gpu-assessment-metrics``
 :Source: Jesús Labarta, *POP3_AR_078 vLLM efficiency study*
          (``Multiverse_assessment.v6``, 74 slides, nsys2prv traces of
          PyTorch and vLLM, three Llama models, batch sizes 1 to 512, one
@@ -15,6 +17,76 @@ This document compares the metrics that Jesús used in his assessment of
 vLLM with the metrics of BasicAnalysis, and proposes, in order, what to add
 so that BasicAnalysis produces his tables and the indicators he used to
 explain them.
+
+
+State on 2026-11-27
+-------------------
+
+Implemented on ``feature/gpu-assessment-metrics`` (377f906, with
+``devel`` 62fb313 merged in), not yet in ``devel``. Sent to Jesús as a
+package (code, results of his vLLM Width eager b1 and b256 traces cut to
+``chop1`` with ``--workload 1,256``, and a LEEME in Spanish with eight
+questions), without ``feature/device-scalability`` (step 2 goes in a
+second package). The definitions are in the User Guide, section *Device
+Work and Host Time Split* of ``06_metrics.rst``.
+
+Done
+~~~~
+
+* **Device work** (from step 1), a table under the Device table of the
+  Heterogeneous Model view, in the standard output and in
+  ``device_work_metrics.csv``: kernel time :math:`G_c`, Device Computation
+  Scalability not scaled :math:`G_r / G_c`, and the scalability of the
+  Tensor Core work and of the DRAM data read and written,
+  :math:`C_X = \frac{I_{X,r}}{I_{X,c}} \cdot \frac{w_c}{w_r}`. They are
+  indicators, not factors of the model.
+* **Host time split** (from step 4), nsys2prv only: time of the Host
+  units outside CUDA calls (framework) and in kernel launch,
+  synchronization, memory, CUDA graph and other CUDA calls, in % of the
+  Host time, grouped by the call names of the ``.pcf``. A table under the
+  Host table (one row per part, one column per trace), in the standard
+  output and in ``host_cuda_calls.csv``, with the cfg
+  ``cfgs/nsys2prv/cuda_calls_by_name_host.cfg``. On 2026-11-27 the grouped
+  bar plot above the table was removed so that the reader focuses on the
+  definitions; other plots can be added later.
+* Also on the branch: a Useful Duration timeline for nsys2prv traces in
+  *Validate in Paraver*, and the list of host threads with CUDA calls that
+  are not Host units (with the reason), in the standard output and in the
+  report.
+
+Values on his traces (b1, b256): kernel time 6.667 s and 56.602 s;
+Device Computation Scalability not scaled 100 % and 11.78 %; Tensor Core,
+DRAM read and DRAM write work scalability 207.21 %, 3113.27 % and
+645.09 % for b256; framework 87.50 % and 33.50 %, launch 11.28 % and
+2.85 %, synchronization 0.18 % and 57.22 %. His slide 45 gives 86.95 %
+framework and 12.05 % launch for b1, on a different region of the trace.
+
+Changes from the proposal
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* The scaled counts are given in scalability form (100 % = the work grows
+  as the workload), not as his ratio :math:`I_{X,c} / I_{X,r}`; one is the
+  workload ratio divided by the other. Our ratios are a bit larger than in
+  his deck (123.5×, 8.22× and 39.7× against about 115×, 7.9× and 32×): the
+  region or the integral may differ. The first question of the LEEME asks
+  him which form he prefers and how he computed his values.
+* The indicators are in their own tables (Device work, Host time split),
+  not rows of the Device table or a "Checks" table.
+* Not done from step 1: the **throughput speedup** and the **scaled
+  averages** (the averages wait for open question 1).
+* The Host time split was done before the rest of step 4, because it only
+  needs the CUDA calls already read for the Host metrics.
+
+Next
+~~~~
+
+* Wait for his answers (the LEEME repeats the open questions below and
+  adds the one on the scalability form) and adjust the definitions.
+* Second package: step 2, after merging ``devel`` into
+  ``feature/device-scalability`` and matching the kernels across traces by
+  name (the values of the kernel events differ per nsys2prv trace).
+* Then steps 3 to 5 and the Paraver views, in the order of the proposal,
+  once the team approves the branch for ``devel``.
 
 
 Context
