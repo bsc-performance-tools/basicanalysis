@@ -371,6 +371,17 @@
 
 ### Fixes
 
+- **GPU hardware counters of nsys2prv traces with other metric sets were not
+  found**, and the GPU Hardware Counters view was empty. The lookup only knew
+  the counter names with their unit (`GR Active [Throughput %]`,
+  `GPC Clock Frequency [MHz]`) and `SMs Active`; other metric sets write
+  `GR Active`, `GPC Clock Frequency` and `SM Active`, with other codes (for
+  example the FOA ring traces: GR Active 9411, DRAM Read 9419). Each counter
+  is now found by its name with or without a unit in brackets; the whole name
+  must match, so similar counters (`SYS Clock Frequency`) are not taken.
+- The warning shown when the GPU hardware counters cannot be computed now
+  gives the reason: counters missing from the `.pcf`, or a trace whose `.pcf`
+  and `.row` declare the counters but that has no sample of them.
 - **Running BasicAnalysis from its own folder crashed at the end** with
   `shutil.SameFileError` while copying `cfgs-report/useful_duration.cfg`, and
   no report was written; the outputs were also mixed with the code.

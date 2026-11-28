@@ -546,7 +546,12 @@ now ``CUDA kernel execution``). BasicAnalysis therefore looks up each event
 it needs in the ``.pcf`` file of each trace: first by its known labels, then
 by a label pattern (for example ``HIP kernel``), and finally by its usual
 code, when only the label changed. The hardware counters are only looked up
-by their label, because their codes depend on the sampled metric set. The
+by their name, never by code, because their codes depend on the sampled
+metric set. Their names also depend on the metric set: some sets add the unit
+(``GR Active [Throughput %]``) and others do not (``GR Active``), and some
+write ``SMs Active`` and others ``SM Active``; both forms are accepted. When
+the ``.pcf`` declares the counters but the trace has no sample of them,
+BasicAnalysis says so in a warning. The
 configurations are then rewritten for that trace with the codes found and
 without labels. The standard output lists the code found for each event and
 how it was found:

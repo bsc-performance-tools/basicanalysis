@@ -19,8 +19,9 @@ An event is found, in this order:
   4. by its reference code, when the trace has it and its label is not the
      label of another known event (only the label changed).
 
-The hardware counters are only found by their user map entry or their
-label: their codes depend on the metric set.
+The hardware counters are only found by their user map entry, their label
+or their label pattern (the name with or without a unit in brackets), never by
+code: their codes depend on the metric set.
 
 Event map file: one "name = code" or "name = label" line per event, e.g.
 
@@ -64,27 +65,40 @@ FIXED_EVENTS = OrderedDict([
 ])
 
 # GPU hardware counters (Nsight Systems metric names, via nsys2prv).
+# The names depend on the metric set of the GPU: some sets add the unit to the
+# name ("GR Active [Throughput %]", "GPC Clock Frequency [MHz]") and some do
+# not ("GR Active", "GPC Clock Frequency"); some write "SMs Active" and others
+# "SM Active". The pattern of each counter accepts the name with or without a
+# unit in brackets. It is anchored to the whole label, so that other counters
+# with similar names (e.g. "SYS Clock Frequency") are not taken.
+_UNIT = r'(\s*\[[^\]]*\])?$'
+
+
+def _hwc(code, label, name_regex, description):
+    return EventSpec(code, (label,), r'^' + name_regex + _UNIT, description)
+
+
 HWC_EVENTS = OrderedDict([
-    ('gpc_clock', EventSpec(9400, ('GPC Clock Frequency [MHz]',), None,
-                            'GPC clock')),
-    ('gr_active', EventSpec(9402, ('GR Active [Throughput %]',), None,
-                            'GR Active')),
-    ('sms_active', EventSpec(9403, ('SMs Active [Throughput %]',), None,
-                             'SMs Active')),
-    ('sm_issue', EventSpec(9404, ('SM Issue [Throughput %]',), None,
-                           'SM Issue')),
-    ('tensor_active', EventSpec(9405, ('Tensor Active [Throughput %]',), None,
-                                'Tensor Active')),
-    ('warps_in_flight', EventSpec(
-        9412, ('Compute Warps in Flight [Throughput %]',), None,
-        'Compute Warps in Flight')),
-    ('unallocated_warps', EventSpec(
-        9415, ('Unallocated Warps in Active SMs [Throughput %]',), None,
-        'Unallocated Warps in Active SMs')),
-    ('dram_read', EventSpec(9418, ('DRAM Read Bandwidth [Throughput %]',), None,
-                            'DRAM Read Bandwidth')),
-    ('dram_write', EventSpec(9419, ('DRAM Write Bandwidth [Throughput %]',), None,
-                             'DRAM Write Bandwidth')),
+    ('gpc_clock', _hwc(9400, 'GPC Clock Frequency [MHz]',
+                       r'gpc\s+clock\s+frequency', 'GPC clock')),
+    ('gr_active', _hwc(9402, 'GR Active [Throughput %]',
+                       r'gr\s+active', 'GR Active')),
+    ('sms_active', _hwc(9403, 'SMs Active [Throughput %]',
+                        r'sms?\s+active', 'SMs Active')),
+    ('sm_issue', _hwc(9404, 'SM Issue [Throughput %]',
+                      r'sm\s+issue', 'SM Issue')),
+    ('tensor_active', _hwc(9405, 'Tensor Active [Throughput %]',
+                           r'tensor\s+active', 'Tensor Active')),
+    ('warps_in_flight', _hwc(9412, 'Compute Warps in Flight [Throughput %]',
+                             r'compute\s+warps\s+in\s+flight',
+                             'Compute Warps in Flight')),
+    ('unallocated_warps', _hwc(9415, 'Unallocated Warps in Active SMs [Throughput %]',
+                               r'unallocated\s+warps\s+in\s+active\s+sms?',
+                               'Unallocated Warps in Active SMs')),
+    ('dram_read', _hwc(9418, 'DRAM Read Bandwidth [Throughput %]',
+                       r'dram\s+read\s+bandwidth', 'DRAM Read Bandwidth')),
+    ('dram_write', _hwc(9419, 'DRAM Write Bandwidth [Throughput %]',
+                        r'dram\s+write\s+bandwidth', 'DRAM Write Bandwidth')),
 ])
 
 ALL_EVENTS = OrderedDict(list(FIXED_EVENTS.items()) + list(HWC_EVENTS.items()))

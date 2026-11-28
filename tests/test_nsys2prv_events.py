@@ -95,6 +95,44 @@ class ResolveEventsTests(_PcfTestCase):
         pcf = self.write('t.pcf', pcf_text([(9402, 'NVLink RX [Throughput %]')]))
         self.assertIsNone(ev.resolve_events(pcf)['gr_active'].code)
 
+    def test_counters_without_unit_in_the_label(self):
+        # Metric set of Jesus's ring traces (FOA): names without the unit,
+        # "SM Active" instead of "SMs Active", other codes.
+        pcf = self.write('t.pcf', pcf_text([
+            (9402, 'NVLink TX Responses User Data'),
+            (9409, 'GPC Clock Frequency'),
+            (9410, 'SYS Clock Frequency'),
+            (9411, 'GR Active'),
+            (9412, 'SM Active'),
+            (9413, 'SM Issue'),
+            (9414, 'Tensor Active'),
+            (9417, 'Compute Warps in Flight'),
+            (9418, 'Unallocated Warps in Active SMs'),
+            (9419, 'DRAM Read Bandwidth'),
+            (9420, 'DRAM Write Bandwidth'),
+        ]))
+        found = ev.resolve_events(pcf)
+        expected = {'gpc_clock': 9409, 'gr_active': 9411, 'sms_active': 9412,
+                    'sm_issue': 9413, 'tensor_active': 9414,
+                    'warps_in_flight': 9417, 'unallocated_warps': 9418,
+                    'dram_read': 9419, 'dram_write': 9420}
+        for name, code in expected.items():
+            self.assertEqual(found[name].code, code, name)
+            self.assertEqual(found[name].how, 'label pattern', name)
+
+    def test_counter_patterns_take_only_the_whole_name(self):
+        pcf = self.write('t.pcf', pcf_text([
+            (9410, 'SYS Clock Frequency'),
+            (9420, 'GR Active Cycles'),
+            (9430, 'DRAM Read Bandwidth Peak'),
+            (9440, 'Tensor Active [%]'),
+        ]))
+        found = ev.resolve_events(pcf)
+        self.assertIsNone(found['gpc_clock'].code)
+        self.assertIsNone(found['gr_active'].code)
+        self.assertIsNone(found['dram_read'].code)
+        self.assertEqual(found['tensor_active'].code, 9440)
+
     def test_new_code_and_new_label_is_not_found(self):
         pcf = self.write('t.pcf', pcf_text([(63000099, 'GPU kernel exec')]))
         self.assertEqual(ev.resolve_events(pcf)['kernel'].how, 'not found')

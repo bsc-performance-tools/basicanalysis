@@ -1083,11 +1083,26 @@ def process_one_nsys2prv_trace(trace, trace_process_count, trace_task_per_node_v
     elif threads['metrics']:
         missing_hwc = sorted(name for name in nsys2prvevents.HWC_EVENTS
                              if events['resolution'][name].code is None)
+        # paramedir writes no output file when none of the events of a cfg
+        # is in the .prv: the .pcf and .row declare the counters, but the
+        # trace has no sample of them (e.g. a trace recorded without
+        # --gpu-metrics-devices, with the .pcf of another trace).
+        no_samples = sorted(key for key in HWC_KEYS
+                            if not os.path.exists(hwc_stats.get('hwc_' + key, '')))
+        if missing_hwc:
+            reason = (': counters not found in the .pcf: ' + ', '.join(missing_hwc)
+                      + ' (give their codes with --nsys2prv-events)')
+        elif no_samples and len(no_samples) == len(HWC_KEYS):
+            reason = (': the .pcf and .row declare them, but the trace has no '
+                      'sample of any counter (was it recorded with the GPU '
+                      'metrics of Nsight Systems?)')
+        elif no_samples:
+            reason = (': the trace has no sample of: ' + ', '.join(no_samples))
+        else:
+            reason = (': the Metrics GPU threads do not have the same number of '
+                      'devices for every counter')
         print('==WARNING== The GPU hardware counters of the Metrics GPU threads '
-              'could not be computed{}.'.format(
-                  ': counters not found in the .pcf: ' + ', '.join(missing_hwc)
-                  + ' (give their codes with --nsys2prv-events)'
-                  if missing_hwc else ''))
+              'could not be computed{}.'.format(reason))
 
     trace_raw_data['useful_device'] = gpu_agg['useful_device_total']
     trace_raw_data['useful_device_max'] = gpu_agg['useful_device_max']
